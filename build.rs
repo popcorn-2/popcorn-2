@@ -24,6 +24,7 @@ fn nasm(out_dir: &str) {
 		"src/arch/amd64/asm/bootstrap.asm",
 		"src/arch/amd64/asm/header.asm",
 		"src/arch/amd64/asm/initial_mem_map.asm",
+		"src/arch/amd64/asm/long_mode.asm",
 		"src/arch/amd64/asm/multiboot_info.asm",
 		"src/arch/amd64/asm/parse_psf.asm",
 		"src/arch/amd64/asm/psf_copychar.asm",

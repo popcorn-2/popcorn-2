@@ -70,7 +70,7 @@ global _start
 extern _32_puts
 extern _32_utoa
 extern _32_print_cpu_info
-; extern long_mode_start
+extern long_mode_start
 
 extern read_multiboot_info
 
@@ -355,7 +355,7 @@ _start:
 	push eax
 	call _32_puts
 	add esp, 4 ; clear args
-	; jmp 0x8:long_mode_start - KERNEL_OFFSET
+	jmp 0x8:long_mode_start - KERNEL_OFFSET
 error:
 loop: hlt
 	jmp loop
