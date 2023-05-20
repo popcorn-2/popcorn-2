@@ -58,3 +58,5 @@ long_mode_start:
 	xor rbp, rbp ; null base pointer
 	jmp kmain
 	ud2
+puts:
+    ret
