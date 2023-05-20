@@ -1,6 +1,6 @@
 #![feature(type_ascription)]
 
-use std::process::{Command, ExitStatus};
+use std::process::Command;
 use std::env;
 use std::path::Path;
 
