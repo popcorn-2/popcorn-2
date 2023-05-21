@@ -1,6 +1,6 @@
 use core::fmt::{self, Write};
 use bitflags::{bitflags, Flags};
-use crate::arch::{Port, PortBacking};
+use crate::arch::Port;
 use crate::sync::late_init::LateInit;
 use crate::sync::spinlock::Spinlock;
 
@@ -29,8 +29,6 @@ bitflags! {
 	}
 }
 
-impl PortBacking for IrqEnableFlags { type Width = u8; }
-impl PortBacking for LineStatusFlags { type Width = u8; }
 impl From<u8> for IrqEnableFlags {
 	fn from(value: u8) -> Self {
 		Self::from_bits_retain(value)
@@ -54,11 +52,11 @@ impl Into<u8> for LineStatusFlags {
 
 pub struct SerialPort {
 	data: Port<u8>,
-	irq_enable: Port<IrqEnableFlags>,
+	irq_enable: Port<u8>,
 	fifo_control: Port<u8>,
 	line_control: Port<u8>,
 	modem_control: Port<u8>,
-	line_status: Port<LineStatusFlags>,
+	line_status: Port<u8>,
 	_modem_status: Port<u8>,
 	_scratch: Port<u8>
 }
@@ -88,10 +86,10 @@ impl SerialPort {
 
 	fn init(&mut self) {
 		unsafe {
-			self.irq_enable.write(IrqEnableFlags::empty());   // Disable interrupts
+			self.irq_enable.write(IrqEnableFlags::empty().into());   // Disable interrupts
 			self.line_control.write(0x80);   // Set DLAB bit (maps first two ports to baud divisor)
 			self.data.write(3);              // Set divisor to 3 (38400 baud)
-			self.irq_enable.write(IrqEnableFlags::empty());
+			self.irq_enable.write(IrqEnableFlags::empty().into());
 			self.line_control.write(0x03);   // 8 bits, no parity, one stop bit
 			self.fifo_control.write(0xC7);   // Enable FIFO, clear them, with 14-byte threshold
 		}
@@ -119,7 +117,7 @@ impl SerialPort {
 	/// Blocks until transmit buffer is empty
 	pub fn wait_transmit_empty(&self) {
 		unsafe {
-			while !self.line_status.read().contains(LineStatusFlags::DATA_WRITE_READY) {}
+			while !LineStatusFlags::from(self.line_status.read()).contains(LineStatusFlags::DATA_WRITE_READY) {}
 		}
 	}
 }
