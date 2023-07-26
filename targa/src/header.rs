@@ -52,6 +52,7 @@ impl Header {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug)]
 #[non_exhaustive]
 #[repr(u8)]

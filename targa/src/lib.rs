@@ -2,7 +2,7 @@
 
 mod pixel;
 mod header;
-mod errors;
+pub mod errors;
 pub use pixel::*;
 
 #[cfg(feature = "alloc")]
@@ -13,6 +13,9 @@ use alloc::borrow;
 use core::mem;
 use crate::errors::ParsingError;
 
+/// A clone-on-write Targa image
+///
+/// If the `alloc` feature is disabled, only immutable access to the image will be allowed
 #[derive(Debug)]
 pub struct Image<'a> {
     #[cfg(feature = "alloc")]
@@ -26,6 +29,14 @@ pub struct Image<'a> {
 }
 
 impl<'a> Image<'a> {
+    /// Retreives a pixel from the image
+    ///
+    /// If the pixel is out of bounds of the image, returns [`Option::None`](None)
+    ///
+    /// # Todo
+    ///
+    /// Currently does not support Rgb555 format and will panic if attempted
+    #[must_use]
     pub fn get_pixel(&self, mut x: usize, mut y: usize) -> Option<Pixel> {
         if x >= self.width || y >= self.height { return None; }
 
@@ -66,6 +77,9 @@ impl<'a, 'b> IntoIterator for &'a Image<'b> {
     }
 }
 
+/// An iterator over the pixels of an image
+///
+/// Returns an object of `((usize, usize), Pixel)` for each pixel, which gives the x and y coordinates as well as the pixel value
 pub struct PixelIterator<'a, 'b> {
     position: (usize, usize),
     image: &'a Image<'b>
@@ -109,8 +123,7 @@ pub enum PixelFormat {
 impl PixelFormat {
     fn bytes_per_pixel(&self) -> usize {
         match self {
-            PixelFormat::Rgb555 => 2,
-            PixelFormat::Rgba5551 => 2,
+            PixelFormat::Rgb555 | PixelFormat::Rgba5551 => 2,
             PixelFormat::Rgb888 => 3,
             PixelFormat::Rgba8888 => 4,
         }
@@ -118,12 +131,19 @@ impl PixelFormat {
 }
 
 impl<'a> Image<'a> {
+    /// Create a targa image object from a memory buffer
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ParsingError::NoHeader`] if the buffer is too short to contain a valid header.
+    /// Returns a [`ParsingError::NotEnoughData`] if the buffer is too short to contain enough image data for the resolution specified in the header.
+    /// Returns a [`ParsingError::Unsupported`] if the image uses an unsupported color encoding.
     pub fn try_new(data_raw: &'a [u8]) -> Result<Self, ParsingError> {
         if data_raw.len() < mem::size_of::<header::Header>() { return Err(ParsingError::NoHeader); }
 
         // SAFETY: All fields are integers and data is long enough
         // Alignment?
-        let data = unsafe { &*(data_raw.as_ptr() as *const header::Header) };
+        let data = unsafe { &*(data_raw.as_ptr().cast::<header::Header>()) };
         if data.has_color_map() { return Err(ParsingError::Unsupported); }
 
         match data.image_format() {
