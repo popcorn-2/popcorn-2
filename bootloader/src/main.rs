@@ -375,6 +375,58 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             kernel_page_table.try_map_page(Page(addr), Frame(addr), page_table_allocator_fn)
         }).unwrap();
     }
+
+    debug!("Generating kernel memory map");
+    let kernel_mem_map = {
+        let descriptor_to_entry = |descriptor: &MemoryDescriptor| -> MemoryMapEntry {
+            use handoff::MemoryType::*;
+
+            let mut ty = match descriptor.ty {
+                MemoryType::CONVENTIONAL |
+                MemoryType::BOOT_SERVICES_CODE |
+                MemoryType::BOOT_SERVICES_DATA |
+                MemoryType::RUNTIME_SERVICES_CODE |
+                MemoryType::RUNTIME_SERVICES_DATA |
+                MemoryType::PERSISTENT_MEMORY => Free,
+                MemoryType::LOADER_CODE => BootloaderCode,
+                MemoryType::LOADER_DATA => BootloaderData,
+                memory_types::KERNEL_CODE => KernelCode,
+                memory_types::PAGE_TABLE => KernelPageTable,
+                memory_types::MODULE_CODE => ModuleCode,
+                MemoryType::ACPI_NON_VOLATILE => AcpiPreserve,
+                MemoryType::ACPI_RECLAIM => AcpiReclaim,
+                _ => Reserved
+            };
+
+            if (descriptor.phys_start..descriptor.phys_start + descriptor.page_count * 4096).contains(&stack_ptr) {
+                ty = KernelStack;
+            }
+
+            MemoryMapEntry {
+                coverage: Range(descriptor.phys_start, descriptor.phys_start + descriptor.page_count * 4096),
+                ty
+            }
+        };
+
+        memory_map.sort();
+        let mem_map_data = memory_map.entries().map(|entry| {
+            descriptor_to_entry(entry)
+        });
+        assert_lt!(mem_map_data.len(), kernel_mem_map.capacity());
+        let last_item = mem_map_data.reduce(|old_item, new_item| {
+            if old_item.ty == new_item.ty && old_item.coverage.1 == new_item.coverage.0 {
+                MemoryMapEntry {
+                    ty: old_item.ty,
+                    coverage: Range(old_item.coverage.0, new_item.coverage.1)
+                }
+            } else {
+                kernel_mem_map.push(old_item);
+                new_item
+            }
+        });
+        last_item.map(|item| kernel_mem_map.push(item));
+        kernel_mem_map
+    };
     loop {}
 }
 
