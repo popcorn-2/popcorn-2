@@ -1,8 +1,25 @@
+#![feature(ptr_metadata)]
+#![feature(try_blocks)]
+#![feature(let_chains)]
+#![feature(pointer_is_aligned)]
+#![feature(new_uninit)]
+#![feature(split_array)]
+#![feature(slice_ptr_len)]
+#![feature(slice_ptr_get)]
+#![feature(pointer_byte_offsets)]
+#![feature(inline_const)]
+#![feature(type_name_of_val)]
+#![feature(arbitrary_self_types)]
+#![feature(concat_bytes)]
+#![feature(adt_const_params)]
+#![feature(allocator_api)]
+#![feature(iter_collect_into)]
 #![no_main]
 #![no_std]
 
 extern crate alloc;
 
+mod framebuffer;
 mod config;
 mod logging;
 use uefi::prelude::*;
