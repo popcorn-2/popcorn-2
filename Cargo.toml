@@ -2,6 +2,7 @@
 members = [
 	"kernel",
 	"utils",
+	"psf",
 	"targa",
 	"paging-macros",
 	"kernel_exports",
