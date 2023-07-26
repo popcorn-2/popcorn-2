@@ -1,10 +1,10 @@
 use core::fmt::{self, Write};
 use bitflags::{bitflags, Flags};
+use kernel_exports::sync::Lock;
 use crate::arch::Port;
 use crate::sync::late_init::LateInit;
-use crate::sync::spinlock::Spinlock;
 
-pub static SERIAL0: Spinlock<LateInit<SerialPort>> = Spinlock::new(LateInit::new());
+pub static SERIAL0: Lock<LateInit<SerialPort>> = Lock::new(LateInit::new());
 
 pub fn init_serial0() -> Result<(), Error> {
 	SERIAL0.lock().init(unsafe { SerialPort::new(0x3f8) }? );

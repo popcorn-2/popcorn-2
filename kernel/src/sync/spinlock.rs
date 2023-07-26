@@ -1,36 +1,57 @@
+use core::arch::asm;
+use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 #[cfg(feature = "smp")] use core::sync::atomic::{AtomicBool, Ordering};
 
 pub struct Spinlock<T> {
 	#[cfg(feature = "smp")] locked: AtomicBool,
-	data: T,
+	data: UnsafeCell<T>,
 }
 
 impl<T> Spinlock<T> {
 	pub const fn new(data: T) -> Self<> {
 		Self {
 			#[cfg(feature = "smp")] locked: AtomicBool::new(false),
-			data
+			data: UnsafeCell::new(data)
 		}
 	}
 
 	pub fn lock(&self) -> SpinlockGuard<T> {
 		#[cfg(feature = "smp")] while let Err(_) = self.locked.compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Acquire) {}
 		// todo: irq enable/disable
+		let flags: u64;
+		unsafe {
+			asm!("
+				pushf
+				pop {}
+				cli
+			", out(reg) flags);
+		}
 		SpinlockGuard {
-			mutex: unsafe { &mut *{self as *const _ as *mut _} }
+			#[cfg(feature = "smp")] lock: &self.locked,
+			data: unsafe { &mut *self.data.get() },
+			flags
 		}
 	}
 }
 
+unsafe impl<T> Sync for Spinlock<T> {}
+
 pub struct SpinlockGuard<'a, T> {
-	mutex: &'a mut Spinlock<T>
+	#[cfg(feature = "smp")] lock: &'a AtomicBool,
+	data: &'a mut T,
+	flags: u64
 }
 
 impl<'a, T> Drop for SpinlockGuard<'a, T> {
 	fn drop(&mut self) {
-		#[cfg(feature = "smp")] self.mutex.locked.store(false, Ordering::Release);
-		// todo: irq enable/disable
+		#[cfg(feature = "smp")] self.lock.store(false, Ordering::Release);
+		unsafe {
+			asm!("
+				push {}
+				popf
+			", in(reg) self.flags);
+		}
 	}
 }
 
@@ -38,12 +59,12 @@ impl<'a, T> Deref for SpinlockGuard<'a, T> {
 	type Target = T;
 
 	fn deref(&self) -> &Self::Target {
-		&self.mutex.data
+		&self.data
 	}
 }
 
 impl<'a, T> DerefMut for SpinlockGuard<'a, T> {
 	fn deref_mut(&mut self) -> &mut Self::Target {
-		&mut self.mutex.data
+		&mut self.data
 	}
 }
