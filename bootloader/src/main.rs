@@ -427,7 +427,35 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         last_item.map(|item| kernel_mem_map.push(item));
         kernel_mem_map
     };
-    loop {}
+
+    let kernel_entry = kernel.entrypoint();
+    debug!("Handover to kernel with entrypoint at {:#x}", kernel_entry);
+
+    drop(gop);
+    drop(fs);
+    drop(uart);
+
+    let _ = system_table.exit_boot_services();
+    kernel_page_table.switch();
+
+    let handoff = handoff::Data {
+        framebuffer: framebuffer_info,
+        memory: handoff::Memory {
+            map: kernel_mem_map,
+            page_table_root: kernel_page_table.into()
+        },
+        modules: handoff::Modules {
+	        phys_allocator_start: unsafe { mem::transmute(testing_fn) }
+        },
+        log: handoff::Logging,
+        test: handoff::Testing {
+            module_func: unsafe { mem::transmute(testing_fn) }
+        }
+    };
+
+    type KernelStart = ffi_abi!(type fn(handoff::Data) -> !);
+    let kernel_entry: KernelStart = unsafe { mem::transmute(kernel_entry) };
+    kernel_entry(handoff);
 }
 
 #[panic_handler]
