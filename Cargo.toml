@@ -5,7 +5,7 @@ members = [
 	"utils",
 	"psf",
 	"targa",
-	"paging-macros",
+	"ranged_btree",
 	"kernel_exports",
 	"kernel_module_macros",
 	"elf",
