@@ -2,6 +2,25 @@ use core::arch::asm;
 use core::mem::offset_of;
 use kernel_exports::memory::{PhysicalAddress, VirtualAddress};
 use crate::tss::{Tss, TSS};
+
+#[used]
+static mut GDT: Gdt = {
+    let mut gdt = Gdt::new();
+    gdt.add_entry(EntryTy::KernelCode, Entry::new(Privilege::Ring0, true, true));
+    gdt.add_entry(EntryTy::KernelData, Entry::new(Privilege::Ring0, false, true));
+    gdt.add_entry(EntryTy::UserLongCode, Entry::new(Privilege::Ring3, true, true));
+    gdt.add_entry(EntryTy::UserData, Entry::new(Privilege::Ring3, false, true));
+    gdt
+};
+
+pub fn init_gdt() {
+    // safety: kernel will only cause this from a single core
+    unsafe {
+        GDT.add_tss(&TSS);
+        GDT.load();
+    }
+}
+
 //#[derive_const(Default)]
 #[repr(C, align(8))]
 pub struct Gdt {
