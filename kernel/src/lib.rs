@@ -1,3 +1,6 @@
+#![feature(custom_test_frameworks)]
+#![test_runner(tests::test_runner)]
+#![reexport_test_harness_main = "test_main"]
 #![feature(result_option_inspect)]
 #![feature(const_trait_impl)]
 #![feature(pointer_byte_offsets)]
@@ -70,3 +73,53 @@ mod arch {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use core::panic::PanicInfo;
+	use crate::{sprint, sprintln};
+
+	pub trait Testable {
+		fn run(&self);
+	}
+
+	impl<T> Testable for T where T: Fn() {
+		fn run(&self) {
+			sprint!("{}...\t", core::any::type_name::<T>());
+			self();
+			sprintln!("[ok]");
+		}
+	}
+
+	pub fn test_runner(tests: &[&dyn Testable]) -> ! {
+		sprintln!("Running {} tests", tests.len());
+		for test in tests {
+			test.run();
+		}
+
+		loop {}
+		//todo!("Exit qemu");
+	}
+
+	#[panic_handler]
+	fn panic_handler(info: &PanicInfo) -> ! {
+		sprintln!("[failed]");
+		sprintln!("Error: {info}");
+
+		loop {
+
+		}
+		//todo!("Exit qemu");
+	}
+
+	#[test_case]
+	fn _trivial_assertion() {
+		assert_eq!(1, 1);
+	}
+
+	#[test_case]
+	fn failing_test() {
+		assert_eq!(1, 2);
+	}
+}
+
