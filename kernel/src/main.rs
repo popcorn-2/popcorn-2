@@ -25,6 +25,7 @@ fn kmain(/*mut handoff_data: utils::handoff::Data*/) -> ! {
 #[cfg(not(test))]
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
+	let _ = writeln!(SERIAL0.lock(), "{info}");
 	loop {
 
 	}
