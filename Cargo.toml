@@ -1,6 +1,7 @@
 [workspace]
 members = [
 	"kernel",
+	"bootloader",
 	"utils",
 	"psf",
 	"targa",
