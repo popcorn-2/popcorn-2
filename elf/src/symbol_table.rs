@@ -1,5 +1,6 @@
 use core::ffi::CStr;
 use core::ptr::slice_from_raw_parts;
+use hashbrown::HashMap;
 use log::debug;
 use crate::dynamic_table::DynamicTableEntry;
 use crate::{ExecutableAddressRelocated, ExecutableAddressUnrelocated};
@@ -52,5 +53,102 @@ impl<'a> super::File<'a> {
 
 		Some(symbol_table)
 	}
+
+	pub fn exported_symbols(&self) -> SymbolMap<'_> {
+		let mut map = SymbolMap::new();
+
+		if let Some(symbol_table) = self.dynamic_symbol_table() {
+			let string_table = self.dynamic_string_table().unwrap();
+
+			for symbol in symbol_table {
+				if symbol.section_table_index != 0 && !symbol.info.is_local() {
+					let name = string_table.get_string(symbol.name.unwrap());
+					debug!("{name:?} : {symbol:?}");
+					// SAFETY: using correct base for this file
+					let symbol =
+							if symbol.info.is_weak() { ExportedSymbol::new_weak(unsafe { symbol.value.relocate(self.base) }, symbol.size) }
+							else { ExportedSymbol::new_strong(unsafe { symbol.value.relocate(self.base) }, symbol.size) };
+					map.insert(name, symbol);
+				}
+			}
+		}
+
+		map
+	}
 }
+
+#[derive(Debug, Clone)]
+pub struct SymbolMap<'a>(HashMap<&'a CStr, ExportedSymbol>);
+
+impl<'a> SymbolMap<'a> {
+	pub fn new() -> Self {
+		Self(HashMap::new())
+	}
+
+	pub fn get(&self, name: &CStr) -> Option<ExportedSymbol> {
+		self.0.get(name).copied()
+	}
+
+	fn insert(&mut self, name: &'a CStr, addr: ExportedSymbol) {
+		if addr.is_weak() {
+			// ignore result since either
+			// strong symbol already exists so don't need to overwrite
+			// or weak symbol already exists so take first definition
+			let _ = self.0.try_insert(name, addr);
+		} else {
+			// if inserting strong symbol
+			// either successfully insert so do nothing
+			// or weak symbol exists so overwrite it
+			// or strong symbol already exists so use first definition
+			if let Err(e) = self.0.try_insert(name, addr) {
+				if e.value.is_weak() { self.0.insert(name, addr); }
+			}
+		}
+	}
+}
+
+impl<'a> Default for SymbolMap<'a> {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct ExportedSymbol {
+	ty: ExportedSymbolTy,
+	pub value: ExecutableAddressRelocated,
+	pub size: u64
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum ExportedSymbolTy {
+	Strong,
+	Weak
+}
+
+impl ExportedSymbol {
+	pub fn new_strong(value: ExecutableAddressRelocated, size: u64) -> Self {
+		Self {
+			ty: ExportedSymbolTy::Strong,
+			value,
+			size
+		}
+	}
+
+	pub fn new_weak(value: ExecutableAddressRelocated, size: u64) -> Self {
+		Self {
+			ty: ExportedSymbolTy::Weak,
+			value,
+			size
+		}
+	}
+
+	pub fn is_strong(self) -> bool {
+		match self.ty {
+			ExportedSymbolTy::Strong => true,
+			ExportedSymbolTy::Weak => false
+		}
+	}
+
+	pub fn is_weak(self) -> bool { !self.is_strong() }
 }
