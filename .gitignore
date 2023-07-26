@@ -1,2 +1,5 @@
 /target
 /Cargo.lock
+esp/
+OVMF_*
+_*
