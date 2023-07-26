@@ -177,6 +177,11 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         // =========== test code using kernel from efi part ===========
 
+    let modules = config.kernel_config.modules.into_iter().map(CString16::try_from)
+            .map(|r| r.map(PathBuf::from))
+            .collect::<Result<Vec<_>, _>>()
+            .expect("Invalid module path");
+
     let mut kernel = fs.read(Path::new(cstr16!(r"\EFI\POPCORN\kernel.exec"))).unwrap();
     let kernel = elf::File::try_new(&mut kernel).unwrap();
 
@@ -211,6 +216,90 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
                              })
                              .unwrap();
           });
+
+	let kernel_symbols = kernel.exported_symbols();
+    debug!("{:x?}", kernel_symbols);
+
+    let mut testing_fn: u64 = 0;
+    for module in &modules {
+        let result: Result<(),ModuleLoadError> = try {
+            let base = kernel_last_page;
+            info!("Loading module from `{}` at base address of {:#x}", module, base);
+            let mut module = fs.read(module).map_err(|_| ModuleLoadError::FileNotFound)?;
+
+            let module = {
+                let mut module = elf::File::try_new(&mut module).map_err(|_| ModuleLoadError::InvalidElf)?;
+                module.relocate(base.try_into().unwrap());
+                module.link(&kernel_symbols).map_err(|e| ModuleLoadError::LinkingFailed(e.name().to_owned()))?;
+                module
+            };
+
+            module.segments().filter(|segment| segment.segment_type == SegmentType::LOAD)
+                .try_for_each(|segment| {
+                    let segment_vaddr = usize::try_from(segment.vaddr).unwrap();
+
+                    let page_count = (usize::try_from(segment.memory_size).unwrap() + PAGE_SIZE - 1) / PAGE_SIZE;
+                    let last_page = segment_vaddr + page_count * PAGE_SIZE;
+                    if last_page > kernel_last_page { kernel_last_page = last_page; }
+
+                    let Ok(allocation) = services.allocate_pages(AllocateType::AnyPages, memory_types::MODULE_CODE, page_count) else {
+                        return Err(ModuleLoadError::Oom);
+                    };
+
+                    unsafe {
+                        ptr::copy_nonoverlapping(module[segment.file_location()].as_ptr(), allocation as *mut _, segment.file_size.try_into().unwrap());
+                        ptr::write_bytes((allocation + segment.file_size) as *mut u8, 0, (segment.memory_size - segment.file_size).try_into().unwrap());
+                    }
+
+                    (0..page_count).map(|page| ((page * PAGE_SIZE) + segment_vaddr, (page * PAGE_SIZE) + usize::try_from(allocation).unwrap()))
+                        .try_for_each(|(virtual_addr, physical_addr)| {
+                            kernel_page_table.try_map_page(Page(virtual_addr.try_into().unwrap()), Frame(physical_addr.try_into().unwrap()), page_table_allocator_fn)
+                        })
+                        .map_err(|e| match e {
+                            MapError::AlreadyMapped => unreachable!(),
+                            MapError::AllocationError(_) => ModuleLoadError::Oom
+                        })?;
+
+                    Ok(())
+                })?;
+
+            let symtab = module.dynamic_symbol_table().unwrap();
+            let stringtab = module.dynamic_string_table().unwrap();
+
+            let module_exports = module.exported_symbols();
+            let mut author = "[UNKNOWN]";
+            let mut fqn = "[UNKNOWN]";
+            let mut name = Option::<&str>::None;
+
+            if let Some(allocator_entrypoint) = module_exports.get(cstr!(b"__popcorn_module_main_allocator")) {
+                testing_fn = allocator_entrypoint.value.get();
+            }
+            if let Some(symbol) = module_exports.get(cstr!(b"__popcorn_module_author")) {
+                let author_data = module.data_at_address(symbol.value).unwrap();
+                let author_data = unsafe { &*slice_from_raw_parts(author_data, symbol.size.try_into().unwrap()) };
+                author = core::str::from_utf8(author_data).map_err(|_| ModuleLoadError::InvalidAuthorMetadata)?;
+            }
+            if let Some(symbol) = module_exports.get(cstr!(b"__popcorn_module_modulename")) {
+                let name_data = module.data_at_address(symbol.value).unwrap();
+                let name_data = unsafe { &*slice_from_raw_parts(name_data, symbol.size.try_into().unwrap()) };
+                name = Some(core::str::from_utf8(name_data).map_err(|_| ModuleLoadError::InvalidNameMetadata)?);
+            }
+            if let Some(symbol) = module_exports.get(cstr!(b"__popcorn_module_modulefqn")) {
+                let fqn_data = module.data_at_address(symbol.value).unwrap();
+                let fqn_data = unsafe { &*slice_from_raw_parts(fqn_data, symbol.size.try_into().unwrap()) };
+                fqn = core::str::from_utf8(fqn_data).map_err(|_| ModuleLoadError::InvalidFqnMetadata)?;
+            }
+
+            match name {
+                Some(name) => info!("Loaded module `{name}` ({fqn}) by `{author}`"),
+                None => info!("Loaded module `{fqn}` by `{author}`")
+            }
+        };
+
+        if let Err(e) = result {
+            panic!("Failed to load module: {e}")
+        }
+    }
     loop {}
 }
 
@@ -248,4 +337,22 @@ mod memory_types {
     pub const MODULE_CODE: MemoryType = MemoryType::custom(0x8000_0001);
     pub const PAGE_TABLE: MemoryType = MemoryType::custom(0x8000_0002);
     pub const MEMORY_ALLOCATOR_DATA: MemoryType = MemoryType::custom(0x8000_0003);
+}
+
+#[derive(Display)]
+enum ModuleLoadError {
+    #[display(fmt = "Could not locate requested module")]
+    FileNotFound,
+    #[display(fmt = "Module file is corrupted")]
+    InvalidElf,
+    #[display(fmt = "Failed to resolve symbol {:?}", _0)]
+    LinkingFailed(CString),
+    #[display(fmt = "Could not allocate memory for module")]
+    Oom,
+    #[display(fmt = "Invalid data in `author` metadata")]
+    InvalidAuthorMetadata,
+    #[display(fmt = "Invalid data in `name` metadata")]
+    InvalidNameMetadata,
+    #[display(fmt = "Invalid data in `fqn` metadata")]
+    InvalidFqnMetadata,
 }
