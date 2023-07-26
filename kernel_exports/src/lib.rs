@@ -8,3 +8,4 @@ mod macros;
 mod bridge;
 
 pub mod memory;
+pub mod sync;
