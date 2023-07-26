@@ -25,6 +25,67 @@ pub struct Image<'a> {
     pub ordering: (PixelOrderVertical, PixelOrderHorizontal)
 }
 
+impl<'a> Image<'a> {
+    pub fn get_pixel(&self, mut x: usize, mut y: usize) -> Option<Pixel> {
+        if x >= self.width || y >= self.height { return None; }
+
+        match self.ordering.0 {
+            PixelOrderVertical::TopToBottom => {}
+            PixelOrderVertical::BottomToTop => y = self.height - y - 1
+        }
+        match self.ordering.1 {
+            PixelOrderHorizontal::LeftToRight => {}
+            PixelOrderHorizontal::RightToLeft => x = self.width - x - 1
+        }
+
+        let pixel_offset = y * self.width + x;
+        let byte_offset = pixel_offset * self.color_format.bytes_per_pixel();
+
+        // SAFETY: Bounds checked on entry to function
+        let raw_data = unsafe { self.pixel_data.get_unchecked(byte_offset..byte_offset+self.color_format.bytes_per_pixel()) };
+
+        let pixel = match self.color_format {
+            PixelFormat::Rgb555 => todo!("Rgb555 format currently not supported"),
+            PixelFormat::Rgba5551 => todo!("Rgb5551 format currently not supported"),
+            PixelFormat::Rgb888 => Pixel{ r: raw_data[2], g: raw_data[1], b: raw_data[0], a: 255 },
+            PixelFormat::Rgba8888 => Pixel{ r:raw_data[2], g: raw_data[1], b: raw_data[0], a: raw_data[3] },
+        };
+        Some(pixel)
+    }
+}
+
+impl<'a, 'b> IntoIterator for &'a Image<'b> {
+    type Item = ((usize, usize), Pixel);
+    type IntoIter = PixelIterator<'a, 'b>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        PixelIterator {
+            position: (0,0),
+            image: self
+        }
+    }
+}
+
+pub struct PixelIterator<'a, 'b> {
+    position: (usize, usize),
+    image: &'a Image<'b>
+}
+
+impl<'a, 'b> Iterator for PixelIterator<'a, 'b> {
+    type Item = ((usize, usize), Pixel);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.position.0 += 1;
+        if self.position.0 >= self.image.width {
+            self.position.1 += 1;
+            self.position.0 = 0;
+        }
+
+        if self.position.1 >= self.image.height { return None; }
+        Some((self.position, self.image.get_pixel(self.position.0, self.position.1)?))
+    }
+}
+
 #[derive(Debug)]
 pub enum PixelOrderVertical {
     TopToBottom,
