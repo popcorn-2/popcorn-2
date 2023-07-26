@@ -1,6 +1,9 @@
 [workspace]
 members = [
 	"kernel",
+	"paging-macros",
+	"kernel_exports",
+	"kernel_module_macros",
 ]
 
 [profile.release-with-debug]
