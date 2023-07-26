@@ -344,6 +344,37 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             color_format
         }
     };
+
+    // allocate before getting memory map from UEFI
+    let mut kernel_mem_map = {
+        let size = services.memory_map_size();
+        Vec::with_capacity(size.map_size / size.entry_size + 16)
+    };
+
+    let mut memory_map_buffer = {
+        let size = services.memory_map_size();
+        let size = size.map_size + size.entry_size * 16;
+        vec![0u8; size]
+    };
+    let mut memory_map = services.memory_map(
+        MemoryDescriptor::align_buf(&mut memory_map_buffer).unwrap()
+    ).unwrap();
+
+    let stack_ptr: u64;
+    unsafe { asm!("mov {}, rsp", out(reg) stack_ptr); }
+
+    for mem in memory_map.entries().filter(|mem|
+        mem.ty == MemoryType::LOADER_DATA ||
+        mem.ty == MemoryType::LOADER_CODE ||
+        (mem.phys_start..mem.phys_start + mem.page_count * 4096).contains(&stack_ptr)
+    ) {
+        debug!("{:x?} ({:#x} -> {:#x}) - {:?}", mem.ty, mem.phys_start, mem.phys_start + mem.page_count * 4096, mem.att);
+
+        // UEFI memory sections are always aligned by firmware
+        (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
+            kernel_page_table.try_map_page(Page(addr), Frame(addr), page_table_allocator_fn)
+        }).unwrap();
+    }
     loop {}
 }
 
