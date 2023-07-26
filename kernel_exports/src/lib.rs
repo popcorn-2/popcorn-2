@@ -6,3 +6,5 @@ pub use kernel_module_macros::*;
 
 mod macros;
 mod bridge;
+
+pub mod memory;
