@@ -279,3 +279,39 @@ pub fn try_parse(data: &[u8]) -> Result<&dyn PsfFont, ParseError> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use crate::ParseError::IncorrectMagic;
+    use crate::{Psf1, Psf2, PsfFont};
+
+    static PSF_DATA_2: &'static [u8] = include_bytes!("font.psf2");
+    static PSF_DATA_1: &'static [u8] = include_bytes!("font.psf1");
+
+    #[test]
+    fn parse_psf2_as_psf1() {
+        let result = Psf1::try_new(PSF_DATA_2);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), IncorrectMagic);
+    }
+
+    #[test]
+    fn parse_psf2() {
+        let result = Psf2::try_new(PSF_DATA_2);
+        result.unwrap();
+    }
+
+    #[test]
+    fn parse_psf1() {
+        let result = Psf1::try_new(PSF_DATA_1);
+        result.unwrap();
+    }
+
+    #[test]
+    fn print_char() {
+        let result = Psf2::try_new(PSF_DATA_2).unwrap();
+        let c = result.locate_char('A').unwrap();
+        println!("{c:#?}");
+        let c = result.locate_char('g').unwrap();
+        println!("{c:?}");
+    }
+}
