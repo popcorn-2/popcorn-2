@@ -69,6 +69,34 @@ pub struct AlignError;
 
 impl core::error::Error for AlignError {}
 
+pub unsafe trait PhysicalMemoryAllocator: Debug {
+	//fn new_from(allocator: &dyn PhysicalMemoryAllocator, coverage: Range<Frame>) -> Result<Self, ()> where Self: Sized;
+	fn allocate_contiguous(&self, page_count: usize) -> Result<Frame, AllocError>;
+	fn deallocate(&self, start: Frame, page_count: usize);
+	fn get_allocated_regions(&self) -> AllocatedRegionIter;
+	fn get_free_regions(&self) -> FreeRegionIter;
+}
+
+pub struct AllocatedRegionIter;
+
+impl Iterator for AllocatedRegionIter {
+	type Item = Range<Frame>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		todo!()
+	}
+}
+
+pub struct FreeRegionIter;
+
+impl Iterator for FreeRegionIter {
+	type Item = Range<Frame>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		todo!()
+	}
+}
+
 impl core::ops::Sub<Frame> for Frame {
 	type Output = usize;
 

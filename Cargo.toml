@@ -5,6 +5,7 @@ members = [
 	"utils",
 	"psf",
 	"targa",
+	"mm/pmm/bitmap_memory_allocator",
 	"ranged_btree",
 	"kernel_exports",
 	"kernel_module_macros",
