@@ -1,6 +1,7 @@
 [workspace]
 members = [
 	"kernel",
+	"utils",
 	"paging-macros",
 	"kernel_exports",
 	"kernel_module_macros",
