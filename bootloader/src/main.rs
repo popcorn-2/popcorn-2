@@ -92,6 +92,32 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let services = system_table.boot_services();
 
+    let Ok(gop_handle) = services.get_handle_for_protocol::<GraphicsOutput>() else {
+        //let _ = system_table.stderr().output_string(cstr16!("Unable to enable graphics")); // Can't really do anything if this fails
+        return Status::PROTOCOL_ERROR;
+    };
+
+    let Ok(mut gop) = (unsafe {
+        services.open_protocol::<GraphicsOutput>(OpenProtocolParams {
+            handle: gop_handle,
+            agent: services.image_handle(),
+            controller: None,
+        }, OpenProtocolAttributes::GetProtocol)
+    }) else {
+        //let _ = system_table.stderr().output_string(cstr16!("Unable to enable graphics")); // Can't really do anything if this fails
+        return Status::PROTOCOL_ERROR;
+    };
+
+    let Ok(uart) = services.get_handle_for_protocol::<Serial>() else {
+        //let _ = system_table.stderr().output_string(cstr16!("Unable to enable graphics")); // Can't really do anything if this fails
+        return Status::PROTOCOL_ERROR;
+    };
+
+    let Ok(mut uart) = services.open_protocol_exclusive::<Serial>(uart) else {
+        //let _ = system_table.stderr().output_string(cstr16!("Unable to enable graphics")); // Can't really do anything if this fails
+        return Status::PROTOCOL_ERROR;
+    };
+
     let mut fs = services.get_image_file_system(image_handle).unwrap();
 
         /*let logo = fs.read(Path::new(cstr16!("EFI\\POPCORN\\logo.tga"))).unwrap();
@@ -133,6 +159,13 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let bold_italic = bold_italic.as_ref().map(|data| psf::try_parse(data).unwrap_or_else(|e| panic!("Invalid file for bold-italic font: {}", e)));
 
     let default_font = FontFamily::new(regular, bold, italic, bold_italic);
+    let mut ui = Tui::new(&mut gop, (0,0), default_font);
+    ui.set_font_style(FontStyle::Regular);
+    ui.set_font_color(0xee, 0xee, 0xee);
+
+    // SAFETY: We don't touch the logger after calling exit_boot_services()
+    // (unless someone breaks the code)
+    unsafe { logging::init(&mut ui, uart.deref_mut()).unwrap(); }
     loop {}
 }
 
