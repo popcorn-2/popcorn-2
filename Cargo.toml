@@ -11,6 +11,7 @@ members = [
 	"kernel_module_macros",
 	"hal/hal_amd64",
 	"elf",
+	"mm/dmm/slab_allocator",
 ]
 
 [profile.release-with-debug]
