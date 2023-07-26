@@ -12,10 +12,10 @@ fn main() {
 
 	let out_dir = env::var("OUT_DIR").unwrap();
 
-	nasm(&out_dir);
-	fonts(&out_dir);
+	//nasm(&out_dir);
+	//fonts(&out_dir);
 
-	println!("cargo:rustc-link-arg=--dynamic-linker=\"\"");
+	//println!("cargo:rustc-link-arg=--dynamic-linker=\"\"");
 	println!("cargo:rustc-link-arg=-T{}", link_script.canonicalize().unwrap().display());
 }
 

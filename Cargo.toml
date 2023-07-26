@@ -1,9 +1,12 @@
-[package]
-name = "hug2"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+	"kernel",
+]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.release-with-debug]
+inherits = "release"
+debug = true
 
-[dependencies]
-log = "0.4.17"
+[profile.release-small]
+inherits = "release"
+opt-level = "z"

@@ -1,0 +1,16 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bitflags = { version = "2.3.1", features = [] }
+log = "0.4.17"
+derive_more = "0.99.17"
+spin = { version = "0.9.8", default-features = false, features = ["rwlock"] }
+
+[features]
+default = []
+smp = []
