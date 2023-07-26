@@ -14,6 +14,7 @@ use header::file::FileHeader;
 use header::program::ProgramHeaderEntry64;
 
 mod utils;
+pub mod string_table;
 pub mod dynamic_table;
 pub mod header;
 
