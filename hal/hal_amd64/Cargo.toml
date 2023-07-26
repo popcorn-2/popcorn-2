@@ -1,0 +1,13 @@
+[package]
+name = "hal_amd64"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+kernel_exports = { path = "../../kernel_exports" }
+lazy_static = { version = "1.4.0", default-features = false, features = ["spin_no_std"] }
