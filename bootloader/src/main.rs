@@ -300,6 +300,50 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             panic!("Failed to load module: {e}")
         }
     }
+
+    // map framebuffer
+    let framebuffer_info: Option<handoff::Framebuffer> = try {
+        use uefi::proto::console::gop::PixelBitmask;
+
+        let mode_info = gop.current_mode_info();
+        let mut framebuffer_info = gop.frame_buffer();
+        let (width, height) = mode_info.resolution();
+
+        let page_count = (framebuffer_info.size() + PAGE_SIZE - 1) / PAGE_SIZE;
+        kernel_first_page -= page_count * PAGE_SIZE;
+        let fb_start = kernel_first_page;
+
+        let framebuffer_addr = framebuffer_info.as_mut_ptr() as usize;
+
+        for offset in (0..page_count).map(|num| num * PAGE_SIZE) {
+            let virtual_addr = fb_start + offset;
+            let physical_addr = framebuffer_addr + offset;
+            kernel_page_table.try_map_page_with(
+                Page(virtual_addr.try_into().unwrap()),
+                Frame(physical_addr.try_into().unwrap()),
+                page_table_allocator_fn,
+                TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE | TableEntryFlags::MMIO
+            ).ok()?;
+        }
+
+        let color_format = match mode_info.pixel_format() {
+            PixelFormat::Rgb => Some(ColorMask::RGBX),
+            PixelFormat::Bgr => Some(ColorMask::BGRX),
+            PixelFormat::Bitmask => {
+                let PixelBitmask{ red, green, blue, .. } = mode_info.pixel_bitmask().unwrap();
+                Some(ColorMask{ red, green, blue })
+            },
+            PixelFormat::BltOnly => None
+        }?;
+
+        handoff::Framebuffer {
+            buffer: fb_start as *mut u8,
+            stride: mode_info.stride(),
+            width,
+            height,
+            color_format
+        }
+    };
     loop {}
 }
 
