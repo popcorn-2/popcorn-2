@@ -21,6 +21,10 @@ extern crate alloc;
 
 mod framebuffer;
 mod config;
+//mod ui;
+//mod loadingscreen;
+//mod elf;
+mod paging;
 mod logging;
 use uefi::prelude::*;
 
