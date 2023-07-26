@@ -23,7 +23,7 @@ extern "sysv64" fn kstart(handoff_data: utils::handoff::Data) -> ! {
 	writeln!(SERIAL0.lock(), "Hello world!").unwrap();
 
 	//#[cfg(test)] test_main();
-	#[cfg(not(test))] kmain(/*handoff_data*/)
+	#[cfg(not(test))] kmain(handoff_data)
 }
 
 fn kmain(mut handoff_data: utils::handoff::Data) -> ! {
