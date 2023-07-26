@@ -13,6 +13,8 @@ use core::ptr::{slice_from_raw_parts, slice_from_raw_parts_mut};
 use header::file::FileHeader;
 use header::program::ProgramHeaderEntry64;
 
+mod utils;
+pub mod dynamic_table;
 pub mod header;
 
 #[derive(Debug)]
