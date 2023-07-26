@@ -3,9 +3,11 @@ use core::fmt::Write;
 use core::mem;
 use core::ptr::NonNull;
 use log::{Level, LevelFilter, Log, Metadata, Record, SetLoggerError};
+use crate::framebuffer::FontStyle;
 
 pub trait FormatWrite: Write {
 	fn set_color(&mut self, color: (u8, u8, u8));
+	fn set_font_style(&mut self, style: FontStyle);
 }
 
 static mut LOGGER: Logger = Logger { ui: None, uart: None };
