@@ -174,6 +174,43 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             warn!("Could not get EDID info");
         }
 
+
+        // =========== test code using kernel from efi part ===========
+
+    let mut kernel = fs.read(Path::new(cstr16!(r"\EFI\POPCORN\kernel.exec"))).unwrap();
+    let kernel = elf::File::try_new(&mut kernel).unwrap();
+
+    let page_table_allocator_fn = || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1);
+
+    let mut kernel_page_table = unsafe { PageTable::try_new(page_table_allocator_fn) }.unwrap();
+    let mut kernel_last_page = usize::MIN;
+    let mut kernel_first_page = usize::MAX;
+
+    kernel.segments().filter(|segment| segment.segment_type == SegmentType::LOAD)
+          .for_each(|segment| {
+              let allocation_type = if segment.segment_flags.contains(SegmentFlags::LowMem) {
+                  AllocateType::MaxAddress(0x10_0000)
+              } else { AllocateType::AnyPages };
+              let page_count = (usize::try_from(segment.memory_size).unwrap() + PAGE_SIZE - 1) / PAGE_SIZE;
+              let last_page = usize::try_from(segment.vaddr).unwrap() + page_count * PAGE_SIZE;
+              if last_page > kernel_last_page { kernel_last_page = last_page; }
+              if usize::try_from(segment.vaddr).unwrap() < kernel_first_page { kernel_first_page = usize::try_from(segment.vaddr).unwrap(); }
+
+              let Ok(allocation) = services.allocate_pages(allocation_type, memory_types::KERNEL_CODE, page_count) else {
+                  panic!("Failed to allocate enough memory to load popcorn2");
+              };
+
+              unsafe {
+                  ptr::copy_nonoverlapping(kernel[segment.file_location()].as_ptr(), allocation as *mut _, segment.file_size.try_into().unwrap());
+                  ptr::write_bytes((allocation + segment.file_size) as *mut u8, 0, (segment.memory_size - segment.file_size).try_into().unwrap());
+              }
+
+              (0..page_count).map(|page| ((page * PAGE_SIZE) + usize::try_from(segment.vaddr).unwrap(), (page * PAGE_SIZE) + usize::try_from(allocation).unwrap()))
+                             .try_for_each(|(virtual_addr, physical_addr)| {
+                                 kernel_page_table.try_map_page(Page(virtual_addr.try_into().unwrap()), Frame(physical_addr.try_into().unwrap()), page_table_allocator_fn)
+                             })
+                             .unwrap();
+          });
     loop {}
 }
 
@@ -203,3 +240,12 @@ fn panic_handler(info: &PanicInfo) -> ! {
 | EfiPersistentMemory        | Non-volatile but otherwise conventional memory                   |
 | EfiUnacceptedMemoryType    | ???                                                              |
  */
+
+mod memory_types {
+    use uefi::table::boot::MemoryType;
+
+    pub const KERNEL_CODE: MemoryType = MemoryType::custom(0x8000_0000);
+    pub const MODULE_CODE: MemoryType = MemoryType::custom(0x8000_0001);
+    pub const PAGE_TABLE: MemoryType = MemoryType::custom(0x8000_0002);
+    pub const MEMORY_ALLOCATOR_DATA: MemoryType = MemoryType::custom(0x8000_0003);
+}
