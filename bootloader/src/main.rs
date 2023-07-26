@@ -166,6 +166,14 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     // SAFETY: We don't touch the logger after calling exit_boot_services()
     // (unless someone breaks the code)
     unsafe { logging::init(&mut ui, uart.deref_mut()).unwrap(); }
+
+    if let Ok(edid_handle) = services.get_handle_for_protocol::<framebuffer::ActiveEdid>()
+	    && let Ok(edid) = services.open_protocol_exclusive::<framebuffer::ActiveEdid>(edid_handle) {
+            info!("EDID: {:?}", edid.deref().deref());
+        } else {
+            warn!("Could not get EDID info");
+        }
+
     loop {}
 }
 
