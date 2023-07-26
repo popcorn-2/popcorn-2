@@ -1,0 +1,3 @@
+#[unstable]
+#build-std = ["core", "alloc", "compiler_builtins", "proc_macro"]
+#build-std-features = ["compiler-builtins-mem"]

@@ -1,0 +1,16 @@
+[fonts]
+default = "OtherFont"
+
+[fonts.UbuntuMono]
+regular = "/EFI/POPCORN/fonts/UbuntuMono-R.psf"
+bold = "/EFI/POPCORN/fonts/UbuntuMono-B.psf"
+italic = "/EFI/POPCORN/fonts/UbuntuMono-RI.psf"
+bold_italic = "/EFI/POPCORN/fonts/UbuntuMono-BI.psf"
+
+[fonts.OtherFont]
+regular = "/EFI/POPCORN/fonts/font.psf"
+
+[kernel]
+root_disk = "00000000-0000-0000-0000-000000000000"
+image = "/System/kernel/convolution.kexec"
+modules = []#["/EFI/POPCORN/allocator.kmod", "/EFI/POPCORN/hal_amd64.kmod"]

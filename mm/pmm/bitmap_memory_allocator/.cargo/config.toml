@@ -1,0 +1,10 @@
+[build]
+#target = "../x86_64-unknown-popcorn.json"
+
+
+#[unstable]
+#build-std = ["core", "compiler_builtins", "alloc"]
+#build-std-features = ["compiler-builtins-mem"]
+
+# cargo rustc --target ../x86_64-unknown-popcorn.json -Z build-std=core,compiler_builtins,alloc -Z build-std-features=compiler-builtins-mem  -- -C link-args=-export-dynamic -Z export-executable-symbols=on
+# cargo test -F "kernel_exports/test"
