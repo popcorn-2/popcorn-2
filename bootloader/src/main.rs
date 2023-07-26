@@ -4,6 +4,7 @@
 extern crate alloc;
 
 mod config;
+mod logging;
 use uefi::prelude::*;
 
 #[entry]
