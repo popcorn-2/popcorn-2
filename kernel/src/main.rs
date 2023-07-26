@@ -12,7 +12,13 @@ use core::fmt::Write;
 use core::panic::PanicInfo;
 use core::ptr::slice_from_raw_parts_mut;
 use kernel::io::serial::SERIAL0;
+//use kernel::memory;
+//use kernel::memory::watermark_allocator::WatermarkAllocator;
+use kernel_exports::memory::{Frame, PhysicalAddress, PhysicalMemoryAllocator};
+use utils::handoff::Range;
+
 #[export_name = "_start"]
+extern "sysv64" fn kstart(handoff_data: utils::handoff::Data) -> ! {
 	serial::init_serial0().expect("Failed to initialise serial0");
 	writeln!(SERIAL0.lock(), "Hello world!").unwrap();
 
@@ -20,7 +26,25 @@ use kernel::io::serial::SERIAL0;
 	#[cfg(not(test))] kmain(/*handoff_data*/)
 }
 
-fn kmain(/*mut handoff_data: utils::handoff::Data*/) -> ! {
+fn kmain(mut handoff_data: utils::handoff::Data) -> ! {
+	writeln!(SERIAL0.lock(), "Handoff data:\n{handoff_data:x?}").unwrap();
+
+	/*let mut wmark = WatermarkAllocator::new(&mut handoff_data.memory.map);
+
+	unsafe {
+		// SAFETY: unset a few lines below
+		memory::alloc::phys::GLOBAL_ALLOCATOR.set_unchecked(&mut wmark);
+	}
+	let thingy = (handoff_data.modules.phys_allocator_start)(Range(Frame::new(PhysicalAddress(0)), Frame::new(PhysicalAddress(0x10000))));
+	memory::alloc::phys::GLOBAL_ALLOCATOR.unset();*/
+
+	if let Some(fb) = handoff_data.framebuffer {
+		let size = fb.stride * fb.height;
+		for pixel in unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.cast::<u32>(), size) }.iter_mut() {
+			*pixel = 0xeeeeee;
+		}
+	}
+
 	loop {}
 }
 
