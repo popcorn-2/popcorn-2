@@ -141,7 +141,9 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     ::ui::rect::Rectangle::new();*/
 
-    let config = fs.read_to_string(Path::new(cstr16!(r"EFI\POPCORN\config.toml"))).unwrap();
+    let Ok(config) = fs.read_to_string(Path::new(cstr16!(r"EFI\POPCORN\config.toml"))) else {
+        panic!("Unable to find bootloader config file")
+    };
     let config: Config = toml::from_str(&config).unwrap();
 
     let default_font = config.fonts.default;
