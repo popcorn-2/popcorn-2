@@ -20,33 +20,41 @@ struct Logger {
 unsafe impl Send for Logger {}
 unsafe impl Sync for Logger {}
 
-pub unsafe fn init(ui: &mut dyn FormatWrite, uart: &mut dyn Write) -> Result<(), SetLoggerError> {
-	LOGGER.ui = Some(NonNull::from(mem::transmute::<_, &'static _>(ui)));
+pub unsafe fn init(uart: &mut dyn Write) -> Result<(), SetLoggerError> {
 	LOGGER.uart = Some(NonNull::from(mem::transmute::<_, &'static _>(uart)));
 
 	log::set_logger(&LOGGER)
 		.map(move |_| log::set_max_level(log::STATIC_MAX_LEVEL))
 }
 
+pub unsafe fn add_ui(ui: &mut dyn FormatWrite) {
+	LOGGER.ui = Some(NonNull::from(mem::transmute::<_, &'static _>(ui)));
+}
+
 impl Log for Logger {
 	fn enabled(&self, _metadata: &Metadata) -> bool {
-		self.ui.is_some()
+		self.uart.is_some()
 	}
 
 	fn log(&self, record: &Record) {
 		unsafe {
-			writeln!(&mut *self.uart.unwrap().as_ptr(), "{}: {}", record.level(), record.args()).unwrap();
+			if let Some(mut uart) = self.uart {
+				let mut uart = uart.as_mut();
+				writeln!(uart, "{}: {}", record.level(), record.args()).unwrap();
+			}
 
-			let format_output = &mut *self.ui.unwrap().as_ptr();
-			let prefix = match record.level() {
-				Level::Error => { format_output.set_color(colors::ERROR); "E" },
-				Level::Warn => { format_output.set_color(colors::WARN); "W" },
-				Level::Info => { format_output.set_color(colors::INFO); "I" },
-				_ => { format_output.set_color(colors::DEBUG); "D" }
-			};
-			write!(format_output, "[{}] ", prefix).unwrap();
-			format_output.set_color(colors::DEBUG);
-			writeln!(format_output, "{}", record.args()).unwrap();
+			if let Some(mut ui) = self.ui {
+				let ui = ui.as_mut();
+				let prefix = match record.level() {
+					Level::Error => { ui.set_color(colors::ERROR); "E" },
+					Level::Warn => { ui.set_color(colors::WARN); "W" },
+					Level::Info => { ui.set_color(colors::INFO); "I" },
+					_ => { ui.set_color(colors::DEBUG); "D" }
+				};
+				write!(ui, "[{}] ", prefix).unwrap();
+				ui.set_color(colors::DEBUG);
+				writeln!(ui, "{}", record.args()).unwrap();
+			}
 		}
 	}
 

@@ -92,31 +92,35 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let services = system_table.boot_services();
 
-    let Ok(gop_handle) = services.get_handle_for_protocol::<GraphicsOutput>() else {
-        //let _ = system_table.stderr().output_string(cstr16!("Unable to enable graphics")); // Can't really do anything if this fails
+    let Ok(uart) = services.get_handle_for_protocol::<Serial>() else {
+        let _ = system_table.stderr().output_string(cstr16!("Unable to enable UART debugging")); // Can't really do anything if this fails
+        return Status::PROTOCOL_ERROR;
+    };
+
+    let Ok(mut uart) = services.open_protocol_exclusive::<Serial>(uart) else {
+        let _ = system_table.stderr().output_string(cstr16!("Unable to enable UART debugging")); // Can't really do anything if this fails
+        return Status::PROTOCOL_ERROR;
+    };
+
+    let Ok(gop) = services.get_handle_for_protocol::<GraphicsOutput>() else {
+        let _ = writeln!(uart, "Unable to enable graphics"); // Can't really do anything if this fails
         return Status::PROTOCOL_ERROR;
     };
 
     let Ok(mut gop) = (unsafe {
         services.open_protocol::<GraphicsOutput>(OpenProtocolParams {
-            handle: gop_handle,
+            handle: gop,
             agent: services.image_handle(),
             controller: None,
         }, OpenProtocolAttributes::GetProtocol)
     }) else {
-        //let _ = system_table.stderr().output_string(cstr16!("Unable to enable graphics")); // Can't really do anything if this fails
+        let _ = writeln!(uart, "Unable to enable graphics"); // Can't really do anything if this fails
         return Status::PROTOCOL_ERROR;
     };
 
-    let Ok(uart) = services.get_handle_for_protocol::<Serial>() else {
-        //let _ = system_table.stderr().output_string(cstr16!("Unable to enable graphics")); // Can't really do anything if this fails
-        return Status::PROTOCOL_ERROR;
-    };
-
-    let Ok(mut uart) = services.open_protocol_exclusive::<Serial>(uart) else {
-        //let _ = system_table.stderr().output_string(cstr16!("Unable to enable graphics")); // Can't really do anything if this fails
-        return Status::PROTOCOL_ERROR;
-    };
+    // SAFETY: We don't touch the logger after calling exit_boot_services()
+    // (unless someone breaks the code)
+    unsafe { logging::init(uart.deref_mut()).unwrap(); }
 
     let mut fs = services.get_image_file_system(image_handle).unwrap();
 
@@ -165,7 +169,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     // SAFETY: We don't touch the logger after calling exit_boot_services()
     // (unless someone breaks the code)
-    unsafe { logging::init(&mut ui, uart.deref_mut()).unwrap(); }
+    unsafe { logging::add_ui(&mut ui); }
 
     if let Ok(edid_handle) = services.get_handle_for_protocol::<framebuffer::ActiveEdid>()
 	    && let Ok(edid) = services.open_protocol_exclusive::<framebuffer::ActiveEdid>(edid_handle) {
