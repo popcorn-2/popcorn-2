@@ -95,12 +95,12 @@ impl<T> Extend<T> for LinkedList<T> {
                 self.push_front_impl(item)
             },
             (Some(item), Some(mut last_node)) => {
-                unsafe { last_node.as_mut() }.append(item)
+                unsafe { last_node.as_mut() }.insert_after(item)
             }
         };
 
         for item in iter {
-            last_node = unsafe { last_node.as_mut() }.append(item);
+            last_node = unsafe { last_node.as_mut() }.insert_after(item);
         }
     }
 }
@@ -134,8 +134,8 @@ impl<T> Node<T> {
         unsafe { NonNull::new_unchecked(node) }
     }
 
-    fn append(&mut self, data: T) -> NonNull<Self> {
-        let node = Node::new_boxed(data, None);
+    fn insert_after(&mut self, data: T) -> NonNull<Self> {
+        let node = Node::new_boxed(data, self.next);
         self.next = Some(node);
         node
     }
