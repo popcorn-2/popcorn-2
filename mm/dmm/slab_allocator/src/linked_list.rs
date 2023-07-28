@@ -184,10 +184,10 @@ impl<'list, T: 'list> Iterator for IterMut<'list, T> {
 }
 
 impl<'list, T> IntoIterator for &'list LinkedList<T> {
-        type Item = &'list T;
-        type IntoIter = Iter<'list, T>;
+    type Item = &'list T;
+    type IntoIter = Iter<'list, T>;
 
-        fn into_iter(self) -> Self::IntoIter {
+    fn into_iter(self) -> Self::IntoIter {
         Iter {
             current_element: self.first,
             _phantom: PhantomData
@@ -196,10 +196,10 @@ impl<'list, T> IntoIterator for &'list LinkedList<T> {
 }
 
 impl<'list, T> IntoIterator for &'list mut LinkedList<T> {
-        type Item = &'list mut T;
-        type IntoIter = IterMut<'list, T>;
+    type Item = &'list mut T;
+    type IntoIter = IterMut<'list, T>;
 
-        fn into_iter(self) -> Self::IntoIter {
+    fn into_iter(self) -> Self::IntoIter {
         IterMut {
             current_element: self.first,
             _phantom: PhantomData
