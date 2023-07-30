@@ -1,12 +1,13 @@
 ENTRY(_start)
 
 PHDRS {
-    headers PT_PHDR PHDRS ;
+    /*headers PT_PHDR PHDRS ;*/
     realmode PT_LOAD FLAGS(0x010007) ;
     rodata PT_LOAD FLAGS(0x4) ;
     text PT_LOAD FLAGS(0x5) ;
     data PT_LOAD FLAGS(0x6) ;
     dynamic PT_DYNAMIC ;
+    gnu_eh_frame 0x6474E550 FLAGS(0x4) ;
 }
 
 SECTIONS {
@@ -14,22 +15,22 @@ SECTIONS {
 
 	.dynsym :
     {
-        *.dynsym*
+        *(.dynsym .dynsym.*)
     } :rodata
 
     .gnu.hash :
     {
-        *.gnu.hash*
+        *(.gnu.hash .gnu.hash.*)
     }
 
     .hash :
     {
-        *.hash*
+        *(.hash .hash.*)
     }
 
     .dynstr :
     {
-        *.dynstr*
+        *(.dynstr .dynstr.*)
     }
 
     .rela.dyn :
@@ -59,48 +60,61 @@ SECTIONS {
 
 	.data.rel.ro :
     {
-        *(.data.rel.ro*)
-    } :rodata
+        *(.data.rel.ro .data.rel.ro.*)
+    }
 
 	.rodata :
 	{
-		*(.rodata*)
+		*(.rodata .rodata.*)
+	}
+
+	.eh_frame_hdr :
+	{
+	    *(.eh_frame_hdr .eh_frame_hdr.*)
+	} :gnu_eh_frame :rodata
+
+    . = ALIGN(8);
+    PROVIDE(__eh_frame = .);
+	.eh_frame :
+	{
+	    *(.eh_frame .eh_frame.*)
 	} :rodata
 
 	. = ALIGN(4K);
     .text :
     {
-        *(.text*)
+        *(.text .text.*)
+        PROVIDE(__etext = .);
     } :text
 
     .plt :
     {
-        *(.plt*)
+        *(.plt .plt.*)
     }
 
 	. = ALIGN(4K);
 	.data :
 	{
-		*(.data)
+		*(.data .data.*)
 	} :data
 
 	.got.plt :
 	{
-	    *(.got.plt*)
+	    *(.got.plt .got.plt.*)
 	}
 
 	.bss :
 	{
 		*(COMMON)
-		*(.bss*)
+		*(.bss .bss.*)
 	}
 
 	.dynamic :
 	{
-	    *.dynamic*
+	    *(.dynamic .dynamic.*)
 	} :data :dynamic
 
 	/DISCARD/ : {
-		*(.debug_gdb_scripts*)
+		*(.debug_gdb_scripts .debug_gdb_scripts.*)
 	}
 }
