@@ -151,11 +151,11 @@ pub fn _print(args: fmt::Arguments) {
 
 #[macro_export]
 macro_rules! sprintln {
-    () => { $crate::sprint!("\n"); };
-	($($arg:tt)*) => { $crate::sprint!("{}\n", format_args!($($arg)*)); }
+    () => { $crate::sprint!("\n") };
+	($($arg:tt)*) => { $crate::sprint!("{}\n", format_args!($($arg)*)) }
 }
 
 #[macro_export]
 macro_rules! sprint {
-	($($arg:tt)*) => { $crate::io::serial::_print(format_args!($($arg)*)); }
+	($($arg:tt)*) => { $crate::io::serial::_print(format_args!($($arg)*)) }
 }
