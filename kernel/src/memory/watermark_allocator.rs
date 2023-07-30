@@ -148,6 +148,7 @@ mod negative_slice {
 		use super::NegativeSlice;
 
 		const TEST_SLICE: &NegativeSlice<u8> = NegativeSlice::new(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+		const TEST_SLICE_SINGLE: &NegativeSlice<u8> = NegativeSlice::new(&[0]);
 
 		#[test_case]
 		fn normal_single_index() {
@@ -199,6 +200,11 @@ mod negative_slice {
 		#[test_should_panic]
 		fn backwards_range() {
 			let _ = &TEST_SLICE[9..-9];
+		}
+
+		#[test_case]
+		fn zero_length_struct_from_up_to_minus_one() {
+			assert_eq!(&TEST_SLICE_SINGLE[..-1].0, []);
 		}
 	}
 }
