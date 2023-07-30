@@ -213,7 +213,7 @@ mod negative_slice {
 pub struct WatermarkAllocator<'mem_map>(Lock<WatermarkAllocatorInner<'mem_map>>);
 
 impl<'mem_map> WatermarkAllocator<'mem_map> {
-	pub fn new<E: AsRef<[MemoryMapEntry]>>(mem_map: &'mem_map E) -> Self {
+	pub fn new<E: AsRef<[MemoryMapEntry]> + ?Sized>(mem_map: &'mem_map E) -> Self {
 		Self(Lock::new(WatermarkAllocatorInner::new(mem_map)))
 	}
 
@@ -233,7 +233,7 @@ impl<'mem_map> WatermarkAllocatorInner<'mem_map> {
 		&self.mem_map[-1]
 	}
 
-	pub fn new<Entry: AsRef<[MemoryMapEntry]>>(mem_map: &'mem_map Entry) -> Self {
+	pub fn new<Entry: AsRef<[MemoryMapEntry]> + ?Sized>(mem_map: &'mem_map Entry) -> Self {
 		let mem_map = mem_map.as_ref();
 		let (last_free_section, &last_free_address) = mem_map.iter().enumerate().rev()
 				.find(|(_, entry)| entry.ty == MemoryType::Free)
