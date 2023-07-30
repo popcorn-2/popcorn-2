@@ -41,7 +41,7 @@ use uefi::proto::console::gop::{GraphicsOutput, PixelFormat};
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::proto::media::partition::PartitionInfo;
 use uefi::table::boot::{AllocateType, MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams, PAGE_SIZE, ScopedProtocol, SearchType};
-use uefi::data_types::{Align, Identify, PhysicalAddress};
+use uefi::data_types::{Align, Identify};
 use core::{fmt, mem, ptr};
 use core::ffi::CStr;
 use core::mem::{align_of, discriminant, size_of};
@@ -64,6 +64,7 @@ use crate::paging::{Frame, MapError, Page, PageTable, TableEntryFlags};
 use derive_more::Display;
 use elf::ExecutableAddressRelocated;
 use elf::header::program::{SegmentFlags, SegmentType};
+use kernel_exports::memory::PhysicalAddress;
 
 macro_rules! cstr {
     ($string:literal) => {
@@ -409,7 +410,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             }
 
             MemoryMapEntry {
-                coverage: Range(descriptor.phys_start, descriptor.phys_start + descriptor.page_count * 4096),
+                coverage: Range(PhysicalAddress(descriptor.phys_start.try_into().unwrap()), PhysicalAddress((descriptor.phys_start + descriptor.page_count * 4096).try_into().unwrap())),
                 ty
             }
         };

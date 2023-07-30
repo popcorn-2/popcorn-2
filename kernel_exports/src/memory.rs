@@ -44,8 +44,8 @@ impl Frame {
 	}
 
 	#[inline]
-	pub fn start(self) -> usize {
-		self.number * 4096
+	pub fn start(self) -> PhysicalAddress {
+		PhysicalAddress(self.number * 4096)
 	}
 }
 

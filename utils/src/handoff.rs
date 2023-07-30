@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 use core::fmt::{Formatter, Pointer};
-use kernel_exports::memory::{Frame, PhysicalMemoryAllocator};
+use kernel_exports::memory::{Frame, PhysicalAddress, PhysicalMemoryAllocator};
 
 #[derive(Debug)]
 #[repr(C)]
@@ -43,13 +43,23 @@ pub struct Memory {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct MemoryMapEntry {
-	pub coverage: Range<u64>,
+	pub coverage: Range<PhysicalAddress>,
 	pub ty: MemoryType
+}
+
+impl MemoryMapEntry {
+	pub fn start(self) -> PhysicalAddress { self.coverage.0 }
+	pub fn end(self) -> PhysicalAddress { self.coverage.1 }
 }
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct Range<T>(pub T, pub T);
+
+impl<T> Range<T> {
+	pub fn start(self) -> T { self.0 }
+	pub fn end(self) -> T { self.1 }
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(i64)]
