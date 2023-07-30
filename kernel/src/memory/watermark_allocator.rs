@@ -1,142 +1,205 @@
-use alloc::vec::Vec;
 use core::alloc::AllocError;
 use core::num::NonZeroUsize;
-use core::ops::{Neg, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
 use kernel_exports::sync::Lock;
-use super::{Frame, PhysicalMemoryAllocator};
+use super::{Frame};
 use utils::handoff::{MemoryMapEntry, MemoryType};
-use crate::{into, usize};
+use crate::{into};
+use negative_slice::NegativeSlice;
 
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct NegativeSlice<T>([T]);
+mod negative_slice {
+	use core::ops::{Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
 
-impl<T> NegativeSlice<T> {
-	fn new(a: &[T]) -> &Self { unsafe { core::mem::transmute(a) } }
-	fn new_mut(a: &mut [T]) -> &mut Self { unsafe { core::mem::transmute(a) } }
-}
+	#[derive(Debug)]
+	#[repr(transparent)]
+	pub struct NegativeSlice<T>(pub(in super) [T]);
 
-impl<T> core::ops::Index<Range<isize>> for NegativeSlice<T> {
-	type Output = Self;
-
-	fn index(&self, index: Range<isize>) -> &Self {
-		let start = if index.start >= 0 { index.start as usize } else { self.0.len().checked_add_signed(index.start).unwrap() };
-		let end = if index.end >= 0 { index.end as usize } else { self.0.len().checked_add_signed(index.end).unwrap() };
-
-		unsafe { core::mem::transmute(&self.0[start..end]) }
+	impl<T> NegativeSlice<T> {
+		pub const fn new(a: &[T]) -> &Self { unsafe { core::mem::transmute(a) } }
+		pub fn new_mut(a: &mut [T]) -> &mut Self { unsafe { core::mem::transmute(a) } }
 	}
-}
 
-impl<T> core::ops::IndexMut<Range<isize>> for NegativeSlice<T> {
-	fn index_mut(&mut self, index: Range<isize>) -> &mut Self {
-		let start = if index.start >= 0 { index.start as usize } else { self.0.len().checked_add_signed(index.start).unwrap() };
-		let end = if index.end >= 0 { index.end as usize } else { self.0.len().checked_add_signed(index.end).unwrap() };
+	impl<T> core::ops::Index<Range<isize>> for NegativeSlice<T> {
+		type Output = Self;
 
-		unsafe { core::mem::transmute(&mut self.0[start..end]) }
+		fn index(&self, index: Range<isize>) -> &Self {
+			let start = if index.start >= 0 { index.start as usize } else { self.0.len().checked_add_signed(index.start).unwrap() };
+			let end = if index.end >= 0 { index.end as usize } else { self.0.len().checked_add_signed(index.end).unwrap() };
+
+			unsafe { core::mem::transmute(&self.0[start..end]) }
+		}
 	}
-}
 
-impl<T> core::ops::Index<RangeFrom<isize>> for NegativeSlice<T> {
-	type Output = Self;
+	impl<T> core::ops::IndexMut<Range<isize>> for NegativeSlice<T> {
+		fn index_mut(&mut self, index: Range<isize>) -> &mut Self {
+			let start = if index.start >= 0 { index.start as usize } else { self.0.len().checked_add_signed(index.start).unwrap() };
+			let end = if index.end >= 0 { index.end as usize } else { self.0.len().checked_add_signed(index.end).unwrap() };
 
-	fn index(&self, index: RangeFrom<isize>) -> &Self {
-		let start = if index.start >= 0 { index.start as usize } else { self.0.len().checked_add_signed(index.start).unwrap() };
-
-		unsafe { core::mem::transmute(&self.0[start..]) }
+			unsafe { core::mem::transmute(&mut self.0[start..end]) }
+		}
 	}
-}
 
-impl<T> core::ops::IndexMut<RangeFrom<isize>> for NegativeSlice<T> {
-	fn index_mut(&mut self, index: RangeFrom<isize>) -> &mut Self {
-		let start = if index.start >= 0 { index.start as usize } else { self.0.len().checked_add_signed(index.start).unwrap() };
+	impl<T> core::ops::Index<RangeFrom<isize>> for NegativeSlice<T> {
+		type Output = Self;
 
-		unsafe { core::mem::transmute(&mut self.0[start..]) }
+		fn index(&self, index: RangeFrom<isize>) -> &Self {
+			let start = if index.start >= 0 { index.start as usize } else { self.0.len().checked_add_signed(index.start).unwrap() };
+
+			unsafe { core::mem::transmute(&self.0[start..]) }
+		}
 	}
-}
 
-impl<T> core::ops::Index<RangeTo<isize>> for NegativeSlice<T> {
-	type Output = Self;
+	impl<T> core::ops::IndexMut<RangeFrom<isize>> for NegativeSlice<T> {
+		fn index_mut(&mut self, index: RangeFrom<isize>) -> &mut Self {
+			let start = if index.start >= 0 { index.start as usize } else { self.0.len().checked_add_signed(index.start).unwrap() };
 
-	fn index(&self, index: RangeTo<isize>) -> &Self {
-		let end = if index.end >= 0 { index.end as usize } else { self.0.len().checked_add_signed(index.end).unwrap() };
-
-		unsafe { core::mem::transmute(&self.0[..end]) }
+			unsafe { core::mem::transmute(&mut self.0[start..]) }
+		}
 	}
-}
 
-impl<T> core::ops::IndexMut<RangeTo<isize>> for NegativeSlice<T> {
-	fn index_mut(&mut self, index: RangeTo<isize>) -> &mut Self {
-		let end = if index.end >= 0 { index.end as usize } else { self.0.len().checked_add_signed(index.end).unwrap() };
+	impl<T> core::ops::Index<RangeTo<isize>> for NegativeSlice<T> {
+		type Output = Self;
 
-		unsafe { core::mem::transmute(&mut self.0[..end]) }
+		fn index(&self, index: RangeTo<isize>) -> &Self {
+			let end = if index.end >= 0 { index.end as usize } else { self.0.len().checked_add_signed(index.end).unwrap() };
+
+			unsafe { core::mem::transmute(&self.0[..end]) }
+		}
 	}
-}
 
-impl<T> core::ops::Index<RangeToInclusive<isize>> for NegativeSlice<T> {
-	type Output = Self;
+	impl<T> core::ops::IndexMut<RangeTo<isize>> for NegativeSlice<T> {
+		fn index_mut(&mut self, index: RangeTo<isize>) -> &mut Self {
+			let end = if index.end >= 0 { index.end as usize } else { self.0.len().checked_add_signed(index.end).unwrap() };
 
-	fn index(&self, index: RangeToInclusive<isize>) -> &Self {
-		let end = if index.end >= 0 { index.end as usize } else { self.0.len().checked_add_signed(index.end).unwrap() };
-
-		unsafe { core::mem::transmute(&self.0[..=end]) }
+			unsafe { core::mem::transmute(&mut self.0[..end]) }
+		}
 	}
-}
 
-impl<T> core::ops::IndexMut<RangeToInclusive<isize>> for NegativeSlice<T> {
-	fn index_mut(&mut self, index: RangeToInclusive<isize>) -> &mut Self {
-		let end = if index.end >= 0 { index.end as usize } else { self.0.len().checked_add_signed(index.end).unwrap() };
+	impl<T> core::ops::Index<RangeToInclusive<isize>> for NegativeSlice<T> {
+		type Output = Self;
 
-		unsafe { core::mem::transmute(&mut self.0[..=end]) }
+		fn index(&self, index: RangeToInclusive<isize>) -> &Self {
+			let end = if index.end >= 0 { index.end as usize } else { self.0.len().checked_add_signed(index.end).unwrap() };
+
+			unsafe { core::mem::transmute(&self.0[..=end]) }
+		}
 	}
-}
 
-impl<T> core::ops::Index<RangeInclusive<isize>> for NegativeSlice<T> {
-	type Output = Self;
+	impl<T> core::ops::IndexMut<RangeToInclusive<isize>> for NegativeSlice<T> {
+		fn index_mut(&mut self, index: RangeToInclusive<isize>) -> &mut Self {
+			let end = if index.end >= 0 { index.end as usize } else { self.0.len().checked_add_signed(index.end).unwrap() };
 
-	fn index(&self, index: RangeInclusive<isize>) -> &Self {
-		let start = if *index.start() >= 0 { *index.start() as usize } else { self.0.len().checked_add_signed(*index.start()).unwrap() };
-		let end = if *index.end() >= 0 { *index.end() as usize } else { self.0.len().checked_add_signed(*index.end()).unwrap() };
-
-		unsafe { core::mem::transmute(&self.0[start..=end]) }
+			unsafe { core::mem::transmute(&mut self.0[..=end]) }
+		}
 	}
-}
 
-impl<T> core::ops::IndexMut<RangeInclusive<isize>> for NegativeSlice<T> {
-	fn index_mut(&mut self, index: RangeInclusive<isize>) -> &mut Self {
-		let start = if *index.start() >= 0 { *index.start() as usize } else { self.0.len().checked_add_signed(*index.start()).unwrap() };
-		let end = if *index.end() >= 0 { *index.end() as usize } else { self.0.len().checked_add_signed(*index.end()).unwrap() };
+	impl<T> core::ops::Index<RangeInclusive<isize>> for NegativeSlice<T> {
+		type Output = Self;
 
-		unsafe { core::mem::transmute(&mut self.0[start..=end]) }
+		fn index(&self, index: RangeInclusive<isize>) -> &Self {
+			let start = if *index.start() >= 0 { *index.start() as usize } else { self.0.len().checked_add_signed(*index.start()).unwrap() };
+			let end = if *index.end() >= 0 { *index.end() as usize } else { self.0.len().checked_add_signed(*index.end()).unwrap() };
+
+			unsafe { core::mem::transmute(&self.0[start..=end]) }
+		}
 	}
-}
 
-impl<T> core::ops::Index<RangeFull> for NegativeSlice<T> {
-	type Output = Self;
+	impl<T> core::ops::IndexMut<RangeInclusive<isize>> for NegativeSlice<T> {
+		fn index_mut(&mut self, index: RangeInclusive<isize>) -> &mut Self {
+			let start = if *index.start() >= 0 { *index.start() as usize } else { self.0.len().checked_add_signed(*index.start()).unwrap() };
+			let end = if *index.end() >= 0 { *index.end() as usize } else { self.0.len().checked_add_signed(*index.end()).unwrap() };
 
-	fn index(&self, _: RangeFull) -> &Self {
-		unsafe { core::mem::transmute(&self.0[..]) }
+			unsafe { core::mem::transmute(&mut self.0[start..=end]) }
+		}
 	}
-}
 
-impl<T> core::ops::IndexMut<RangeFull> for NegativeSlice<T> {
-	fn index_mut(&mut self, _: RangeFull) -> &mut Self {
-		unsafe { core::mem::transmute(&mut self.0[..]) }
+	impl<T> core::ops::Index<RangeFull> for NegativeSlice<T> {
+		type Output = Self;
+
+		fn index(&self, _: RangeFull) -> &Self {
+			unsafe { core::mem::transmute(&self.0[..]) }
+		}
 	}
-}
 
-impl<T> core::ops::Index<isize> for NegativeSlice<T> {
-	type Output = T;
-
-	fn index(&self, index: isize) -> &T {
-		let index = if index >= 0 { index as usize } else { self.0.len().checked_add_signed(index).unwrap() };
-		unsafe { core::mem::transmute(&self.0[index]) }
+	impl<T> core::ops::IndexMut<RangeFull> for NegativeSlice<T> {
+		fn index_mut(&mut self, _: RangeFull) -> &mut Self {
+			unsafe { core::mem::transmute(&mut self.0[..]) }
+		}
 	}
-}
 
-impl<T> core::ops::IndexMut<isize> for NegativeSlice<T> {
-	fn index_mut(&mut self, index: isize) -> &mut T {
-		let index = if index >= 0 { index as usize } else { self.0.len().checked_add_signed(index).unwrap() };
-		unsafe { core::mem::transmute(&mut self.0[index]) }
+	impl<T> core::ops::Index<isize> for NegativeSlice<T> {
+		type Output = T;
+
+		fn index(&self, index: isize) -> &T {
+			let index = if index >= 0 { index as usize } else { self.0.len().checked_add_signed(index).unwrap() };
+			unsafe { core::mem::transmute(&self.0[index]) }
+		}
+	}
+
+	impl<T> core::ops::IndexMut<isize> for NegativeSlice<T> {
+		fn index_mut(&mut self, index: isize) -> &mut T {
+			let index = if index >= 0 { index as usize } else { self.0.len().checked_add_signed(index).unwrap() };
+			unsafe { core::mem::transmute(&mut self.0[index]) }
+		}
+	}
+
+	#[cfg(test)]
+	mod tests {
+		use macros::test_should_panic;
+		use super::NegativeSlice;
+
+		const TEST_SLICE: &NegativeSlice<u8> = NegativeSlice::new(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+		#[test_case]
+		fn normal_single_index() {
+			assert_eq!(TEST_SLICE[0], 0);
+			assert_eq!(TEST_SLICE[3], 3);
+		}
+
+		#[test_should_panic]
+		fn out_of_bounds_index() {
+			TEST_SLICE[76];
+		}
+
+		#[test_case]
+		fn reverse_single_index() {
+			assert_eq!(TEST_SLICE[-1], 10);
+			assert_eq!(TEST_SLICE[-5], 6);
+		}
+
+		#[test_should_panic]
+		fn reverse_single_index_out_of_bounds() {
+			TEST_SLICE[-23];
+		}
+
+		#[test_case]
+		fn forward_ranges() {
+			assert_eq!(&TEST_SLICE[0..3].0, [0, 1, 2]);
+			assert_eq!(&TEST_SLICE[0..=3].0, [0, 1, 2, 3]);
+			assert_eq!(&TEST_SLICE[7..].0, [7, 8, 9, 10]);
+			assert_eq!(&TEST_SLICE[..5].0, [0, 1, 2, 3, 4]);
+			assert_eq!(&TEST_SLICE[..=5].0, [0, 1, 2, 3, 4, 5]);
+			assert_eq!(&TEST_SLICE[..].0, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+		}
+
+		#[test_case]
+		fn reverse_ranges() {
+			assert_eq!(&TEST_SLICE[-5..-1].0, [6, 7, 8, 9]);
+			assert_eq!(&TEST_SLICE[-5..=-1].0, [6, 7, 8, 9, 10]);
+			assert_eq!(&TEST_SLICE[-4..].0, [7, 8, 9, 10]);
+			assert_eq!(&TEST_SLICE[..-7].0, [0, 1, 2, 3]);
+			assert_eq!(&TEST_SLICE[..=-7].0, [0, 1, 2, 3, 4]);
+		}
+
+		#[test_case]
+		fn mixed_ranges() {
+			assert_eq!(&TEST_SLICE[3..-5].0, [3, 4, 5]);
+			assert_eq!(&TEST_SLICE[-5..9].0, [6, 7, 8]);
+		}
+
+		#[test_should_panic]
+		fn backwards_range() {
+			let _ = &TEST_SLICE[9..-9];
+		}
 	}
 }
 
