@@ -154,19 +154,34 @@ mod arch {
 }
 
 #[global_allocator]
-static Allocator: Foo = Foo;
+static Allocator: Foo = Foo(Lock::new(FooInner {
+	buffer: [0; 20],
+	used: false,
+}));
 
-struct Foo;
+struct Foo(Lock<FooInner>);
+
+struct FooInner {
+	buffer: [u64; 20],
+	used: bool
+}
+
 unsafe impl GlobalAlloc for Foo {
 	unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-		todo!()
+		let mut this = self.0.lock();
+		if this.used { core::ptr::null_mut() }
+		else if layout.size() > (this.buffer.len() * 8) || layout.align() > 8 { core::ptr::null_mut() }
+		else {
+			this.used = true;
+			(&mut this.buffer).as_mut_ptr().cast()
+		}
 	}
 
 	unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-		todo!()
+		self.0.lock().used = false;
 	}
 
-	unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+	/*unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
 		todo!()
-	}
+	}*/
 }
