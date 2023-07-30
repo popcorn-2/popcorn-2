@@ -253,9 +253,11 @@ impl<'mem_map> WatermarkAllocatorInner<'mem_map> {
 		loop {
 			if test_frame.start() >= self.current_area().coverage.start() { break; }
 			else {
-				while self.current_area().ty != MemoryType::Free {
-					if self.mem_map.0.len() == 0 { return Err(AllocError); }
+				loop {
 					self.mem_map = &self.mem_map[..-1];
+					if self.mem_map.0.len() == 0 { return Err(AllocError); }
+
+					if self.current_area().ty == MemoryType::Free { break; }
 				}
 				let end_frame = Frame::align_down(self.current_area().end());
 				test_frame = end_frame.checked_sub(page_count.get())
