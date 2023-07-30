@@ -209,16 +209,18 @@ mod tests {
 	use macros::test_should_panic;
 	use crate::{panicking::do_panic, panicking, sprint, sprintln};
 
+	pub enum Result { Success, Fail }
+
 	pub trait Testable {
-		fn run(&self);
+		fn run(&self) -> Result;
 	}
 
 	impl<T> Testable for T where T: Fn() {
-		fn run(&self) {
+		fn run(&self) -> Result {
 			sprint!("{}...\t", core::any::type_name::<T>());
 			match panicking::catch_unwind(self) {
-				Ok(_) => sprintln!("[ok]"),
-				Err(_) => sprintln!("[FAIL]")
+				Ok(_) => { sprintln!("[ok]"); Result::Success },
+				Err(_) => { sprintln!("[FAIL]"); Result::Fail }
 				// todo: print panic message
 			}
 		}
@@ -226,16 +228,26 @@ mod tests {
 
 	pub fn test_runner(tests: &[&dyn Testable]) -> ! {
 		sprintln!("Running {} tests", tests.len());
+		let mut success_count = 0;
 		for test in tests {
-			test.run();
+			match test.run() {
+				Result::Success => success_count += 1,
+				Result::Fail => {}
+			}
 		}
 
+		sprintln!("\nTest result: {}. {} passed; {} failed",
+			if success_count == tests.len() { "ok" } else { "fail" },
+			success_count,
+			tests.len() - success_count
+		);
 		loop {}
 		//todo!("Exit qemu");
 	}
 
 	#[panic_handler]
 	fn panic_handler(info: &PanicInfo) -> ! {
+		sprintln!("{info}");
 		do_panic()
 	}
 
