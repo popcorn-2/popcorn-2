@@ -1,6 +1,6 @@
 [build]
 target = "x86_64-unknown-uefi"
-rustflags = ["-C", "link-args=/debug:dwarf"]
+rustflags = ["-C", "link-args=/debug:dwarf", "-C", "panic=abort"]
 
 [unstable]
 build-std = ["core", "compiler_builtins", "alloc"]
