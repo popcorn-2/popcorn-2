@@ -14,9 +14,13 @@ members = [
 	"mm/dmm/slab_allocator",
 ]
 
+[profile.release]
+panic = 'abort'
+
 [profile.release-with-debug]
 inherits = "release"
 debug = true
+panic = 'unwind'
 
 [profile.release-small]
 inherits = "release"

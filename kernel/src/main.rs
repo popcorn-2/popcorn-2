@@ -10,6 +10,8 @@
 #![no_main]
 
 extern crate alloc;
+#[cfg(panic = "unwind")]
+extern crate unwinding;
 
 use core::alloc::{GlobalAlloc, Layout};
 use core::cell::{Cell, RefCell};
@@ -24,6 +26,7 @@ use kernel_exports::sync::Lock;
 mod sync;
 mod io;
 mod memory;
+mod panicking;
 
 #[macro_export]
 macro_rules! usize {
@@ -74,10 +77,8 @@ fn kmain(mut handoff_data: utils::handoff::Data) -> ! {
 #[cfg(not(test))]
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
-	let _ = writeln!(SERIAL0.lock(), "{info}");
-	loop {
-
-	}
+	sprintln!("{info}");
+	panicking::do_panic()
 }
 
 #[no_mangle]

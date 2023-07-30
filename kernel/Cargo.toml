@@ -13,6 +13,9 @@ kernel_exports = { path = "../kernel_exports", default-features = false }
 derive_more = "0.99.17"
 spin = { version = "0.9.8", default-features = false, features = ["rwlock"] }
 
+[target.'cfg(panic = "unwind")'.dependencies]
+unwinding = { version = "0.1.7", default-features = false, features = ["unwinder", "panic", "personality", "fde-static"] }
+
 [features]
 default = []
 smp = []
