@@ -40,7 +40,7 @@ impl Log for Logger {
 		unsafe {
 			if let Some(mut uart) = self.uart {
 				let mut uart = uart.as_mut();
-				writeln!(uart, "{}: {}", record.level(), record.args()).unwrap();
+				let _ = writeln!(uart, "{}: {}", record.level(), record.args());//.unwrap();
 			}
 
 			if let Some(mut ui) = self.ui {
