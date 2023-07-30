@@ -46,7 +46,7 @@ macro_rules! into {
 #[export_name = "_start"]
 extern "sysv64" fn kstart(handoff_data: utils::handoff::Data) -> ! {
 	serial::init_serial0().expect("Failed to initialise serial0");
-	writeln!(SERIAL0.lock(), "Hello world!").unwrap();
+	sprintln!("Hello world!");
 
 	#[cfg(test)] {
 		test_main();
@@ -56,7 +56,7 @@ extern "sysv64" fn kstart(handoff_data: utils::handoff::Data) -> ! {
 }
 
 fn kmain(mut handoff_data: utils::handoff::Data) -> ! {
-	writeln!(SERIAL0.lock(), "Handoff data:\n{handoff_data:x?}").unwrap();
+	sprintln!("Handoff data:\n{handoff_data:x?}");
 
 	/*let mut wmark = WatermarkAllocator::new(&mut handoff_data.memory.map);
 
@@ -86,10 +86,7 @@ fn panic_handler(info: &PanicInfo) -> ! {
 
 #[no_mangle]
 pub fn __popcorn_module_panic(info: &PanicInfo) -> ! {
-	let _ = writeln!(SERIAL0.lock(), "Panic from module: {info}");
-	loop {
-
-	}
+	panic!("Panic from module: {info}");
 }
 
 #[no_mangle]
