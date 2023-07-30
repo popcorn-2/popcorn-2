@@ -265,3 +265,84 @@ impl<'mem_map> WatermarkAllocatorInner<'mem_map> {
 		Ok(test_frame)
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::AllocError;
+	use core::num::NonZeroUsize;
+	use kernel_exports::memory::{Frame, PhysicalAddress};
+	use macros::test_should_panic;
+	use utils::handoff::{MemoryMapEntry, MemoryType, Range};
+	use crate::memory::watermark_allocator::WatermarkAllocator;
+
+	const MEMORY_LAYOUT: [MemoryMapEntry; 5] = [
+		MemoryMapEntry {
+			coverage: Range(PhysicalAddress(0), PhysicalAddress(0x2000)),
+			ty: MemoryType::Free,
+		},
+		MemoryMapEntry {
+			coverage: Range(PhysicalAddress(0x2000), PhysicalAddress(0x4000)),
+			ty: MemoryType::Reserved,
+		},
+		MemoryMapEntry {
+			coverage: Range(PhysicalAddress(0x6000), PhysicalAddress(0x7300)),
+			ty: MemoryType::Free,
+		},
+		MemoryMapEntry {
+			coverage: Range(PhysicalAddress(0x8200), PhysicalAddress(0x9000)),
+			ty: MemoryType::Free,
+		},
+		MemoryMapEntry {
+			coverage: Range(PhysicalAddress(0xa000), PhysicalAddress(0x10000)),
+			ty: MemoryType::Free,
+		},
+	];
+
+	#[test_should_panic]
+	fn fail_when_empty_memory() {
+		WatermarkAllocator::new(&[]);
+	}
+
+	#[test_should_panic]
+	fn fail_when_no_free_memory() {
+		WatermarkAllocator::new(&MEMORY_LAYOUT[1..2]);
+	}
+
+	#[test_case]
+	fn allocates_available_frames_downwards() {
+		let alloc = WatermarkAllocator::new(&MEMORY_LAYOUT[0..1]);
+		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress(0x1000))));
+		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress(0x0000))));
+		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Err(AllocError));
+	}
+
+	#[test_case]
+	fn does_not_return_partial_frame_end() {
+		let alloc = WatermarkAllocator::new(&MEMORY_LAYOUT[2..3]);
+		assert_ne!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress(0x7000))));
+	}
+
+	#[test_case]
+	fn does_not_return_partial_frame_start() {
+		let alloc = WatermarkAllocator::new(&MEMORY_LAYOUT[3..4]);
+		assert_ne!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress(0x8000))));
+	}
+
+	#[test_case]
+	fn jumps_between_areas() {
+		let alloc = WatermarkAllocator::new(&MEMORY_LAYOUT[0..3]);
+		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress(0x6000))));
+		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress(0x1000))));
+		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress(0x0000))));
+		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Err(AllocError));
+	}
+
+	#[test_case]
+	fn allocates_multiple_pages() {
+		let alloc = WatermarkAllocator::new(&MEMORY_LAYOUT[4..5]);
+		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(3).unwrap(), 0), Ok(Frame::new(PhysicalAddress(0xd000))));
+		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(2).unwrap(), 0), Ok(Frame::new(PhysicalAddress(0xb000))));
+		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress(0xa000))));
+		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Err(AllocError));
+	}
+}
