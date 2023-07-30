@@ -207,7 +207,7 @@ mod negative_slice {
 pub struct WatermarkAllocator<'mem_map>(Lock<WatermarkAllocatorInner<'mem_map>>);
 
 impl<'mem_map> WatermarkAllocator<'mem_map> {
-	pub fn new(mem_map: &'mem_map mut Vec<MemoryMapEntry>) -> Self {
+	pub fn new<E: AsRef<[MemoryMapEntry]>>(mem_map: &'mem_map E) -> Self {
 		Self(Lock::new(WatermarkAllocatorInner::new(mem_map)))
 	}
 
