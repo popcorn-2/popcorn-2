@@ -1,6 +1,10 @@
 [build]
 target = "../x86_64-unknown-popcorn.json"
-rustflags = ["-C", "link-args=-export-dynamic", "-Z", "export-executable-symbols=on", "-C", "relocation-model=static"]
+rustflags = [
+    "-C", "link-args=-export-dynamic",
+    "-Z", "export-executable-symbols=on",
+    "-C", "relocation-model=static",
+]
 
 [unstable]
 build-std = ["core", "alloc", "compiler_builtins"]
