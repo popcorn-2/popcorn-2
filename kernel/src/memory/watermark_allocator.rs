@@ -247,7 +247,8 @@ impl<'mem_map> WatermarkAllocatorInner<'mem_map> {
 	pub fn allocate_contiguous(&mut self, page_count: NonZeroUsize, alignment_log2: usize) -> Result<Frame, AllocError> {
 		if alignment_log2 != 0 { todo!("Higher than 4K alignment") }
 
-		let mut test_frame = self.prev_frame - page_count.get();
+		let mut test_frame = self.prev_frame.checked_sub(page_count.get())
+				.ok_or(AllocError)?;
 
 		loop {
 			if test_frame.start() >= self.current_area().coverage.start() { break; }
@@ -257,7 +258,8 @@ impl<'mem_map> WatermarkAllocatorInner<'mem_map> {
 					self.mem_map = &self.mem_map[..-1];
 				}
 				let end_frame = Frame::align_down(self.current_area().end());
-				test_frame = end_frame - page_count.get();
+				test_frame = end_frame.checked_sub(page_count.get())
+				                      .ok_or(AllocError)?;
 			}
 		}
 

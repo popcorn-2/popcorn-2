@@ -47,6 +47,11 @@ impl Frame {
 	pub fn start(self) -> PhysicalAddress {
 		PhysicalAddress(self.number * 4096)
 	}
+
+	#[inline]
+	pub fn checked_sub(self, rhs: usize) -> Option<Self> {
+		self.number.checked_sub(rhs).map(|number| Frame { number })
+	}
 }
 
 /*impl Into<u64> for Frame {
