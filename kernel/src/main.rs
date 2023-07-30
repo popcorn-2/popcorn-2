@@ -48,7 +48,10 @@ extern "sysv64" fn kstart(handoff_data: utils::handoff::Data) -> ! {
 	serial::init_serial0().expect("Failed to initialise serial0");
 	writeln!(SERIAL0.lock(), "Hello world!").unwrap();
 
-	//#[cfg(test)] test_main();
+	#[cfg(test)] {
+		test_main();
+		loop {}
+	}
 	#[cfg(not(test))] kmain(handoff_data)
 }
 
@@ -202,3 +205,51 @@ unsafe impl GlobalAlloc for Foo {
 		todo!()
 	}*/
 }
+
+#[cfg(test)]
+mod tests {
+	use core::panic::PanicInfo;
+	use macros::test_should_panic;
+	use crate::{panicking::do_panic, panicking, sprint, sprintln};
+
+	pub trait Testable {
+		fn run(&self);
+	}
+
+	impl<T> Testable for T where T: Fn() {
+		fn run(&self) {
+			sprint!("{}...\t", core::any::type_name::<T>());
+			match panicking::catch_unwind(self) {
+				Ok(_) => sprintln!("[ok]"),
+				Err(_) => sprintln!("[FAIL]")
+				// todo: print panic message
+			}
+		}
+	}
+
+	pub fn test_runner(tests: &[&dyn Testable]) -> ! {
+		sprintln!("Running {} tests", tests.len());
+		for test in tests {
+			test.run();
+		}
+
+		loop {}
+		//todo!("Exit qemu");
+	}
+
+	#[panic_handler]
+	fn panic_handler(info: &PanicInfo) -> ! {
+		do_panic()
+	}
+
+	#[test_case]
+	fn trivial_assertion() {
+		assert_eq!(1, 1);
+	}
+
+	#[test_should_panic]
+	fn should_panic() {
+		assert_eq!(1, 2);
+	}
+}
+

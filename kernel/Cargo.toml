@@ -16,6 +16,9 @@ spin = { version = "0.9.8", default-features = false, features = ["rwlock"] }
 [target.'cfg(panic = "unwind")'.dependencies]
 unwinding = { version = "0.1.7", default-features = false, features = ["unwinder", "panic", "personality", "fde-static"] }
 
+[dev-dependencies]
+macros = { path = "../macros" }
+
 [features]
 default = []
 smp = []

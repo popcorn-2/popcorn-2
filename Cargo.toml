@@ -12,6 +12,7 @@ members = [
 	"hal/hal_amd64",
 	"elf",
 	"mm/dmm/slab_allocator",
+	"macros",
 ]
 
 [profile.release]
