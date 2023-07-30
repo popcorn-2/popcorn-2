@@ -8,6 +8,7 @@ use cfg_if::cfg_if;
 // todo: fix thing
 pub type RwLock<T> = Lock<T>;
 
+#[derive(Debug)]
 pub struct Lock<T> {
 	#[cfg(feature = "smp")] locked: AtomicBool,
 	data: UnsafeCell<T>,
