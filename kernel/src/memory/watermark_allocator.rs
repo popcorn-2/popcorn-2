@@ -239,7 +239,7 @@ impl<'mem_map> WatermarkAllocatorInner<'mem_map> {
 				.find(|(_, entry)| entry.ty == MemoryType::Free)
 				.expect("Unable to find any free memory");
 		Self {
-			mem_map: &NegativeSlice::new(mem_map)[..into!(last_free_section)],
+			mem_map: &NegativeSlice::new(mem_map)[..=into!(last_free_section)],
 			prev_frame: Frame::align_down(last_free_address.coverage.end())
 		}
 	}
