@@ -23,6 +23,22 @@ use kernel_exports::sync::Lock;
 
 mod sync;
 mod io;
+mod memory;
+
+#[macro_export]
+macro_rules! usize {
+    ($stuff:expr) => {usize::try_from($stuff).unwrap()};
+}
+
+#[macro_export]
+macro_rules! u64 {
+    ($stuff:expr) => {u64::try_from($stuff).unwrap()};
+}
+
+#[macro_export]
+macro_rules! into {
+    ($stuff:expr) => {($stuff).try_into().unwrap()};
+}
 
 #[export_name = "_start"]
 extern "sysv64" fn kstart(handoff_data: utils::handoff::Data) -> ! {
