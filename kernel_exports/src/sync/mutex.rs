@@ -11,8 +11,6 @@ pub struct Mutex<T: ?Sized> {
 	data: UnsafeCell<T>,
 }
 
-unsafe impl<T: ?Sized> Sync for Mutex<T> {}
-
 impl<T> Mutex<T> {
 	pub const fn new(val: T) -> Self {
 		Self {
@@ -82,6 +80,9 @@ impl<T: ?Sized> Mutex<T> {
 	}
 }
 
+unsafe impl<T: ?Sized + Send> Send for Mutex<T> {}
+unsafe impl<T: ?Sized + Send> Sync for Mutex<T> {}
+
 pub struct Guard<'a, T: 'a + ?Sized> {
 	mutex: &'a Mutex<T>,
 	flags: Flags
@@ -112,3 +113,6 @@ impl<'a, T: 'a + ?Sized> DerefMut for Guard<'a, T> {
 		unsafe { &mut *self.mutex.data.get() }
 	}
 }
+
+impl<'a, T: ?Sized> !Send for Guard<'a, T> {}
+unsafe impl<'a, T: ?Sized + Sync + 'a> Sync for Guard<'a, T> {}

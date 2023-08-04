@@ -82,7 +82,8 @@ pub struct RwLock<T: ?Sized> {
 	data: UnsafeCell<T>,
 }
 
-unsafe impl<T: ?Sized> Sync for RwLock<T> {}
+unsafe impl<T: ?Sized + Send> Send for RwLock<T> {}
+unsafe impl<T: ?Sized + Send + Sync> Sync for RwLock<T> {}
 
 impl<T> RwLock<T> {
 	pub const fn new(val: T) -> Self {
@@ -277,3 +278,8 @@ impl<'a, T: 'a + ?Sized + core::fmt::Debug> core::fmt::Debug for WriteGuard<'a, 
 				.finish()
 	}
 }
+
+impl<'a, T: 'a + ?Sized> !Send for ReadGuard<'a, T> {}
+impl<'a, T: 'a + ?Sized> !Send for WriteGuard<'a, T> {}
+unsafe impl<'a, T: 'a + ?Sized + Sync> Sync for ReadGuard<'a, T> {}
+unsafe impl<'a, T: 'a + ?Sized + Sync> Sync for WriteGuard<'a, T> {}
