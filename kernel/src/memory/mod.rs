@@ -1,3 +1,5 @@
+use core::alloc::AllocError;
+use core::num::NonZeroUsize;
 pub use kernel_exports::memory::{Frame, Page, PhysicalAddress, VirtualAddress, PhysicalMemoryAllocator};
 
 /*use core::fmt;
@@ -69,6 +71,10 @@ impl fmt::Pointer for VirtAddr {
 */
 
 pub mod watermark_allocator;
+pub trait Allocator {
+	fn allocate_contiguous(&self, count: NonZeroUsize, alignment_log2: usize) -> Result<Frame, AllocError>;
+}
+
 //pub mod paging;
 
 /*pub mod alloc {

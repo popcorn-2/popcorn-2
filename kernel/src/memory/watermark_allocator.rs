@@ -218,8 +218,9 @@ impl<'mem_map> WatermarkAllocator<'mem_map> {
 	}
 }
 
-	pub fn allocate_contiguous(&self, page_count: NonZeroUsize, alignment_log2: usize) -> Result<Frame, AllocError> {
-		self.0.lock().allocate_contiguous(page_count, alignment_log2)
+impl<'mem_map> super::Allocator for WatermarkAllocator<'mem_map> {
+	fn allocate_contiguous(&self, page_count: NonZeroUsize, alignment_log2: usize) -> Result<Frame, AllocError> {
+		self.0.lock().map_err(|_| AllocError)?.allocate_contiguous(page_count, alignment_log2)
 	}
 }
 
