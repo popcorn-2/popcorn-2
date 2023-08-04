@@ -1,78 +1,76 @@
 use core::arch::asm;
-use core::cell::UnsafeCell;
-use core::marker::PhantomData;
-use core::ops::{Deref, DerefMut};
-#[cfg(feature = "smp")] use core::sync::atomic::{AtomicBool, Ordering};
-use cfg_if::cfg_if;
+use core::fmt::Formatter;
 
-// todo: fix thing
-pub type RwLock<T> = Lock<T>;
+mod mutex;
 
-#[derive(Debug)]
-pub struct Lock<T> {
-	#[cfg(feature = "smp")] locked: AtomicBool,
-	data: UnsafeCell<T>,
+#[cfg(feature = "smp")]
+mod rwlock;
+
+pub use mutex::Mutex;
+#[cfg(feature = "smp")]
+pub use rwlock::RwLock;
+#[cfg(not(feature = "smp"))]
+pub type RwLock<T> = Mutex<T>;
+
+pub type LockResult<Guard> = Result<Guard, PoisonError<Guard>>;
+pub type TryLockResult<Guard> = Result<Guard, TryLockError<Guard>>;
+
+pub enum TryLockError<T> {
+	Poisoned(PoisonError<T>),
+	WouldSpin
 }
 
-unsafe impl<T> Sync for Lock<T> {}
+pub struct PoisonError<T> {
+	guard: T
+}
 
-impl<T> Lock<T> {
-	pub const fn new(val: T) -> Self {
+impl<T> PoisonError<T> {
+	pub fn new(guard: T) -> Self {
 		Self {
-			#[cfg(feature = "smp")] locked: AtomicBool::new(false),
-			data: UnsafeCell::new(val)
+			guard
 		}
 	}
 
-	pub fn lock(&self) -> LockGuard<T> {
-		#[cfg(feature = "smp")] while let Err(_) = self.locked.compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Acquire) {}
+	pub fn into_inner(self) -> T { self.guard }
+	pub fn get_ref(&self) -> &T { &self.guard }
+	pub fn get_mut(&mut self) -> &mut T { &mut self.guard }
+}
 
-		let flags: u64;
-		#[cfg(not(feature = "test"))] unsafe {
-			asm!("
-						pushf
-						pop {}
-						cli
-					", out(reg) flags);
-		};
-		#[cfg(feature = "test")] { flags = 0; }
+impl<T> core::fmt::Debug for PoisonError<T> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		f.debug_struct("PoisonError").finish_non_exhaustive()
+	}
+}
 
-		LockGuard {
-			#[cfg(feature = "smp")] lock: &self.locked,
-			data: unsafe { &mut *self.data.get() },
-			flags
+impl<T> core::fmt::Display for PoisonError<T> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		"poisoned lock: another task failed inside".fmt(f)
+	}
+}
+
+impl<T> core::error::Error for PoisonError<T> {}
+
+#[derive(Clone)]
+#[repr(transparent)]
+pub struct Flags(u64);
+
+fn disable_interrupts() -> Flags {
+	let flags: u64;
+	unsafe {
+		asm!("
+			pushf
+			pop {}
+			cli
+		", out(reg) flags, options(preserves_flags, nomem))
+	}
+	Flags(flags)
+}
+
+fn reset_interrupts(flags: Flags) {
+	// todo: multiarch
+	if (flags.0 & 0x0200) != 0 {
+		unsafe {
+			asm!("sti", options(preserves_flags, nomem));
 		}
-	}
-}
-
-pub struct LockGuard<'a, T> {
-	#[cfg(feature = "smp")] lock: &'a AtomicBool,
-	data: &'a mut T,
-	flags: u64
-}
-
-impl<'a, T> Drop for LockGuard<'a, T> {
-	fn drop(&mut self) {
-		#[cfg(feature = "smp")] self.lock.store(false, Ordering::Release);
-		#[cfg(not(feature = "test"))] unsafe {
-			asm!("
-				push {}
-				popf
-			", in(reg) self.flags);
-		}
-	}
-}
-
-impl<'a, T> Deref for LockGuard<'a, T> {
-	type Target = T;
-
-	fn deref(&self) -> &Self::Target {
-		&self.data
-	}
-}
-
-impl<'a, T> DerefMut for LockGuard<'a, T> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		&mut self.data
 	}
 }
