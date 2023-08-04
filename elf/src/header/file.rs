@@ -1,9 +1,11 @@
 use core::{fmt, mem};
 use core::mem::size_of;
 use core::ops::Range;
+use debug_stub_derive::DebugStub;
 use derive_more::Display;
 use num_enum::{TryFromPrimitiveError, TryFromPrimitive};
 
+#[derive(DebugStub)]
 #[repr(C)]
 pub struct FileHeader {
 	magic: [u8; 4],
@@ -15,6 +17,7 @@ pub struct FileHeader {
 	pub file_type: Type,
 	pub isa: Isa,
 	pub elf_version: u32,
+	#[debug_stub = "..."]
 	extra: ExtraHeader
 }
 
@@ -129,6 +132,7 @@ impl<'a> TryFrom<&'a FileHeaderRaw> for &'a FileHeader {
 	}
 }
 
+/*
 impl fmt::Debug for FileHeader {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.debug_struct("FileHeader")
@@ -153,7 +157,7 @@ impl fmt::Debug for FileHeader {
 		 .finish()
 	}
 }
-
+*/
 #[repr(C)]
 union ExtraHeader {
 	pub _32: FileHeaderBit<u32>,
