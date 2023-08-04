@@ -62,8 +62,35 @@ fn kmain(mut handoff_data: utils::handoff::Data) -> ! {
 	sprintln!("Handoff data:\n{handoff_data:x?}");
 
 	/*let mut wmark = WatermarkAllocator::new(&mut handoff_data.memory.map);
+	// Split allocator system is used when a significant portion of memory is above the 4GiB boundary
+	// This allows better optimization for non-DMA allocations as well as reducing pressure on memory usable by DMA
+	// The current algorithm uses split allocators when the total amount of non-DMA memory is >= 1GiB
+	let split_allocators = if cfg!(target_pointer_width = "64") {
+		use utils::handoff::MemoryType;
+		const FOUR_GB: PhysicalAddress = PhysicalAddress(1<<32);
 
-	unsafe {
+		let bytes_over_4gb: usize = handoff_data.memory.map.iter().filter(|entry|
+			entry.ty == MemoryType::Free
+			|| entry.ty == MemoryType::AcpiReclaim
+			|| entry.ty == MemoryType::BootloaderCode
+			|| entry.ty == MemoryType::BootloaderData
+		)
+				.filter(|entry| entry.start() >= FOUR_GB)
+				.map(|entry| entry.end() - entry.start())
+				.sum();
+
+		bytes_over_4gb >= 1024*1024*1024
+	} else { false };
+	sprintln!("Split allocator: {}", if split_allocators { "enabled" } else { "disabled" });
+
+
+	let low_mem_allocator = &wmark;
+	let high_mem_allocator: &dyn Allocator = if !split_allocators { low_mem_allocator } else {
+		let high_mem_allocator: &dyn Allocator = /* todo */;
+		high_mem_allocator.chain(low_mem_allocator)
+	};
+
+	/*unsafe {
 		// SAFETY: unset a few lines below
 		memory::alloc::phys::GLOBAL_ALLOCATOR.set_unchecked(&mut wmark);
 	}
