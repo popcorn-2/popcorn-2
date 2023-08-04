@@ -71,8 +71,14 @@ impl fmt::Pointer for VirtAddr {
 */
 
 pub mod watermark_allocator;
+pub mod allocator_tools;
+
 pub trait Allocator {
 	fn allocate_contiguous(&self, count: NonZeroUsize, alignment_log2: usize) -> Result<Frame, AllocError>;
+
+	fn chain<'a, 'b>(&'a self, backup: &'b dyn Allocator) -> allocator_tools::ChainedAllocator where Self: Sized {
+		allocator_tools::ChainedAllocator::new(self, backup)
+	}
 }
 
 //pub mod paging;
