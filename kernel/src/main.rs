@@ -109,6 +109,9 @@ pub unsafe extern "Rust" fn __popcorn_module_realloc(ptr: *mut u8, layout: Layou
 	alloc::alloc::realloc(ptr, layout, new_size)
 }
 
+#[no_mangle]
+pub unsafe extern "Rust" fn __popcorn_module_is_panicking() -> bool { panicking::panicking() }
+
 mod arch {
 	use core::arch::asm;
 	use core::marker::PhantomData;

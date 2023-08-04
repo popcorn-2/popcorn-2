@@ -2,6 +2,7 @@ use core::alloc::{GlobalAlloc, Layout};
 
 extern "Rust" {
 	fn __popcorn_module_panic(info: &core::panic::PanicInfo) -> !;
+	fn __popcorn_module_is_panicking() -> bool;
 	fn __popcorn_module_alloc(layout: Layout) -> *mut u8;
 	fn __popcorn_module_dealloc(ptr: *mut u8, layout: Layout);
 	fn __popcorn_module_alloc_zeroed(layout: Layout) -> *mut u8;
@@ -11,6 +12,10 @@ extern "Rust" {
 #[cfg(all(feature = "panic", not(feature = "test")))]
 #[panic_handler]
 fn panic_handler(info: &core::panic::PanicInfo) -> ! { unsafe { __popcorn_module_panic(info) } }
+
+pub fn panicking() -> bool {
+	unsafe { __popcorn_module_is_panicking() }
+}
 
 struct KernelAllocator;
 unsafe impl GlobalAlloc for KernelAllocator {
