@@ -80,7 +80,7 @@ fn kmain(mut handoff_data: utils::handoff::Data) -> ! {
 #[cfg(not(test))]
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
-	sprintln!("{info}");
+	sprintln!("kernel {info}");
 	panicking::do_panic()
 }
 

@@ -37,6 +37,11 @@ fn stack_trace() {
 }
 
 pub(crate) fn do_panic() -> ! {
+	struct NoPayload;
+	do_panic_with(Box::new(NoPayload))
+}
+
+fn do_panic_with(payload: Box<dyn Any + Send>) -> ! {
 	#[cfg(panic = "unwind")]
 	{
 		#[cfg(not(test))]
@@ -58,4 +63,12 @@ pub(crate) fn do_panic() -> ! {
 
 	#[cfg(not(panic = "unwind"))]
 	loop {}
+}
+
+pub(crate) fn panicking() -> bool {
+	PANIC_COUNT.load(Ordering::Acquire) >= 1
+}
+
+pub(crate) fn resume_unwind(payload: Box<dyn Any + Send>) -> ! {
+	do_panic_with(payload)
 }
