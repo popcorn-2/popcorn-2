@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use core::any::Any;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use unwinding::abi::UnwindReasonCode;
 use unwinding::panic::catch_unwind as catch_unwind_impl;
 use crate::sprintln;
 
@@ -54,9 +55,12 @@ fn do_panic_with(payload: Box<dyn Any + Send>) -> ! {
 			loop {}
 		} else {
 			// new unwind
-			struct NoPayload;
-			let code = unwinding::panic::begin_panic(Box::new(NoPayload));
-			sprintln!("FATAL: failed to panic, error {}", code.0);
+			let code = unwinding::panic::begin_panic(payload);
+			if code == UnwindReasonCode::END_OF_STACK {
+				sprintln!("FATAL: aborting");
+			} else {
+				sprintln!("FATAL: failed to panic, error {}", code.0);
+			}
 			loop {}
 		}
 	}
