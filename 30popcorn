@@ -1,0 +1,25 @@
+#!/bin/sh
+# Detects Popcorn Boot Manager on a EFI System Partition
+
+. /usr/share/os-prober/common.sh
+
+efi="$1"
+
+found=
+for popcorn in $(item_in_dir popcorn "$efi"); do
+	bootmgr=$(item_in_dir uwave.efi "$efi/$popcorn")
+	if [ -n "$bootmgr" ]; then
+		long="Popcorn Boot Manager"
+		short=Popcorn
+		path="$popcorn/$bootmgr"
+		found=true
+		break
+	fi
+done
+
+
+if [ -n "$found" ]; then
+	label="$(count_next_label "$short")"
+	result "${path}:${long}:${label}"
+fi
+exit 0
