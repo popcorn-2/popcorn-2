@@ -15,11 +15,20 @@ pub struct Frame {
 }
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub struct PhysicalAddress(pub usize);
+
+impl core::ops::Sub<PhysicalAddress> for PhysicalAddress {
+	type Output = usize;
+
+	fn sub(self, rhs: PhysicalAddress) -> Self::Output {
+		self.0 - rhs.0
+	}
+}
+
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub struct VirtualAddress(pub usize);
 
 impl Frame {
-	pub fn try_new(PhysicalAddress(addr): PhysicalAddress) -> Result<Frame, AlignError> {
+	pub const fn try_new(PhysicalAddress(addr): PhysicalAddress) -> Result<Frame, AlignError> {
 		if addr == (addr & !0xfff) { Ok(Frame{ number: addr / 4096 }) }
 		else { Err(AlignError) }
 	}
