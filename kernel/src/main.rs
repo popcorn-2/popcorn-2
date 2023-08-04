@@ -21,7 +21,10 @@ use core::fmt::Write;
 use core::panic::PanicInfo;
 use core::ptr::slice_from_raw_parts_mut;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use kernel_exports::sync::Lock;
+use kernel_exports::memory::PhysicalAddress;
+use kernel_exports::sync::Mutex;
+use crate::memory::Allocator;
+use crate::memory::watermark_allocator::WatermarkAllocator;
 
 mod sync;
 mod io;
@@ -174,12 +177,12 @@ mod arch {
 }
 
 #[global_allocator]
-static Allocator: Foo = Foo(Lock::new(FooInner {
+static Allocator: Foo = Foo(Mutex::new(FooInner {
 	buffer: [0; 20],
 	used: false,
 }));
 
-struct Foo(Lock<FooInner>);
+struct Foo(Mutex<FooInner>);
 
 struct FooInner {
 	buffer: [u64; 20],
@@ -188,7 +191,7 @@ struct FooInner {
 
 unsafe impl GlobalAlloc for Foo {
 	unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-		let mut this = self.0.lock();
+		let mut this = self.0.lock().unwrap();
 		if this.used { core::ptr::null_mut() }
 		else if layout.size() > (this.buffer.len() * 8) || layout.align() > 8 { core::ptr::null_mut() }
 		else {
@@ -198,7 +201,7 @@ unsafe impl GlobalAlloc for Foo {
 	}
 
 	unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-		self.0.lock().used = false;
+		self.0.lock().unwrap().used = false;
 	}
 
 	/*unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {

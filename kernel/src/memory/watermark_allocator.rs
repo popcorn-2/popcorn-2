@@ -1,6 +1,6 @@
 use core::alloc::AllocError;
 use core::num::NonZeroUsize;
-use kernel_exports::sync::Lock;
+use kernel_exports::sync::Mutex;
 use super::{Frame};
 use utils::handoff::{MemoryMapEntry, MemoryType};
 use crate::{into};
@@ -210,11 +210,13 @@ mod negative_slice {
 }
 
 #[derive(Debug)]
-pub struct WatermarkAllocator<'mem_map>(Lock<WatermarkAllocatorInner<'mem_map>>);
+pub struct WatermarkAllocator<'mem_map>(Mutex<WatermarkAllocatorInner<'mem_map>>);
 
 impl<'mem_map> WatermarkAllocator<'mem_map> {
 	pub fn new<E: AsRef<[MemoryMapEntry]> + ?Sized>(mem_map: &'mem_map E) -> Self {
 		Self(Lock::new(WatermarkAllocatorInner::new(mem_map)))
+	}
+		Self(Mutex::new(WatermarkAllocatorInner::new(mem_map)))
 	}
 
 	pub fn allocate_contiguous(&self, page_count: NonZeroUsize, alignment_log2: usize) -> Result<Frame, AllocError> {

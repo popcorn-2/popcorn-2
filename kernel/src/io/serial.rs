@@ -1,13 +1,14 @@
 use core::fmt::{self, Write};
 use bitflags::{bitflags, Flags};
-use kernel_exports::sync::Lock;
+use kernel_exports::sync::Mutex;
 use crate::arch::Port;
 use crate::sync::late_init::LateInit;
 
-pub static SERIAL0: Lock<LateInit<SerialPort>> = Lock::new(LateInit::new());
+pub static SERIAL0: Mutex<LateInit<SerialPort>> = Mutex::new(LateInit::new());
 
 pub fn init_serial0() -> Result<(), Error> {
-	SERIAL0.lock().init(unsafe { SerialPort::new(0x3f8) }? );
+	SERIAL0.lock().unwrap()
+			.init(unsafe { SerialPort::new(0x3f8) }? );
 	Ok(())
 }
 
@@ -146,7 +147,7 @@ impl fmt::Display for Error {
 
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
-	SERIAL0.lock().write_fmt(args).unwrap();
+	SERIAL0.lock().unwrap().write_fmt(args).unwrap();
 }
 
 #[macro_export]

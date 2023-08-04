@@ -9,7 +9,7 @@ edition = "2021"
 bitflags = { version = "2.3.1", features = [] }
 log = "0.4.17"
 utils = { path = "../utils" }
-kernel_exports = { path = "../kernel_exports", default-features = false }
+kernel_exports = { path = "../kernel_exports", default-features = false, features = ["smp"] }
 derive_more = "0.99.17"
 spin = { version = "0.9.8", default-features = false, features = ["rwlock"] }
 
