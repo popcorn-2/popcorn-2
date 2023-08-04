@@ -214,10 +214,9 @@ pub struct WatermarkAllocator<'mem_map>(Mutex<WatermarkAllocatorInner<'mem_map>>
 
 impl<'mem_map> WatermarkAllocator<'mem_map> {
 	pub fn new<E: AsRef<[MemoryMapEntry]> + ?Sized>(mem_map: &'mem_map E) -> Self {
-		Self(Lock::new(WatermarkAllocatorInner::new(mem_map)))
-	}
 		Self(Mutex::new(WatermarkAllocatorInner::new(mem_map)))
 	}
+}
 
 	pub fn allocate_contiguous(&self, page_count: NonZeroUsize, alignment_log2: usize) -> Result<Frame, AllocError> {
 		self.0.lock().allocate_contiguous(page_count, alignment_log2)

@@ -68,17 +68,17 @@ SECTIONS {
 		*(.rodata .rodata.*)
 	}
 
-	.eh_frame_hdr :
-	{
-	    *(.eh_frame_hdr .eh_frame_hdr.*)
-	} :gnu_eh_frame :rodata
+    .eh_frame_hdr :
+    {
+        *(.eh_frame_hdr .eh_frame_hdr.*)
+    } :gnu_eh_frame :rodata
 
     . = ALIGN(8);
     PROVIDE(__eh_frame = .);
-	.eh_frame :
-	{
-	    *(.eh_frame .eh_frame.*)
-	} :rodata
+    .eh_frame :
+    {
+        *(.eh_frame .eh_frame.*)
+    } :rodata
 
 	. = ALIGN(4K);
     .text :
