@@ -13,7 +13,7 @@ pub fn test_should_panic(_attr: TokenStream, item: TokenStream) -> TokenStream {
 			#func
 
 			match crate::panicking::catch_unwind(#ident) {
-				Ok(_) => crate::sprintln!("[FAILED]"),
+				Ok(_) => panic!("Test did not panic"),
 				Err(_) => {}
 			}
 		}
