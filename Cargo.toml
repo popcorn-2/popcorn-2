@@ -13,6 +13,7 @@ members = [
 	"elf",
 	"mm/dmm/slab_allocator",
 	"macros",
+	"symbol_formatter",
 ]
 
 [profile.release]
