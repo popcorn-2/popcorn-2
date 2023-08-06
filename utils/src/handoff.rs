@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 use core::fmt::{Formatter, Pointer};
+use core::ptr::NonNull;
 use kernel_exports::memory::{Frame, PhysicalAddress, PhysicalMemoryAllocator};
 
 #[derive(Debug)]
@@ -91,7 +92,9 @@ impl core::fmt::Debug for Modules {
 
 #[derive(Debug)]
 #[repr(C)]
-pub struct Logging;
+pub struct Logging {
+	pub symbol_map: Option<NonNull<[u8]>>
+}
 
 #[repr(C)]
 pub struct Testing {

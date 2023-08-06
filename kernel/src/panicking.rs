@@ -3,14 +3,49 @@ use core::any::Any;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use unwinding::abi::UnwindReasonCode;
 use unwinding::panic::catch_unwind as catch_unwind_impl;
+use kernel_exports::sync::RwLock;
 use crate::sprintln;
 
 static PANIC_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static SYMBOL_MAP: RwLock<Option<&'static [u8]>> = RwLock::new(None);
 
 pub fn catch_unwind<R, F: FnOnce() -> R>(f: F) -> Result<R, Box<dyn Any + Send>> {
 	let res = catch_unwind_impl(f);
 	PANIC_COUNT.store(0, Ordering::Relaxed);
 	res
+}
+
+fn get_symbol_name(ip: usize) -> &'static str {
+	struct SymbolMapIterator(usize, &'static [u8]);
+
+	impl Iterator for SymbolMapIterator {
+		type Item = (usize, &'static str);
+
+		fn next(&mut self) -> Option<Self::Item> {
+			let original_idx = self.0;
+			if original_idx == self.1.len() { return None; }
+			let mut idx = original_idx;
+			while self.1[idx] != b'\n' { idx += 1; }
+
+			let data = core::str::from_utf8(&self.1[original_idx..idx]).unwrap();
+			let (addr, name) = data.split_once(" ").unwrap();
+			let addr = usize::from_str_radix(addr, 16).unwrap();
+
+			self.0 = idx + 1;
+
+			Some((addr, name))
+		}
+	}
+
+	if SYMBOL_MAP.read().unwrap().is_none() { return "<no symbols>"; }
+
+	let iter = SymbolMapIterator(0, SYMBOL_MAP.read().unwrap().unwrap());
+	let mut sym_name = "<unknown>";
+	for (sym_addr, name) in iter {
+		if sym_addr > ip { break; }
+		else { sym_name = name; }
+	}
+	return sym_name;
 }
 
 fn stack_trace() {
@@ -26,10 +61,12 @@ fn stack_trace() {
 	) -> UnwindReasonCode {
 		let data = unsafe { &mut *(arg as *mut CallbackData) };
 		data.counter += 1;
+		let ip = _Unwind_GetIP(unwind_ctx);
 		sprintln!(
-			"{:4}:{:#19x} - <unknown>",
+			"{:4}:{:#19x} - {}",
 			data.counter,
-			_Unwind_GetIP(unwind_ctx)
+			ip,
+			get_symbol_name(ip)
 		);
 		UnwindReasonCode::NO_REASON
 	}

@@ -47,7 +47,7 @@ use core::ffi::CStr;
 use core::mem::{align_of, discriminant, size_of};
 use core::ops::{Deref, DerefMut};
 use core::panic::PanicInfo;
-use core::ptr::slice_from_raw_parts;
+use core::ptr::{NonNull, slice_from_raw_parts};
 use hashbrown::HashMap;
 use more_asserts::assert_lt;
 use uefi::{CString16, Error};
@@ -183,6 +183,13 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
 
         // =========== test code using kernel from efi part ===========
+
+    let symbol_map = fs.read(Path::new(cstr16!(r"\EFI\POPCORN\symbols.map")))
+            .ok().map(|v| {
+                debug!("{:x?}", &v[0..10]);
+                let p = alloc::boxed::Box::into_raw(v.into_boxed_slice());
+                unsafe { NonNull::new_unchecked(p) }
+            });
 
     let modules = config.kernel_config.modules.into_iter().map(CString16::try_from)
             .map(|r| r.map(PathBuf::from))
@@ -455,7 +462,9 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         modules: handoff::Modules {
 	        phys_allocator_start: unsafe { mem::transmute(testing_fn) }
         },
-        log: handoff::Logging,
+        log: handoff::Logging {
+            symbol_map
+        },
         test: handoff::Testing {
             module_func: unsafe { mem::transmute(testing_fn) }
         }

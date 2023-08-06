@@ -83,6 +83,8 @@ fn kmain(mut handoff_data: utils::handoff::Data) -> ! {
 	} else { false };
 	sprintln!("Split allocator: {}", if split_allocators { "enabled" } else { "disabled" });
 
+	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| ptr.as_ref()) };
+	*panicking::SYMBOL_MAP.write().unwrap() = map;
 
 	let low_mem_allocator = &wmark;
 	let high_mem_allocator: &dyn Allocator = if !split_allocators { low_mem_allocator } else {
