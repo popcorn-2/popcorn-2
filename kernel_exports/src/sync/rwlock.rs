@@ -96,6 +96,8 @@ impl<T> RwLock<T> {
 }
 
 impl<T: ?Sized> RwLock<T> {
+	pub fn unpoison(&self) { self.poisoned.store(false, Ordering::Release); }
+
 	unsafe fn poison(&self) {
 		self.poisoned.store(true, Ordering::Release);
 	}

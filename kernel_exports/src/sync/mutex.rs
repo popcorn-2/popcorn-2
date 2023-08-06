@@ -22,6 +22,8 @@ impl<T> Mutex<T> {
 }
 
 impl<T: ?Sized> Mutex<T> {
+	pub fn unpoison(&self) { self.poisoned.store(false, Ordering::Release); }
+
 	unsafe fn poison(&self) {
 		self.poisoned.store(true, Ordering::Release);
 	}
