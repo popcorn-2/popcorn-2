@@ -4,6 +4,7 @@ rustflags = [
     "-C", "link-args=-export-dynamic",
     "-Z", "export-executable-symbols=on",
     "-C", "relocation-model=static",
+    "-C", "symbol-mangling-version=v0"
 ]
 
 [unstable]
