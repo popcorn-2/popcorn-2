@@ -264,6 +264,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
                         })
                         .map_err(|e| match e {
                             MapError::AlreadyMapped => unreachable!(),
+                            MapError::SelfMapOverwrite => panic!("Attempted to overwrite page table self map"),
                             MapError::AllocationError(_) => ModuleLoadError::Oom
                         })?;
 

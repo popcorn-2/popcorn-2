@@ -23,11 +23,15 @@ pub struct Frame(pub u64);
 pub struct PageTable(&'static mut Table<Level4>);
 
 impl PageTable {
+	const SELF_MAP_INDEX: usize = 127;
+
 	pub unsafe fn try_new<E, F: FnOnce() -> Result<u64, E>>(allocate: F) -> Result<PageTable, E> {
-		let table = allocate()? as *mut MaybeUninit<Table<Level4>>;
-		assert!(table.is_aligned() && !table.is_null());
-		let table = &mut *table;
-		Ok(PageTable(table.write(Table::new())))
+		let table_ptr = allocate()? as *mut MaybeUninit<Table<Level4>>;
+		assert!(table_ptr.is_aligned() && !table_ptr.is_null());
+		let table = &mut *table_ptr;
+		let table = table.write(Table::new());
+		table[Self::SELF_MAP_INDEX].set_pointed_frame(Frame(table_ptr as u64), TableEntryFlags::SELF_MAP | TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE).unwrap();
+		Ok(PageTable(table))
 	}
 
 	pub fn try_map_page<E, F: Fn() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, allocate: F) -> Result<(),MapError<E>> {
@@ -37,7 +41,7 @@ impl PageTable {
 
 	pub fn try_map_page_with<E, F: Fn() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, allocate: F, flags: TableEntryFlags) -> Result<(),MapError<E>> {
 		//info!("map {page:x?} to {frame:x?}");
-
+		if page.l4_index() == Self::SELF_MAP_INDEX.try_into().unwrap() { return Err(MapError::SelfMapOverwrite); }
 		let entry = self.0.try_get_or_create_child_table(page.l4_index().try_into().unwrap(), &allocate)?
 			.try_get_or_create_child_table(page.l3_index().try_into().unwrap(), &allocate)?
 			.try_get_or_create_child_table(page.l2_index().try_into().unwrap(), &allocate)?
@@ -70,6 +74,7 @@ impl Into<kernel_exports::memory::Frame> for PageTable {
 #[derive(Debug, Copy, Clone)]
 pub enum MapError<E> {
 	AlreadyMapped,
+	SelfMapOverwrite,
 	AllocationError(E)
 }
 
@@ -79,6 +84,7 @@ impl<E> From<E> for MapError<E> {
 	}
 }
 
+#[derive(Debug)]
 #[repr(C)]
 struct Table<Level: TableLevel>([TableEntry; 512], PhantomData<Level>);
 
@@ -126,9 +132,13 @@ impl<Level: TableLevel> IndexMut<usize> for Table<Level> {
 	}
 }
 
+#[derive(Debug)]
 enum Level4 {}
+#[derive(Debug)]
 enum Level3 {}
+#[derive(Debug)]
 enum Level2 {}
+#[derive(Debug)]
 enum Level1 {}
 
 trait TableLevel {
@@ -146,12 +156,22 @@ impl ParentTableLevel for Level4 { type Child = Level3; }
 impl ParentTableLevel for Level3 { type Child = Level2; }
 impl ParentTableLevel for Level2 { type Child = Level1; }
 
-#[derive(Debug)]
 #[repr(C)]
 struct TableEntry(u64);
 
+impl fmt::Debug for TableEntry {
+	fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
+		let f = self.pointed_frame();
+		let flags = self.flags();
+		fmt.debug_struct("TableEntry")
+				.field("frame", &f)
+				.field("flags", &flags)
+				.finish()
+	}
+}
+
 bitflags! {
-	#[derive(Copy, Clone)]
+	#[derive(Copy, Clone, Debug)]
 	pub struct TableEntryFlags: u64 {
 		const PRESENT =         1 << 0;
         const WRITABLE =        1 << 1;
@@ -165,6 +185,7 @@ bitflags! {
         const NO_EXECUTE =      1 << 63;
 
 		const UEFI_USED =       1 << 9;
+		const SELF_MAP =        1 << 10;
 
 		const PERMISSIVE =      Self::WRITABLE.bits() | Self::USER_ACCESSIBLE.bits();
 		const MMIO =            Self::WRITE_THROUGH.bits() | Self::NO_CACHE.bits();
