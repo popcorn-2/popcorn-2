@@ -16,34 +16,41 @@ pub fn catch_unwind<R, F: FnOnce() -> R>(f: F) -> Result<R, Box<dyn Any + Send>>
 }
 
 fn get_symbol_name(ip: usize) -> &'static str {
-	struct SymbolMapIterator(usize, &'static [u8]);
+	struct SymbolMapIterator {
+		index: usize,
+		str: &'static [u8]
+	}
 
 	impl Iterator for SymbolMapIterator {
 		type Item = (usize, &'static str);
 
 		fn next(&mut self) -> Option<Self::Item> {
-			let original_idx = self.0;
-			if original_idx == self.1.len() { return None; }
+			let original_idx = self.index;
+			if original_idx == self.str.len() { return None; }
+
 			let mut idx = original_idx;
-			while self.1[idx] != b'\n' { idx += 1; }
+			while self.str[idx] != b'\n' { idx += 1; }
 
-			let data = core::str::from_utf8(&self.1[original_idx..idx]).unwrap();
-			let (addr, name) = data.split_once(" ").unwrap();
-			let addr = usize::from_str_radix(addr, 16).unwrap();
+			let data = core::str::from_utf8(&self.str[original_idx..idx]).ok()?;
+			let addr = &data[0..16];
+			let name = &data[19..];
+			let addr = usize::from_str_radix(addr, 16).ok()?;
 
-			self.0 = idx + 1;
+			self.index = idx + 1;
 
 			Some((addr, name))
 		}
 	}
 
-	if SYMBOL_MAP.read().unwrap().is_none() { return "<no symbols>"; }
-
-	let iter = SymbolMapIterator(0, SYMBOL_MAP.read().unwrap().unwrap());
+	let Some(map) = *SYMBOL_MAP.read().unwrap() else { return "<no symbols>"; };
+	let iter = SymbolMapIterator {
+		index: 0,
+		str: map
+	};
 	let mut sym_name = "<unknown>";
 	for (sym_addr, name) in iter {
 		if sym_addr > ip { break; }
-		else { sym_name = name; }
+		else if sym_addr != 0 { sym_name = name; }
 	}
 	return sym_name;
 }
