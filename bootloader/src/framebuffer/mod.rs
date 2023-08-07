@@ -242,7 +242,7 @@ impl<'a> FontFamily<'a> {
 		}
 	}
 
-	fn get_font_for_style(&self, style: FontStyle) -> &dyn PsfFont {
+	fn get_font_for_style(&self, style: FontStyle) -> &'a dyn PsfFont {
 		match self.get_available_style(style) {
 			FontStyle::Regular => self.regular,
 			FontStyle::Bold => self.bold.unwrap(),
@@ -292,45 +292,13 @@ impl IndexMut<(usize, usize)> for PixelBuffer {
 	}
 }
 
-enum Direction { Left, Right }
-
-#[derive(Debug)]
-pub struct Location(pub usize, pub usize);
-
-impl Location {
-	fn newline<F: FnOnce()>(&mut self, char_height: usize, fb_height: usize, shift_up: F) {
-		let new_y = self.1 + char_height + 1;
-		if new_y + char_height >= fb_height { // If any part of the next line is offscreen
-			shift_up();
-		} else {
-			self.1 += char_height + 1;
-		}
-		self.0 = 0;
-	}
-
-	fn advance<F: FnOnce()>(&mut self, advance: isize, char_width: usize, char_height: usize, fb_width: usize, fb_height: usize, shift_up: F) {
-		let direction = if advance >= 0 { Direction::Right } else { Direction::Left };
-		let advance_pixels = advance.unsigned_abs() * (char_width + 1);
-
-		match direction {
-			Direction::Left => self.0 = self.0.saturating_sub(advance_pixels),
-			Direction::Right => {
-				self.0 += advance_pixels;
-				if (self.0 + char_width) > fb_width {
-					self.newline(char_height, fb_height, shift_up);
-				}
-			}
-		}
-	}
-}
-
 pub struct Tui<'a, 'b> {
 	width: usize,
 	height: usize,
 	double_buffer: PixelBuffer,
 	gop: &'a mut GraphicsOutput,
 	font: FontFamily<'b>,
-	location: Location,
+	location: (usize, usize),
 	color: BltPixel,
 	current_style: FontStyle
 }
@@ -376,7 +344,7 @@ impl<'a, 'b> Tui<'a, 'b> {
 			double_buffer: PixelBuffer(double_buffer_backing.into_boxed_slice(), width),
 			gop,
 			font,
-			location: Location(0, 0),
+			location: (0, 0),
 			color: BltPixel::new(0xee, 0xee, 0xee),
 			current_style: FontStyle::Regular
 		}
@@ -401,6 +369,49 @@ impl<'a, 'b> Tui<'a, 'b> {
 	pub fn set_font_color(&mut self, r: u8, g: u8, b: u8) {
 		self.color = BltPixel::new(r, g, b);
 	}
+
+	fn shift_up(&mut self) {
+		let font = self.font.get_font_for_style(self.current_style);
+		let char_height = font.char_height();
+
+		self.double_buffer.0.rotate_right(self.width * (self.height - char_height - 1));
+		for i in &mut self.double_buffer.0[self.width * (self.height - char_height - 1)..self.width * self.height] {
+			*i = BltPixel::new(0,0,0);
+		}
+	}
+
+	fn newline(&mut self) {
+		let font = self.font.get_font_for_style(self.current_style);
+		let char_height = font.char_height();
+
+		let new_y = self.location.1 + char_height + 1;
+		if new_y + char_height >= self.height { // If any part of the next line is offscreen
+			self.shift_up();
+		} else {
+			self.location.1 += char_height + 1;
+		}
+		self.location.0 = 0;
+	}
+
+	fn advance(&mut self, n: isize) {
+		enum Direction { Left, Right }
+
+		let font = self.font.get_font_for_style(self.current_style);
+		let char_width = font.char_width();
+
+		let direction = if n >= 0 { Direction::Right } else { Direction::Left };
+		let advance_pixels = n.unsigned_abs() * (char_width + 1);
+
+		match direction {
+			Direction::Left => self.location.0 = self.location.0.saturating_sub(advance_pixels),
+			Direction::Right => {
+				self.location.0 += advance_pixels;
+				if (self.location.0 + char_width) > self.width {
+					self.newline();
+				}
+			}
+		}
+	}
 }
 
 impl<'a, 'b> fmt::Write for Tui<'a, 'b> {
@@ -408,26 +419,13 @@ impl<'a, 'b> fmt::Write for Tui<'a, 'b> {
 		let font = self.font.get_font_for_style(self.current_style);
 		let (char_width, char_height) = (font.char_width(), font.char_height());
 
-		let mut flush = false;
-
 		for c in s.chars() {
 			match c {
 				'\n' => {
-					self.location.newline(char_height, self.height, || {
-						self.double_buffer.0.rotate_right(self.width * (self.height - char_height - 1));
-						for i in &mut self.double_buffer.0[self.width * (self.height - char_height - 1)..self.width * self.height] {
-							*i = BltPixel::new(0,0,0);
-						}
-					});
-
-					flush = true;
+					self.newline();
+					self.flush().map_err(|_| fmt::Error)?;
 				},
-				'\t' => self.location.advance(4, char_width, char_height, self.width, self.height, || {
-					self.double_buffer.0.rotate_right(self.width * (self.height - char_height - 1));
-					for i in &mut self.double_buffer.0[self.width * (self.height - char_height - 1)..self.height * self.width] {
-						*i = BltPixel::new(0,0,0);
-					}
-				}),
+				'\t' => self.advance(4),
 				c => {
 					let c = font.locate_char(c).map_err(|_| fmt::Error)?;
 
@@ -438,17 +436,10 @@ impl<'a, 'b> fmt::Write for Tui<'a, 'b> {
 						}
 					}
 
-					self.location.advance(1, char_width, char_height, self.width, self.height, || {
-						self.double_buffer.0.rotate_right(self.width * (self.height - char_height - 1));
-						for i in &mut self.double_buffer.0[self.width * (self.height - char_height - 1)..self.width * self.height] {
-							*i = BltPixel::new(0,0,0);
-						}
-					});
+					self.advance(1);
 				}
 			}
 		}
-
-		if flush { self.flush().map_err(|_| fmt::Error)?; }
 
 		Ok(())
 	}

@@ -86,6 +86,12 @@ fn kmain(mut handoff_data: utils::handoff::Data) -> ! {
 	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| ptr.as_ref()) };
 	*panicking::SYMBOL_MAP.write().unwrap() = map;
 
+	{
+		let wmark = WatermarkAllocator::new(&handoff_data.memory.map);
+		// SAFETY: We `take()` the allocator at the end of this block, so the allocator is "static" for the time in between
+		let static_wmark = unsafe { mem::transmute::<&dyn Allocator, &'static dyn Allocator>(&wmark) };
+		memory::alloc::phys::GLOBAL_HIGH_MEM_ALLOCATOR.set(static_wmark);
+
 	let low_mem_allocator = &wmark;
 	let high_mem_allocator: &dyn Allocator = if !split_allocators { low_mem_allocator } else {
 		let high_mem_allocator: &dyn Allocator = /* todo */;
