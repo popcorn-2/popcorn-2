@@ -1,8 +1,7 @@
-use core::cell::UnsafeCell;
 use core::fmt::Write;
 use core::mem;
 use core::ptr::NonNull;
-use log::{Level, LevelFilter, Log, Metadata, Record, SetLoggerError};
+use log::{Level, Log, Metadata, Record, SetLoggerError};
 use crate::framebuffer::FontStyle;
 
 pub trait FormatWrite: Write {
@@ -39,7 +38,7 @@ impl Log for Logger {
 	fn log(&self, record: &Record) {
 		unsafe {
 			if let Some(mut uart) = self.uart {
-				let mut uart = uart.as_mut();
+				let uart = uart.as_mut();
 				let _ = writeln!(uart, "{}: {}", record.level(), record.args());//.unwrap();
 			}
 
@@ -51,7 +50,7 @@ impl Log for Logger {
 					Level::Info => { ui.set_color(colors::INFO); "I" },
 					_ => { ui.set_color(colors::DEBUG); "D" }
 				};
-				write!(ui, "[{}] ", prefix).unwrap();
+				write!(ui, "[{prefix}] ").unwrap();
 				ui.set_color(colors::DEBUG);
 				writeln!(ui, "{}", record.args()).unwrap();
 			}

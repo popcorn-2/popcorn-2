@@ -210,11 +210,11 @@ mod negative_slice {
 }
 
 #[derive(Debug)]
-pub struct WatermarkAllocator<'mem_map>(Mutex<WatermarkAllocatorInner<'mem_map>>);
+pub struct WatermarkAllocator<'mem_map>(Mutex<Inner<'mem_map>>);
 
 impl<'mem_map> WatermarkAllocator<'mem_map> {
 	pub fn new<E: AsRef<[MemoryMapEntry]> + ?Sized>(mem_map: &'mem_map E) -> Self {
-		Self(Mutex::new(WatermarkAllocatorInner::new(mem_map)))
+		Self(Mutex::new(Inner::new(mem_map)))
 	}
 }
 
@@ -225,12 +225,12 @@ impl<'mem_map> super::Allocator for WatermarkAllocator<'mem_map> {
 }
 
 #[derive(Debug)]
-pub struct WatermarkAllocatorInner<'mem_map> {
+pub struct Inner<'mem_map> {
 	mem_map: &'mem_map NegativeSlice<MemoryMapEntry>,
 	prev_frame: Frame
 }
 
-impl<'mem_map> WatermarkAllocatorInner<'mem_map> {
+impl<'mem_map> Inner<'mem_map> {
 	fn current_area(&self) -> &'mem_map MemoryMapEntry {
 		&self.mem_map[-1]
 	}
@@ -254,17 +254,16 @@ impl<'mem_map> WatermarkAllocatorInner<'mem_map> {
 
 		loop {
 			if test_frame.start() >= self.current_area().coverage.start() { break; }
-			else {
-				loop {
-					self.mem_map = &self.mem_map[..-1];
-					if self.mem_map.0.len() == 0 { return Err(AllocError); }
 
-					if self.current_area().ty == MemoryType::Free { break; }
-				}
-				let end_frame = Frame::align_down(self.current_area().end());
-				test_frame = end_frame.checked_sub(page_count.get())
-				                      .ok_or(AllocError)?;
+			loop {
+				self.mem_map = &self.mem_map[..-1];
+				if self.mem_map.0.is_empty() { return Err(AllocError); }
+
+				if self.current_area().ty == MemoryType::Free { break; }
 			}
+			let end_frame = Frame::align_down(self.current_area().end());
+			test_frame = end_frame.checked_sub(page_count.get())
+			                      .ok_or(AllocError)?;
 		}
 
 		self.prev_frame = test_frame;

@@ -1,13 +1,9 @@
-use alloc::borrow::ToOwned;
-use alloc::boxed::Box;
-use alloc::string::String;
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 use serde::{Deserialize, Deserializer};
 use serde::de::Error;
-use uefi::{CStr16, CString16, Guid};
-use uefi::data_types::FromStrError;
-use uefi::fs::{Path, PathBuf};
+use uefi::{CString16, Guid};
+use uefi::fs::PathBuf;
 
 #[derive(Deserialize, Debug)]
 pub struct Config<'a> {

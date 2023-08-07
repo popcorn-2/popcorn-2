@@ -14,13 +14,12 @@ extern crate alloc;
 extern crate unwinding;
 
 use core::alloc::{GlobalAlloc, Layout};
-use core::cell::{Cell, RefCell};
 use crate::io::serial;
-use crate::io::serial::SERIAL0;
 use core::fmt::Write;
+use core::mem;
+use core::num::NonZeroUsize;
 use core::panic::PanicInfo;
 use core::ptr::slice_from_raw_parts_mut;
-use core::sync::atomic::{AtomicUsize, Ordering};
 use kernel_exports::memory::PhysicalAddress;
 use kernel_exports::sync::Mutex;
 use crate::memory::Allocator;
@@ -61,7 +60,6 @@ extern "sysv64" fn kstart(handoff_data: utils::handoff::Data) -> ! {
 fn kmain(mut handoff_data: utils::handoff::Data) -> ! {
 	sprintln!("Handoff data:\n{handoff_data:x?}");
 
-	/*let mut wmark = WatermarkAllocator::new(&mut handoff_data.memory.map);
 	// Split allocator system is used when a significant portion of memory is above the 4GiB boundary
 	// This allows better optimization for non-DMA allocations as well as reducing pressure on memory usable by DMA
 	// The current algorithm uses split allocators when the total amount of non-DMA memory is >= 1GiB
@@ -107,7 +105,7 @@ fn kmain(mut handoff_data: utils::handoff::Data) -> ! {
 
 	if let Some(fb) = handoff_data.framebuffer {
 		let size = fb.stride * fb.height;
-		for pixel in unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.cast::<u32>(), size) }.iter_mut() {
+		for pixel in unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.cast::<u32>(), size) } {
 			*pixel = 0xeeeeee;
 		}
 	}
@@ -123,7 +121,7 @@ fn panic_handler(info: &PanicInfo) -> ! {
 }
 
 #[no_mangle]
-pub fn __popcorn_module_panic(info: &PanicInfo) -> ! {
+pub extern "Rust" fn __popcorn_module_panic(info: &PanicInfo) -> ! {
 	panic!("Panic from module: {info}");
 }
 
@@ -134,7 +132,7 @@ pub unsafe extern "Rust" fn __popcorn_module_alloc(layout: Layout) -> *mut u8 {
 
 #[no_mangle]
 pub unsafe extern "Rust" fn __popcorn_module_dealloc(ptr: *mut u8, layout: Layout) {
-	alloc::alloc::dealloc(ptr, layout)
+	alloc::alloc::dealloc(ptr, layout);
 }
 
 #[no_mangle]
@@ -159,7 +157,7 @@ mod arch {
 	impl PortWidth for u16 {}
 	impl PortWidth for u32 {}
 
-	#[derive(Debug, Copy, Clone)]
+	#[derive(Debug)]
 	pub struct Port<T>(u16, PhantomData<T>) where T: PortWidth;
 
 	impl<T> Port<T> where T: PortWidth {
@@ -212,7 +210,7 @@ mod arch {
 }
 
 #[global_allocator]
-static Allocator: Foo = Foo(Mutex::new(FooInner {
+static ALLOCATOR: Foo = Foo(Mutex::new(FooInner {
 	buffer: [0; 20],
 	used: false,
 }));
@@ -227,11 +225,10 @@ struct FooInner {
 unsafe impl GlobalAlloc for Foo {
 	unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
 		let mut this = self.0.lock().unwrap();
-		if this.used { core::ptr::null_mut() }
-		else if layout.size() > (this.buffer.len() * 8) || layout.align() > 8 { core::ptr::null_mut() }
+		if this.used || layout.size() > (this.buffer.len() * 8) || layout.align() > 8 { core::ptr::null_mut() }
 		else {
 			this.used = true;
-			(&mut this.buffer).as_mut_ptr().cast()
+			this.buffer.as_mut_ptr().cast()
 		}
 	}
 

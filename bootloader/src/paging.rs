@@ -1,9 +1,8 @@
 use core::arch::asm;
-use core::fmt;
-use core::fmt::Formatter;
+use core::{fmt, ptr};
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
-use core::ops::{Index, IndexMut};
+use core::ops;
 use bitflags::{bitflags, Flags};
 use log::info;
 
@@ -35,17 +34,15 @@ impl PageTable {
 	}
 
 	pub fn try_map_page<E, F: Fn() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, allocate: F) -> Result<(),MapError<E>> {
-		//info!("map {page:x?} to {frame:x?}");
 		self.try_map_page_with(page, frame, allocate, TableEntryFlags::empty())
 	}
 
 	pub fn try_map_page_with<E, F: Fn() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, allocate: F, flags: TableEntryFlags) -> Result<(),MapError<E>> {
-		//info!("map {page:x?} to {frame:x?}");
 		if page.l4_index() == Self::SELF_MAP_INDEX.try_into().unwrap() { return Err(MapError::SelfMapOverwrite); }
-		let entry = self.0.try_get_or_create_child_table(page.l4_index().try_into().unwrap(), &allocate)?
+		let entry = &mut self.0.try_get_or_create_child_table(page.l4_index().try_into().unwrap(), &allocate)?
 			.try_get_or_create_child_table(page.l3_index().try_into().unwrap(), &allocate)?
 			.try_get_or_create_child_table(page.l2_index().try_into().unwrap(), &allocate)?
-			.index_mut(page.l1_index().try_into().unwrap());
+			[page.l1_index().try_into().unwrap()];
 		entry.set_pointed_frame(frame, flags).map_err(|_| MapError::AlreadyMapped)
 	}
 
@@ -61,11 +58,11 @@ impl fmt::Pointer for PageTable {
 	}
 }
 
-impl Into<kernel_exports::memory::Frame> for PageTable {
-	fn into(self) -> kernel_exports::memory::Frame {
+impl From<PageTable> for kernel_exports::memory::Frame {
+	fn from(value: PageTable) -> Self {
 		unsafe {
 			kernel_exports::memory::Frame::new_unchecked(
-				kernel_exports::memory::PhysicalAddress(self.0 as *const _ as usize)
+				kernel_exports::memory::PhysicalAddress(ptr::addr_of!(value))
 			)
 		}
 	}
@@ -95,17 +92,17 @@ impl<Level: TableLevel> Table<Level> {
 }
 
 impl<Level: ParentTableLevel> Table<Level> {
-	fn get_child_table(&self, index: usize) -> Option<&'static Table<Level::Child>> {
+	pub fn get_child_table(&self, index: usize) -> Option<&'static Table<Level::Child>> {
 		self.0[index].pointed_frame()
 				.map(|frame| unsafe { &*(frame.0 as *const Table<_>) })
 	}
 
-	fn get_child_table_mut(&mut self, index: usize) -> Option<&'static mut Table<Level::Child>> {
+	pub fn get_child_table_mut(&mut self, index: usize) -> Option<&'static mut Table<Level::Child>> {
 		self.0[index].pointed_frame()
 		             .map(|frame| unsafe { &mut *(frame.0 as *mut Table<_>) })
 	}
 
-	fn try_get_or_create_child_table<E, F: FnOnce() -> Result<u64, E>>(&mut self, index: usize, allocate: F) -> Result<&'static mut Table<Level::Child>, E> {
+	pub fn try_get_or_create_child_table<E, F: FnOnce() -> Result<u64, E>>(&mut self, index: usize, allocate: F) -> Result<&'static mut Table<Level::Child>, E> {
 		self.get_child_table_mut(index).map_or_else(|| {
 			info!("New page table Level {}, index {}", Level::Child::VALUE, index);
 			let table_ptr = allocate()? as *mut MaybeUninit<Table<_>>;
@@ -118,7 +115,7 @@ impl<Level: ParentTableLevel> Table<Level> {
 	}
 }
 
-impl<Level: TableLevel> Index<usize> for Table<Level> {
+impl<Level: TableLevel> ops::Index<usize> for Table<Level> {
 	type Output = TableEntry;
 
 	fn index(&self, index: usize) -> &Self::Output {
@@ -126,7 +123,7 @@ impl<Level: TableLevel> Index<usize> for Table<Level> {
 	}
 }
 
-impl<Level: TableLevel> IndexMut<usize> for Table<Level> {
+impl<Level: TableLevel> ops::IndexMut<usize> for Table<Level> {
 	fn index_mut(&mut self, index: usize) -> &mut Self::Output {
 		&mut self.0[index]
 	}
@@ -160,7 +157,7 @@ impl ParentTableLevel for Level2 { type Child = Level1; }
 struct TableEntry(u64);
 
 impl fmt::Debug for TableEntry {
-	fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
+	fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
 		let f = self.pointed_frame();
 		let flags = self.flags();
 		fmt.debug_struct("TableEntry")
@@ -220,6 +217,7 @@ impl TableEntry {
 	}
 }
 
+#[allow(clippy::unusual_byte_groupings)]
 mod amd64 {
 	pub const L4_SHIFT: u64 = 12 + 9*3;
 	pub const L3_SHIFT: u64 = 12 + 9*2;

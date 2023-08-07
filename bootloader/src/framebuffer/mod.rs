@@ -200,15 +200,16 @@ impl<'a> Backend for BitBltBackend<'a> {
 
 use alloc::boxed::Box;
 use alloc::vec;
-use core::{fmt, ptr};
+use core::fmt;
 use core::ops::{Deref, Index, IndexMut};
 use core::ptr::slice_from_raw_parts;
-use log::info;
+use derive_more::Constructor;
 use uefi::proto::console::gop::{BltOp, BltPixel, BltRegion, GraphicsOutput};
 use uefi::proto::unsafe_protocol;
 use psf::PsfFont;
 use crate::logging::FormatWrite;
 
+#[derive(Constructor)]
 pub struct FontFamily<'a> {
 	regular: &'a dyn PsfFont,
 	bold: Option<&'a dyn PsfFont>,
@@ -217,10 +218,6 @@ pub struct FontFamily<'a> {
 }
 
 impl<'a> FontFamily<'a> {
-	pub fn new(regular: &'a dyn PsfFont, bold: Option<&'a dyn PsfFont>, italic: Option<&'a dyn PsfFont>, bold_italic: Option<&'a dyn PsfFont>) -> Self {
-		Self { regular, bold, italic, bold_italic }
-	}
-
 	pub fn get_available_style(&self, style: FontStyle) -> FontStyle {
 		if self.font_exists_for_style(style) { style }
 		else {

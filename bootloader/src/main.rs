@@ -11,7 +11,6 @@
 #![feature(type_name_of_val)]
 #![feature(arbitrary_self_types)]
 #![feature(concat_bytes)]
-#![feature(adt_const_params)]
 #![feature(allocator_api)]
 #![feature(iter_collect_into)]
 #![no_main]
@@ -33,36 +32,29 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::arch::asm;
 use core::fmt::Write;
-use bitflags::Flags;
 use log::{debug, error, info, warn};
 use uefi::fs::{Path, PathBuf};
 use uefi::prelude::*;
 use uefi::proto::console::gop::{GraphicsOutput, PixelFormat};
-use uefi::proto::media::file::{File, FileAttribute, FileMode};
 use uefi::proto::media::partition::PartitionInfo;
-use uefi::table::boot::{AllocateType, MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams, PAGE_SIZE, ScopedProtocol, SearchType};
+use uefi::table::boot::{AllocateType, MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams, PAGE_SIZE, SearchType};
 use uefi::data_types::{Align, Identify};
 use core::{fmt, mem, ptr};
-use core::ffi::CStr;
-use core::mem::{align_of, discriminant, size_of};
 use core::ops::{Deref, DerefMut};
 use core::panic::PanicInfo;
 use core::ptr::{NonNull, slice_from_raw_parts};
-use hashbrown::HashMap;
+use bitflags::Flags;
 use more_asserts::assert_lt;
-use uefi::{CString16, Error};
+use uefi::CString16;
 use uefi::proto::console::serial::Serial;
 use uefi::proto::loaded_image::LoadedImage;
-use uefi::proto::media::block::BlockIO;
 use kernel_exports::ffi_abi;
 use utils::handoff;
 use utils::handoff::{ColorMask, MemoryMapEntry, Range};
-use utils::handoff::MemoryType::Reserved;
 use crate::config::Config;
 use crate::framebuffer::{FontFamily, FontStyle, Tui};
 use crate::paging::{Frame, MapError, Page, PageTable, TableEntryFlags};
 use derive_more::Display;
-use elf::ExecutableAddressRelocated;
 use elf::header::program::{SegmentFlags, SegmentType};
 use kernel_exports::memory::PhysicalAddress;
 
@@ -121,7 +113,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     // SAFETY: We don't touch the logger after calling exit_boot_services()
     // (unless someone breaks the code)
-    unsafe { logging::init(uart.deref_mut()).unwrap(); }
+    unsafe { logging::init(&mut *uart).unwrap(); }
 
     let mut fs = services.get_image_file_system(image_handle).unwrap();
 
@@ -176,7 +168,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     if let Ok(edid_handle) = services.get_handle_for_protocol::<framebuffer::ActiveEdid>()
 	    && let Ok(edid) = services.open_protocol_exclusive::<framebuffer::ActiveEdid>(edid_handle) {
-            info!("EDID: {:?}", edid.deref().deref());
+            info!("EDID: {:?}", &**edid);
         } else {
             warn!("Could not get EDID info");
         }
@@ -277,9 +269,6 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
                     Ok(())
                 })?;
-
-            let symtab = module.dynamic_symbol_table().unwrap();
-            let stringtab = module.dynamic_string_table().unwrap();
 
             let module_exports = module.exported_symbols();
             let mut author = "[UNKNOWN]";
@@ -439,7 +428,9 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
                 new_item
             }
         });
-        last_item.map(|item| kernel_mem_map.push(item));
+        if let Some(item) = last_item {
+            kernel_mem_map.push(item);
+        };
         kernel_mem_map
     };
 
@@ -517,7 +508,7 @@ enum ModuleLoadError {
     FileNotFound,
     #[display(fmt = "Module file is corrupted")]
     InvalidElf,
-    #[display(fmt = "Failed to resolve symbol {:?}", _0)]
+    #[display(fmt = "Failed to resolve symbol {_0:?}")]
     LinkingFailed(CString),
     #[display(fmt = "Could not allocate memory for module")]
     Oom,

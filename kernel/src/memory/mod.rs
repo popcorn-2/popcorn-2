@@ -1,6 +1,6 @@
 use core::alloc::AllocError;
 use core::num::NonZeroUsize;
-pub use kernel_exports::memory::{Frame, Page, PhysicalAddress, VirtualAddress, PhysicalMemoryAllocator};
+pub use kernel_exports::memory::{Frame, Page, PhysicalMemoryAllocator};
 
 /*use core::fmt;
 

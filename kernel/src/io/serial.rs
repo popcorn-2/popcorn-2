@@ -35,9 +35,9 @@ impl From<u8> for IrqEnableFlags {
 		Self::from_bits_retain(value)
 	}
 }
-impl Into<u8> for IrqEnableFlags {
-	fn into(self) -> u8 {
-		self.bits()
+impl From<IrqEnableFlags> for u8 {
+	fn from(val: IrqEnableFlags) -> Self {
+		val.bits()
 	}
 }
 impl From<u8> for LineStatusFlags {
@@ -45,9 +45,9 @@ impl From<u8> for LineStatusFlags {
 		Self::from_bits_retain(value)
 	}
 }
-impl Into<u8> for LineStatusFlags {
-	fn into(self) -> u8 {
-		self.bits()
+impl From<LineStatusFlags> for u8 {
+	fn from(val: LineStatusFlags) -> Self {
+		val.bits()
 	}
 }
 

@@ -16,7 +16,7 @@ impl<T> Spinlock<T> {
 		}
 	}
 
-	pub fn lock(&self) -> SpinlockGuard<T> {
+	pub fn lock(&self) -> Guard<T> {
 		#[cfg(feature = "smp")] while let Err(_) = self.locked.compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Acquire) {}
 		// todo: irq enable/disable
 		let flags: u64;
@@ -27,7 +27,7 @@ impl<T> Spinlock<T> {
 				cli
 			", out(reg) flags);
 		}
-		SpinlockGuard {
+		Guard {
 			#[cfg(feature = "smp")] lock: &self.locked,
 			data: unsafe { &mut *self.data.get() },
 			flags
@@ -37,13 +37,13 @@ impl<T> Spinlock<T> {
 
 unsafe impl<T> Sync for Spinlock<T> {}
 
-pub struct SpinlockGuard<'a, T> {
+pub struct Guard<'a, T> {
 	#[cfg(feature = "smp")] lock: &'a AtomicBool,
 	data: &'a mut T,
 	flags: u64
 }
 
-impl<'a, T> Drop for SpinlockGuard<'a, T> {
+impl<'a, T> Drop for Guard<'a, T> {
 	fn drop(&mut self) {
 		#[cfg(feature = "smp")] self.lock.store(false, Ordering::Release);
 		unsafe {
@@ -55,16 +55,16 @@ impl<'a, T> Drop for SpinlockGuard<'a, T> {
 	}
 }
 
-impl<'a, T> Deref for SpinlockGuard<'a, T> {
+impl<'a, T> Deref for Guard<'a, T> {
 	type Target = T;
 
 	fn deref(&self) -> &Self::Target {
-		&self.data
+		self.data
 	}
 }
 
-impl<'a, T> DerefMut for SpinlockGuard<'a, T> {
+impl<'a, T> DerefMut for Guard<'a, T> {
 	fn deref_mut(&mut self) -> &mut Self::Target {
-		&mut self.data
+		self.data
 	}
 }

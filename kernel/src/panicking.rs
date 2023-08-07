@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 use core::any::Any;
+use core::ptr;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use unwinding::abi::UnwindReasonCode;
 use unwinding::panic::catch_unwind as catch_unwind_impl;
@@ -52,11 +53,11 @@ fn get_symbol_name(ip: usize) -> &'static str {
 		if sym_addr > ip { break; }
 		else if sym_addr != 0 { sym_name = name; }
 	}
-	return sym_name;
+	sym_name
 }
 
 fn stack_trace() {
-	use unwinding::abi::{UnwindContext, UnwindReasonCode, _Unwind_GetIP, _Unwind_Backtrace};
+	use unwinding::abi::{UnwindContext, _Unwind_GetIP, _Unwind_Backtrace};
 	use core::ffi::c_void;
 
 	struct CallbackData {
@@ -66,7 +67,7 @@ fn stack_trace() {
 		unwind_ctx: &mut UnwindContext<'_>,
 		arg: *mut c_void,
 	) -> UnwindReasonCode {
-		let data = unsafe { &mut *(arg as *mut CallbackData) };
+		let data = unsafe { &mut *arg.cast::<CallbackData>() };
 		data.counter += 1;
 		let ip = _Unwind_GetIP(unwind_ctx);
 		sprintln!(
@@ -78,7 +79,7 @@ fn stack_trace() {
 		UnwindReasonCode::NO_REASON
 	}
 	let mut data = CallbackData { counter: 0 };
-	_Unwind_Backtrace(callback, &mut data as *mut _ as _);
+	_Unwind_Backtrace(callback, ptr::addr_of_mut!(data).cast());
 }
 
 pub(crate) fn do_panic() -> ! {
