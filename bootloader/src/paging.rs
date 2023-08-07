@@ -23,7 +23,7 @@ pub struct Frame(pub u64);
 pub struct PageTable(&'static mut Table<Level4>);
 
 impl PageTable {
-	const SELF_MAP_INDEX: usize = 127;
+	const SELF_MAP_INDEX: usize = 256;
 
 	pub unsafe fn try_new<E, F: FnOnce() -> Result<u64, E>>(allocate: F) -> Result<PageTable, E> {
 		let table_ptr = allocate()? as *mut MaybeUninit<Table<Level4>>;
