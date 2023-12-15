@@ -1,5 +1,12 @@
+[package]
+name = "popcorn2"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+
 [workspace]
 members = [
+	"builder",
 	"kernel",
 	"bootloader",
 	"utils",
@@ -16,14 +23,64 @@ members = [
 	"popfs",
 ]
 
+[build-dependencies]
+builder = { path = "builder" }
+bootloader = { path = "bootloader", artifact = "bin", target = "x86_64-unknown-uefi" }
+kernel = { path = "kernel", artifact = "bin", target = "x86_64-unknown-none" }
+popfs = { path = "popfs", artifact = "bin:popfs_uefi_driver", target = "x86_64-unknown-uefi" }
+
+[profile.dev]
+panic = 'abort'
+rustflags = ["-C", "symbol-mangling-version=v0"]
+
 [profile.release]
 panic = 'abort'
+rustflags = ["-C", "symbol-mangling-version=v0"]
 
-[profile.release-with-debug]
-inherits = "release"
-debug = true
-panic = 'unwind'
+[profile.dev.package.popfs]
+rustflags = [
+	"-Z", "pre-link-args=/subsystem:efi_boot_service_driver"
+]
 
-[profile.release-small]
+[profile.release.package.popfs]
+rustflags = [
+	"-Z", "pre-link-args=/subsystem:efi_boot_service_driver"
+]
+
+[profile.dev.package.kernel]
+rustflags = [
+	"-C", "panic=unwind",
+	"-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
+	"-C", "link-args=-export-dynamic",
+	"-Z", "export-executable-symbols=on",
+	"-C", "relocation-model=static",
+	"-C", "force-frame-pointers=y",
+	"-C", "force-unwind-tables=y"
+]
+
+[profile.release.package.kernel]
+rustflags = [
+	"-C", "panic=unwind",
+	"-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
+	"-C", "link-args=-export-dynamic",
+	"-Z", "export-executable-symbols=on",
+	"-C", "relocation-model=static",
+	"-C", "force-frame-pointers=y",
+	"-C", "force-unwind-tables=y"
+]
+
+[profile.test.package.kernel]
+rustflags = [
+	"-C", "panic=unwind",
+	"-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
+	"-C", "link-args=-export-dynamic",
+	"-Z", "export-executable-symbols=on",
+	"-C", "relocation-model=static",
+	"-C", "force-frame-pointers=y",
+	"-C", "force-unwind-tables=y",
+	"--test"
+]
+
+[profile.release-debug]
 inherits = "release"
-opt-level = "z"
+debug = "full"

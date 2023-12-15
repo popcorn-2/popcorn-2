@@ -1,0 +1,8 @@
+[[partition]]
+type = "efi"
+size = 36_700_160
+
+[[partition]]
+type = "system"
+size = 36_700_160
+

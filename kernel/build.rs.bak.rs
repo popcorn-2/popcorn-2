@@ -1,8 +1,8 @@
 #![feature(type_ascription)]
 
-use std::process::Command;
 use std::env;
 use std::path::Path;
+use std::process::Command;
 
 fn main() {
 	println!("cargo:rerun-if-changed=Cargo.lock");
@@ -17,6 +17,8 @@ fn main() {
 
 	//println!("cargo:rustc-link-arg=--dynamic-linker=\"\"");
 	println!("cargo:rustc-link-arg=-T{}", link_script.canonicalize().unwrap().display());
+	println!("cargo:rustc-link-arg=-export-dynamic");
+	println!("cargo:rustc-flags=dfirjuei -Z export-executable-symbols=on -C relocation-model=static");
 }
 
 fn nasm(out_dir: &str) {

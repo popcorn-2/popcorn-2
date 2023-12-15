@@ -1,0 +1,13 @@
+[package]
+name = "builder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gpt = { git = "https://github.com/Quyzi/gpt.git", rev = "c0335be" }
+fscommon = "0.1.1"
+fatfs = "0.3.6"
+derive_more = { version = "0.99.17", default-features = false, features = ["display", "error"] }
+serde = { version = "1.0.192", features = ["derive"] }
+toml = { git = "https://github.com/diondokter/toml-rs.git" }
+uuid = { version = "1.5.0", features = ["v4"] }
