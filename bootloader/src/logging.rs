@@ -1,7 +1,9 @@
 use core::fmt::Write;
 use core::mem;
 use core::ptr::NonNull;
+
 use log::{Level, Log, Metadata, Record, SetLoggerError};
+
 use crate::framebuffer::FontStyle;
 
 pub trait FormatWrite: Write {
@@ -39,7 +41,22 @@ impl Log for Logger {
 		unsafe {
 			if let Some(mut uart) = self.uart {
 				let uart = uart.as_mut();
-				let _ = writeln!(uart, "{}: {}", record.level(), record.args());//.unwrap();
+
+				if self.enabled(record.metadata()) {
+					match record.level() {
+						Level::Error => write!(uart, "\u{001b}[31m\u{001b}[1mERROR\u{001b}[0m\u{001b}[1m"),
+						Level::Warn => write!(uart, "\u{001b}[33m\u{001b}[1mWARN\u{001b}[0m\u{001b}[1m"),
+						Level::Info => write!(uart, "\u{001b}[35mINFO\u{001b}[0m"),
+						Level::Debug => write!(uart, "\u{001b}[34mDEBUG\u{001b}[0m"),
+						Level::Trace => write!(uart, "\u{001b}[0mTRACE")
+					};
+					write!(uart, ": ");
+				}
+
+				if let Some(file) = record.file() && let Some(line) = record.line() {
+					let _ = write!(uart, "{}:{} - ", file, line);
+				}
+				let _ = writeln!(uart, "{}\u{001b}[0m", record.args());
 			}
 
 			if let Some(mut ui) = self.ui {
