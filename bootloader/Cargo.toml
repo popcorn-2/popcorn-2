@@ -8,14 +8,14 @@ edition = "2021"
 [dependencies]
 bitflags = { version = "2.3.1" }
 log = { version = "0.4.17", features = ["max_level_debug", "release_max_level_info"] }
-uefi = { version = "0.21.0", default-features = false, features = ["alloc"] }
-uefi-services = { version = "0.18.0", default-features = false }
+uefi = { version = "0.24.0", default-features = false, features = ["alloc"] }
+uefi-services = { version = "0.21.0", default-features = false }
 targa = { path = "../targa", default-features=false, features = ["alloc"] }
 toml = { git = "https://github.com/diondokter/toml-rs.git", default-features=false }
 serde = { version = "1.0.163", default-features = false, features = ["derive"] }
-hashbrown = { version = "0.13.2", default-features = false, features = ["serde", "ahash"] }
+hashbrown = { version = "0.14.2", default-features = false, features = ["serde", "ahash"] }
 psf = { path = "../psf", default-features = false }
-num_enum = { version = "0.6.1", default-features = false }
+num_enum = { version = "0.7.1", default-features = false }
 utils = { path = "../utils" }
 more-asserts = "0.3.1"
 kernel_exports = { version = "0.1.0", path = "../kernel_exports", default-features = false }
