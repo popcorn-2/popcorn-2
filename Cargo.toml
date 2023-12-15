@@ -21,6 +21,7 @@ members = [
 	"mm/dmm/slab_allocator",
 	"macros",
 	"popfs",
+	"kernel_api",
 ]
 
 [build-dependencies]
