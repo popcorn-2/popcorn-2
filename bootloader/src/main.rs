@@ -25,6 +25,7 @@ mod config;
 //mod elf;
 mod paging;
 mod logging;
+mod elf;
 
 use alloc::borrow::ToOwned;
 use alloc::ffi::CString;
@@ -174,59 +175,32 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         }
 
 
-        // =========== test code using kernel from efi part ===========
+    // =========== test code using kernel from efi part ===========
 
-    let symbol_map = fs.read(Path::new(cstr16!(r"\EFI\POPCORN\symbols.map")))
-            .ok().map(|v| {
-                debug!("{:x?}", &v[0..10]);
-                let p = alloc::boxed::Box::into_raw(v.into_boxed_slice());
-                unsafe { NonNull::new_unchecked(p) }
-            });
+    /*
 
     let modules = config.kernel_config.modules.into_iter().map(CString16::try_from)
-            .map(|r| r.map(PathBuf::from))
-            .collect::<Result<Vec<_>, _>>()
-            .expect("Invalid module path");
+                        .map(|r| r.map(PathBuf::from))
+                        .collect::<Result<Vec<_>, _>>()
+                        .expect("Invalid module path");
 
     let mut kernel = fs.read(Path::new(cstr16!(r"\EFI\POPCORN\kernel.exec"))).unwrap();
     let kernel = elf::File::try_new(&mut kernel).unwrap();
 
-    let page_table_allocator_fn = || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1);
+    // FIXME: This shouldn't just be KERNEL_CODE
+    let kernel = elf::load_kernel(&mut kernel, |count, ty| services.allocate_pages(ty, memory_types::KERNEL_CODE, count))
+            .expect("Unable to load kernel");
+    let elf::KernelLoadInfo { kernel, mut page_table, address_range } = kernel;
+    let mut address_range = {
+        let aligned_start = address_range.start.0 & !(PAGE_SIZE - 1);
+        let aligned_end = (address_range.end.0 + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
+        VirtualAddress(aligned_start)..VirtualAddress(aligned_end)
+    };
 
-    let mut kernel_page_table = unsafe { PageTable::try_new(page_table_allocator_fn) }.unwrap();
-    let mut kernel_last_page = usize::MIN;
-    let mut kernel_first_page = usize::MAX;
-
-    kernel.segments().filter(|segment| segment.segment_type == SegmentType::LOAD)
-          .for_each(|segment| {
-              let allocation_type = if segment.segment_flags.contains(SegmentFlags::LowMem) {
-                  AllocateType::MaxAddress(0x10_0000)
-              } else { AllocateType::AnyPages };
-              let page_count = (usize::try_from(segment.memory_size).unwrap() + PAGE_SIZE - 1) / PAGE_SIZE;
-              let last_page = usize::try_from(segment.vaddr).unwrap() + page_count * PAGE_SIZE;
-              if last_page > kernel_last_page { kernel_last_page = last_page; }
-              if usize::try_from(segment.vaddr).unwrap() < kernel_first_page { kernel_first_page = usize::try_from(segment.vaddr).unwrap(); }
-
-              let Ok(allocation) = services.allocate_pages(allocation_type, memory_types::KERNEL_CODE, page_count) else {
-                  panic!("Failed to allocate enough memory to load popcorn2");
-              };
-
-              unsafe {
-                  ptr::copy_nonoverlapping(kernel[segment.file_location()].as_ptr(), allocation as *mut _, segment.file_size.try_into().unwrap());
-                  ptr::write_bytes((allocation + segment.file_size) as *mut u8, 0, (segment.memory_size - segment.file_size).try_into().unwrap());
-              }
-
-              (0..page_count).map(|page| ((page * PAGE_SIZE) + usize::try_from(segment.vaddr).unwrap(), (page * PAGE_SIZE) + usize::try_from(allocation).unwrap()))
-                             .try_for_each(|(virtual_addr, physical_addr)| {
-                                 kernel_page_table.try_map_page(Page(virtual_addr.try_into().unwrap()), Frame(physical_addr.try_into().unwrap()), page_table_allocator_fn)
-                             })
-                             .unwrap();
-          });
-
-	let kernel_symbols = kernel.exported_symbols();
+    let kernel_symbols = kernel.exported_symbols();
     debug!("{:x?}", kernel_symbols);
 
-    let mut testing_fn: u64 = 0;
+    /*let mut testing_fn: u64 = 0;
     for module in &modules {
         let result: Result<(),ModuleLoadError> = try {
             let base = kernel_last_page;
@@ -234,61 +208,58 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             let mut module = fs.read(module).map_err(|_| ModuleLoadError::FileNotFound)?;
 
             let module = {
-                let mut module = elf::File::try_new(&mut module).map_err(|_| ModuleLoadError::InvalidElf)?;
+                let mut module = ::elf::File::try_new(&mut module).map_err(|_| ModuleLoadError::InvalidElf)?;
                 module.relocate(base.try_into().unwrap());
                 module.link(&kernel_symbols).map_err(|e| ModuleLoadError::LinkingFailed(e.name().to_owned()))?;
                 module
             };
 
             module.segments().filter(|segment| segment.segment_type == SegmentType::LOAD)
-                .try_for_each(|segment| {
-                    let segment_vaddr = usize::try_from(segment.vaddr).unwrap();
+                  .try_for_each(|segment| {
+                      let segment_vaddr = usize::try_from(segment.vaddr).unwrap();
 
-                    let page_count = (usize::try_from(segment.memory_size).unwrap() + PAGE_SIZE - 1) / PAGE_SIZE;
-                    let last_page = segment_vaddr + page_count * PAGE_SIZE;
-                    if last_page > kernel_last_page { kernel_last_page = last_page; }
+                      let page_count = (usize::try_from(segment.memory_size).unwrap() + PAGE_SIZE - 1) / PAGE_SIZE;
+                      let last_page = segment_vaddr + page_count * PAGE_SIZE;
+                      if last_page > kernel_last_page { kernel_last_page = last_page; }
 
-                    let Ok(allocation) = services.allocate_pages(AllocateType::AnyPages, memory_types::MODULE_CODE, page_count) else {
-                        return Err(ModuleLoadError::Oom);
-                    };
+                      let Ok(allocation) = services.allocate_pages(AllocateType::AnyPages, memory_types::MODULE_CODE, page_count) else {
+                          return Err(ModuleLoadError::Oom);
+                      };
 
-                    unsafe {
-                        ptr::copy_nonoverlapping(module[segment.file_location()].as_ptr(), allocation as *mut _, segment.file_size.try_into().unwrap());
-                        ptr::write_bytes((allocation + segment.file_size) as *mut u8, 0, (segment.memory_size - segment.file_size).try_into().unwrap());
-                    }
+                      unsafe {
+                          ptr::copy_nonoverlapping(module[segment.file_location()].as_ptr(), allocation as *mut _, segment.file_size.try_into().unwrap());
+                          ptr::write_bytes((allocation + segment.file_size) as *mut u8, 0, (segment.memory_size - segment.file_size).try_into().unwrap());
+                      }
 
-                    (0..page_count).map(|page| ((page * PAGE_SIZE) + segment_vaddr, (page * PAGE_SIZE) + usize::try_from(allocation).unwrap()))
-                        .try_for_each(|(virtual_addr, physical_addr)| {
-                            kernel_page_table.try_map_page(Page(virtual_addr.try_into().unwrap()), Frame(physical_addr.try_into().unwrap()), page_table_allocator_fn)
-                        })
-                        .map_err(|e| match e {
-                            MapError::AlreadyMapped => unreachable!(),
-                            MapError::SelfMapOverwrite => panic!("Attempted to overwrite page table self map"),
-                            MapError::AllocationError(_) => ModuleLoadError::Oom
-                        })?;
+                      kernel_page_table.try_map_range(Page(segment_vaddr.try_into().unwrap()), Frame(allocation.try_into().unwrap()), page_count.try_into().unwrap(), || todo!())
+                                       .map_err(|e: MapError<()>| match e {
+                                           MapError::AlreadyMapped => unreachable!(),
+                                           MapError::SelfMapOverwrite => panic!("Attempted to overwrite page table self map"),
+                                           MapError::AllocationError(_) => ModuleLoadError::Oom
+                                       })?;
 
-                    Ok(())
-                })?;
+                      Ok(())
+                  })?;
 
             let module_exports = module.exported_symbols();
             let mut author = "[UNKNOWN]";
             let mut fqn = "[UNKNOWN]";
             let mut name = Option::<&str>::None;
 
-            if let Some(allocator_entrypoint) = module_exports.get(cstr!(b"__popcorn_module_main_allocator")) {
+            if let Some(allocator_entrypoint) = module_exports.get(c"__popcorn_module_main_allocator") {
                 testing_fn = allocator_entrypoint.value.get();
             }
-            if let Some(symbol) = module_exports.get(cstr!(b"__popcorn_module_author")) {
+            if let Some(symbol) = module_exports.get(c"__popcorn_module_author") {
                 let author_data = module.data_at_address(symbol.value).unwrap();
                 let author_data = unsafe { &*slice_from_raw_parts(author_data, symbol.size.try_into().unwrap()) };
                 author = core::str::from_utf8(author_data).map_err(|_| ModuleLoadError::InvalidAuthorMetadata)?;
             }
-            if let Some(symbol) = module_exports.get(cstr!(b"__popcorn_module_modulename")) {
+            if let Some(symbol) = module_exports.get(c"__popcorn_module_modulename") {
                 let name_data = module.data_at_address(symbol.value).unwrap();
                 let name_data = unsafe { &*slice_from_raw_parts(name_data, symbol.size.try_into().unwrap()) };
                 name = Some(core::str::from_utf8(name_data).map_err(|_| ModuleLoadError::InvalidNameMetadata)?);
             }
-            if let Some(symbol) = module_exports.get(cstr!(b"__popcorn_module_modulefqn")) {
+            if let Some(symbol) = module_exports.get(c"__popcorn_module_modulefqn") {
                 let fqn_data = module.data_at_address(symbol.value).unwrap();
                 let fqn_data = unsafe { &*slice_from_raw_parts(fqn_data, symbol.size.try_into().unwrap()) };
                 fqn = core::str::from_utf8(fqn_data).map_err(|_| ModuleLoadError::InvalidFqnMetadata)?;
@@ -303,7 +274,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         if let Err(e) = result {
             panic!("Failed to load module: {e}")
         }
-    }
+    }*/
 
     // map framebuffer
     let framebuffer_info: Option<handoff::Framebuffer> = try {
@@ -314,21 +285,18 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         let (width, height) = mode_info.resolution();
 
         let page_count = (framebuffer_info.size() + PAGE_SIZE - 1) / PAGE_SIZE;
-        kernel_first_page -= page_count * PAGE_SIZE;
-        let fb_start = kernel_first_page;
+        address_range.start -= page_count * PAGE_SIZE;
+        let fb_start = address_range.start;
 
         let framebuffer_addr = framebuffer_info.as_mut_ptr() as usize;
 
-        for offset in (0..page_count).map(|num| num * PAGE_SIZE) {
-            let virtual_addr = fb_start + offset;
-            let physical_addr = framebuffer_addr + offset;
-            kernel_page_table.try_map_page_with(
-                Page(virtual_addr.try_into().unwrap()),
-                Frame(physical_addr.try_into().unwrap()),
-                page_table_allocator_fn,
-                TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE | TableEntryFlags::MMIO
-            ).ok()?;
-        }
+        page_table.try_map_range_with::<(), _>(
+            fb_start.try_into().unwrap(),
+            Frame(framebuffer_addr.try_into().unwrap()),
+            page_count.try_into().unwrap(),
+            || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()),
+            TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE | TableEntryFlags::MMIO
+        ).ok()?;
 
         let color_format = match mode_info.pixel_format() {
             PixelFormat::Rgb => Some(ColorMask::RGBX),
@@ -341,13 +309,31 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         }?;
 
         handoff::Framebuffer {
-            buffer: fb_start as *mut u8,
+            buffer: fb_start.0 as *mut u8,
             stride: mode_info.stride(),
             width,
             height,
             color_format
         }
     };
+
+    let stack_top = {
+        const STACK_PAGE_COUNT: usize = 32;
+        address_range.start -= STACK_PAGE_COUNT*4096;
+
+        let Ok(allocation) = services.allocate_pages(AllocateType::AnyPages, memory_types::KERNEL_STACK, STACK_PAGE_COUNT) else {
+            panic!("Failed to allocate enough memory to load popcorn2");
+        };
+
+        page_table.try_map_range::<(), _>(address_range.start.try_into().unwrap(), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()))
+                         .unwrap();
+
+        address_range.start + STACK_PAGE_COUNT*4096
+    };
+
+    let symbol_map = symbol_map.map(|m| NonNull::from(&mut *m.into_boxed_slice()));
+
+    info!("new stack top at {:#x}", stack_top.0);
 
     // allocate before getting memory map from UEFI
     let mut kernel_mem_map = {
@@ -368,29 +354,27 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     unsafe { asm!("mov {}, rsp", out(reg) stack_ptr); }
 
     for mem in memory_map.entries().filter(|mem|
-        mem.ty == MemoryType::LOADER_DATA ||
-        mem.ty == MemoryType::LOADER_CODE ||
-        (mem.phys_start..mem.phys_start + mem.page_count * 4096).contains(&stack_ptr)
+            mem.ty == MemoryType::LOADER_DATA ||
+                    mem.ty == MemoryType::LOADER_CODE ||
+                    (mem.phys_start..mem.phys_start + mem.page_count * 4096).contains(&stack_ptr)
     ) {
         debug!("{:x?} ({:#x} -> {:#x}) - {:?}", mem.ty, mem.phys_start, mem.phys_start + mem.page_count * 4096, mem.att);
 
         // UEFI memory sections are always aligned by firmware
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
-            kernel_page_table.try_map_page(Page(addr), Frame(addr), page_table_allocator_fn)
+            page_table.try_map_page::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()))
         }).unwrap();
     }
 
     debug!("Generating kernel memory map");
     let kernel_mem_map = {
-        let descriptor_to_entry = |descriptor: &MemoryDescriptor| -> MemoryMapEntry {
+        let descriptor_to_entry = |descriptor: &MemoryDescriptor| {
             use handoff::MemoryType::*;
 
             let mut ty = match descriptor.ty {
                 MemoryType::CONVENTIONAL |
                 MemoryType::BOOT_SERVICES_CODE |
                 MemoryType::BOOT_SERVICES_DATA |
-                MemoryType::RUNTIME_SERVICES_CODE |
-                MemoryType::RUNTIME_SERVICES_DATA |
                 MemoryType::PERSISTENT_MEMORY => Free,
                 MemoryType::LOADER_CODE => BootloaderCode,
                 MemoryType::LOADER_DATA => BootloaderData,
@@ -399,12 +383,11 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
                 memory_types::MODULE_CODE => ModuleCode,
                 MemoryType::ACPI_NON_VOLATILE => AcpiPreserve,
                 MemoryType::ACPI_RECLAIM => AcpiReclaim,
+                memory_types::KERNEL_STACK => KernelStack,
+                MemoryType::RUNTIME_SERVICES_CODE => RuntimeCode,
+                MemoryType::RUNTIME_SERVICES_DATA => RuntimeData,
                 _ => Reserved
             };
-
-            if (descriptor.phys_start..descriptor.phys_start + descriptor.page_count * 4096).contains(&stack_ptr) {
-                ty = KernelStack;
-            }
 
             MemoryMapEntry {
                 coverage: Range(PhysicalAddress(descriptor.phys_start.try_into().unwrap()), PhysicalAddress((descriptor.phys_start + descriptor.page_count * 4096).try_into().unwrap())),
@@ -448,22 +431,36 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         framebuffer: framebuffer_info,
         memory: handoff::Memory {
             map: kernel_mem_map,
-            page_table_root: kernel_page_table.into()
+            page_table_root: (&page_table).into(),
+            stack: handoff::Stack {
+                top: stack_top.0,
+                bottom: address_range.start.0
+            }
         },
         modules: handoff::Modules {
-	        phys_allocator_start: unsafe { mem::transmute(testing_fn) }
+            phys_allocator_start: unsafe { mem::transmute(1usize) }
         },
         log: handoff::Logging {
             symbol_map
         },
         test: handoff::Testing {
-            module_func: unsafe { mem::transmute(testing_fn) }
+            module_func: unsafe { mem::transmute(1usize) }
         }
     };
 
-    type KernelStart = ffi_abi!(type fn(handoff::Data) -> !);
-    let kernel_entry: KernelStart = unsafe { mem::transmute(kernel_entry) };
-    kernel_entry(handoff);
+    let _ = system_table.exit_boot_services();
+    page_table.switch();
+
+    //type KernelStart = ffi_abi!(type fn(&handoff::Data) -> !);
+    //let kernel_entry: KernelStart = unsafe { mem::transmute(kernel_entry) };
+    unsafe {
+        asm!("
+            mov rsp, {}
+            xor ebp, ebp
+            call {}
+        ", in(reg) stack_top.0, in(reg) kernel_entry, in("rdi") &handoff, options(noreturn))
+    };
+
 }
 
 #[panic_handler]
@@ -500,6 +497,8 @@ mod memory_types {
     pub const MODULE_CODE: MemoryType = MemoryType::custom(0x8000_0001);
     pub const PAGE_TABLE: MemoryType = MemoryType::custom(0x8000_0002);
     pub const MEMORY_ALLOCATOR_DATA: MemoryType = MemoryType::custom(0x8000_0003);
+    pub const KERNEL_STACK: MemoryType = MemoryType::custom(0x8000_0004);
+    pub const FRAMEBUFFER: MemoryType = MemoryType::custom(0x8000_0005);
 }
 
 #[derive(Display)]
