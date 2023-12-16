@@ -11,7 +11,7 @@ result = subprocess.run([
     "--target", "x86_64-unknown-uefi",
 ])
 
-if result != 0:
+if result.returncode != 0:
     sys.exit("Bootloader build failed")
 
 result = subprocess.run([
@@ -29,7 +29,7 @@ result = subprocess.run([
     "-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
 ])
 
-if result != 0:
+if result.returncode != 0:
     sys.exit("Kernel build failed")
 
 result = subprocess.run([
@@ -42,7 +42,7 @@ result = subprocess.run([
     "-Z", "pre-link-args=/subsystem:efi_boot_service_driver",
 ])
 
-if result != 0:
+if result.returncode != 0:
     sys.exit("popfs build failed")
 
 result = subprocess.run([
@@ -58,7 +58,7 @@ result = subprocess.run([
     "OUT_DIR": "target/debug",
 })
 
-if result != 0:
+if result.returncode != 0:
     sys.exit("iso generation failed")
 
 '''
