@@ -63,12 +63,26 @@ impl PageTable {
 		self.try_map_page_with(page, frame, allocate, TableEntryFlags::empty())
 	}
 
-	pub fn try_map_page_with<E, F: Fn() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, allocate: F, flags: TableEntryFlags) -> Result<(),MapError<E>> {
-		let entry = &mut self.0.try_get_or_create_child_table(page.l4_index().try_into().unwrap(), &allocate)?
-			.try_get_or_create_child_table(page.l3_index().try_into().unwrap(), &allocate)?
-			.try_get_or_create_child_table(page.l2_index().try_into().unwrap(), &allocate)?
+	pub fn try_map_page_with<E, F: FnMut() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, mut allocate: F, flags: TableEntryFlags) -> Result<(),MapError<E>> {
+		let entry = &mut self.0.try_get_or_create_child_table(page.l4_index().try_into().unwrap(), &mut allocate)?
+			.try_get_or_create_child_table(page.l3_index().try_into().unwrap(), &mut allocate)?
+			.try_get_or_create_child_table(page.l2_index().try_into().unwrap(), &mut allocate)?
 			[page.l1_index().try_into().unwrap()];
 		entry.set_pointed_frame(frame, flags).map_err(|_| MapError::AlreadyMapped)
+	}
+
+	pub fn try_map_range<E, F: FnMut() -> Result<u64, E>>(&mut self, page_start: Page, frame_start: Frame, page_count: u64, allocate: F) -> Result<(), MapError<E>> {
+		self.try_map_range_with(page_start, frame_start, page_count, allocate, TableEntryFlags::empty())
+	}
+
+	pub fn try_map_range_with<E, F: FnMut() -> Result<u64, E>>(&mut self, page_start: Page, frame_start: Frame, page_count: u64, mut allocate: F, flags: TableEntryFlags) -> Result<(), MapError<E>> {
+		for i in 0..page_count {
+			let page = Page(page_start.0 + i*4096);
+			let frame = Frame(frame_start.0 + i*4096);
+
+			self.try_map_page_with(page, frame, &mut allocate, flags)?;
+		}
+		Ok(())
 	}
 
 	pub fn switch(&self) {
