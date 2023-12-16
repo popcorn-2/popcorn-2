@@ -8,6 +8,7 @@ PHDRS {
     data PT_LOAD FLAGS(0x6) ;
     dynamic PT_DYNAMIC ;
     gnu_eh_frame 0x6474E550 FLAGS(0x4) ;
+    lazy PT_LOAD FLAGS(0x20006) ;
 }
 
 SECTIONS {
@@ -108,6 +109,11 @@ SECTIONS {
 		*(COMMON)
 		*(.bss .bss.*)
 	}
+
+	.lazy.bss :
+	{
+		*(.lazy.bss .lazy.bss.*)
+	} :lazy
 
 	.dynamic :
 	{
