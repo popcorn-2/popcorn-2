@@ -1,212 +1,19 @@
-/* pub mod graphical;
-pub mod text;
-
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use core::fmt::Formatter;
-use core::marker::PhantomData;
-use core::{fmt, ptr};
-use uefi::Error;
-use uefi::proto::console::gop::{BltOp, BltPixel, BltRegion, GraphicsOutput};
-
-// TODO: Color format
-pub struct Framebuffer<'a> {
-	width: usize,
-	height: usize,
-	stride: usize,
-	double_buffer: Box<[u8]>,
-	actual_buffer: *mut u8,
-	_phantom: PhantomData<&'a mut u8>
-}
-
-impl<'a> Framebuffer<'a> {
-	pub fn new_from_gop(gop: &'a mut GraphicsOutput) -> Self {
-		let optimal_resolutions = gop.modes()
-				.filter(|mode|
-						mode.info().resolution() == (1920, 1080) ||
-						mode.info().resolution() == (1280, 720) ||
-						mode.info().resolution() == (640, 480)
-				);
-
-		let optimal_resolution = optimal_resolutions.reduce(|acc, mode| {
-			if mode.info().resolution().0 > acc.info().resolution().0 { mode }
-			else { acc }
-		});
-
-		let actual_mode =
-			if let Some(resolution) = optimal_resolution &&
-			   gop.set_mode(&resolution).is_ok()
-			{
-				*resolution.info()
-			} else {
-				gop.current_mode_info()
-			};
-
-		let stride = actual_mode.stride();
-		let (width, height) = actual_mode.resolution();
-
-		let mut double_buffer_backing = Vec::with_capacity(stride * height * 4);
-		// SAFETY: Is this unsafe? The memory exists, however its uninitialised, but then any bit pattern is valid for an int...
-		unsafe { double_buffer_backing.set_len(stride * height * 4); }
-
-		Self {
-			width,
-			height,
-			stride,
-			double_buffer: double_buffer_backing.into_boxed_slice(),
-			actual_buffer: gop.frame_buffer().as_mut_ptr(),
-			_phantom: PhantomData
-		}
-	}
-
-	pub fn flush(&mut self) {
-		// SAFETY:
-		// double buffer is owned by self so must be valid
-		// actual buffer is valid for lifetime of GOP handle which is same as lifetime of self
-		unsafe {
-			ptr::copy_nonoverlapping(self.double_buffer.as_ptr(), self.actual_buffer, self.stride * self.height * 4);
-		}
-	}
-
-	pub fn get_buffer(&self) -> *const u8 { self.double_buffer.as_ptr() }
-	pub fn get_buffer_mut(&mut self) -> *mut u8 { self.double_buffer.as_mut_ptr() }
-	pub fn get_resolution(&self) -> (usize, usize) { (self.width, self.height) }
-	pub fn get_stride(&self) -> usize { self.stride }
-
-	pub fn draw<D: Drawable>(&mut self, object: D) -> Result<D::Output, OutOfBoundsError> {
-		object.draw(self)
-	}
-
-	pub fn draw_pixel(&mut self, px: Pixel) -> Result<(), OutOfBoundsError> {
-		let Pixel((x, y), color) = px;
-		if x > self.width || y > self.height { return Err(OutOfBoundsError()); }
-
-		if color.a == 0 { return Ok(()); }
-		unsafe {
-			// SAFETY: Checked bounds ourselves - writing directly should be faster than bounds checking on the slice in the box
-			let ptr = self.get_buffer_mut() as *mut u32;
-			let ptr = ptr.add(x + y * self.stride);
-
-			if color.a == 255 { ptr.write(color.to_bgr()); }
-			else {
-				let dest_a = u16::from(!color.a);
-				let dest_color = Color::from_bgr(ptr.read());
-				let src_r = u16::from(color.r);
-				let src_g = u16::from(color.g);
-				let src_b = u16::from(color.b);
-				let src_a = u16::from(color.a);
-				let dest_r = u16::from(dest_color.r);
-				let dest_g = u16::from(dest_color.g);
-				let dest_b = u16::from(dest_color.b);
-				let overall_r = (src_r * src_a + dest_r * dest_a + 0xFF) >> 8;
-				let overall_g = (src_g * src_a + dest_g * dest_a + 0xFF) >> 8;
-				let overall_b = (src_b * src_a + dest_b * dest_a + 0xFF) >> 8;
-				let true_color = Color::new(overall_r as u8, overall_b as u8, overall_g as u8, 255);
-				ptr.write(true_color.to_bgr());
-			};
-		}
-		Ok(())
-	}
-}
-
-impl<'a> fmt::Debug for Framebuffer<'a> {
-	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-		f.debug_struct("Framebuffer")
-				.field("width", &self.width)
-				.field("height", &self.height)
-				.field("stride", &self.stride)
-				.field("double_buffer", &self.double_buffer.len())
-				.field("actual_buffer", &self.actual_buffer)
-				.finish()
-	}
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct Pixel(pub (usize, usize), pub Color);
-
-impl Drawable for Pixel {
-	type Output = ();
-
-	fn draw(&self, framebuffer: &mut Framebuffer) -> Result<Self::Output, OutOfBoundsError> {
-		framebuffer.draw_pixel(*self)
-	}
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct Color {
-	pub r: u8,
-	pub g: u8,
-	pub b: u8,
-	pub a: u8
-}
-
-impl Color {
-	pub fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
-		Self { r, g, b, a }
-	}
-
-	pub(super) fn to_bgr(&self) -> u32 {
-		u32::from(self.r) << 16 | u32::from(self.g) << 8 | u32::from(self.b)
-	}
-
-	pub(super) fn from_bgr(value: u32) -> Self {
-		Self {
-			r: ((value & 0xff0000) >> 16) as u8,
-			g: ((value & 0x__ff00) >> 8) as u8,
-			b:  (value & 0x____ff) as u8,
-			a: 255
-		}
-	}
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct OutOfBoundsError();
-
-pub trait Drawable {
-	type Output;
-	fn draw(&self, framebuffer: &mut Framebuffer) -> Result<Self::Output, OutOfBoundsError>;
-}
-
-use ui::window::Backend;
-
-pub struct BitBltBackend<'a> {
-	gop: &'a mut GraphicsOutput
-}
-
-impl<'a> BitBltBackend<'a> {
-	pub fn new(gop: &'a mut GraphicsOutput) -> Self {
-		Self {
-			gop
-		}
-	}
-}
-
-impl<'a> Backend for BitBltBackend<'a> {
-	type Error = uefi::Error;
-
-	fn flush(&mut self, buffer: &[ui::pixel::Color], width: usize, height: usize) -> Result<(), Self::Error> {
-		let buffer = unsafe { &*(buffer as *const [ui::pixel::Color] as *const [BltPixel]) };
-		let blt_op = BltOp::BufferToVideo {
-			buffer,
-			src: BltRegion::Full,
-			dest: (0, 0),
-			dims: (width, height),
-		};
-
-		self.gop.blt(blt_op)
-	}
-}
- */
-
+use aliasable::boxed::AliasableBox;
 use alloc::boxed::Box;
 use alloc::vec;
-use core::fmt;
+use core::{fmt, mem};
 use core::ops::{Deref, Index, IndexMut};
 use core::ptr::slice_from_raw_parts;
 use derive_more::Constructor;
+use log::trace;
+use lvgl2::display;
+use lvgl2::display::buffer::DrawBuffer;
+use lvgl2::display::driver::DisplayUpdate;
+use psf::PsfFont;
+use uefi::prelude::BootServices;
 use uefi::proto::console::gop::{BltOp, BltPixel, BltRegion, GraphicsOutput};
 use uefi::proto::unsafe_protocol;
-use psf::PsfFont;
+
 use crate::logging::FormatWrite;
 
 #[derive(Constructor)]
@@ -289,6 +96,85 @@ impl IndexMut<(usize, usize)> for PixelBuffer {
 	}
 }
 
+pub struct Gui<'gop> {
+	//width: usize,
+	//height: usize,
+
+	// SAFETY: THIS SECTION MUST BE KEPT IN ORDER
+	// `display` references `display_driver` so must be dropped first
+	// same for `display_driver` and `draw_buffer`
+	// The 'gop is a lie and in fact is only the lifetime of the struct itself
+	// This is safe because drop order means that each reference will be dropped before its owner
+	/*display: display_driver::Display<'gop, 'gop>,
+	display_driver: display_driver::DisplayDriver<'gop>,
+	draw_buffer: draw_buffer::DrawBuffer,
+	_phantom: PhantomPinned,*/
+	pub(crate) display: display::Display<'static, 'static, 'static>,
+	driver: AliasableBox<display::driver::Driver<'gop, 'static>>,
+	buffer: AliasableBox<DrawBuffer>
+	//_phantom: PhantomData<&'a mut u8>
+}
+
+impl Gui<'_> {
+	fn flush_display(gop: &mut GraphicsOutput, update: DisplayUpdate) {
+		let update_width = update.area.x2 - update.area.x1 + 1;
+		let update_height = update.area.y2 - update.area.y1 + 1;
+
+		for c in update.colors.iter_mut() {
+			c.set_a(0);
+		}
+
+		let buffer: &[BltPixel] = unsafe {
+			// SAFETY: alpha channel has been set to 0 to comply with UEFI reserved byte requirements
+			// memory layout of BltPixel and LVGL Color is identical
+			mem::transmute(update.colors)
+		};
+
+		let blt_op = BltOp::BufferToVideo {
+			buffer,
+			src: BltRegion::Full,
+			dest: (
+				update.area.x1.try_into().unwrap(),
+				update.area.y1.try_into().unwrap()
+			),
+			dims: (
+				update_width.try_into().unwrap(),
+				update_height.try_into().unwrap()
+			),
+		};
+
+		gop.blt(blt_op).expect("Failed to flush display");
+
+		trace!("paint finished");
+	}
+
+	pub fn new(gop: &mut GraphicsOutput) -> Gui<'_> {
+		use display::{Display, driver::Driver};
+
+		let (width, height) = gop.current_mode_info().resolution();
+
+		lvgl2::init();
+
+		let mut buffer = AliasableBox::from_unique(Box::new(DrawBuffer::new(8000)));
+		let mut driver = AliasableBox::from_unique(Box::new(Driver::new(
+			unsafe { mem::transmute(&mut *buffer) },
+			width,
+			height,
+			|update| Self::flush_display(gop, update)
+		)));
+		//let driver = Box::leak(Box::new(driver));
+		let display = Display::new(unsafe { mem::transmute(&mut *driver) });
+
+		trace!("lvgl initialised");
+
+		Gui {
+			display,
+			driver,
+			buffer
+		}
+	}
+}
+
 pub struct Tui<'a, 'b> {
 	width: usize,
 	height: usize,
@@ -301,7 +187,7 @@ pub struct Tui<'a, 'b> {
 }
 
 impl<'a, 'b> Tui<'a, 'b> {
-	pub fn new(gop: &'a mut GraphicsOutput, native_resolution: (usize, usize), font: FontFamily<'b>) -> Self {
+	pub fn new(gop: &'a mut GraphicsOutput, pointer: &mut uefi::proto::console::pointer::Pointer, keyboard: &mut uefi::proto::console::text::Input, boot_services: &BootServices, native_resolution: (usize, usize), font: FontFamily<'b>) -> Self {
 		let native_resolution = gop.modes().find(|mode| mode.info().resolution() == native_resolution);
 		let optimal_resolutions = gop.modes()
 		                             .filter(|mode|
@@ -332,6 +218,241 @@ impl<'a, 'b> Tui<'a, 'b> {
 				};
 
 		let (width, height) = actual_mode.resolution();
+		let aspect = width as f32 / height as f32;
+
+		/*lvgl::init();
+
+		let buf = DrawBuffer::<{20 * 400}>::default();
+		let disp = Display::register(buf, width as u32, height as u32, |refresh| {
+			let refresh_width = refresh.area.x2 - refresh.area.x1 + 1;
+			let refresh_height = refresh.area.y2 - refresh.area.y1 + 1;
+
+			trace!("display refresh");
+
+			let blt_op = BltOp::BufferToVideo {
+				buffer: unsafe {
+					// SAFETY: Both buffers are in the form RGBX
+					core::mem::transmute(&refresh.colors[..])
+				},
+				src: BltRegion::Full,
+				dest: (refresh.area.x1.try_into().unwrap(), refresh.area.y1.try_into().unwrap()),
+				dims: (refresh_width.try_into().unwrap(), refresh_height.try_into().unwrap()),
+			};
+
+			gop.blt(blt_op).expect("TODO: panic message");
+		}).unwrap();
+
+		let mut screen = disp.get_scr_act().unwrap();
+
+		let mut screen_style = {
+			let mut screen_style = Style::default();
+			screen_style.set_bg_color(Color::from_rgb((0x33, 0x33, 0x33)));
+			screen_style.set_text_color(Color::from_rgb((0xee, 0xee, 0xee)));
+			screen_style.set_bg_opa(Opacity::OPA_100);
+			screen_style.set_border_width(0);
+			screen_style.set_radius(0);
+			let quicksand_200 = unsafe {
+				Font::new_raw(lvgl_sys::quicksand_200)
+			};
+			screen_style.set_text_font(quicksand_200);
+			screen_style
+		};
+
+		screen.add_style(Part::Main, &mut screen_style);
+
+		let mut flex_style = {
+			let mut flex_style = Style::default();
+
+			flex_style.set_layout(Layout::flex());
+			flex_style.set_flex_flow(FlexFlow::COLUMN);
+			flex_style.set_flex_main_place(FlexAlign::START);
+			flex_style.set_flex_cross_place(FlexAlign::CENTER);
+			flex_style.set_flex_track_place(FlexAlign::CENTER);
+			//flex_style.set_pad_bottom(24);
+			//flex_style.set_pad_top(24);
+			flex_style.set_pad_row(12);
+
+			flex_style
+		};
+
+		let menu_width = if aspect < 1.8 { pct(90) }
+		else {
+			/* ultra-wide screen - 90% of 16×9 area */
+			i16::try_from(height).unwrap() * 16 / 10
+		};
+
+		let mut flex_box = Obj::create(&mut screen).unwrap();
+		flex_box.set_size(menu_width, pct(95));
+		flex_box.set_align(Align::Center, 0, 0);
+		flex_box.add_style(Part::Main, &mut flex_style);
+
+		let mut label = Label::create(&mut flex_box).unwrap();
+		label.set_text(cstr_core::cstr!("popcorn")).unwrap();
+
+		let mut item_style = {
+			let mut item_style = Style::default();
+			item_style.set_text_color(Color::from_rgb((0, 0, 0)));
+			let open_sans_48 = unsafe {
+				Font::new_raw(lvgl_sys::open_sans_48)
+			};
+			item_style.set_text_font(open_sans_48);
+			item_style.set_bg_color(Color::from_rgb((0xef, 0xbb, 0x40)));
+			item_style.set_outline_color(Color::from_rgb((0x1c, 0x8a, 0xeb)));
+			item_style.set_bg_opa(Opacity::OPA_100);
+			item_style.set_pad_bottom(8);
+			item_style.set_pad_top(8);
+			item_style.set_pad_left(8);
+			item_style.set_pad_right(8);
+			item_style
+		};
+
+		let mut item_style_hover = {
+			let mut item_style = Style::default();
+			item_style.set_bg_color(Color::from_rgb((0x1c, 0x8a, 0xeb)));
+			item_style
+		};
+
+		let mut item_style_focus = {
+			let mut item_style = Style::default();
+			item_style.set_outline_pad(2);
+			item_style.set_outline_width(2);
+			item_style
+		};
+
+		/*let mut menu_style = Style::default();
+		menu_style.set_radius(0);
+		menu_style.set_layout(Layout::flex());
+
+
+		let mut menu_item_style = Style::default();
+
+
+		let mut boot_menu = Obj::create(&mut screen).unwrap();
+		boot_menu.add_style(Part::Main, &mut menu_style);
+		let boot_menu_width = if aspect < 1.8 { lvgl::misc::area::pct(90) } else { /* widescreen - 90% of 16×9 area */ i16::try_from(height).unwrap() * 16 / 10 };
+		boot_menu.set_size(boot_menu_width, lvgl::misc::area::pct(75).into());
+		//boot_menu.set_align(Align::Center, 0, 0);*/
+
+		let mut group = Group::default();
+
+		for _ in 0..5 {
+			let mut item = Btn::create(&mut flex_box).unwrap();
+			item.set_width(pct(98).try_into().unwrap());
+			item.add_style(Part::Main, &mut item_style);
+			unsafe {
+				lvgl_sys::lv_obj_add_style(
+					item.raw().as_mut(),
+					core::mem::transmute::<_, &mut NonNull<lvgl_sys::lv_style_t>>(&mut item_style_hover).as_mut() as *mut _,
+					lvgl_sys::lv_style_selector_t::from(Part::Main) | lvgl_sys::LV_STATE_PRESSED,
+				);
+
+				lvgl_sys::lv_obj_add_style(
+					item.raw().as_mut(),
+					core::mem::transmute::<_, &mut NonNull<lvgl_sys::lv_style_t>>(&mut item_style_focus).as_mut() as *mut _,
+					lvgl_sys::lv_style_selector_t::from(Part::Main) | lvgl_sys::LV_STATE_FOCUSED,
+				);
+			}
+			let mut item_text = Label::create(&mut item).unwrap();
+			item_text.set_text(cstr_core::cstr!("Boot menu option")).unwrap();
+			group.add_obj(&item).unwrap();
+		}
+
+		let mut touch_point = (
+			width as f32 / 2f32,
+			height as f32 / 2f32
+		);
+		let mut left_button = false;
+		let pointer_mode = *pointer.mode();
+
+		let pointer_update = || {
+			match pointer.read_state() {
+				Ok(Some(event)) => {
+					info!("mouse event: {event:?}");
+					if pointer_mode.resolution[0] != 0 {
+						touch_point.0 += (event.relative_movement[0] as f32) / (pointer_mode.resolution[0] as f32);
+					}
+					if pointer_mode.resolution[1] != 0 {
+						touch_point.1 += (event.relative_movement[1] as f32) / (pointer_mode.resolution[1] as f32);
+					}
+					left_button = pointer_mode.has_button[0] && event.button[0];
+				},
+				Err(e) => error!("mouse error: {e:?}"),
+				_ => {}
+			}
+
+			let point = Point::new(
+				touch_point.0 as i32,
+				touch_point.1 as i32
+			);
+			if left_button { PointerInputData::Touch(point).pressed().once() }
+			else { PointerInputData::Touch(point).released().once() }
+		};
+
+		let keyboard_update = || {
+			const CHAR16_SPACE: Char16 = unsafe { Char16::from_u16_unchecked(0x20) };
+			const CHAR16_ENTER: Char16 = unsafe { Char16::from_u16_unchecked(0x0d) };
+
+			match keyboard.read_key() {
+				Ok(Some(event)) => {
+					info!("keyboard event: {event:?}");
+
+					unsafe {
+						lvgl_sys::lv_obj_add_style(
+							flex_box.raw().as_mut(),
+							core::mem::transmute::<_, &mut NonNull<lvgl_sys::lv_style_t>>(&mut item_style_focus).as_mut() as *mut _,
+							lvgl_sys::lv_style_selector_t::from(Part::Main) | lvgl_sys::LV_STATE_FOCUSED,
+						);
+					}
+
+					match event {
+						Key::Special(ScanCode::LEFT | ScanCode::UP) => {
+							EncoderInputData::TurnLeft.pressed().once()
+						},
+						Key::Special(ScanCode::RIGHT | ScanCode::DOWN) => {
+							EncoderInputData::TurnRight.pressed().once()
+						},
+						Key::Printable(CHAR16_SPACE | CHAR16_ENTER) => EncoderInputData::Press.pressed().once(),
+						_ => EncoderInputData::Press.released().once()
+					}
+				},
+				Err(e) => {
+					error!("keyboard error: {e:?}");
+					EncoderInputData::Press.released().once()
+				},
+				_ => EncoderInputData::Press.released().once()
+			}
+		};
+
+		let mut mouse = Pointer::register(pointer_update, &disp).unwrap();
+		let mut keyboard = Encoder::register(keyboard_update, &disp).unwrap();
+		group.set_indev(&mut keyboard).unwrap();
+
+		unsafe {
+			let cursor_img = lvgl_sys::lv_img_create(screen.raw().as_ptr());
+			lvgl_sys::lv_img_set_src(cursor_img, (&lvgl_sys::cursor as *const lvgl_sys::lv_img_dsc_t).cast());
+			lvgl_sys::lv_indev_set_cursor(mouse.get_descriptor().unwrap() as *mut lvgl_sys::lv_indev_t, cursor_img);
+		}
+
+		let timer_event = unsafe { boot_services.create_event(EventType::TIMER, Tpl::APPLICATION, None, None) }.unwrap();
+		boot_services.set_timer(&timer_event, TimerTrigger::Periodic(10000)).unwrap(); // Every 1000ms
+		let mut events = [timer_event];
+
+		loop {
+			lvgl::task_handler();
+
+			boot_services.wait_for_event(&mut events).unwrap();
+
+			lvgl::tick_inc(Duration::from_millis(1000));
+
+			//info!("tick");
+
+			/*if true /*let Ok(Some(loc)) = pointer.read_state()*/ {
+				latest_touch_status.x += 1;//loc.relative_movement[0];
+				latest_touch_status.y += 1;//loc.relative_movement[1];
+
+				info!("Cursor at {latest_touch_status:?}");
+			}*/
+		}*/
 
 		let double_buffer_backing = vec![BltPixel::new(0, 0, 0); width * height];
 
