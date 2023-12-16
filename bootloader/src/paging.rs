@@ -45,11 +45,18 @@ pub struct PageTable(&'static mut Table<Level4>);
 impl PageTable {
 	pub unsafe fn try_new<E, F: FnOnce() -> Result<u64, E>>(allocate: F) -> Result<PageTable, E> {
 		let table_ptr = allocate()? as *mut MaybeUninit<Table<Level4>>;
-		assert!(table_ptr.is_aligned() && !table_ptr.is_null());
+		debug_assert!(table_ptr.is_aligned() && !table_ptr.is_null());
 		let table = &mut *table_ptr;
 		let table = table.write(Table::new());
 
 		Ok(PageTable(table))
+	}
+
+	pub fn translate_page(&self, virt: Page) -> Option<Frame> {
+		let tab = self.0.get_child_table(virt.l4_index().try_into().unwrap())?
+				.get_child_table(virt.l3_index().try_into().unwrap())?
+				.get_child_table(virt.l2_index().try_into().unwrap())?;
+		tab[virt.l1_index().try_into().unwrap()].pointed_frame()
 	}
 
 	pub fn try_map_page<E, F: Fn() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, allocate: F) -> Result<(),MapError<E>> {
