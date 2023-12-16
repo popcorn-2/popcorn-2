@@ -15,8 +15,8 @@ impl<'a, 'b> ChainedAllocator<'a, 'b> {
 }
 
 impl<'a, 'b> Allocator for ChainedAllocator<'a, 'b> {
-	fn allocate_contiguous(&self, count: NonZeroUsize, alignment_log2: usize) -> Result<Frame, AllocError> {
-		self.first.allocate_contiguous(count, alignment_log2)
-				.or(self.second.allocate_contiguous(count, alignment_log2))
+	fn allocate_contiguous_aligned(&self, count: NonZeroUsize, alignment_log2: usize) -> Result<Frame, AllocError> {
+		self.first.allocate_contiguous_aligned(count, alignment_log2)
+				.or(self.second.allocate_contiguous_aligned(count, alignment_log2))
 	}
 }

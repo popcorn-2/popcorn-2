@@ -1,34 +1,63 @@
+// rust features
 #![feature(custom_test_frameworks)]
 #![test_runner(tests::test_runner)]
 #![reexport_test_harness_main = "test_main"]
-#![feature(result_option_inspect)]
 #![feature(const_trait_impl)]
-#![feature(pointer_byte_offsets)]
-#![feature(lang_items)]
 #![feature(allocator_api)]
+#![feature(let_chains)]
+#![feature(specialization)]
+#![feature(const_type_name)]
+#![feature(inline_const)]
+#![feature(decl_macro)]
+#![feature(abi_x86_interrupt)]
+#![feature(generic_arg_infer)]
+#![feature(panic_info_message)]
+#![feature(gen_blocks)]
+#![feature(maybe_uninit_uninit_array)]
+#![feature(type_changing_struct_update)]
+#![feature(maybe_uninit_array_assume_init)]
+#![feature(dyn_star)]
+#![feature(inherent_associated_types)]
+#![feature(generic_const_exprs)]
+#![feature(pointer_like_trait)]
+#![feature(exclusive_range_pattern)]
+#![feature(int_roundings)]
+
+#![feature(kernel_heap)]
+#![feature(kernel_allocation_new)]
+
 #![no_std]
 #![no_main]
+
+#![deny(deprecated)]
 
 extern crate alloc;
 #[cfg(panic = "unwind")]
 extern crate unwinding;
 
+use alloc::sync::Arc;
 use core::alloc::{GlobalAlloc, Layout};
+use core::arch::asm;
+use core::cmp::max;
 use crate::io::serial;
 use core::fmt::Write;
 use core::mem;
 use core::num::NonZeroUsize;
+use core::ops::Deref;
 use core::panic::PanicInfo;
-use core::ptr::slice_from_raw_parts_mut;
-use kernel_exports::memory::PhysicalAddress;
-use kernel_exports::sync::Mutex;
-use crate::memory::Allocator;
-use crate::memory::watermark_allocator::WatermarkAllocator;
+use core::ptr::{addr_of_mut, slice_from_raw_parts_mut};
+use log::{debug, error, info, trace};
+use hal_amd64::idt::entry::{Entry, Type};
+use kernel_api::memory::PhysicalAddress;
+use kernel_api::sync::Mutex;
+use kernel_api::memory::{allocator::BackingAllocator};
 
 mod sync;
 mod io;
 mod memory;
 mod panicking;
+mod resource;
+mod logging;
 
 #[macro_export]
 macro_rules! usize {
@@ -46,64 +75,125 @@ macro_rules! into {
 }
 
 #[export_name = "_start"]
-extern "sysv64" fn kstart(handoff_data: utils::handoff::Data) -> ! {
-	serial::init_serial0().expect("Failed to initialise serial0");
+extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
+	let result = serial::init_serial0();
+	result.expect("Failed to initialise serial0");
 	sprintln!("Hello world!");
 
+	#[cfg(not(test))] kmain(handoff_data);
 	#[cfg(test)] {
 		test_main();
 		loop {}
 	}
-	#[cfg(not(test))] kmain(handoff_data)
 }
 
-fn kmain(mut handoff_data: utils::handoff::Data) -> ! {
-	sprintln!("Handoff data:\n{handoff_data:x?}");
+use hal_amd64::idt::handler::{InterruptStackFrame, PageFaultError};
+use hal_amd64::idt::Idt;
+use kernel_api::memory::{Frame};
+use kernel_api::memory::allocator::Config;
+use utils::handoff::MemoryType;
+use crate::resource::watermark_allocator::WatermarkAllocator;
+
+fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
+	let _ = logging::init();
+
+	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| ptr.as_ref()) };
+	*panicking::SYMBOL_MAP.write() = map;
+
+	trace!("Handoff data:\n{handoff_data:x?}");
+
+	hal_amd64::__popcorn_hal_early_init();
+
+	unsafe { asm!("int3"); }
+
+	let usable_memory = handoff_data.memory.map.iter().filter(|entry|
+		entry.ty == MemoryType::Free
+			|| entry.ty == MemoryType::AcpiReclaim
+			|| entry.ty == MemoryType::BootloaderCode
+			|| entry.ty == MemoryType::BootloaderData
+	);
 
 	// Split allocator system is used when a significant portion of memory is above the 4GiB boundary
 	// This allows better optimization for non-DMA allocations as well as reducing pressure on memory usable by DMA
 	// The current algorithm uses split allocators when the total amount of non-DMA memory is >= 1GiB
-	let split_allocators = if cfg!(target_pointer_width = "64") {
-		use utils::handoff::MemoryType;
-		const FOUR_GB: PhysicalAddress = PhysicalAddress(1<<32);
+	let split_allocators = if cfg!(not(target_pointer_width = "32")) {
+		const FOUR_GB: PhysicalAddress = PhysicalAddress::new(1<<32);
 
-		let bytes_over_4gb: usize = handoff_data.memory.map.iter().filter(|entry|
-			entry.ty == MemoryType::Free
-			|| entry.ty == MemoryType::AcpiReclaim
-			|| entry.ty == MemoryType::BootloaderCode
-			|| entry.ty == MemoryType::BootloaderData
-		)
+		let bytes_over_4gb: usize = usable_memory.clone()
 				.filter(|entry| entry.start() >= FOUR_GB)
 				.map(|entry| entry.end() - entry.start())
 				.sum();
 
 		bytes_over_4gb >= 1024*1024*1024
 	} else { false };
-	sprintln!("Split allocator: {}", if split_allocators { "enabled" } else { "disabled" });
 
-	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| ptr.as_ref()) };
-	*panicking::SYMBOL_MAP.write().unwrap() = map;
+	info!("Split allocator: {}", if split_allocators { "enabled" } else { "disabled" });
 
+	panicking::stack_trace();
+
+	{
+		use kernel_api::memory::PhysicalAddress;
+
+		if split_allocators {
+			todo!("split allocators not supported yet :(");
+		}
+
+		let max_usable_memory = usable_memory.clone()
+			.max_by(|a, b| a.end().cmp(&b.end()))
+			.expect("Free memory should exist");
+		let max_usable_memory = max_usable_memory.end();
+
+		let mut spaces = usable_memory.clone()
+			.map(|entry| {
+				Frame::new(entry.start().align_up())..Frame::new(entry.end().align_down())
+			});
+
+		let mut spaces2 = spaces.clone();
+		let mut watermark_allocator = WatermarkAllocator::new(&mut spaces2);
+		let mut new_alloc = memory::physical::with_highmem_as(&watermark_allocator, || {
+			// TODO: initialise heap
+			<bitmap_allocator::Wrapped as BackingAllocator>::new(
+				Config {
+					allocation_range: Frame::new(PhysicalAddress::new(0))..Frame::new(max_usable_memory.align_down()),
+					regions: &mut spaces
+				},
+				[]
+			)
+		});
+
+		let allocator = Arc::get_mut(&mut new_alloc).expect("No other references to allocator should exist yet");
+		watermark_allocator.drain_into(allocator);
+
+		let allocator = memory::physical::highmem();
+	}
+
+/*
 	{
 		let wmark = WatermarkAllocator::new(&handoff_data.memory.map);
 		// SAFETY: We `take()` the allocator at the end of this block, so the allocator is "static" for the time in between
 		let static_wmark = unsafe { mem::transmute::<&dyn Allocator, &'static dyn Allocator>(&wmark) };
 		memory::alloc::phys::GLOBAL_HIGH_MEM_ALLOCATOR.set(static_wmark);
 
-	let low_mem_allocator = &wmark;
-	let high_mem_allocator: &dyn Allocator = if !split_allocators { low_mem_allocator } else {
-		let high_mem_allocator: &dyn Allocator = /* todo */;
-		high_mem_allocator.chain(low_mem_allocator)
-	};
+		sprintln!("{:#x?}", memory::paging3::CURRENT_PAGE_TABLE.lock().unwrap().debug_mappings());
+		let mut baz = memory::paging3::InactiveTable::new().unwrap();
+		memory::paging3::CURRENT_PAGE_TABLE.lock().unwrap().modify_with(&mut baz, |m| {
+			sprintln!("{:#x?}", m.debug_mappings());
+			sprintln!("{:#x?}", m.debug_table());
+		});
+		sprintln!("{:#x?}", memory::paging3::CURRENT_PAGE_TABLE.lock().unwrap().debug_mappings());
 
+		memory::alloc::phys::GLOBAL_HIGH_MEM_ALLOCATOR.take();
+	}
+
+	let split_allocators = false; // todo
 	/*unsafe {
 		// SAFETY: unset a few lines below
 		memory::alloc::phys::GLOBAL_ALLOCATOR.set_unchecked(&mut wmark);
 	}
 	let thingy = (handoff_data.modules.phys_allocator_start)(Range(Frame::new(PhysicalAddress(0)), Frame::new(PhysicalAddress(0x10000))));
 	memory::alloc::phys::GLOBAL_ALLOCATOR.unset();*/
-
-	if let Some(fb) = handoff_data.framebuffer {
+*/
+	if let Some(ref fb) = handoff_data.framebuffer {
 		let size = fb.stride * fb.height;
 		for pixel in unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.cast::<u32>(), size) } {
 			*pixel = 0xeeeeee;
@@ -116,7 +206,18 @@ fn kmain(mut handoff_data: utils::handoff::Data) -> ! {
 #[cfg(not(test))]
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
-	sprintln!("kernel {info}");
+	sprint!("\u{001b}[31m\u{001b}[1mPANIC:");
+	if let Some(location) = info.location() {
+		sprint!(" {location}");
+	}
+	sprintln!("\u{001b}[0m");
+
+	if let Some(message) = info.message() {
+		sprintln!("{}", *message);
+	} else if let Some(payload) = info.payload().downcast_ref::<&'static str>() {
+		sprintln!("{}", payload);
+	}
+
 	panicking::do_panic()
 }
 
@@ -209,7 +310,37 @@ mod arch {
 	}
 }
 
-#[global_allocator]
+mod allocator {
+	use core::alloc::{GlobalAlloc, Layout};
+	use core::ptr;
+	use core::ptr::NonNull;
+	use log::{debug, trace};
+	use kernel_api::memory::heap::{AllocError, Heap};
+
+	struct HookAllocator;
+
+	unsafe impl GlobalAlloc for HookAllocator {
+		unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+			debug!("alloc({layout:?})");
+			match kernel_default_heap::__popcorn_kernel_heap_allocate(layout) {
+				Ok(ptr) => ptr.as_ptr(),
+				Err(_) => ptr::null_mut()
+			}
+		}
+
+		unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+			match NonNull::new(ptr) {
+				Some(ptr) => kernel_default_heap::__popcorn_kernel_heap_deallocate(ptr, layout),
+				None => {}
+			}
+		}
+	}
+
+	#[global_allocator]
+	static ALLOCATOR: HookAllocator = HookAllocator;
+}
+
+//#[global_allocator]
 static ALLOCATOR: Foo = Foo(Mutex::new(FooInner {
 	buffer: [0; 20],
 	used: false,
@@ -224,7 +355,7 @@ struct FooInner {
 
 unsafe impl GlobalAlloc for Foo {
 	unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-		let mut this = self.0.lock().unwrap();
+		let mut this = self.0.lock();
 		if this.used || layout.size() > (this.buffer.len() * 8) || layout.align() > 8 { core::ptr::null_mut() }
 		else {
 			this.used = true;
@@ -233,7 +364,7 @@ unsafe impl GlobalAlloc for Foo {
 	}
 
 	unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-		self.0.lock().unwrap().used = false;
+		self.0.lock().used = false;
 	}
 
 	/*unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
@@ -274,13 +405,21 @@ mod tests {
 			}
 		}
 
+		let success = success_count == tests.len();
+
 		sprintln!("\nTest result: {}. {} passed; {} failed",
-			if success_count == tests.len() { "ok" } else { "fail" },
+			if success { "ok" } else { "fail" },
 			success_count,
 			tests.len() - success_count
 		);
-		loop {}
-		//todo!("Exit qemu");
+
+		let mut qemu_exit = super::arch::Port::<u32>::new(0xf4);
+		if success {
+			unsafe { qemu_exit.write(0x10); }
+		} else {
+			unsafe { qemu_exit.write(0); }
+		}
+		unreachable!()
 	}
 
 	#[panic_handler]

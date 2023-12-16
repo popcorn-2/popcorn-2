@@ -4,7 +4,7 @@ use core::ptr;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use unwinding::abi::UnwindReasonCode;
 use unwinding::panic::catch_unwind as catch_unwind_impl;
-use kernel_exports::sync::RwLock;
+use kernel_api::sync::RwLock;
 use crate::sprintln;
 
 static PANIC_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -43,7 +43,7 @@ fn get_symbol_name(ip: usize) -> &'static str {
 		}
 	}
 
-	let Some(map) = *SYMBOL_MAP.read().unwrap() else { return "<no symbols>"; };
+	let Some(map) = *SYMBOL_MAP.read() else { return "<no symbols>"; };
 	let iter = SymbolMapIterator {
 		index: 0,
 		str: map

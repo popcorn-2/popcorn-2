@@ -7,15 +7,20 @@ edition = "2021"
 
 [dependencies]
 bitflags = { version = "2.3.1", features = [] }
-log = "0.4.17"
+log = { version = "0.4.20", features = ["max_level_debug", "release_max_level_debug"] }
 utils = { path = "../utils" }
 #kernel_exports = { path = "../kernel_exports", default-features = false, features = ["smp"] }
 kernel_api = { version = "0.1.0", path = "../kernel_api" }
 derive_more = "0.99.17"
-spin = { version = "0.9.8", default-features = false, features = ["rwlock"] }
 
-[target.'cfg(panic = "unwind")'.dependencies]
-unwinding = { version = "0.1.7", default-features = false, features = ["unwinder", "panic", "personality", "fde-static"] }
+# FIXME (cargo#12358): [target.'cfg(target_arch = "x86_64")'.dependencies]
+hal_amd64 = { path = "../hal/hal_amd64" }
+
+#[target.'cfg(panic = "unwind")'.dependencies]
+unwinding = { version = "0.2.1", default-features = false, features = ["unwinder", "panic", "personality", "fde-static"] }
+
+kernel_default_heap = { path = "../kernel_default_heap" }
+bitmap_allocator = { path = "../bitmap_allocator" }
 
 [dev-dependencies]
 macros = { path = "../macros" }

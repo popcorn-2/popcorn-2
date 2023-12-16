@@ -22,6 +22,8 @@ members = [
 	"lvgl2",
 	"popfs",
 	"kernel_api",
+	"kernel_default_heap",
+	"bitmap_allocator",
 ]
 
 [profile.release-debug]
