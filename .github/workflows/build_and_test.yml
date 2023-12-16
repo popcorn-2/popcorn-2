@@ -15,3 +15,9 @@ jobs:
         uses: actions/checkout@v4
       - name: 'Build'
         run: ./pop.py build --arch x86_64
+      - name: 'Archive live ISO'
+        uses: actions/upload-artifact@v3
+        with:
+          name: Live ISO
+          path: |
+            target/debug/popcorn2.iso
