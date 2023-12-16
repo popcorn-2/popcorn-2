@@ -2,15 +2,19 @@
 
 import os
 import subprocess
+import sys
 
-subprocess.run([
+result = subprocess.run([
     "cargo",
     "build",
     "-p", "bootloader",
     "--target", "x86_64-unknown-uefi",
 ])
 
-subprocess.run([
+if result != 0:
+    sys.exit("Bootloader build failed")
+
+result = subprocess.run([
     "cargo",
     "rustc",
     "-p", "kernel",
@@ -25,7 +29,10 @@ subprocess.run([
     "-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
 ])
 
-subprocess.run([
+if result != 0:
+    sys.exit("Kernel build failed")
+
+result = subprocess.run([
     "cargo",
     "rustc",
     "-p", "popfs",
@@ -35,7 +42,10 @@ subprocess.run([
     "-Z", "pre-link-args=/subsystem:efi_boot_service_driver",
 ])
 
-subprocess.run([
+if result != 0:
+    sys.exit("popfs build failed")
+
+result = subprocess.run([
     "cargo",
     "run",
     "-p", "builder",
@@ -47,6 +57,9 @@ subprocess.run([
     "CARGO_CFG_TARGET_ARCH": "x86_64",
     "OUT_DIR": "target/debug",
 })
+
+if result != 0:
+    sys.exit("iso generation failed")
 
 '''
 copied from original build system for checking all args are correct when finished
