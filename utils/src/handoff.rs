@@ -38,7 +38,15 @@ impl ColorMask {
 #[repr(C)]
 pub struct Memory {
 	pub map: Vec<MemoryMapEntry>,
-	pub page_table_root: Frame
+	pub page_table_root: Frame,
+	pub stack: Stack
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct Stack {
+	pub top: usize,
+	pub bottom: usize
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -77,6 +85,8 @@ pub enum MemoryType {
 	ModuleData,
 	AcpiPreserve,
 	AcpiReclaim,
+	RuntimeCode,
+	RuntimeData
 }
 
 #[repr(C)]
