@@ -16,3 +16,4 @@ smp = []
 cfg-if = "1.0.0"
 derive_more = "0.99.17"
 kernel_module_macros = { path = "../kernel_module_macros" }
+lock_api = "0.4.11"

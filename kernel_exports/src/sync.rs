@@ -1,16 +1,11 @@
 use core::arch::asm;
 use core::fmt::Formatter;
+pub use mutex::{Mutex, MutexGuard};
+pub use rwlock::{RwLock, RwReadGuard, RwUpgradableReadGuard, RwWriteGuard};
 
-mod mutex;
+pub mod mutex;
 
-#[cfg(feature = "smp")]
-mod rwlock;
-
-pub use mutex::Mutex;
-#[cfg(feature = "smp")]
-pub use rwlock::RwLock;
-#[cfg(not(feature = "smp"))]
-pub type RwLock<T> = Mutex<T>;
+pub mod rwlock;
 
 pub type LockResult<Guard> = Result<Guard, PoisonError<Guard>>;
 pub type TryLockResult<Guard> = Result<Guard, TryLockError<Guard>>;
