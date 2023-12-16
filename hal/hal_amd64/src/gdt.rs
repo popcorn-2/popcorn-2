@@ -1,25 +1,9 @@
 use core::arch::asm;
 use core::mem::offset_of;
-use kernel_api::memory::{PhysicalAddress, VirtualAddress};
+use kernel_api::sync::OnceLock;
 use crate::tss::{Tss, TSS};
 
-#[used]
-static mut GDT: Gdt = {
-    let mut gdt = Gdt::new();
-    gdt.add_entry(EntryTy::KernelCode, Entry::new(Privilege::Ring0, true, true));
-    gdt.add_entry(EntryTy::KernelData, Entry::new(Privilege::Ring0, false, true));
-    gdt.add_entry(EntryTy::UserLongCode, Entry::new(Privilege::Ring3, true, true));
-    gdt.add_entry(EntryTy::UserData, Entry::new(Privilege::Ring3, false, true));
-    gdt
-};
-
-pub fn init_gdt() {
-    // safety: kernel will only cause this from a single core
-    unsafe {
-        GDT.add_tss(&TSS);
-        GDT.load();
-    }
-}
+pub static GDT: OnceLock<Gdt> = OnceLock::new();
 
 //#[derive_const(Default)]
 #[repr(C, align(8))]
@@ -34,9 +18,11 @@ pub struct Gdt {
 }
 
 //#[derive_const(Default)]
+#[derive(PartialEq, Eq, Debug)]
 #[repr(C)]
-struct Entry(u64);
+pub struct Entry(u64);
 //#[derive_const(Default)]
+#[derive(PartialEq, Eq, Debug)]
 #[repr(C)]
 struct SystemEntry(u64, u64);
 
@@ -72,11 +58,11 @@ mod const_default {
 }
 
 impl Gdt {
-    const fn new() -> Gdt {
+    pub(crate) const fn new() -> Gdt {
         Gdt::default()
     }
 
-    const fn add_entry(&mut self, ty: EntryTy, entry: Entry) {
+    pub(crate) const fn add_entry(&mut self, ty: EntryTy, entry: Entry) {
         let e = match ty {
             EntryTy::KernelCode => &mut self.kernel_code,
             EntryTy::KernelData => &mut self.kernel_data,
@@ -88,53 +74,57 @@ impl Gdt {
         *e = entry;
     }
 
-    fn add_tss(&mut self, tss: &'static Tss) {
+    pub(crate) fn add_tss(&mut self, tss: &'static Tss) {
         self.tss = SystemEntry::new_from_tss(tss);
-        // SAFETY: We just loaded the TSS into this index and its valid for a 'static lifetime
-        unsafe { Tss::load(offset_of!(Gdt, tss).try_into().unwrap()); }
     }
 
-    fn load(&'static self) {
+    pub fn load(&'static self) {
         use core::mem::size_of_val;
         let ptr = Pointer {
-            size: size_of_val(self).try_into().unwrap(),
+            size: u16::try_from(size_of_val(self)).expect("GDT too big") - 1,
             address: self,
         };
 
         unsafe {
-            asm!("lgdt [{}]", in(reg) &ptr);
-            asm!("
-                push {0}
-                lea {2:r}, [rip + 2f]
-                push {2:r}
+            asm!("lgdt [{0}]
+                push {1}
+                lea {3:r}, [rip + 2f]
+                push {3:r}
                 retfq
                 2:
-                mov {2:x}, {1}
-                mov ds, {2:x}
-                mov es, {2:x}
-                mov fs, {2:x}
-                mov gs, {2:x}
-                mov ss, {2:x}
-            ", const offset_of!(Gdt, kernel_code), const offset_of!(Gdt, kernel_data), out(reg) _);
+                mov {3:x}, {2}
+                mov ds, {3:x}
+                mov es, {3:x}
+                mov fs, {3:x}
+                mov gs, {3:x}
+                mov ss, {3:x}
+            ", in(reg) &ptr, const offset_of!(Gdt, kernel_code), const offset_of!(Gdt, kernel_data), out(reg) _);
         }
+    }
+
+    pub fn load_tss(&self) {
+        assert_ne!(self.tss, SystemEntry::default());
+
+        // SAFETY: Ensured that TSS exists at the `tss` selector
+        unsafe { Tss::load(offset_of!(Gdt, tss) as u16) }
     }
 }
 
 impl Entry {
-    const fn new(dpl: Privilege, executable: bool, long_mode: bool) -> Entry {
+    pub(crate) const fn new(dpl: Privilege, executable: bool, long_mode: bool) -> Entry {
         const ADDR: u64 = 0;
         const LIMIT: u64 = 0xFFFFF;
         const ACCESS_BYTE_DEFAULT: u64 = 0b1001_0010;
 
         let mut data = 0;
-        let mut access_byte: u64 = ACCESS_BYTE_DEFAULT | (dpl.const_into() << 5) | (if executable {1} else {0} << 3);
+        let access_byte: u64 = ACCESS_BYTE_DEFAULT | (dpl.const_into() << 5) | (if executable { 1 } else { 0 } << 3);
 
         data |= LIMIT & 0xFFFF;
         data |= (ADDR & 0xFFFF) << 16;
         data |= ((ADDR >> 16) & 0xFF) << 32;
         data |= (access_byte & 0xFF) << 40;
         data |= ((LIMIT >> 16) & 0xF) << 48;
-        data |= if long_mode {1} else {0} << 53;
+        data |= if long_mode { 1 } else { 0 } << 53;
         data |= 1 << 55; // granularity
         data |= ((ADDR >> 24) & 0xFF) << 56;
 
@@ -177,7 +167,7 @@ impl From<&'static Gdt> for Pointer {
 }
 
 #[derive(Debug, Copy, Clone)]
-enum Privilege {
+pub(crate) enum Privilege {
     Ring0 = 0,
     Ring3 = 3
 }
@@ -202,7 +192,7 @@ impl Privilege {
 }*/
 
 #[derive(Debug, Copy, Clone)]
-enum EntryTy {
+pub enum EntryTy {
     KernelCode,
     KernelData,
     UserCompatCode,
@@ -211,14 +201,14 @@ enum EntryTy {
 }
 
 impl EntryTy {
-    fn is_data(self) -> bool {
+    pub fn is_data(self) -> bool {
         match self {
             Self::KernelData | Self::UserData => true,
             _ => false
         }
     }
 
-    fn is_executable(self) -> bool {
+    pub fn is_executable(self) -> bool {
         !self.is_data()
     }
 }

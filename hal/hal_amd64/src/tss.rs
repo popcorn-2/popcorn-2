@@ -1,8 +1,9 @@
 use core::arch::asm;
 use kernel_api::memory::VirtualAddress;
+use kernel_api::sync::OnceLock;
 
 #[used]
-pub static TSS: Tss = Tss::new();
+pub static TSS: OnceLock<Tss> = OnceLock::new();
 
 #[repr(C, packed)]
 pub struct Tss {
@@ -19,9 +20,9 @@ impl Tss {
     pub const fn new() -> Tss {
         Tss {
             _res0: 0,
-            privilege_stack_table: [VirtualAddress(0); 3],
+            privilege_stack_table: [VirtualAddress::new(0); 3],
             _res1: 0,
-            interrupt_stack_table: [VirtualAddress(0); 7],
+            interrupt_stack_table: [VirtualAddress::new(0); 7],
             _res2: 0,
             _res3: 0,
             io_map_base: 0,
