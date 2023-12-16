@@ -2,6 +2,25 @@
 #![feature(let_chains)]
 
 use proc_macro::{Diagnostic, Level, TokenStream};
+use quote::{quote, ToTokens};
+use syn::{ItemStruct, Path, parse_macro_input};
+
+#[proc_macro_attribute]
+pub fn module_export(attr: TokenStream, item: TokenStream) -> TokenStream {
+	let mut item = parse_macro_input!(item as ItemStruct);
+	let mut export_trait = parse_macro_input!(attr as Path);
+
+	TokenStream::from(quote!{
+		#item
+
+		const _: () = {
+
+		};
+	})
+}
+
+/*
+use proc_macro::{Diagnostic, Level, TokenStream};
 use proc_macro::Level::Error;
 use quote::{quote, ToTokens};
 use syn::{Abi, Attribute, ExprLit, Ident, ItemFn, Lit, LitStr, Meta, MetaList, parse_macro_input, Path, ReturnType, Signature, Token, Type, Visibility};
@@ -354,3 +373,5 @@ pub fn module_name(names: TokenStream) -> TokenStream  { TokenStream::new() }
 #[cfg(feature = "test")]
 #[proc_macro]
 pub fn module_export_type(ty: TokenStream) -> TokenStream { TokenStream::new() }
+
+ */
