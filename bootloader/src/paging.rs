@@ -1,10 +1,13 @@
-use core::arch::asm;
-use core::{fmt, ptr};
-use core::marker::PhantomData;
-use core::mem::MaybeUninit;
-use core::ops;
 use bitflags::{bitflags, Flags};
-use log::info;
+use core::arch::asm;
+use core::fmt;
+use core::marker::PhantomData;
+use core::mem::{MaybeUninit, size_of};
+use core::ops;
+use core::ptr::addr_of;
+use kernel_exports::memory::{PhysicalAddress, VirtualAddress};
+use log::debug;
+use uefi::table::boot::PAGE_SIZE;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Page(pub u64);
@@ -47,19 +50,27 @@ impl PageTable {
 		let addr = self.0 as *const _ as usize;
 		unsafe{ asm!("mov cr3, {}", in(reg) addr, options(nostack, preserves_flags)); }
 	}
+
+	fn table_addr(&self) -> usize {
+		addr_of!(*self.0) as usize
+	}
 }
 
 impl fmt::Pointer for PageTable {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		fmt::Pointer::fmt(&self.0, f)
+		if f.alternate() {
+			writeln!(f, "{:#01$x}", self.table_addr(), size_of::<*mut u8>()*2 + 2)
+		} else {
+			writeln!(f, "{:#x}", self.table_addr())
+		}
 	}
 }
 
-impl From<PageTable> for kernel_exports::memory::Frame {
-	fn from(value: PageTable) -> Self {
+impl From<&PageTable> for kernel_exports::memory::Frame {
+	fn from(value: &PageTable) -> Self {
 		unsafe {
 			kernel_exports::memory::Frame::new_unchecked(
-				kernel_exports::memory::PhysicalAddress(ptr::addr_of!(value))
+				kernel_exports::memory::PhysicalAddress(value.table_addr())
 			)
 		}
 	}
@@ -100,7 +111,7 @@ impl<Level: ParentTableLevel> Table<Level> {
 
 	pub fn try_get_or_create_child_table<E, F: FnOnce() -> Result<u64, E>>(&mut self, index: usize, allocate: F) -> Result<&'static mut Table<Level::Child>, E> {
 		self.get_child_table_mut(index).map_or_else(|| {
-			info!("New page table Level {}, index {}", Level::Child::VALUE, index);
+			debug!("New page table Level {}, index {}", Level::Child::VALUE, index);
 			let table_ptr = allocate()? as *mut MaybeUninit<Table<_>>;
 			assert!(table_ptr.is_aligned() && !table_ptr.is_null());
 			let table = unsafe { &mut *table_ptr };
