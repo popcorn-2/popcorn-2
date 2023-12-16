@@ -20,6 +20,7 @@ members = [
 	"elf",
 	"mm/dmm/slab_allocator",
 	"macros",
+	"lvgl2",
 	"popfs",
 	"kernel_api",
 ]

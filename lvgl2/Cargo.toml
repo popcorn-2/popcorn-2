@@ -1,0 +1,12 @@
+[package]
+name = "lvgl2"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lvgl-sys = { git = "https://github.com/egkoppel/lvgl-rs.git", default-features = false }
+paste = "1.0.14"
+bitflags = { version = "2.4.1", features = [] }
+log = "0.4.20"
