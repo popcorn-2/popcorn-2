@@ -56,7 +56,7 @@ fn get_symbol_name(ip: usize) -> &'static str {
 	sym_name
 }
 
-fn stack_trace() {
+pub fn stack_trace() {
 	use unwinding::abi::{UnwindContext, _Unwind_GetIP, _Unwind_Backtrace};
 	use core::ffi::c_void;
 
@@ -64,7 +64,7 @@ fn stack_trace() {
 		counter: usize,
 	}
 	extern "C" fn callback(
-		unwind_ctx: &mut UnwindContext<'_>,
+		unwind_ctx: &UnwindContext<'_>,
 		arg: *mut c_void,
 	) -> UnwindReasonCode {
 		let data = unsafe { &mut *arg.cast::<CallbackData>() };
@@ -93,18 +93,18 @@ fn do_panic_with(payload: Box<dyn Any + Send>) -> ! {
 		#[cfg(not(test))]
 		stack_trace();
 
-		if PANIC_COUNT.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_err() {
-			// PANIC_COUNT not at 1
+		if PANIC_COUNT.compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+			// PANIC_COUNT not at 0
 			// already unwinding
-			sprintln!("FATAL: kernel panicked while processing panic.");
+			sprintln!("\u{001b}[31m\u{001b}[1mFATAL: kernel panicked while processing panic.\u{001b}[0m");
 			loop {}
 		} else {
 			// new unwind
 			let code = unwinding::panic::begin_panic(payload);
 			if code == UnwindReasonCode::END_OF_STACK {
-				sprintln!("FATAL: aborting");
+				sprintln!("\u{001b}[31m\u{001b}[1mFATAL: aborting\u{001b}[0m");
 			} else {
-				sprintln!("FATAL: failed to panic, error {}", code.0);
+				sprintln!("\u{001b}[31m\u{001b}[1mFATAL: failed to panic, error {}\u{001b}[0m", code.0);
 			}
 			loop {}
 		}
@@ -115,7 +115,7 @@ fn do_panic_with(payload: Box<dyn Any + Send>) -> ! {
 }
 
 pub(crate) fn panicking() -> bool {
-	PANIC_COUNT.load(Ordering::Acquire) >= 1
+	PANIC_COUNT.load(Ordering::Relaxed) >= 1
 }
 
 pub(crate) fn resume_unwind(payload: Box<dyn Any + Send>) -> ! {
