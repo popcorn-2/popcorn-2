@@ -1,6 +1,6 @@
 use core::arch::asm;
 use core::mem::offset_of;
-use kernel_exports::memory::{PhysicalAddress, VirtualAddress};
+use kernel_api::memory::{PhysicalAddress, VirtualAddress};
 use crate::tss::{Tss, TSS};
 
 #[used]

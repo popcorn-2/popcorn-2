@@ -9,7 +9,7 @@ use uefi::table::boot::{AllocateType, PAGE_SIZE};
 use elf::File;
 use elf::header::program::{ProgramHeaderEntry64, SegmentFlags, SegmentType};
 use elf::symbol_table::SymbolMap;
-use kernel_exports::memory::{PhysicalAddress, VirtualAddress};
+use kernel_api::memory::{PhysicalAddress, VirtualAddress};
 
 use crate::paging::{Frame, Page, PageTable};
 
@@ -49,8 +49,8 @@ fn load_segment<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(kerne
 	}
 
 	Ok(LoadedSegment {
-		physical_addr: PhysicalAddress(allocation.try_into().expect("Todo")),
-		virtual_addr: VirtualAddress(segment.vaddr.try_into().expect("Virtual address could not fit in machine width???")),
+		physical_addr: PhysicalAddress::new(allocation.try_into().expect("Todo")),
+		virtual_addr: VirtualAddress::new(segment.vaddr.try_into().expect("Virtual address could not fit in machine width???")),
 		page_count
 	})
 }
@@ -65,8 +65,8 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 	let kernel = File::try_new(from).map_err(|_| ())?;
 	let mut page_table = unsafe { PageTable::try_new(|| allocator(1, AllocateType::AnyPages)) }.map_err(|_| ())?;
 
-	let mut kernel_last_page = VirtualAddress(usize::MIN);
-	let mut kernel_first_page = VirtualAddress(usize::MAX);
+	let mut kernel_last_page = VirtualAddress::new(usize::MIN);
+	let mut kernel_first_page = VirtualAddress::new(usize::MAX);
 
 	kernel.segments().filter(|segment| segment.segment_type == SegmentType::LOAD)
 	      .try_for_each(|segment| {
@@ -77,8 +77,8 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 		      if last_page > kernel_last_page { kernel_last_page = last_page };
 
 		      page_table.try_map_range(
-			      Page(segment.virtual_addr.0.try_into().unwrap()),
-			      Frame(segment.physical_addr.0.try_into().unwrap()),
+			      Page(segment.virtual_addr.addr.try_into().unwrap()),
+			      Frame(segment.physical_addr.addr.try_into().unwrap()),
 			      segment.page_count.try_into().unwrap(),
 			      || allocator(1, AllocateType::AnyPages)
 		      ).unwrap();

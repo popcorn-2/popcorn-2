@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::fmt::{Formatter, Pointer};
 use core::ptr::NonNull;
-use kernel_exports::memory::{Frame, PhysicalAddress, PhysicalMemoryAllocator};
+use kernel_api::memory::{Frame, PhysicalAddress};
 
 #[derive(Debug)]
 #[repr(C)]
@@ -91,12 +91,13 @@ pub enum MemoryType {
 
 #[repr(C)]
 pub struct Modules {
-	pub phys_allocator_start: extern "sysv64" fn(Range<Frame>) -> Result<&'static dyn PhysicalMemoryAllocator, ()>
+
 }
 
 impl core::fmt::Debug for Modules {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		<(*const ()) as core::fmt::Pointer>::fmt(&{self.phys_allocator_start as *const ()}, f)
+		// <(*const ()) as core::fmt::Pointer>::fmt(&{self.phys_allocator_start as *const ()}, f)
+		Ok(())
 	}
 }
 

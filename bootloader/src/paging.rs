@@ -1,23 +1,21 @@
-use bitflags::{bitflags, Flags};
 use core::arch::asm;
 use core::fmt;
 use core::marker::PhantomData;
 use core::mem::{MaybeUninit, size_of};
 use core::ops;
 use core::ptr::addr_of;
-use kernel_exports::memory::{PhysicalAddress, VirtualAddress};
+
+use bitflags::{bitflags, Flags};
 use log::debug;
-use uefi::table::boot::PAGE_SIZE;
+
+use kernel_api::memory::{Frame as KernelFrame, Page as KernelPage, PhysicalAddress};
 
 #[derive(Debug, Copy, Clone)]
 pub struct Page(pub u64);
 
-impl TryFrom<VirtualAddress> for Page {
-	type Error = ();
-
-	fn try_from(value: VirtualAddress) -> Result<Self, Self::Error> {
-		if value.0 == (value.0 & !(PAGE_SIZE - 1)) { Ok(Page(value.0 as u64)) }
-		else { Err(()) }
+impl From<KernelPage> for Page {
+	fn from(value: KernelPage) -> Self {
+		Page(value.start().addr.try_into().unwrap())
 	}
 }
 
@@ -31,12 +29,9 @@ impl Page {
 #[derive(Debug, Copy, Clone)]
 pub struct Frame(pub u64);
 
-impl TryFrom<PhysicalAddress> for Frame {
-	type Error = ();
-
-	fn try_from(value: PhysicalAddress) -> Result<Self, Self::Error> {
-		if value.0 == (value.0 & !(PAGE_SIZE - 1)) { Ok(Frame(value.0 as u64)) }
-		else { Err(()) }
+impl From<KernelFrame> for Frame {
+	fn from(value: KernelFrame) -> Self {
+		Frame(value.start().addr.try_into().unwrap())
 	}
 }
 
@@ -105,11 +100,11 @@ impl fmt::Pointer for PageTable {
 	}
 }
 
-impl From<&PageTable> for kernel_exports::memory::Frame {
+impl From<&PageTable> for KernelFrame {
 	fn from(value: &PageTable) -> Self {
 		unsafe {
-			kernel_exports::memory::Frame::new_unchecked(
-				kernel_exports::memory::PhysicalAddress(value.table_addr())
+			KernelFrame::new(
+				PhysicalAddress::new(value.table_addr())
 			)
 		}
 	}

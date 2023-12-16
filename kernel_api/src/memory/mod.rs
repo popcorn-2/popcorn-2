@@ -27,14 +27,16 @@ pub struct Page {
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 #[derive(Debug, Copy, Clone, Eq, Ord)]
 pub struct PhysicalAddress<const ALIGN: usize = 1> {
-    addr: usize
+    #[unstable(feature = "kernel_memory_addr_access", issue = "none")]
+    pub addr: usize
 }
 
 /// A virtual memory address of alignment `ALIGN`
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 #[derive(Debug, Copy, Clone, Eq, Ord)]
 pub struct VirtualAddress<const ALIGN: usize = 1> {
-    addr: usize
+    #[unstable(feature = "kernel_memory_addr_access", issue = "none")]
+    pub addr: usize
 }
 
 impl<const ALIGN: usize> PhysicalAddress<ALIGN> {

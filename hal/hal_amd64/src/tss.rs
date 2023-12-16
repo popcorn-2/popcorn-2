@@ -1,5 +1,5 @@
 use core::arch::asm;
-use kernel_exports::memory::VirtualAddress;
+use kernel_api::memory::VirtualAddress;
 
 #[used]
 pub static TSS: Tss = Tss::new();

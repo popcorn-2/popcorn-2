@@ -14,6 +14,7 @@
 #![feature(iter_collect_into)]
 #![feature(noop_waker)]
 #![feature(c_str_literals)]
+#![feature(kernel_memory_addr_access)]
 #![no_main]
 #![no_std]
 
@@ -24,28 +25,16 @@ use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::ffi::CString;
 use alloc::vec::Vec;
-use bitflags::Flags;
 use core::{fmt, mem};
 use core::arch::asm;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 use core::ptr::NonNull;
 use core::time::Duration;
+
+use bitflags::Flags;
 use derive_more::Display;
-use kernel_exports::memory::{PhysicalAddress, VirtualAddress};
 use log::{debug, error, info, trace, warn};
-use lvgl2::font::Font;
-use lvgl2::input::{encoder, pointer};
-use lvgl2::input::encoder::ButtonUpdate;
-use lvgl2::input::pointer::Update;
-use lvgl2::misc::Color;
-use lvgl2::object::{Object, style, Widget};
-use lvgl2::object::button::Button;
-use lvgl2::object::group::Group;
-use lvgl2::object::image::{Image, ImageSource};
-use lvgl2::object::label::Label;
-use lvgl2::object::layout::{flex, Layout};
-use lvgl2::object::style::{ExternalStyle, Opacity, Part, State, Style};
 use more_asserts::assert_lt;
 use uefi::{Char16, Event, Guid};
 use uefi::data_types::{Align, Identify};
@@ -60,6 +49,20 @@ use uefi::proto::media::fs::SimpleFileSystem;
 use uefi::proto::media::partition::PartitionInfo;
 use uefi::table::boot::{AllocateType, EventType, MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams, PAGE_SIZE, SearchType, TimerTrigger, Tpl};
 use uefi::table::runtime::ResetType;
+
+use kernel_api::memory::{PhysicalAddress, VirtualAddress};
+use lvgl2::font::Font;
+use lvgl2::input::{encoder, pointer};
+use lvgl2::input::encoder::ButtonUpdate;
+use lvgl2::input::pointer::Update;
+use lvgl2::misc::Color;
+use lvgl2::object::{Object, style, Widget};
+use lvgl2::object::button::Button;
+use lvgl2::object::group::Group;
+use lvgl2::object::image::{Image, ImageSource};
+use lvgl2::object::label::Label;
+use lvgl2::object::layout::{flex, Layout};
+use lvgl2::object::style::{ExternalStyle, Opacity, Part, State, Style};
 use utils::handoff;
 use utils::handoff::{ColorMask, MemoryMapEntry, Range};
 
@@ -605,9 +608,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             .expect("Unable to load kernel");
     let elf::KernelLoadInfo { kernel, mut page_table, address_range } = kernel;
     let mut address_range = {
-        let aligned_start = address_range.start.0 & !(PAGE_SIZE - 1);
-        let aligned_end = (address_range.end.0 + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
-        VirtualAddress(aligned_start)..VirtualAddress(aligned_end)
+        VirtualAddress::align_down::<4096>(address_range.start)..VirtualAddress::align_up::<4096>(address_range.end)
     };
 
     let kernel_symbols = kernel.exported_symbols();
@@ -701,13 +702,13 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         let (width, height) = mode_info.resolution();
 
         let page_count = (framebuffer_info.size() + PAGE_SIZE - 1) / PAGE_SIZE;
-        address_range.start -= page_count * PAGE_SIZE;
+        address_range.start = (address_range.start - page_count * PAGE_SIZE).align_down();
         let fb_start = address_range.start;
 
         let framebuffer_addr = framebuffer_info.as_mut_ptr() as usize;
 
         page_table.try_map_range_with::<(), _>(
-            fb_start.try_into().unwrap(),
+            Page(fb_start.addr.try_into().unwrap()),
             Frame(framebuffer_addr.try_into().unwrap()),
             page_count.try_into().unwrap(),
             || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()),
@@ -725,7 +726,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         }?;
 
         handoff::Framebuffer {
-            buffer: fb_start.0 as *mut u8,
+            buffer: fb_start.addr as *mut u8,
             stride: mode_info.stride(),
             width,
             height,
@@ -735,13 +736,13 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let stack_top = {
         const STACK_PAGE_COUNT: usize = 32;
-        address_range.start -= STACK_PAGE_COUNT*4096;
+        address_range.start = VirtualAddress::align_down(address_range.start - STACK_PAGE_COUNT*4096);
 
         let Ok(allocation) = services.allocate_pages(AllocateType::AnyPages, memory_types::KERNEL_STACK, STACK_PAGE_COUNT) else {
             panic!("Failed to allocate enough memory to load popcorn2");
         };
 
-        page_table.try_map_range::<(), _>(address_range.start.try_into().unwrap(), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()))
+        page_table.try_map_range::<(), _>(Page(address_range.start.addr.try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()))
                          .unwrap();
 
         address_range.start + STACK_PAGE_COUNT*4096
@@ -749,7 +750,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let symbol_map = symbol_map.map(|m| NonNull::from(&mut *m.into_boxed_slice()));
 
-    info!("new stack top at {:#x}", stack_top.0);
+    info!("new stack top at {:#x}", stack_top.addr);
 
     // allocate before getting memory map from UEFI
     let mut kernel_mem_map = {
@@ -806,7 +807,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             };
 
             MemoryMapEntry {
-                coverage: Range(PhysicalAddress(descriptor.phys_start.try_into().unwrap()), PhysicalAddress((descriptor.phys_start + descriptor.page_count * 4096).try_into().unwrap())),
+                coverage: Range(PhysicalAddress::new(descriptor.phys_start.try_into().unwrap()), PhysicalAddress::new((descriptor.phys_start + descriptor.page_count * 4096).try_into().unwrap())),
                 ty
             }
         };
@@ -854,12 +855,12 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             map: kernel_mem_map,
             page_table_root: (&page_table).into(),
             stack: handoff::Stack {
-                top: stack_top.0,
-                bottom: address_range.start.0
+                top: stack_top.addr,
+                bottom: address_range.start.addr
             }
         },
         modules: handoff::Modules {
-            phys_allocator_start: unsafe { mem::transmute(1usize) }
+
         },
         log: handoff::Logging {
             symbol_map
@@ -879,7 +880,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             mov rsp, {}
             xor ebp, ebp
             call {}
-        ", in(reg) stack_top.0, in(reg) kernel_entry, in("rdi") &handoff, options(noreturn))
+        ", in(reg) stack_top.addr, in(reg) kernel_entry, in("rdi") &handoff, options(noreturn))
     }
 }
 
@@ -955,9 +956,9 @@ fn panic_handler(info: &PanicInfo) -> ! {
  */
 
 mod memory_types {
-    use uefi::table::boot::MemoryType;
+	use uefi::table::boot::MemoryType;
 
-    pub const KERNEL_CODE: MemoryType = MemoryType::custom(0x8000_0000);
+	pub const KERNEL_CODE: MemoryType = MemoryType::custom(0x8000_0000);
     pub const MODULE_CODE: MemoryType = MemoryType::custom(0x8000_0001);
     pub const PAGE_TABLE: MemoryType = MemoryType::custom(0x8000_0002);
     pub const MEMORY_ALLOCATOR_DATA: MemoryType = MemoryType::custom(0x8000_0003);

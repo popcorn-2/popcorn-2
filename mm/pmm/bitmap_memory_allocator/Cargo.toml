@@ -9,5 +9,5 @@ edition = "2021"
 #crate-type = ["cdylib"]
 
 [dependencies]
-kernel_exports = { path = "../../../kernel_exports" }
+#kernel_exports = { path = "../../../kernel_exports" }
 utils = { path = "../../../utils" }
