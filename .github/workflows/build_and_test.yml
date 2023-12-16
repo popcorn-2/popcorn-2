@@ -1,0 +1,17 @@
+name: Build and test
+
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Check out'
+        uses: actions/checkout@v4
+      - name: 'Build'
+        run: ./pop.py
