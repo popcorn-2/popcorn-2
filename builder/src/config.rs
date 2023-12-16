@@ -1,11 +1,8 @@
-use std::fs;
-use std::path::PathBuf;
-
 use derive_more::Display;
 use gpt::partition_types;
 use serde::Deserialize;
-
-use crate::cargo_env;
+use std::fs;
+use std::path::PathBuf;
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
@@ -52,10 +49,8 @@ impl From<PartitionType> for partition_types::Type {
 
 impl Config {
 	pub fn parse() -> Result<Self, Error> {
-		let manifest_dir = PathBuf::from(cargo_env!("CARGO_MANIFEST_DIR"));
-		let config_path = manifest_dir.join("config.toml");
-
-		println!("cargo:rerun-if-changed={}", config_path.display());
+		//let manifest_dir = PathBuf::from(cargo_env!("CARGO_MANIFEST_DIR"));
+		let config_path = PathBuf::from("config.toml"); //manifest_dir.join("config.toml");
 
 		let s = fs::read_to_string(config_path)
 				.map_err(|_| Error::FileNotFound)?;
