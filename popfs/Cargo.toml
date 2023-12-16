@@ -1,0 +1,15 @@
+[package]
+name = "popfs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "popfs_uefi_driver"
+path = "src/uefi.rs"
+
+[dependencies]
+uefi = { version = "0.24.0", default-features = false, features = ["alloc"] }
+uefi-services = { version = "0.21.0", default-features = false }
+uefi-raw = { version = "0.3.0" }

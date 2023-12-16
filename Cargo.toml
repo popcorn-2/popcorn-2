@@ -13,7 +13,7 @@ members = [
 	"elf",
 	"mm/dmm/slab_allocator",
 	"macros",
-	"symbol_formatter",
+	"popfs",
 ]
 
 [profile.release]
