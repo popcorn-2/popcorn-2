@@ -1,7 +1,7 @@
 ---
 name: Tracking issue
 about: Unstable kernel api features
-title: ''
+title: Tracking issue for `...`
 labels: tracking
 assignees: ''
 
