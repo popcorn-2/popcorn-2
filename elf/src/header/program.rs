@@ -1,5 +1,6 @@
-use core::ops::Range;
 use bitflags::bitflags;
+use core::ops::Range;
+
 use crate::FileLocation;
 use crate::newtype_enum;
 
@@ -73,5 +74,6 @@ bitflags! {
 		const Writeable = 0x2;
         const Readable = 0x4;
 		const LowMem = 0x10000;
+		const Lazy = 0x20000;
 	}
 }
