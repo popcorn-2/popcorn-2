@@ -12,6 +12,15 @@ use uefi::table::boot::PAGE_SIZE;
 #[derive(Debug, Copy, Clone)]
 pub struct Page(pub u64);
 
+impl TryFrom<VirtualAddress> for Page {
+	type Error = ();
+
+	fn try_from(value: VirtualAddress) -> Result<Self, Self::Error> {
+		if value.0 == (value.0 & !(PAGE_SIZE - 1)) { Ok(Page(value.0 as u64)) }
+		else { Err(()) }
+	}
+}
+
 impl Page {
 	const fn l4_index(self) -> u64 { (self.0 & amd64::L4_MASK) >> amd64::L4_SHIFT }
 	const fn l3_index(self) -> u64 { (self.0 & amd64::L3_MASK) >> amd64::L3_SHIFT }
@@ -21,6 +30,15 @@ impl Page {
 
 #[derive(Debug, Copy, Clone)]
 pub struct Frame(pub u64);
+
+impl TryFrom<PhysicalAddress> for Frame {
+	type Error = ();
+
+	fn try_from(value: PhysicalAddress) -> Result<Self, Self::Error> {
+		if value.0 == (value.0 & !(PAGE_SIZE - 1)) { Ok(Frame(value.0 as u64)) }
+		else { Err(()) }
+	}
+}
 
 pub struct PageTable(&'static mut Table<Level4>);
 
