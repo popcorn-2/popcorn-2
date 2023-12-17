@@ -336,11 +336,11 @@ mod allocator {
 		}
 	}
 
-	#[global_allocator]
+	#[cfg_attr(not(test), global_allocator)]
 	static ALLOCATOR: HookAllocator = HookAllocator;
 }
 
-//#[global_allocator]
+#[cfg_attr(test, global_allocator)]
 static ALLOCATOR: Foo = Foo(Mutex::new(FooInner {
 	buffer: [0; 20],
 	used: false,
@@ -389,8 +389,11 @@ mod tests {
 			sprint!("{}...\t", core::any::type_name::<T>());
 			match panicking::catch_unwind(self) {
 				Ok(_) => { sprintln!("[ok]"); Result::Success },
-				Err(_) => { sprintln!("[FAIL]"); Result::Fail }
-				// todo: print panic message
+				Err(msg) => {
+					sprintln!("[FAIL]");
+					// todo: print panic message
+					Result::Fail
+				}
 			}
 		}
 	}
