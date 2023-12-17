@@ -13,6 +13,7 @@ parser.add_argument(
 )
 parser.add_argument("-v", "--verbose", action='count', default=0)
 parser.add_argument("--arch", choices=["x86_64"], required=True)
+parser.add_argument("-j", "--jobs", action="store", type=int)
 
 args, subcommand_parse = parser.parse_known_args()
 
@@ -29,6 +30,8 @@ cargo_flags = []
 if args.verbose >= 2:
     cargo_flags.append("--verbose")
 
+if args.jobs:
+    cargo_flags.extend(["--jobs", str(args.jobs)])
 
 def run_cargo_command(subcommand: str, *cargo_args: [str]):
     command = [
