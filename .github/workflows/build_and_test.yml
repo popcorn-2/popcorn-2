@@ -22,7 +22,7 @@ jobs:
           CXX: C++
         run: |
           cc --version
-          ./pop.py build --arch x86_64 -j1 -v
+          ./pop.py build --arch x86_64 -v
       - name: 'Archive live ISO'
         uses: actions/upload-artifact@v3
         with:
