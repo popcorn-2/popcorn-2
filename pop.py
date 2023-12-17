@@ -12,18 +12,10 @@ parser.add_argument(
     dest="subcommand"
 )
 parser.add_argument("-v", "--verbose", action='count', default=0)
-parser.add_argument("--arch", choices=["x86_64"], required=True)
+parser.add_argument("--arch", choices=["x86_64", "host"], default="host")
 parser.add_argument("-j", "--jobs", action="store", type=int)
 
 args, subcommand_parse = parser.parse_known_args()
-
-match args.subcommand:
-    case "build":
-        pass
-    case "run":
-        pass
-    case "clean":
-        pass
 
 cargo_flags = []
 
@@ -45,60 +37,74 @@ def run_cargo_command(subcommand: str, *cargo_args: [str]):
 
     return subprocess.run(command)
 
+match args.subcommand:
+    case "build":
+        parser_build = argparse.ArgumentParser("pop.py build")
+        parser_build.add_argument("--release", action="store_true")
+        args = parser_build.parse_args(subcommand_parse, args)
 
-result = run_cargo_command(
-    "build",
-    "-p", "bootloader",
-    "--target", "x86_64-unknown-uefi"
-)
+        if args.release:
+            cargo_flags.append("--release")
 
-if result.returncode != 0:
-    sys.exit("Bootloader build failed")
+        result = run_cargo_command(
+            "build",
+            "-p", "bootloader",
+            "--target", "x86_64-unknown-uefi"
+        )
 
-result = run_cargo_command(
-    "rustc",
-    "-p", "kernel",
-   "--target", "x86_64-unknown-popcorn.json",
-   "-Zbuild-std=compiler_builtins,core,alloc", "-Zbuild-std-features=compiler-builtins-mem",
-   "--",
-   "-C", "link-args=-export-dynamic",
-   "-Z", "export-executable-symbols=on",
-   "-C", "relocation-model=static",
-   "-C", "symbol-mangling-version=v0",
-   "-C", "panic=unwind",
-   "-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
-)
+        if result.returncode != 0:
+            sys.exit("Bootloader build failed")
 
-if result.returncode != 0:
-    sys.exit("Kernel build failed")
+        result = run_cargo_command(
+            "rustc",
+            "-p", "kernel",
+            "--target", "x86_64-unknown-popcorn.json",
+            "-Zbuild-std=compiler_builtins,core,alloc", "-Zbuild-std-features=compiler-builtins-mem",
+            "--",
+            "-C", "link-args=-export-dynamic",
+            "-Z", "export-executable-symbols=on",
+            "-C", "relocation-model=static",
+            "-C", "symbol-mangling-version=v0",
+            "-C", "panic=unwind",
+            "-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
+        )
 
-result = run_cargo_command(
-    "rustc",
-    "-p", "popfs",
-    "--bin", "popfs_uefi_driver",
-    "--target", "x86_64-unknown-uefi",
-    "--",
-    "-Z", "pre-link-args=/subsystem:efi_boot_service_driver",
-)
+        if result.returncode != 0:
+            sys.exit("Kernel build failed")
 
-if result.returncode != 0:
-    sys.exit("popfs build failed")
+        result = run_cargo_command(
+            "rustc",
+            "-p", "popfs",
+            "--bin", "popfs_uefi_driver",
+            "--target", "x86_64-unknown-uefi",
+            "--",
+            "-Z", "pre-link-args=/subsystem:efi_boot_service_driver",
+        )
 
-result = subprocess.run([
-    "cargo",
-    "run",
-    "-p", "builder",
-], env={
-    **os.environ,
-    "CARGO_BIN_FILE_KERNEL": "target/x86_64-unknown-popcorn/debug/kernel.exec",
-    "CARGO_BIN_FILE_BOOTLOADER": "target/x86_64-unknown-uefi/debug/bootloader.efi",
-    "CARGO_BIN_FILE_POPFS_popfs_uefi_driver": "target/x86_64-unknown-uefi/debug/popfs_uefi_driver.efi",
-    "CARGO_CFG_TARGET_ARCH": "x86_64",
-    "OUT_DIR": "target/debug",
-})
+        if result.returncode != 0:
+            sys.exit("popfs build failed")
 
-if result.returncode != 0:
-    sys.exit("iso generation failed")
+        result = subprocess.run([
+            "cargo",
+            "run",
+            "-p", "builder",
+        ], env={
+            **os.environ,
+            "CARGO_BIN_FILE_KERNEL": "target/x86_64-unknown-popcorn/debug/kernel.exec",
+            "CARGO_BIN_FILE_BOOTLOADER": "target/x86_64-unknown-uefi/debug/bootloader.efi",
+            "CARGO_BIN_FILE_POPFS_popfs_uefi_driver": "target/x86_64-unknown-uefi/debug/popfs_uefi_driver.efi",
+            "CARGO_CFG_TARGET_ARCH": "x86_64",
+            "OUT_DIR": "target/debug",
+        })
+
+        if result.returncode != 0:
+            sys.exit("iso generation failed")
+
+    case "run":
+        raise RuntimeError("Command `run` not yet supported")
+    case "clean":
+        result = run_cargo_command("clean")
+        exit(result.returncode)
 
 '''
 copied from original build system for checking all args are correct when finished

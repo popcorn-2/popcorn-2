@@ -21,8 +21,9 @@ jobs:
           CC: clang
           CXX: C++
         run: |
-          ./pop.py build --arch x86_64 -v
+          ./pop.py build --arch x86_64 -v ${{ github.ref == 'refs/heads/trunk' && '--release' || '' }}
       - name: 'Archive live ISO'
+        if: success() && github.ref == 'refs/heads/trunk'
         uses: actions/upload-artifact@v3
         with:
           name: Live ISO
