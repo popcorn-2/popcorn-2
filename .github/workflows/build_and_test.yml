@@ -13,8 +13,12 @@ jobs:
     steps:
       - name: 'Check out'
         uses: actions/checkout@v4
+      - name: 'Install multilib'
+        run: |
+          sudo apt install -y gcc-multilib g++-multilib
       - name: 'Build'
         run: |
+          cc --version
           ./pop.py build --arch x86_64 -j1 -v
       - name: 'Archive live ISO'
         uses: actions/upload-artifact@v3
