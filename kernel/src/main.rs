@@ -416,6 +416,23 @@ mod tests {
 			tests.len() - success_count
 		);
 
+		struct QemuDebug;
+
+		impl minicov::CoverageWriter for QemuDebug {
+			fn write(&mut self, data: &[u8]) -> core::result::Result<(), minicov::CoverageWriteError> {
+				let mut qemu_debug = super::arch::Port::<u8>::new(0xe9);
+				for byte in data {
+					unsafe { qemu_debug.write(*byte); }
+				}
+				Ok(())
+			}
+		}
+
+	    unsafe {
+	        // Note that this function is not thread-safe! Use a lock if needed.
+	        minicov::capture_coverage(&mut QemuDebug).unwrap();
+	    }
+
 		let mut qemu_exit = super::arch::Port::<u32>::new(0xf4);
 		if success {
 			unsafe { qemu_exit.write(0x10); }

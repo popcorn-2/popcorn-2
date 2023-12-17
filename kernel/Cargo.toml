@@ -24,6 +24,7 @@ bitmap_allocator = { path = "../bitmap_allocator" }
 
 [dev-dependencies]
 macros = { path = "../macros" }
+minicov = "0.3"
 
 [features]
 default = []
