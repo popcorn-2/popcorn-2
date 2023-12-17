@@ -25,6 +25,7 @@ if args.verbose >= 2:
 if args.jobs:
     cargo_flags.extend(["--jobs", str(args.jobs)])
 
+
 def run_cargo_command(subcommand: str, *cargo_args: [str]):
     command = [
         "cargo",
@@ -37,10 +38,12 @@ def run_cargo_command(subcommand: str, *cargo_args: [str]):
 
     return subprocess.run(command)
 
+
 match args.subcommand:
     case "build":
         parser_build = argparse.ArgumentParser("pop.py build")
         parser_build.add_argument("--release", action="store_true")
+        parser_build.add_argument("--from-kernel-file")
         args = parser_build.parse_args(subcommand_parse, args)
 
         if args.release:
@@ -55,22 +58,27 @@ match args.subcommand:
         if result.returncode != 0:
             sys.exit("Bootloader build failed")
 
-        result = run_cargo_command(
-            "rustc",
-            "-p", "kernel",
-            "--target", "x86_64-unknown-popcorn.json",
-            "-Zbuild-std=compiler_builtins,core,alloc", "-Zbuild-std-features=compiler-builtins-mem",
-            "--",
-            "-C", "link-args=-export-dynamic",
-            "-Z", "export-executable-symbols=on",
-            "-C", "relocation-model=static",
-            "-C", "symbol-mangling-version=v0",
-            "-C", "panic=unwind",
-            "-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
-        )
+        if not args.from_kernel_file:
+            result = run_cargo_command(
+                "rustc",
+                "-p", "kernel",
+                "--target", "x86_64-unknown-popcorn.json",
+                "-Zbuild-std=compiler_builtins,core,alloc", "-Zbuild-std-features=compiler-builtins-mem",
+                "--",
+                "-C", "link-args=-export-dynamic",
+                "-Z", "export-executable-symbols=on",
+                "-C", "relocation-model=static",
+                "-C", "symbol-mangling-version=v0",
+                "-C", "panic=unwind",
+                "-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
+            )
 
-        if result.returncode != 0:
-            sys.exit("Kernel build failed")
+            if result.returncode != 0:
+                sys.exit("Kernel build failed")
+
+            kernel_file = "target/x86_64-unknown-popcorn/debug/kernel.exec"
+        else:
+            kernel_file = args.from_kernel_file
 
         result = run_cargo_command(
             "rustc",
@@ -90,7 +98,7 @@ match args.subcommand:
             "-p", "builder",
         ], env={
             **os.environ,
-            "CARGO_BIN_FILE_KERNEL": "target/x86_64-unknown-popcorn/debug/kernel.exec",
+            "CARGO_BIN_FILE_KERNEL": kernel_file,
             "CARGO_BIN_FILE_BOOTLOADER": "target/x86_64-unknown-uefi/debug/bootloader.efi",
             "CARGO_BIN_FILE_POPFS_popfs_uefi_driver": "target/x86_64-unknown-uefi/debug/popfs_uefi_driver.efi",
             "CARGO_CFG_TARGET_ARCH": "x86_64",
@@ -105,6 +113,8 @@ match args.subcommand:
     case "clean":
         result = run_cargo_command("clean")
         exit(result.returncode)
+    case "test":
+        raise RuntimeError("Command `test` not yet supported")
 
 '''
 copied from original build system for checking all args are correct when finished
