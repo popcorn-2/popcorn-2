@@ -1,6 +1,6 @@
 // rust features
 #![feature(custom_test_frameworks)]
-#![test_runner(tests::test_runner)]
+#![test_runner(test_harness::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 #![feature(const_trait_impl)]
 #![feature(allocator_api)]
@@ -35,6 +35,8 @@ extern crate alloc;
 #[cfg(panic = "unwind")]
 extern crate unwinding;
 
+extern crate self as kernel;
+
 use alloc::sync::Arc;
 use core::alloc::{GlobalAlloc, Layout};
 use core::arch::asm;
@@ -58,6 +60,9 @@ mod memory;
 mod panicking;
 mod resource;
 mod logging;
+
+#[cfg(test)]
+pub mod test_harness;
 
 #[macro_export]
 macro_rules! usize {
@@ -374,79 +379,7 @@ unsafe impl GlobalAlloc for Foo {
 
 #[cfg(test)]
 mod tests {
-	use core::panic::PanicInfo;
-	use macros::test_should_panic;
-	use crate::{panicking::do_panic, panicking, sprint, sprintln};
-
-	pub enum Result { Success, Fail }
-
-	pub trait Testable {
-		fn run(&self) -> Result;
-	}
-
-	impl<T> Testable for T where T: Fn() {
-		fn run(&self) -> Result {
-			sprint!("{}...\t", core::any::type_name::<T>());
-			match panicking::catch_unwind(self) {
-				Ok(_) => { sprintln!("[ok]"); Result::Success },
-				Err(msg) => {
-					sprintln!("[FAIL]");
-					// todo: print panic message
-					Result::Fail
-				}
-			}
-		}
-	}
-
-	pub fn test_runner(tests: &[&dyn Testable]) -> ! {
-		sprintln!("Running {} tests", tests.len());
-		let mut success_count = 0;
-		for test in tests {
-			match test.run() {
-				Result::Success => success_count += 1,
-				Result::Fail => {}
-			}
-		}
-
-		let success = success_count == tests.len();
-
-		sprintln!("\nTest result: {}. {} passed; {} failed",
-			if success { "ok" } else { "fail" },
-			success_count,
-			tests.len() - success_count
-		);
-
-		struct QemuDebug;
-
-		impl minicov::CoverageWriter for QemuDebug {
-			fn write(&mut self, data: &[u8]) -> core::result::Result<(), minicov::CoverageWriteError> {
-				let mut qemu_debug = super::arch::Port::<u8>::new(0xe9);
-				for byte in data {
-					unsafe { qemu_debug.write(*byte); }
-				}
-				Ok(())
-			}
-		}
-
-	    unsafe {
-	        // Note that this function is not thread-safe! Use a lock if needed.
-	        minicov::capture_coverage(&mut QemuDebug).unwrap();
-	    }
-
-		let mut qemu_exit = super::arch::Port::<u32>::new(0xf4);
-		if success {
-			unsafe { qemu_exit.write(0x10); }
-		} else {
-			unsafe { qemu_exit.write(0); }
-		}
-		unreachable!()
-	}
-
-	#[panic_handler]
-	fn panic_handler(info: &PanicInfo) -> ! {
-		sprintln!("{info}");
-		do_panic()
-	}
+	use macros::{test_should_panic, test_ignored};
 
 	#[test_case]
 	fn trivial_assertion() {
@@ -454,8 +387,23 @@ mod tests {
 	}
 
 	#[test_should_panic]
-	fn should_panic() {
-		assert_eq!(1, 2);
+	fn foobar() {
+		assert_eq!(1, 3);
+	}
+
+
+	#[test_ignored]
+	fn no_panic() {
+		assert_ne!(1, 3);
+	}
+
+	#[test_ignored]
+	fn foobar_fail() {
+		assert_eq!(1, 3);
+	}
+
+	#[test_ignored]
+	fn foobar_ignored() {
+		assert_eq!(1, 3);
 	}
 }
-
