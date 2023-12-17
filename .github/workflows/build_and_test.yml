@@ -17,6 +17,9 @@ jobs:
         run: |
           sudo apt install -y gcc-multilib g++-multilib
       - name: 'Build'
+        env:
+          CC: clang
+          CXX: C++
         run: |
           cc --version
           ./pop.py build --arch x86_64 -j1 -v
