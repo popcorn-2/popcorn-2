@@ -47,7 +47,7 @@ def run_cargo_command(subcommand: str, *cargo_args: [str], env: dict[str, str] |
         *cargo_args,
     ]
     if args.verbose >= 1:
-        print(env, " ".join(command))
+        print(env, " ".join(command), out=sys.stderr)
 
     result = subprocess.run(command, env={**os.environ, **env}, capture_output=True, text=True)
     if result.returncode != 0:
@@ -91,7 +91,7 @@ def run_qemu(iso: str, *qemu_args: [str]) -> int:
                 *(["--accel", args.accel] if args.accel != "none" else [])
             ]
     if args.verbose >= 1:
-        print(" ".join(command))
+        print(" ".join(command), out=sys.stderr)
 
     result = subprocess.run(command)
     return result.returncode
