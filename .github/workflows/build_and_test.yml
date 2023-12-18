@@ -42,7 +42,7 @@ jobs:
           CC: clang
           CXX: C++
         run: |
-          ./pop.py test --arch x86_64 -v --coverage coverage.profraw 1>&2
+          ./pop.py test --arch x86_64 -v --coverage coverage.profraw
       - name: 'Archive coverage'
         if: always()
         uses: actions/upload-artifact@v3

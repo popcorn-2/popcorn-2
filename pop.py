@@ -86,7 +86,7 @@ def run_qemu(iso: str, *qemu_args: [str]) -> int:
                 "-drive", "if=pflash,format=raw,file=OVMF_VARS.fd",
                 "-drive", f"format=raw,file={iso}",
                 "--no-reboot",
-                "-serial", "file:/dev/stderr",
+                "-serial", "file:qemu_out",
                 *qemu_args,
                 *(["--accel", args.accel] if args.accel != "none" else [])
             ]
@@ -94,6 +94,7 @@ def run_qemu(iso: str, *qemu_args: [str]) -> int:
         print(" ".join(command), file=sys.stderr)
 
     result = subprocess.run(command)
+    print(open("qemu_out").read().split("Hello world!")[1], file=sys.stderr)
     return result.returncode
 
 
