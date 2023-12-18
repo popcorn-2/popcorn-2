@@ -16,6 +16,7 @@ parser.add_argument("-v", "--verbose", action='count', default=0)
 parser.add_argument("--arch", choices=["x86_64", "host"], default="host")
 parser.add_argument("-j", "--jobs", action="store", type=int)
 parser.add_argument("--release", action="store_true")
+parser.add_argument("--accel", choices=["none", "kvm", "hvf"], default="none")
 
 args, subcommand_parse = parser.parse_known_args()
 
@@ -86,7 +87,8 @@ def run_qemu(iso: str, *qemu_args: [str]) -> int:
                 "-drive", f"format=raw,file={iso}",
                 "--no-reboot",
                 "-serial", "stdio",
-                *qemu_args
+                *qemu_args,
+                *(["--accel", args.accel] if args.accel != "none" else [])
             ]
     if args.verbose >= 1:
         print(" ".join(command))
@@ -169,7 +171,7 @@ match args.subcommand:
         rustc_coverage_env = {"RUSTFLAGS": "-Cinstrument-coverage -Zno-profiler-runtime"} if args.coverage else {}
         qemu_coverage_args = ["-debugcon", f"file:{args.coverage}"] if args.coverage else []
 
-        build(kernel_cargo_flags=["--profile=test"])
+        build(kernel_cargo_flags=["--profile=test"], kernel_build_env=rustc_coverage_env)
         code = run_qemu(f"target/{target_inner}/popcorn2.iso", "-display", "none", "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", *qemu_coverage_args)
         if code == 1:
             sys.exit("Tests failed")
