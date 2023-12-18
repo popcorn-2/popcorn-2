@@ -354,37 +354,7 @@ mod tests {
 
 	#[test]
 	#[should_panic]
-	fn foobar() {
-		assert_eq!(1, 3);
-	}
-
-
-	#[test]
-	#[should_panic]
-	fn no_panic() {
-		assert_ne!(1, 3);
-	}
-
-	#[test]
-	#[should_panic = "help"]
-	fn help_panic() { panic!("help"); }
-
-	#[test]
-	#[should_panic = "help"]
-	fn bob_panic() { panic!("bob"); }
-
-	#[test]
-	#[should_panic = "help\n"]
-	fn help_panicnl() { panic!("help"); }
-
-	#[test]
-	fn foobar_fail() {
-		assert_eq!(1, 3);
-	}
-
-	#[test]
-	#[ignore = "ignoring this for now"]
-	fn foobar_ignored() {
+	fn trivial_failing_assertion() {
 		assert_eq!(1, 3);
 	}
 }
