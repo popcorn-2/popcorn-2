@@ -40,10 +40,20 @@ impl<T> DerefMut for LateInit<T> {
 
 #[cfg(test)]
 mod tests {
-	#[test]
-	#[should_panic]
-	#[ignore]
-	fn panic_on_uninit_access() {
+	use core::hint::black_box;
+	use super::*;
 
+	#[test]
+	#[should_panic = "Tried to access uninitialised LateInit"]
+	fn panic_on_uninit_access() {
+		let uninit = LateInit::<u8>::new();
+		black_box(uninit.deref());
+	}
+
+	#[test]
+	fn no_panic_once_init() {
+		let mut init = LateInit::<u8>::new();
+		init.init(5);
+		assert_eq!(*init, 5);
 	}
 }
