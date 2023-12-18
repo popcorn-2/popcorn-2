@@ -88,7 +88,18 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 
 	#[cfg(not(test))] kmain(handoff_data);
 	#[cfg(test)] {
-		test_main();
+		let mut spaces = handoff_data.memory.map.iter().filter(|entry|
+				entry.ty == MemoryType::Free
+						|| entry.ty == MemoryType::AcpiReclaim
+						|| entry.ty == MemoryType::BootloaderCode
+						|| entry.ty == MemoryType::BootloaderData
+		).map(|entry| {
+            Frame::new(entry.start().align_up())..Frame::new(entry.end().align_down())
+        });
+
+		let mut watermark_allocator = resource::watermark_allocator::WatermarkAllocator::new(&mut spaces);
+		memory::physical::with_highmem_as(&mut watermark_allocator, || test_main());
+
 		unreachable!("test harness returned")
 	}
 }
