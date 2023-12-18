@@ -101,7 +101,7 @@ unsafe impl BackingAllocator for Wrapped {
         todo!()
     }
 
-    fn new(config: Config, _: [Option<Arc<dyn BackingAllocator>>; 0]) -> Arc<dyn BackingAllocator> where Self: Sized {
+    fn new(config: Config) -> Arc<dyn BackingAllocator> where Self: Sized {
         let Range { start, end } = config.allocation_range;
         let mut allocator = BitmapAllocator::new(start, end - start);
 

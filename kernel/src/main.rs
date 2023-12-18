@@ -162,8 +162,7 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 				Config {
 					allocation_range: Frame::new(PhysicalAddress::new(0))..Frame::new(max_usable_memory.align_down()),
 					regions: &mut spaces
-				},
-				[]
+				}
 			)
 		});
 

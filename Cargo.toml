@@ -30,3 +30,6 @@ members = [
 [profile.release-debug]
 inherits = "release"
 debug = "full"
+
+[patch.crates-io]
+auto_impl = { git = "https://github.com/popcorn-2/auto_impl.git" }

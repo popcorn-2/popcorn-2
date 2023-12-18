@@ -5,6 +5,7 @@
 use alloc::sync::Arc;
 use core::num::NonZeroUsize;
 use core::ops::Range;
+use auto_impl::auto_impl;
 
 use super::Frame;
 use super::PAGE_SIZE;
@@ -45,6 +46,7 @@ pub struct AllocationMeta {
 ///
 /// In future, this may be replaced by a more general resource allocator. In that case, this trait will be deprecated
 /// and implementors will be expected to move to the more general trait.
+#[auto_impl(&, Box, Arc)]
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 pub unsafe trait BackingAllocator: Send + Sync {
     // (Bitmap, Buddy, Watermark, ...)
@@ -113,10 +115,7 @@ pub unsafe trait BackingAllocator: Send + Sync {
     unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize);
 
     #[unstable(feature = "kernel_allocation_new", issue = "5")]
-    const UPSTREAM_COUNT: usize = 0 where Self: Sized;
-
-    #[unstable(feature = "kernel_allocation_new", issue = "5")]
-    fn new(config: Config, upstream: [Option<Arc<dyn BackingAllocator>>; Self::UPSTREAM_COUNT]) -> Arc<dyn BackingAllocator> where Self: Sized { unimplemented!("experimental") }
+    fn new(config: Config) -> Arc<dyn BackingAllocator> where Self: Sized { unimplemented!("experimental") }
 
     #[unstable(feature = "kernel_allocation_new", issue = "5")]
     fn push(&mut self, allocation: AllocationMeta) { unimplemented!("experimental") }
