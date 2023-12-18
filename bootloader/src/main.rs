@@ -76,6 +76,8 @@ mod paging;
 mod logging;
 mod elf;
 
+const PAGE_MAP_OFFSET: u64 = 0xffff_8000_0000_0000;
+
 struct DualWriter<T: Write, U: Write>(T, U);
 
 impl<T: Write, U: Write> Write for DualWriter<T, U> {
@@ -781,6 +783,28 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let stack_ptr: u64;
     unsafe { asm!("mov {}, rsp", out(reg) stack_ptr); }
+
+    for mem in memory_map.entries().filter(|mem|
+            mem.ty == MemoryType::BOOT_SERVICES_CODE ||
+            mem.ty == MemoryType::BOOT_SERVICES_DATA ||
+            mem.ty == MemoryType::PERSISTENT_MEMORY ||
+            mem.ty == MemoryType::LOADER_CODE ||
+            mem.ty == MemoryType::LOADER_DATA ||
+            mem.ty == memory_types::KERNEL_CODE ||
+            mem.ty == memory_types::PAGE_TABLE ||
+            mem.ty == memory_types::MODULE_CODE ||
+            mem.ty == MemoryType::ACPI_NON_VOLATILE ||
+            mem.ty == MemoryType::ACPI_RECLAIM ||
+            mem.ty == memory_types::KERNEL_STACK ||
+            mem.ty == MemoryType::RUNTIME_SERVICES_CODE ||
+            mem.ty == MemoryType::RUNTIME_SERVICES_DATA
+    ) {
+        // UEFI memory sections are always aligned by firmware
+        (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
+            let virt_addr = addr + PAGE_MAP_OFFSET;
+            page_table.try_map_page::<(), _>(Page(virt_addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()))
+        }).unwrap();
+    }
 
     for mem in memory_map.entries().filter(|mem|
             mem.ty == MemoryType::LOADER_DATA ||
