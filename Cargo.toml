@@ -24,6 +24,7 @@ members = [
 	"kernel_api",
 	"kernel_default_heap",
 	"bitmap_allocator",
+	"test_harness",
 ]
 
 [profile.release-debug]

@@ -88,7 +88,7 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 	#[cfg(not(test))] kmain(handoff_data);
 	#[cfg(test)] {
 		test_main();
-		loop {}
+		unreachable!("test harness returned")
 	}
 }
 
@@ -345,64 +345,45 @@ mod allocator {
 	static ALLOCATOR: HookAllocator = HookAllocator;
 }
 
-#[cfg_attr(test, global_allocator)]
-static ALLOCATOR: Foo = Foo(Mutex::new(FooInner {
-	buffer: [0; 20],
-	used: false,
-}));
-
-struct Foo(Mutex<FooInner>);
-
-struct FooInner {
-	buffer: [u64; 20],
-	used: bool
-}
-
-unsafe impl GlobalAlloc for Foo {
-	unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-		let mut this = self.0.lock();
-		if this.used || layout.size() > (this.buffer.len() * 8) || layout.align() > 8 { core::ptr::null_mut() }
-		else {
-			this.used = true;
-			this.buffer.as_mut_ptr().cast()
-		}
-	}
-
-	unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-		self.0.lock().used = false;
-	}
-
-	/*unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-		todo!()
-	}*/
-}
-
 #[cfg(test)]
 mod tests {
-	use macros::{test_should_panic, test_ignored};
-
-	#[test_case]
+	#[test]
 	fn trivial_assertion() {
 		assert_eq!(1, 1);
 	}
 
-	#[test_should_panic]
+	#[test]
+	#[should_panic]
 	fn foobar() {
 		assert_eq!(1, 3);
 	}
 
 
-	#[test_ignored]
+	#[test]
+	#[should_panic]
 	fn no_panic() {
 		assert_ne!(1, 3);
 	}
 
-	#[test_ignored]
+	#[test]
+	#[should_panic = "help"]
+	fn help_panic() { panic!("help"); }
+
+	#[test]
+	#[should_panic = "help"]
+	fn bob_panic() { panic!("bob"); }
+
+	#[test]
+	#[should_panic = "help\n"]
+	fn help_panicnl() { panic!("help"); }
+
+	#[test]
 	fn foobar_fail() {
 		assert_eq!(1, 3);
 	}
 
-	#[test_ignored]
+	#[test]
+	#[ignore = "ignoring this for now"]
 	fn foobar_ignored() {
 		assert_eq!(1, 3);
 	}

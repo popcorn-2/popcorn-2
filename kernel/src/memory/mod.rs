@@ -285,7 +285,7 @@ mod tests2 {
 		unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZeroUsize) {}
 	}
 
-	#[test_case]
+	#[test]
 	fn mock_sanity() {
 		let mock = MockAllocator::new_fail();
 		assert!(mock.allocate_contiguous(4).is_err());
@@ -324,7 +324,7 @@ mod tests2 {
 		}
 	}*/
 
-	#[test_case]
+	#[test]
 	fn allocate_one_allocates_one() {
 		let mock = MockAllocator::new_with_frames(1);
 		assert!(mock.allocate_one().is_ok());
