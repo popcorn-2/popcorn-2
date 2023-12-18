@@ -86,7 +86,7 @@ def run_qemu(iso: str, *qemu_args: [str]) -> int:
                 "-drive", "if=pflash,format=raw,file=OVMF_VARS.fd",
                 "-drive", f"format=raw,file={iso}",
                 "--no-reboot",
-                "-serial", "stdio",
+                "-serial", "file:/dev/stderr",
                 *qemu_args,
                 *(["--accel", args.accel] if args.accel != "none" else [])
             ]
