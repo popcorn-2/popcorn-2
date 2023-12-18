@@ -276,84 +276,52 @@ impl<'mem_map> Inner<'mem_map> {
 	}
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 mod tests {
 	use super::*;
 	use core::num::NonZeroUsize;
-	use kernel_exports::memory::PhysicalAddress as PhysicalAddressCompat;
-	use crate::memory::PhysicalAddress;
-	//use macros::test_should_panic;
-	use utils::handoff::{MemoryMapEntry, MemoryType, Range};
+	use kernel_api::memory::{Frame, PhysicalAddress};
+	use core::ops::Range;
 
-	const MEMORY_LAYOUT: [MemoryMapEntry; 5] = [
-		MemoryMapEntry {
-			coverage: Range(PhysicalAddressCompat(0), PhysicalAddressCompat(0x2000)),
-			ty: MemoryType::Free,
-		},
-		MemoryMapEntry {
-			coverage: Range(PhysicalAddressCompat(0x2000), PhysicalAddressCompat(0x4000)),
-			ty: MemoryType::Reserved,
-		},
-		MemoryMapEntry {
-			coverage: Range(PhysicalAddressCompat(0x6000), PhysicalAddressCompat(0x7300)),
-			ty: MemoryType::Free,
-		},
-		MemoryMapEntry {
-			coverage: Range(PhysicalAddressCompat(0x8200), PhysicalAddressCompat(0x9000)),
-			ty: MemoryType::Free,
-		},
-		MemoryMapEntry {
-			coverage: Range(PhysicalAddressCompat(0xa000), PhysicalAddressCompat(0x10000)),
-			ty: MemoryType::Free,
-		},
+	const MEMORY_LAYOUT: [Range<Frame>; 4] = [
+		Frame::new(PhysicalAddress::new(0))..Frame::new(PhysicalAddress::new(0x2000)),
+		Frame::new(PhysicalAddress::new(0x6000))..Frame::new(PhysicalAddress::new(0x7000)),
+		Frame::new(PhysicalAddress::new(0x8000))..Frame::new(PhysicalAddress::new(0x9000)),
+		Frame::new(PhysicalAddress::new(0xa000))..Frame::new(PhysicalAddress::new(0x10000)),
 	];
 
-	/*#[test_should_panic]
+	#[test]
+	#[should_panic = "Unable to find any free memory"]
 	fn fail_when_empty_memory() {
-		Inner::new(&[]);
+		Inner::new(&mut [].iter().cloned());
 	}
 
-	#[test_should_panic]
-	fn fail_when_no_free_memory() {
-		Inner::new(&MEMORY_LAYOUT[1..2]);
-	}*/
-
-	#[test_case]
+	#[test]
 	fn allocates_available_frames_downwards() {
-		let mut alloc = Inner::new(&MEMORY_LAYOUT[0..1]);
+		let mut iter = MEMORY_LAYOUT[0..1].iter().cloned();
+		let mut alloc = Inner::new(&mut iter);
 		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0x1000))));
 		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0x0000))));
 		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Err(AllocError));
 	}
 
-	#[test_case]
-	fn does_not_return_partial_frame_end() {
-		let mut alloc = Inner::new(&MEMORY_LAYOUT[2..3]);
-		assert_ne!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0x7000))));
-	}
-
-	#[test_case]
-	fn does_not_return_partial_frame_start() {
-		let mut alloc = Inner::new(&MEMORY_LAYOUT[3..4]);
-		assert_ne!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0x8000))));
-	}
-
-	#[test_case]
+	#[test]
 	fn jumps_between_areas() {
-		let mut alloc = Inner::new(&MEMORY_LAYOUT[0..3]);
+		let mut iter = MEMORY_LAYOUT[0..2].iter().cloned();
+		let mut alloc = Inner::new(&mut iter);
 		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0x6000))));
 		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0x1000))));
 		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0x0000))));
 		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Err(AllocError));
 	}
 
-	#[test_case]
+	#[test]
 	fn allocates_multiple_pages() {
-		let mut alloc = Inner::new(&MEMORY_LAYOUT[4..5]);
+		let mut iter = MEMORY_LAYOUT[3..4].iter().cloned();
+		let mut alloc = Inner::new(&mut iter);
 		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(3).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0xd000))));
 		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(2).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0xb000))));
 		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0xa000))));
 		assert_eq!(alloc.allocate_contiguous(NonZeroUsize::new(1).unwrap(), 0), Err(AllocError));
 	}
 }
- */
