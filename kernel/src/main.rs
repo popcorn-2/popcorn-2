@@ -25,6 +25,7 @@
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
+#![feature(kernel_sync_once)]
 
 #![no_std]
 #![no_main]
