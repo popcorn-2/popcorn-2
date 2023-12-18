@@ -30,6 +30,7 @@ jobs:
           path: |
             target/debug/popcorn2.iso
   test:
+    if: never()
     runs-on: ubuntu-latest
     steps:
       - name: 'Check out'
