@@ -29,3 +29,24 @@ jobs:
           name: Live ISO
           path: |
             target/debug/popcorn2.iso
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Check out'
+        uses: actions/checkout@v4
+      - name: 'Install multilib and qemu'
+        run: |
+          sudo apt install -y gcc-multilib g++-multilib qemu-system
+      - name: 'Run tests'
+        env:
+          CC: clang
+          CXX: C++
+        run: |
+          ./pop.py test --arch x86_64 -v --coverage coverage.profraw
+      - name: 'Archive coverage'
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: Test coverage
+          path: |
+            coverage.profraw
