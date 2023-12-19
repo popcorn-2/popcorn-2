@@ -26,6 +26,59 @@ impl ParentLevel for L2 {
 	type Child = L1;
 }
 
+#[repr(C)]
+struct Table<L> {
+	entries: [Entry; 512],
+	level: PhantomData<L>
+}
+
+impl<L> Table<L> {
+	fn empty() -> Self {
+		Self {
+			entries: [Entry::empty(); 512],
+			level: PhantomData
+		}
+	}
+}
+
+impl<L: ParentLevel> Table<L> {
+	fn child_table(&self, idx: usize) -> Option<&Table<L::Child>> {
+		let entry = self.entries[idx];
+		let table_frame = entry.pointed_frame()?;
+		let table_page = table_frame.to_page();
+		Some(unsafe { &*table_page.as_ptr().cast() })
+	}
+
+	fn child_table_mut(&mut self, idx: usize) -> Option<&mut Table<L::Child>> {
+		let entry = self.entries[idx];
+		let table_frame = entry.pointed_frame()?;
+		let table_page = table_frame.to_page();
+		Some(unsafe { &mut *table_page.as_ptr().cast() })
+	}
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+#[repr(transparent)]
+struct Entry(u64);
+
+bitflags! {
+	impl Entry: u64 {
+		const PRESENT = 1<<0;
+		const ADDRESS = 0x0fff_ffff_ffff_f000;
+	}
+}
+
+impl Entry {
+	fn is_present(self) -> bool { self.contains(Self::PRESENT) }
+
+	fn pointed_frame(self) -> Option<Frame> {
+		if !self.is_present() { return None; }
+
+		let addr = self.0 & Self::ADDRESS.0;
+		Some(Frame::new(PhysicalAddress::new(addr.try_into().unwrap())))
+	}
+}
+
 pub struct PageTable {
 	l4: Frame
 }
