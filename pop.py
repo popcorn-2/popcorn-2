@@ -173,12 +173,17 @@ match args.subcommand:
     case "test":
         parser_test = argparse.ArgumentParser("pop.py test")
         parser_test.add_argument("--coverage")
+        parser_test.add_argument("--junit", action="store_true")
         args = parser_test.parse_args(subcommand_parse, args)
 
         rustc_coverage_env = {"RUSTFLAGS": "-Cinstrument-coverage -Zno-profiler-runtime"} if args.coverage else {}
         qemu_coverage_args = ["-debugcon", f"file:{args.coverage}"] if args.coverage else []
+        kernel_cargo_flags = ["--profile=test"]
 
-        build(kernel_cargo_flags=["--profile=test"], kernel_build_env=rustc_coverage_env)
+        if args.junit:
+            kernel_cargo_flags.extend(["--features", "junit_test_out"])
+
+        build(kernel_cargo_flags=kernel_cargo_flags, kernel_build_env=rustc_coverage_env)
         code = run_qemu(f"target/{target_inner}/popcorn2.iso", "-display", "none", "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", *qemu_coverage_args)
         if code == 1:
             sys.exit("Tests failed")

@@ -4,9 +4,9 @@ use core::fmt::Write;
 use crate::{panicking::do_panic, panicking, sprintln};
 use kernel_api::sync::Mutex;
 use core::panic::PanicInfo;
-use test::{ShouldPanic, TestDescAndFn, TestFn};
 use test::{ShouldPanic, TestDescAndFn, TestFn, TestName};
 
+mod junit;
 mod pretty;
 
 static CURRENT_TEST: Mutex<Option<ShouldPanic>> = Mutex::new(None);
@@ -173,6 +173,9 @@ trait Formatter {
 	fn add_result(success: bool, stdout: Option<fmt::Arguments<'_>>);
 }
 
+#[cfg(feature = "junit_test_out")]
+type FORMATTER = junit::JUnit;
+#[cfg(not(feature = "junit_test_out"))]
 type FORMATTER = pretty::Pretty;
 
 #[cfg_attr(test, global_allocator)]
