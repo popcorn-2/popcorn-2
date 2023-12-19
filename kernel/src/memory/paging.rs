@@ -79,6 +79,15 @@ impl<L> Table<L> {
 			level: PhantomData
 		}
 	}
+
+	fn empty_with(allocator: impl BackingAllocator) -> Result<NonNull<Self>, AllocError> {
+		let table_frame = allocator.allocate_one()?;
+		let table_ptr: *mut Self = table_frame.to_page().as_ptr().cast();
+
+		unsafe { table_ptr.write(Table::empty()); }
+
+		Ok(NonNull::new(table_ptr).expect("Just allocated this pointer"))
+	}
 }
 
 impl<L: ParentLevel> Table<L> {
@@ -125,12 +134,8 @@ pub struct PageTable {
 
 impl PageTable {
 	fn empty(allocator: impl BackingAllocator) -> Result<Self, AllocError> {
-		let table_frame = allocator.allocate_one()?;
-		let table_ptr: *mut Table<L4> = table_frame.to_page().as_ptr().cast();
-		unsafe { table_ptr.write(Table::empty()); }
-
 		Ok(PageTable {
-			l4: NonNull::new(table_frame.to_page().as_ptr().cast()).unwrap()
+			l4: Table::empty_with(allocator)?
 		})
 	}
 
