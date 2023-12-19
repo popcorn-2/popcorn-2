@@ -64,7 +64,7 @@ jobs:
           path: |
             junit.xml
       - name: 'Add results to PR'
-        if: always()
+        if: github.event_name == 'pull_request'
         uses: mshick/add-pr-comment@v2
         with:
           message-path: "tests.md"
