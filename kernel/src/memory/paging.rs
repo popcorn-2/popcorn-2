@@ -3,6 +3,7 @@ use core::ptr::NonNull;
 use bitflags::bitflags;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::allocator::{AllocError, BackingAllocator};
+use crate::u64;
 
 #[allow(clippy::unusual_byte_groupings)]
 mod amd64 {
@@ -80,13 +81,16 @@ impl<L> Table<L> {
 		}
 	}
 
-	fn empty_with(allocator: impl BackingAllocator) -> Result<NonNull<Self>, AllocError> {
+	fn empty_with(allocator: impl BackingAllocator) -> Result<(Frame, NonNull<Self>), AllocError> {
 		let table_frame = allocator.allocate_one()?;
 		let table_ptr: *mut Self = table_frame.to_page().as_ptr().cast();
 
 		unsafe { table_ptr.write(Table::empty()); }
 
-		Ok(NonNull::new(table_ptr).expect("Just allocated this pointer"))
+		Ok((
+			table_frame,
+			NonNull::new(table_ptr).expect("Just allocated this pointer")
+		))
 	}
 }
 
@@ -103,6 +107,15 @@ impl<L: ParentLevel> Table<L> {
 		let table_frame = entry.pointed_frame()?;
 		let table_page = table_frame.to_page();
 		Some(unsafe { &mut *table_page.as_ptr().cast() })
+	}
+
+	fn child_table_or_new(&mut self, idx: usize, allocator: impl BackingAllocator) -> Result<&mut Table<L::Child>, AllocError> {
+		if self.child_table_mut(idx).is_none() {
+			let (table_frame, mut table_ptr) = Table::empty_with(allocator)?;
+			self.entries[idx].point_to_frame(table_frame).expect("Entry was not present");
+		}
+
+		Ok(self.child_table_mut(idx).expect("Just mapped this entry"))
 	}
 }
 
@@ -126,6 +139,16 @@ impl Entry {
 		let addr = self.0 & Self::ADDRESS.0;
 		Some(Frame::new(PhysicalAddress::new(addr.try_into().unwrap())))
 	}
+
+	fn point_to_frame(&mut self, frame: Frame) -> Result<(), ()> {
+		if self.is_present() { return Err(()); }
+
+		let empty_entry = self.0 & !Self::ADDRESS.0;
+		let masked_addr = u64!(frame.start().addr) & Self::ADDRESS.0;
+		self.0 = empty_entry | masked_addr;
+
+		Ok(())
+	}
 }
 
 pub struct PageTable {
@@ -135,7 +158,7 @@ pub struct PageTable {
 impl PageTable {
 	fn empty(allocator: impl BackingAllocator) -> Result<Self, AllocError> {
 		Ok(PageTable {
-			l4: Table::empty_with(allocator)?
+			l4: Table::empty_with(allocator)?.1
 		})
 	}
 
