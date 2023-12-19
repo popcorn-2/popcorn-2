@@ -145,7 +145,7 @@ impl Entry {
 
 		let empty_entry = self.0 & !Self::ADDRESS.0;
 		let masked_addr = u64!(frame.start().addr) & Self::ADDRESS.0;
-		self.0 = empty_entry | masked_addr;
+		self.0 = empty_entry | masked_addr | Self::PRESENT.0;
 
 		Ok(())
 	}
