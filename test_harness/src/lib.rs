@@ -42,6 +42,7 @@ impl TestFn {
 	}
 }
 
+#[derive(Copy, Clone)]
 pub enum TestName {
 	StaticTestName(&'static str),
 }
@@ -68,6 +69,15 @@ pub enum ShouldPanic {
 	No,
 	Yes,
 	YesWithMessage(&'static str),
+}
+
+impl From<ShouldPanic> for bool {
+	fn from(value: ShouldPanic) -> Self {
+		match value {
+			ShouldPanic::No => false,
+			_ => true
+		}
+	}
 }
 
 pub trait Termination {

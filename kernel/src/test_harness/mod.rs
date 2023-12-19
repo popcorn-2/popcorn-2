@@ -1,10 +1,13 @@
 use core::alloc::{GlobalAlloc, Layout};
 use core::fmt;
 use core::fmt::Write;
-use crate::{panicking::do_panic, panicking, sprint, sprintln};
+use crate::{panicking::do_panic, panicking, sprintln};
 use kernel_api::sync::Mutex;
 use core::panic::PanicInfo;
 use test::{ShouldPanic, TestDescAndFn, TestFn};
+use test::{ShouldPanic, TestDescAndFn, TestFn, TestName};
+
+mod pretty;
 
 static CURRENT_TEST: Mutex<Option<ShouldPanic>> = Mutex::new(None);
 
@@ -23,12 +26,9 @@ fn panic_handler(info: &PanicInfo) -> ! {
 		// Without a proper heap we have no way to pass the panic info up the stack, so print "FAILED" here along with panic info
 		// The test harness then does nothing
 		ShouldPanic::No => {
-			sprintln!("\u{001b}[31mFAILED\u{001b}[0m");
-			sprintln!("---- stdout ----");
-			sprintln!("{info}");
-			sprintln!();
+			<FORMATTER as Formatter>::add_result(false, Some(format_args!("{info}")));
 		},
-		ShouldPanic::Yes => sprintln!("\u{001b}[32mok\u{001b}[0m"),
+		ShouldPanic::Yes => <FORMATTER as Formatter>::add_result(true, None),
 		ShouldPanic::YesWithMessage(msg) => {
 			struct StrFormatCmp(&'static str);
 			impl Write for StrFormatCmp {
@@ -48,18 +48,17 @@ fn panic_handler(info: &PanicInfo) -> ! {
 			};
 
 			match result {
-				Ok(_) => sprintln!("\u{001b}[32mok\u{001b}[0m"),
+				Ok(_) => <FORMATTER as Formatter>::add_result(true, None),
 				Err(_) => {
-					sprintln!("\u{001b}[31mFAILED\u{001b}[0m");
-					sprintln!("---- stdout ----");
-					sprintln!("{info}");
-					sprintln!("note: panic did not match expected message");
-					match info.message() {
-						Some(&args) => sprintln!("\tpanic message: `{args}`"),
-						None => sprintln!("\tno panic message")
-					};
-					sprintln!("\texpected: `{msg}`");
-					sprintln!();
+					let none_format = format_args!("None");
+					let actual = info.message().unwrap_or(&none_format);
+
+					<FORMATTER as Formatter>::add_result(
+						false,
+						Some(
+							format_args!("{info}\nnote: panic did not match expected message\n\tpanic message: {actual}\n\texpected: `{msg}`")
+						)
+					);
 				}
 			}
 		}
@@ -72,15 +71,12 @@ fn run_normal_test(test: &TestFn) -> Result {
 	match panicking::catch_unwind(|| test.run()) {
 		Ok(Ok(_)) => {
 			// no panic so nothing printed by panic handler
-			sprintln!("\u{001b}[32mok\u{001b}[0m");
+			<FORMATTER as Formatter>::add_result(true, None);
 			Result::Success
 		},
 		Ok(Err(e)) => {
 			// no panic so nothing printed by panic handler
-			sprintln!("\u{001b}[31mFAILED\u{001b}[0m");
-			sprintln!("---- stdout ----");
-			sprintln!("Error: {e}");
-			sprintln!();
+			<FORMATTER as Formatter>::add_result(false, Some(format_args!("Error: {e}")));
 			drop(e);
 			Result::Fail
 		},
@@ -95,10 +91,7 @@ fn run_panic_test(test: &TestFn) -> Result {
 	match panicking::catch_unwind(|| test.run()) {
 		Ok(Ok(_)) => {
 			// no panic so nothing printed by panic handler
-			sprintln!("\u{001b}[31mFAILED\u{001b}[0m");
-			sprintln!("---- stdout ----");
-			sprintln!("note: test did not panic as expected");
-			sprintln!();
+			<FORMATTER as Formatter>::add_result(false, Some(format_args!("note: test did not panic as expected")));
 			Result::Fail
 		},
 		Ok(Err(_)) => unreachable!("`should_panic` test cannot return fallible type"),
@@ -112,15 +105,9 @@ fn run_panic_test(test: &TestFn) -> Result {
 fn run_test(test: &TestDescAndFn) -> Result {
 	let TestDescAndFn { desc, testfn } = test;
 
-	let should_panic_text = if desc.should_panic != ShouldPanic::No { " - should panic" } else { "" };
-	sprint!("test {}{} ... ", desc.name, should_panic_text);
+	<FORMATTER as Formatter>::add_test(desc.name, desc.should_panic.into(), desc.ignore, desc.ignore_message);
 
 	if desc.ignore {
-		sprint!("\u{001b}[33mignored");
-		if let Some(reason) = desc.ignore_message {
-			sprint!(", {reason}");
-		}
-		sprintln!("\u{001b}[0m");
 		return Result::Ignored;
 	}
 
@@ -136,7 +123,7 @@ fn run_test(test: &TestDescAndFn) -> Result {
 }
 
 pub fn test_runner(tests: &[&TestDescAndFn]) -> ! {
-	sprintln!("running {} tests", tests.len());
+	<FORMATTER as Formatter>::startup(tests.len());
 
 	let mut success_count = 0;
 	let mut ignore_count = 0;
@@ -150,12 +137,7 @@ pub fn test_runner(tests: &[&TestDescAndFn]) -> ! {
 
 	let success = success_count + ignore_count == tests.len();
 
-	sprintln!("\ntest result: {}. {} passed; {} failed; {} ignored",
-		if success { "\u{001b}[32mok\u{001b}[0m" } else { "\u{001b}[31mFAILED\u{001b}[0m" },
-		success_count,
-		tests.len() - success_count - ignore_count,
-		ignore_count
-	);
+	<FORMATTER as Formatter>::teardown(success, success_count, tests.len() - success_count - ignore_count, ignore_count);
 
 	struct QemuDebug;
 
@@ -182,6 +164,16 @@ pub fn test_runner(tests: &[&TestDescAndFn]) -> ! {
 	}
 	unreachable!("qemu did not exit")
 }
+
+trait Formatter {
+	fn startup(num_tests: usize);
+	fn teardown(success: bool, success_count: usize, failure_count: usize, ignore_count: usize);
+
+	fn add_test(name: TestName, should_panic: bool, ignored: bool, ignore_message: Option<&'static str>);
+	fn add_result(success: bool, stdout: Option<fmt::Arguments<'_>>);
+}
+
+type FORMATTER = pretty::Pretty;
 
 #[cfg_attr(test, global_allocator)]
 static ALLOCATOR: Foo = Foo(Mutex::new(FooInner {
