@@ -1,6 +1,12 @@
 #![no_std]
 
-use core::fmt::{Display, Formatter};
+#![feature(never_type)]
+
+extern crate alloc;
+
+use alloc::format;
+use alloc::string::String;
+use core::fmt::{Debug, Display, Formatter};
 
 pub struct TestDescAndFn {
 	pub desc: TestDesc,
@@ -23,13 +29,13 @@ pub struct TestDesc {
 }
 
 pub enum TestFn {
-	StaticTestFn(fn()),
+	StaticTestFn(fn() -> Result<(), String>),
 }
 
 pub use TestFn::*;
 
 impl TestFn {
-	pub fn run(&self) {
+	pub fn run(&self) -> Result<(), String> {
 		match self {
 			StaticTestFn(f) => f()
 		}
@@ -64,4 +70,31 @@ pub enum ShouldPanic {
 	YesWithMessage(&'static str),
 }
 
-pub fn assert_test_result(_: ()) {}
+pub trait Termination {
+	fn status(&self) -> Result<(), String>;
+}
+
+impl Termination for ! {
+	fn status(&self) -> Result<(), String> {
+		*self
+	}
+}
+
+impl Termination for () {
+	fn status(&self) -> Result<(), String> {
+		Ok(())
+	}
+}
+
+impl<T: Termination, E: Debug> Termination for Result<T, E> {
+	fn status(&self) -> Result<(), String> {
+		match self {
+			Ok(ref ok) => Ok(()),
+			Err(ref e) => Err(format!("{e:?}"))
+		}
+	}
+}
+
+pub fn assert_test_result(result: impl Termination) -> Result<(), String> {
+	result.status()
+}
