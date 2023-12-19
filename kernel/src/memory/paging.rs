@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+use bitflags::bitflags;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::allocator::{AllocError, BackingAllocator};
 
