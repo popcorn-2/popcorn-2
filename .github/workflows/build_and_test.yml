@@ -46,9 +46,9 @@ jobs:
         run: |
           cp /usr/share/OVMF/OVMF_CODE.fd ./OVMF_CODE.fd
           cp /usr/share/OVMF/OVMF_VARS.fd ./OVMF_VARS.fd
-          ./pop.py test --arch x86_64 -v
+          ./pop.py test --arch x86_64 -v --coverage coverage.profraw
       - name: 'Archive coverage'
-        if: false
+        if: always()
         uses: actions/upload-artifact@v3
         with:
           name: Test coverage
