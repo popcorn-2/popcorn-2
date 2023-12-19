@@ -1,6 +1,31 @@
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::allocator::{AllocError, BackingAllocator};
 
+enum L4 {}
+enum L3 {}
+enum L2 {}
+enum L1 {}
+
+trait Level {}
+trait ParentLevel: Level {
+	type Child: Level;
+}
+
+impl Level for L4 {}
+impl Level for L3 {}
+impl Level for L2 {}
+impl Level for L1 {}
+
+impl ParentLevel for L4 {
+	type Child = L3;
+}
+impl ParentLevel for L3 {
+	type Child = L2;
+}
+impl ParentLevel for L2 {
+	type Child = L1;
+}
+
 pub struct PageTable {
 	l4: Frame
 }

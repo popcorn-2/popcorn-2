@@ -26,6 +26,8 @@
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
 #![feature(kernel_sync_once)]
+#![feature(kernel_physical_page_offset)]
+#![feature(kernel_memory_addr_access)]
 
 #![no_std]
 #![no_main]
