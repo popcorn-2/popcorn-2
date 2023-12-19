@@ -176,8 +176,23 @@ impl PageTable {
 		Some(physical.start() + diff)
 	}
 
-	fn map_page(&mut self, page: Page, frame: Frame) -> Result<(), ()> {
-		todo!()
+	fn map_page(&mut self, page: Page, frame: Frame, allocator: impl BackingAllocator) -> Result<(), MapPageError> {
+		let l3_table = unsafe { self.l4.as_mut() }.child_table_or_new(page.l4_index(), &allocator)?;
+		let l2_table = l3_table.child_table_or_new(page.l3_index(), &allocator)?;
+		let l1_table = l2_table.child_table_or_new(page.l2_index(), &allocator)?;
+		l1_table.entries[page.l1_index()].point_to_frame(frame).map_err(|_| MapPageError::AlreadyMapped)
+	}
+}
+
+#[derive(Debug, Copy, Clone)]
+enum MapPageError {
+	AllocError,
+	AlreadyMapped
+}
+
+impl From<AllocError> for MapPageError {
+	fn from(_value: AllocError) -> Self {
+		Self::AllocError
 	}
 }
 
@@ -207,7 +222,8 @@ mod tests {
 		let mut table = PageTable::empty(&*highmem()).unwrap();
 		table.map_page(
 			Page::new(VirtualAddress::new(0xcafebabe000)),
-			Frame::new(PhysicalAddress::new(0x347e40000))
+			Frame::new(PhysicalAddress::new(0x347e40000)),
+			&*highmem()
 		).expect("Page not yet mapped");
 		assert_eq!(
 			table.translate_page(Page::new(VirtualAddress::new(0xcafebabe000))),
@@ -220,11 +236,13 @@ mod tests {
 		let mut table = PageTable::empty(&*highmem()).unwrap();
 		table.map_page(
 			Page::new(VirtualAddress::new(0xcafebabe000)),
-			Frame::new(PhysicalAddress::new(0x347e40000))
+			Frame::new(PhysicalAddress::new(0x347e40000)),
+			&*highmem()
 		).expect("Page not yet mapped");
 		table.map_page(
 			Page::new(VirtualAddress::new(0xcafebabe000)),
-			Frame::new(PhysicalAddress::new(0xcafebabe000))
+			Frame::new(PhysicalAddress::new(0xcafebabe000)),
+			&*highmem()
 		).expect_err("Page already mapped");
 	}
 
@@ -233,7 +251,8 @@ mod tests {
 		let mut table = PageTable::empty(&*highmem()).unwrap();
 		table.map_page(
 			Page::new(VirtualAddress::new(0xcafebabe000)),
-			Frame::new(PhysicalAddress::new(0x347e40000))
+			Frame::new(PhysicalAddress::new(0x347e40000)),
+			&*highmem()
 		).expect("Page not yet mapped");
 		assert_eq!(
 			table.translate_address(VirtualAddress::new(0xcafebabe123)),
