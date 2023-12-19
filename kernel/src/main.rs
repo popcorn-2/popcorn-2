@@ -1,6 +1,6 @@
 // rust features
 #![feature(custom_test_frameworks)]
-#![test_runner(tests::test_runner)]
+#![test_runner(test_harness::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 #![feature(const_trait_impl)]
 #![feature(allocator_api)]
@@ -35,6 +35,8 @@ extern crate alloc;
 #[cfg(panic = "unwind")]
 extern crate unwinding;
 
+extern crate self as kernel;
+
 use alloc::sync::Arc;
 use core::alloc::{GlobalAlloc, Layout};
 use core::arch::asm;
@@ -58,6 +60,9 @@ mod memory;
 mod panicking;
 mod resource;
 mod logging;
+
+#[cfg(test)]
+pub mod test_harness;
 
 #[macro_export]
 macro_rules! usize {
@@ -83,7 +88,7 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 	#[cfg(not(test))] kmain(handoff_data);
 	#[cfg(test)] {
 		test_main();
-		loop {}
+		unreachable!("test harness returned")
 	}
 }
 
@@ -336,106 +341,20 @@ mod allocator {
 		}
 	}
 
-	#[global_allocator]
+	#[cfg_attr(not(test), global_allocator)]
 	static ALLOCATOR: HookAllocator = HookAllocator;
-}
-
-//#[global_allocator]
-static ALLOCATOR: Foo = Foo(Mutex::new(FooInner {
-	buffer: [0; 20],
-	used: false,
-}));
-
-struct Foo(Mutex<FooInner>);
-
-struct FooInner {
-	buffer: [u64; 20],
-	used: bool
-}
-
-unsafe impl GlobalAlloc for Foo {
-	unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-		let mut this = self.0.lock();
-		if this.used || layout.size() > (this.buffer.len() * 8) || layout.align() > 8 { core::ptr::null_mut() }
-		else {
-			this.used = true;
-			this.buffer.as_mut_ptr().cast()
-		}
-	}
-
-	unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-		self.0.lock().used = false;
-	}
-
-	/*unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-		todo!()
-	}*/
 }
 
 #[cfg(test)]
 mod tests {
-	use core::panic::PanicInfo;
-	use macros::test_should_panic;
-	use crate::{panicking::do_panic, panicking, sprint, sprintln};
-
-	pub enum Result { Success, Fail }
-
-	pub trait Testable {
-		fn run(&self) -> Result;
-	}
-
-	impl<T> Testable for T where T: Fn() {
-		fn run(&self) -> Result {
-			sprint!("{}...\t", core::any::type_name::<T>());
-			match panicking::catch_unwind(self) {
-				Ok(_) => { sprintln!("[ok]"); Result::Success },
-				Err(_) => { sprintln!("[FAIL]"); Result::Fail }
-				// todo: print panic message
-			}
-		}
-	}
-
-	pub fn test_runner(tests: &[&dyn Testable]) -> ! {
-		sprintln!("Running {} tests", tests.len());
-		let mut success_count = 0;
-		for test in tests {
-			match test.run() {
-				Result::Success => success_count += 1,
-				Result::Fail => {}
-			}
-		}
-
-		let success = success_count == tests.len();
-
-		sprintln!("\nTest result: {}. {} passed; {} failed",
-			if success { "ok" } else { "fail" },
-			success_count,
-			tests.len() - success_count
-		);
-
-		let mut qemu_exit = super::arch::Port::<u32>::new(0xf4);
-		if success {
-			unsafe { qemu_exit.write(0x10); }
-		} else {
-			unsafe { qemu_exit.write(0); }
-		}
-		unreachable!()
-	}
-
-	#[panic_handler]
-	fn panic_handler(info: &PanicInfo) -> ! {
-		sprintln!("{info}");
-		do_panic()
-	}
-
-	#[test_case]
+	#[test]
 	fn trivial_assertion() {
 		assert_eq!(1, 1);
 	}
 
-	#[test_should_panic]
-	fn should_panic() {
-		assert_eq!(1, 2);
+	#[test]
+	#[should_panic]
+	fn trivial_failing_assertion() {
+		assert_eq!(1, 3);
 	}
 }
-

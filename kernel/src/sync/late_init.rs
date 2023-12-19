@@ -37,3 +37,13 @@ impl<T> DerefMut for LateInit<T> {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	#[should_panic]
+	#[ignore]
+	fn panic_on_uninit_access() {
+
+	}
+}
