@@ -353,6 +353,11 @@ mod tests {
 	}
 
 	#[test]
+	fn trivial_result() -> Result<(), u8> {
+		Ok(())
+	}
+
+	#[test]
 	#[should_panic]
 	fn trivial_failing_assertion() {
 		assert_eq!(1, 3);

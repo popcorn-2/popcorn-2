@@ -26,7 +26,7 @@ fn panic_handler(info: &PanicInfo) -> ! {
 			sprintln!("\u{001b}[31mFAILED\u{001b}[0m");
 			sprintln!("---- stdout ----");
 			sprintln!("{info}");
-			sprintln!("----------------");
+			sprintln!();
 		},
 		ShouldPanic::Yes => sprintln!("\u{001b}[32mok\u{001b}[0m"),
 		ShouldPanic::YesWithMessage(msg) => {
@@ -59,7 +59,7 @@ fn panic_handler(info: &PanicInfo) -> ! {
 						None => sprintln!("\tno panic message")
 					};
 					sprintln!("\texpected: `{msg}`");
-					sprintln!("----------------");
+					sprintln!();
 				}
 			}
 		}
@@ -70,10 +70,19 @@ fn panic_handler(info: &PanicInfo) -> ! {
 
 fn run_normal_test(test: &TestFn) -> Result {
 	match panicking::catch_unwind(|| test.run()) {
-		Ok(_) => {
+		Ok(Ok(_)) => {
 			// no panic so nothing printed by panic handler
 			sprintln!("\u{001b}[32mok\u{001b}[0m");
 			Result::Success
+		},
+		Ok(Err(e)) => {
+			// no panic so nothing printed by panic handler
+			sprintln!("\u{001b}[31mFAILED\u{001b}[0m");
+			sprintln!("---- stdout ----");
+			sprintln!("Error: {e}");
+			sprintln!();
+			drop(e);
+			Result::Fail
 		},
 		Err(_) => {
 			// panic handler prints all failure output so do nothing
@@ -84,14 +93,15 @@ fn run_normal_test(test: &TestFn) -> Result {
 
 fn run_panic_test(test: &TestFn) -> Result {
 	match panicking::catch_unwind(|| test.run()) {
-		Ok(_) => {
+		Ok(Ok(_)) => {
 			// no panic so nothing printed by panic handler
 			sprintln!("\u{001b}[31mFAILED\u{001b}[0m");
 			sprintln!("---- stdout ----");
 			sprintln!("note: test did not panic as expected");
-			sprintln!("----------------");
+			sprintln!();
 			Result::Fail
 		},
+		Ok(Err(_)) => unreachable!("`should_panic` test cannot return fallible type"),
 		Err(_) => {
 			// panic handler prints all success output so do nothing
 			Result::Success
