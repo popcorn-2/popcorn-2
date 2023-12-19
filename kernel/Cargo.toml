@@ -28,4 +28,4 @@ test = { path = "../test_harness" }
 
 [features]
 default = []
-smp = []
+junit_test_out = []
