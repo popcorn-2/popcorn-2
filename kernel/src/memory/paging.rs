@@ -3,6 +3,43 @@ use bitflags::bitflags;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::allocator::{AllocError, BackingAllocator};
 
+#[allow(clippy::unusual_byte_groupings)]
+mod amd64 {
+	pub const L4_SHIFT: usize = 12 + 9*3;
+	pub const L3_SHIFT: usize = 12 + 9*2;
+	pub const L2_SHIFT: usize = 12 + 9*1;
+	pub const L1_SHIFT: usize = 12;
+	pub const L4_MASK:  usize = 0o777_000_000_000_0000;
+	pub const L3_MASK:  usize =     0o777_000_000_0000;
+	pub const L2_MASK:  usize =         0o777_000_0000;
+	pub const L1_MASK:  usize =             0o777_0000;
+}
+
+trait PageIndices {
+	fn l4_index(self) -> usize;
+	fn l3_index(self) -> usize;
+	fn l2_index(self) -> usize;
+	fn l1_index(self) -> usize;
+}
+
+impl PageIndices for Page {
+	fn l4_index(self) -> usize {
+		(self.start().addr & amd64::L4_MASK) >> amd64::L4_SHIFT
+	}
+
+	fn l3_index(self) -> usize {
+		(self.start().addr & amd64::L3_MASK) >> amd64::L3_SHIFT
+	}
+
+	fn l2_index(self) -> usize {
+		(self.start().addr & amd64::L2_MASK) >> amd64::L2_SHIFT
+	}
+
+	fn l1_index(self) -> usize {
+		(self.start().addr & amd64::L1_MASK) >> amd64::L1_SHIFT
+	}
+}
+
 enum L4 {}
 enum L3 {}
 enum L2 {}
