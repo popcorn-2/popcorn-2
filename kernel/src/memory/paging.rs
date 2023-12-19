@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use core::ptr::NonNull;
 use bitflags::bitflags;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::allocator::{AllocError, BackingAllocator};
@@ -119,18 +120,25 @@ impl Entry {
 }
 
 pub struct PageTable {
-	l4: Frame
+	l4: NonNull<Table<L4>>
 }
 
 impl PageTable {
 	fn empty(allocator: impl BackingAllocator) -> Result<Self, AllocError> {
+		let table_frame = allocator.allocate_one()?;
+		let table_ptr: *mut Table<L4> = table_frame.to_page().as_ptr().cast();
+		unsafe { table_ptr.write(Table::empty()); }
+
 		Ok(PageTable {
-			l4: allocator.allocate_one()?
+			l4: NonNull::new(table_frame.to_page().as_ptr().cast()).unwrap()
 		})
 	}
 
 	fn translate_page(&self, page: Page) -> Option<Frame> {
-		todo!()
+		let l3_table = unsafe { self.l4.as_ref() }.child_table(page.l4_index())?;
+		let l2_table = l3_table.child_table(page.l3_index())?;
+		let l1_table = l2_table.child_table(page.l2_index())?;
+		l1_table.entries[page.l1_index()].pointed_frame()
 	}
 
 	fn translate_address(&self, addr: VirtualAddress) -> Option<PhysicalAddress> {
