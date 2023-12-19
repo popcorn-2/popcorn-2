@@ -51,6 +51,13 @@ def run_cargo_command(subcommand: str, *cargo_args: [str], env: dict[str, str] |
 
     result = subprocess.run(command, env={**os.environ, **env}, capture_output=True, text=True)
     if result.returncode != 0:
+        for line in result.stdout.strip().split("\n"):
+            data = json.loads(line.strip())
+            if data["reason"] == "compiler-message":
+                if data["message"]["rendered"] is not None:
+                    print(data["message"]["rendered"])
+                else:
+                    print(data["message"], data["spans"])
         raise RuntimeError("cargo failed")
 
     for line in reversed(result.stdout.strip().split("\n")):
