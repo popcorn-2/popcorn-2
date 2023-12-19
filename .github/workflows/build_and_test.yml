@@ -46,7 +46,13 @@ jobs:
         run: |
           cp /usr/share/OVMF/OVMF_CODE.fd ./OVMF_CODE.fd
           cp /usr/share/OVMF/OVMF_VARS.fd ./OVMF_VARS.fd
-          ./pop.py test --arch x86_64 -v --coverage coverage.profraw
+          ./pop.py test --arch x86_64 -v --coverage coverage.profraw --junit junit.xml
+      - name: Test Summary
+        if: always()
+        uses: test-summary/action@v2
+        with:
+          paths: "junit.xml"
+          show: "fail, skip"
       - name: 'Archive coverage'
         if: always()
         uses: actions/upload-artifact@v3
