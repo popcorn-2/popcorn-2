@@ -15,7 +15,8 @@ jobs:
         uses: actions/checkout@v4
       - name: 'Install multilib'
         run: |
-          sudo apt install -y gcc-multilib g++-multilib
+          sudo apt update
+          sudo apt install -y gcc-multilib
       - name: 'Build'
         env:
           CC: clang
@@ -30,22 +31,24 @@ jobs:
           path: |
             target/debug/popcorn2.iso
   test:
-    if: never()
     runs-on: ubuntu-latest
     steps:
       - name: 'Check out'
         uses: actions/checkout@v4
       - name: 'Install multilib and qemu'
         run: |
-          sudo apt install -y gcc-multilib g++-multilib qemu-system
+          sudo apt update
+          sudo apt install -y gcc-multilib qemu-system-x86 ovmf
       - name: 'Run tests'
         env:
           CC: clang
           CXX: C++
         run: |
-          ./pop.py test --arch x86_64 -v --coverage coverage.profraw
+          cp /usr/share/OVMF/OVMF_CODE.fd ./OVMF_CODE.fd
+          cp /usr/share/OVMF/OVMF_VARS.fd ./OVMF_VARS.fd
+          ./pop.py test --arch x86_64 -v
       - name: 'Archive coverage'
-        if: always()
+        if: false
         uses: actions/upload-artifact@v3
         with:
           name: Test coverage
