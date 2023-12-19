@@ -1,18 +1,16 @@
 use core::ops::{Deref, DerefMut};
+use kernel_api::sync::OnceLock;
 
-pub enum LateInit<T> {
-	Uninit,
-	Init(T)
-}
+pub struct LateInit<T>(OnceLock<T>);
 
 impl<T> LateInit<T> {
 	pub const fn new() -> Self {
-		Self::Uninit
+		Self(OnceLock::new())
 	}
 
 	pub fn init(&mut self, val: T) -> &mut T {
-		*self = Self::Init(val);
-		self
+		self.0.get_or_init(|| val);
+		self.0.get_mut().expect("Just initialised OnceLock")
 	}
 }
 
@@ -21,9 +19,9 @@ impl<T> Deref for LateInit<T> {
 
 	#[track_caller]
 	fn deref(&self) -> &Self::Target {
-		match self {
-			Self::Uninit => panic!("Tried to access uninitialised LateInit"),
-			Self::Init(inner) => inner
+		match self.0.get() {
+			Some(inner) => inner,
+			None => panic!("Tried to access uninitialised LateInit")
 		}
 	}
 }
@@ -31,19 +29,29 @@ impl<T> Deref for LateInit<T> {
 impl<T> DerefMut for LateInit<T> {
 	#[track_caller]
 	fn deref_mut(&mut self) -> &mut Self::Target {
-		match self {
-			Self::Uninit => panic!("Tried to access uninitialised LateInit"),
-			Self::Init(inner) => inner
+		match self.0.get_mut() {
+			Some(inner) => inner,
+			None => panic!("Tried to access uninitialised LateInit")
 		}
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	#[test]
-	#[should_panic]
-	#[ignore]
-	fn panic_on_uninit_access() {
+	use core::hint::black_box;
+	use super::*;
 
+	#[test]
+	#[should_panic = "Tried to access uninitialised LateInit"]
+	fn panic_on_uninit_access() {
+		let uninit = LateInit::<u8>::new();
+		black_box(uninit.deref());
+	}
+
+	#[test]
+	fn no_panic_once_init() {
+		let mut init = LateInit::<u8>::new();
+		init.init(5);
+		assert_eq!(*init, 5);
 	}
 }
