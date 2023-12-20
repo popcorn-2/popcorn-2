@@ -8,12 +8,16 @@
 #![feature(const_mut_refs)]
 
 #![feature(kernel_sync_once)]
+#![feature(kernel_physical_page_offset)]
+#![feature(kernel_memory_addr_access)]
 
 #![warn(missing_docs)]
 
 pub mod arch;
 #[cfg(target_arch = "x86_64")]
 pub use arch::amd64; // FIXME
+
+pub mod paging;
 
 pub enum Result { Success, Failure }
 
