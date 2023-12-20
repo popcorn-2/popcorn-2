@@ -387,15 +387,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hal_amd64"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.4.1",
- "kernel_api",
- "log",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -473,9 +464,9 @@ dependencies = [
  "bitflags 2.4.1",
  "bitmap_allocator",
  "derive_more",
- "hal_amd64",
  "kernel_api",
  "kernel_default_heap",
+ "kernel_hal",
  "log",
  "minicov",
  "test",
@@ -503,6 +494,11 @@ dependencies = [
 [[package]]
 name = "kernel_hal"
 version = "0.1.0"
+dependencies = [
+ "bitflags 2.4.1",
+ "kernel_api",
+ "log",
+]
 
 [[package]]
 name = "kernel_module_macros"

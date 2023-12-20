@@ -1,6 +1,5 @@
 use core::arch::asm;
-use core::marker::{FnPtr, PhantomData};
-use core::ops::{Deref, Index, IndexMut};
+use core::ops::{Index, IndexMut};
 
 pub mod handler {
 	use bitflags::bitflags;
@@ -44,7 +43,9 @@ pub mod handler {
 	pub type PageFault = extern "x86-interrupt" fn(InterruptStackFrame, PageFaultError);
 	pub type ControlFlow = extern "x86-interrupt" fn(InterruptStackFrame, ControlFlowError);
 
-	pub trait Handler {}
+	pub trait Handler {
+		fn addr(&self) -> *const () { self as *const _ as *const () }
+	}
 	impl Handler for Normal {}
 	impl Handler for NormalWithError {}
 	impl Handler for Diverging {}
@@ -54,9 +55,9 @@ pub mod handler {
 }
 
 pub mod entry {
-	use core::marker::{FnPtr, PhantomData};
+	use core::marker::PhantomData;
 	use core::num::NonZeroU8;
-	use crate::idt::handler::Handler;
+	use crate::amd64::idt::handler::Handler;
 
 	pub enum Type {
 		InterruptGate,
@@ -85,7 +86,7 @@ pub mod entry {
 
 	#[derive(Clone, Copy)]
 	#[repr(C)]
-	pub struct Entry<F: Handler + FnPtr> {
+	pub struct Entry<F> {
 		pointer_low: u16,
 		segment_selector: u16,
 		ist: Option<NonZeroU8>,
@@ -96,7 +97,7 @@ pub mod entry {
 		_phantom: PhantomData<F>
 	}
 
-	impl<F: Handler + FnPtr> Entry<F> {
+	impl<F> Entry<F> {
 		pub const fn empty() -> Self {
 			Self {
 				pointer_low: 0,
@@ -109,7 +110,15 @@ pub mod entry {
 				_phantom: PhantomData
 			}
 		}
+	}
 
+	impl<F> Default for Entry<F> {
+		fn default() -> Self {
+			Self::empty()
+		}
+	}
+
+	impl<F: Handler> Entry<F> {
 		pub fn new(f: F, ist_idx: Option<NonZeroU8>, dpl: u8, ty: Type) -> Self {
 			let addr = f.addr() as usize;
 			Self {
@@ -124,16 +133,10 @@ pub mod entry {
 			}
 		}
 	}
-
-	impl<F: Handler + FnPtr> Default for Entry<F> {
-		fn default() -> Self {
-			Self::empty()
-		}
-	}
 }
 
 use entry::Entry;
-use kernel_api::sync::{Mutex, OnceLock};
+use kernel_api::sync::OnceLock;
 
 #[repr(C, align(16))]
 pub struct Idt<const ENTRY_COUNT: usize> where [(); ENTRY_COUNT - 32]: {
@@ -251,10 +254,3 @@ impl<const ENTRY_COUNT: usize> IndexMut<usize> for Idt<ENTRY_COUNT> where [(); E
 const ENTRY_COUNT: usize = 32;
 
 pub static IDT: OnceLock<Idt<ENTRY_COUNT>> = OnceLock::new();
-
-pub trait ExceptionTable {}
-
-
-impl<const ENTRY_COUNT: usize> ExceptionTable for Idt<ENTRY_COUNT> where [(); ENTRY_COUNT - 32]: {
-
-}

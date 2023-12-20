@@ -15,7 +15,6 @@ members = [
 	"mm/pmm/bitmap_memory_allocator",
 	"ranged_btree",
 	"kernel_module_macros",
-	"hal/hal_amd64",
 	"elf",
 	"mm/dmm/slab_allocator",
 	"macros",

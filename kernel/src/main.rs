@@ -52,7 +52,6 @@ use core::ops::Deref;
 use core::panic::PanicInfo;
 use core::ptr::{addr_of_mut, slice_from_raw_parts_mut};
 use log::{debug, error, info, trace};
-use hal_amd64::idt::entry::{Entry, Type};
 use kernel_api::memory::PhysicalAddress;
 use kernel_api::sync::Mutex;
 use kernel_api::memory::{allocator::BackingAllocator};
@@ -106,8 +105,6 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 	}
 }
 
-use hal_amd64::idt::handler::{InterruptStackFrame, PageFaultError};
-use hal_amd64::idt::Idt;
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::Config;
 use utils::handoff::MemoryType;
@@ -121,7 +118,7 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 	trace!("Handoff data:\n{handoff_data:x?}");
 
-	hal_amd64::__popcorn_hal_early_init();
+	kernel_hal::amd64::__popcorn_hal_early_init();
 
 	unsafe { asm!("int3"); }
 

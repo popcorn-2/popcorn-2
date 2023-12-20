@@ -13,8 +13,7 @@ utils = { path = "../utils" }
 kernel_api = { version = "0.1.0", path = "../kernel_api" }
 derive_more = "0.99.17"
 
-# FIXME (cargo#12358): [target.'cfg(target_arch = "x86_64")'.dependencies]
-hal_amd64 = { path = "../hal/hal_amd64" }
+kernel_hal = { path = "../kernel_hal" }
 
 #[target.'cfg(panic = "unwind")'.dependencies]
 unwinding = { version = "0.2.1", default-features = false, features = ["unwinder", "panic", "personality", "fde-static"] }
