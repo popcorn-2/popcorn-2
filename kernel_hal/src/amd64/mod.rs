@@ -1,3 +1,4 @@
+use core::arch::asm;
 use log::warn;
 use crate::amd64::idt::entry::Type;
 use crate::amd64::idt::handler::InterruptStackFrame;
@@ -6,10 +7,26 @@ use crate::amd64::idt::Idt;
 pub mod gdt;
 mod tss;
 pub mod idt;
+mod serial;
+mod port;
+mod qemu;
 
 struct Hal;
 
-impl super::Hal for Hal {}
+unsafe impl super::Hal for Hal {
+	type SerialOut = serial::HalWriter;
+
+	fn breakpoint() { unsafe { asm!("int3"); } }
+
+	fn exit(result: crate::Result) -> ! {
+		qemu::debug_exit(result)
+	}
+
+	fn debug_output(data: &[u8]) -> Result<(), ()> {
+		qemu::debug_con_write(data);
+		Ok(())
+	}
+}
 
 const _: super::CurrentHal = Hal;
 

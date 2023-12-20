@@ -42,22 +42,18 @@ extern crate self as kernel;
 
 use alloc::sync::Arc;
 use core::alloc::{GlobalAlloc, Layout};
-use core::arch::asm;
-use core::cmp::max;
-use crate::io::serial;
 use core::fmt::Write;
-use core::mem;
-use core::num::NonZeroUsize;
 use core::ops::Deref;
 use core::panic::PanicInfo;
-use core::ptr::{addr_of_mut, slice_from_raw_parts_mut};
-use log::{debug, error, info, trace};
+use core::ptr::slice_from_raw_parts_mut;
+use log::{info, trace};
 use kernel_api::memory::PhysicalAddress;
-use kernel_api::sync::Mutex;
 use kernel_api::memory::{allocator::BackingAllocator};
+use kernel_hal::{CurrentHal, Hal};
+
+pub use kernel_hal::{sprint, sprintln};
 
 mod sync;
-mod io;
 mod memory;
 mod panicking;
 mod resource;
@@ -83,8 +79,6 @@ macro_rules! into {
 
 #[export_name = "_start"]
 extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
-	let result = serial::init_serial0();
-	result.expect("Failed to initialise serial0");
 	sprintln!("Hello world!");
 
 	#[cfg(not(test))] kmain(handoff_data);
@@ -120,7 +114,7 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 	kernel_hal::amd64::__popcorn_hal_early_init();
 
-	unsafe { asm!("int3"); }
+	CurrentHal::breakpoint();
 
 	let usable_memory = handoff_data.memory.map.iter().filter(|entry|
 		entry.ty == MemoryType::Free
@@ -264,66 +258,6 @@ pub unsafe extern "Rust" fn __popcorn_module_realloc(ptr: *mut u8, layout: Layou
 #[no_mangle]
 pub unsafe extern "Rust" fn __popcorn_module_is_panicking() -> bool { panicking::panicking() }
 
-mod arch {
-	use core::arch::asm;
-	use core::marker::PhantomData;
-
-	pub trait PortWidth {}
-	impl PortWidth for u8 {}
-	impl PortWidth for u16 {}
-	impl PortWidth for u32 {}
-
-	#[derive(Debug)]
-	pub struct Port<T>(u16, PhantomData<T>) where T: PortWidth;
-
-	impl<T> Port<T> where T: PortWidth {
-		pub const fn new(addr: u16) -> Self {
-			Self(addr, PhantomData)
-		}
-	}
-
-	impl Port<u8> {
-		#[inline(always)]
-		pub unsafe fn read(&self) -> u8 {
-			let ret;
-			unsafe { asm!("in al, dx", in("dx") self.0, out("al") ret, options(nostack, preserves_flags)); }
-			ret
-		}
-
-		#[inline(always)]
-		pub unsafe fn write(&mut self, val: u8) {
-			unsafe { asm!("out dx, al", in("dx") self.0, in("al") val, options(nostack, preserves_flags)); }
-		}
-	}
-
-	impl Port<u16> {
-		#[inline(always)]
-		pub unsafe fn read(&self) -> u16 {
-			let ret;
-			unsafe { asm!("in ax, dx", in("dx") self.0, out("ax") ret, options(nostack, preserves_flags)); }
-			ret
-		}
-
-		#[inline(always)]
-		pub unsafe fn write(&mut self, val: u16) {
-			unsafe { asm!("out dx, ax", in("dx") self.0, in("ax") val, options(nostack, preserves_flags)); }
-		}
-	}
-
-	impl Port<u32> {
-		#[inline(always)]
-		pub unsafe fn read(&self) -> u32 {
-			let ret;
-			unsafe { asm!("in eax, dx", in("dx") self.0, out("eax") ret, options(nostack, preserves_flags)); }
-			ret
-		}
-
-		#[inline(always)]
-		pub unsafe fn write(&mut self, val: u32) {
-			unsafe { asm!("out dx, eax", in("dx") self.0, in("eax") val, options(nostack, preserves_flags)); }
-		}
-	}
-}
 
 mod allocator {
 	use core::alloc::{GlobalAlloc, Layout};

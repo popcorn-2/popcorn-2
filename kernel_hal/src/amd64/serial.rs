@@ -1,16 +1,11 @@
-use core::fmt::{self, Write};
+use core::fmt::{self, Arguments, Write};
 use bitflags::{bitflags, Flags};
-use kernel_api::sync::Mutex;
-use crate::arch::Port;
-use crate::sync::late_init::LateInit;
+use kernel_api::sync::{LazyLock, Mutex};
+use crate::amd64::port::Port;
 
-pub static SERIAL0: Mutex<LateInit<SerialPort>> = Mutex::new(LateInit::new());
-
-pub fn init_serial0() -> Result<(), Error> {
-	SERIAL0.lock()
-			.init(unsafe { SerialPort::new(0x3f8) }? );
-	Ok(())
-}
+static SERIAL0: LazyLock<Mutex<SerialPort>> = LazyLock::new(|| {
+	Mutex::new(unsafe { SerialPort::new(0x3f8) }.expect("Unable to start serial port") )
+});
 
 bitflags! {
 	struct IrqEnableFlags: u8 {
@@ -51,7 +46,7 @@ impl From<LineStatusFlags> for u8 {
 	}
 }
 
-pub struct SerialPort {
+struct SerialPort {
 	data: Port<u8>,
 	irq_enable: Port<u8>,
 	fifo_control: Port<u8>,
@@ -123,7 +118,7 @@ impl SerialPort {
 	}
 }
 
-impl fmt::Write for SerialPort {
+impl Write for SerialPort {
 	fn write_str(&mut self, s: &str) -> fmt::Result {
 		for data in s.as_bytes() {
 			self.send(*data);
@@ -133,7 +128,7 @@ impl fmt::Write for SerialPort {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum Error {
+enum Error {
 	LoopbackFail
 }
 
@@ -145,18 +140,10 @@ impl fmt::Display for Error {
 	}
 }
 
-#[doc(hidden)]
-pub fn _print(args: fmt::Arguments) {
-	SERIAL0.lock().write_fmt(args).unwrap();
-}
+pub struct HalWriter;
 
-#[macro_export]
-macro_rules! sprintln {
-    () => { $crate::sprint!("\n") };
-	($($arg:tt)*) => { $crate::sprint!("{}\n", format_args!($($arg)*)) }
-}
-
-#[macro_export]
-macro_rules! sprint {
-	($($arg:tt)*) => { $crate::io::serial::_print(format_args!($($arg)*)) }
+impl crate::FormatWriter for HalWriter {
+	fn print(args: Arguments) {
+		SERIAL0.lock().write_fmt(args).unwrap();
+	}
 }
