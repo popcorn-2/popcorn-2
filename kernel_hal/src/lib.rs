@@ -9,8 +9,11 @@
 
 #![feature(kernel_sync_once)]
 
+#![warn(missing_docs)]
+
+pub mod arch;
 #[cfg(target_arch = "x86_64")]
-pub mod amd64;
+pub use arch::amd64; // FIXME
 
 pub enum Result { Success, Failure }
 
@@ -41,3 +44,5 @@ macro_rules! sprint {
 		<$crate::CurrentHal as $crate::Hal>::SerialOut::print(format_args!($($arg)*))
 	}}
 }
+
+pub(crate) use macros::Hal;

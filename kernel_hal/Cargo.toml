@@ -9,3 +9,4 @@ edition = "2021"
 log = "0.4.20"
 bitflags = "2.4.1"
 kernel_api = { path = "../kernel_api" }
+macros = { path = "../macros" }

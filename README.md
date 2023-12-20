@@ -54,6 +54,38 @@ The bootloader then locates the first partition on the disk that the EFI system 
 
 ## Kernel initialisation
 
+---
+
+# Porting
+
+Create a new module inside `kernel_hal::arch`, and gate it to the correct target with a `#[cfg]` attribute. Create a ZST to contain the root HAL functions, and add a `#[derive(kernel_hal::Hal)]` to it. Then manually implement all required items in `kernel_hal::Hal` for the ZST.
+
+For example
+```rust
+// kernel_hal/src/arch/mod.rs
+
+#[cfg(target_arch = "x86_64")]
+mod amd64;
+
+// kernel_hal/src/arch/amd64.rs
+
+use kernel_hal::Hal;
+
+#[derive(Hal)]
+struct Amd64Hal;
+
+unsafe impl Hal for Amd64Hal {
+    fn breakpoint() {
+        unsafe { core::arch::asm!("int3"); }
+    }
+    
+    // ...
+}
+
+```
+
+---
+
 # Popcorn partition GUIDs
 - `8A6CC16C-D110-46F1-813F-0382046342C8`
 - `B1D8F0F9-05CB-42E1-A591-A6980E7B5909`

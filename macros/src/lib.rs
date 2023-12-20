@@ -1,43 +1,10 @@
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::{ItemFn, parse_macro_input, Ident};
+use std::str::FromStr;
+use syn::{DeriveInput, parse_macro_input};
 
-#[proc_macro_attribute]
-pub fn test_should_panic(_attr: TokenStream, item: TokenStream) -> TokenStream {
-	let func = parse_macro_input!(item as ItemFn);
-	let ident = func.sig.ident.clone();
-
-	let output = quote!{
-		#[test_case]
-		static #ident: ::kernel::test_harness::ShouldPanic<fn()> = {
-			#func
-
-			const fn name<T: ?Sized>(_val: &T) -> &'static str {
-                ::core::any::type_name::<T>()
-			}
-
-			::kernel::test_harness::ShouldPanic(#ident, name(& #ident))
-		};
-	};
-	output.into()
-}
-
-#[proc_macro_attribute]
-pub fn test_ignored(_attr: TokenStream, item: TokenStream) -> TokenStream {
-	let func = parse_macro_input!(item as ItemFn);
-	let ident = func.sig.ident.clone();
-
-	let output = quote!{
-		#[test_case]
-		static #ident: ::kernel::test_harness::Ignored<fn()> = {
-			#func
-
-			const fn name<T: ?Sized>(_val: &T) -> &'static str {
-                ::core::any::type_name::<T>()
-			}
-
-			::kernel::test_harness::Ignored(#ident, name(& #ident))
-		};
-	};
-	output.into()
+#[proc_macro_derive(Hal)]
+pub fn derive_hal_const(item: TokenStream) -> TokenStream {
+	let item = parse_macro_input!(item as DeriveInput);
+	let output = format!("const _: crate::CurrentHal = {};", item.ident);
+	TokenStream::from_str(&output).unwrap()
 }

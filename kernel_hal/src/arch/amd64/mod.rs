@@ -1,5 +1,6 @@
 use core::arch::asm;
 use log::warn;
+use crate::Hal;
 use crate::amd64::idt::entry::Type;
 use crate::amd64::idt::handler::InterruptStackFrame;
 use crate::amd64::idt::Idt;
@@ -11,9 +12,10 @@ mod serial;
 mod port;
 mod qemu;
 
-struct Hal;
+#[derive(Hal)]
+struct Amd64Hal;
 
-unsafe impl super::Hal for Hal {
+unsafe impl Hal for Amd64Hal {
 	type SerialOut = serial::HalWriter;
 
 	fn breakpoint() { unsafe { asm!("int3"); } }
@@ -27,8 +29,6 @@ unsafe impl super::Hal for Hal {
 		Ok(())
 	}
 }
-
-const _: super::CurrentHal = Hal;
 
 #[no_mangle]
 pub fn __popcorn_hal_early_init() {
