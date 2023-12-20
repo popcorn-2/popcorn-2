@@ -26,6 +26,8 @@
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
 #![feature(kernel_sync_once)]
+#![feature(kernel_physical_page_offset)]
+#![feature(kernel_memory_addr_access)]
 
 #![no_std]
 #![no_main]
@@ -88,7 +90,18 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 
 	#[cfg(not(test))] kmain(handoff_data);
 	#[cfg(test)] {
-		test_main();
+		let mut spaces = handoff_data.memory.map.iter().filter(|entry|
+				entry.ty == MemoryType::Free
+						|| entry.ty == MemoryType::AcpiReclaim
+						|| entry.ty == MemoryType::BootloaderCode
+						|| entry.ty == MemoryType::BootloaderData
+		).map(|entry| {
+            Frame::new(entry.start().align_up())..Frame::new(entry.end().align_down())
+        });
+
+		let mut watermark_allocator = resource::watermark_allocator::WatermarkAllocator::new(&mut spaces);
+		memory::physical::with_highmem_as(&mut watermark_allocator, || test_main());
+
 		unreachable!("test harness returned")
 	}
 }
@@ -162,8 +175,7 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 				Config {
 					allocation_range: Frame::new(PhysicalAddress::new(0))..Frame::new(max_usable_memory.align_down()),
 					regions: &mut spaces
-				},
-				[]
+				}
 			)
 		});
 

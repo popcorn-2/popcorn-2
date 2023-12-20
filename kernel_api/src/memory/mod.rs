@@ -7,7 +7,7 @@ pub mod heap;
 mod type_ops;
 
 const PAGE_SIZE: usize = 4096;
-const PAGE_MAP_OFFSET: usize = 0;
+const PAGE_MAP_OFFSET: usize = 0xffff_8000_0000_0000;
 
 /// A memory frame
 #[stable(feature = "kernel_core_api", since = "0.1.0")]

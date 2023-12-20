@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 lock_api = "0.4.11"
 kernel_module_macros = { path = "../kernel_module_macros" }
+auto_impl = "1.1.0"
