@@ -44,14 +44,32 @@ pub mod handler {
 	pub type ControlFlow = extern "x86-interrupt" fn(InterruptStackFrame, ControlFlowError);
 
 	pub trait Handler {
-		fn addr(&self) -> *const () { self as *const _ as *const () }
+		fn addr(&self) -> *const ();
 	}
-	impl Handler for Normal {}
-	impl Handler for NormalWithError {}
-	impl Handler for Diverging {}
-	impl Handler for DivergingWithError {}
-	impl Handler for PageFault {}
-	impl Handler for ControlFlow {}
+
+	impl Handler for Normal {
+		fn addr(&self) -> *const () { *self as *const () }
+	}
+
+	impl Handler for NormalWithError {
+		fn addr(&self) -> *const () { *self as *const () }
+	}
+
+	impl Handler for Diverging {
+		fn addr(&self) -> *const () { *self as *const () }
+	}
+
+	impl Handler for DivergingWithError {
+		fn addr(&self) -> *const () { *self as *const () }
+	}
+
+	impl Handler for PageFault {
+		fn addr(&self) -> *const () { *self as *const () }
+	}
+
+	impl Handler for ControlFlow {
+		fn addr(&self) -> *const () { *self as *const () }
+	}
 }
 
 pub mod entry {

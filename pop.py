@@ -88,7 +88,7 @@ def generate_iso(kernel_file: str, bootloader_file: str, driver_file: str, outpu
         sys.exit("iso generation failed")
 
 
-def run_qemu(iso: str, *qemu_args: [str], capture_output: bool) -> tuple[int,str]:
+def run_qemu(iso: str, *qemu_args: [str], capture_output: bool = False) -> tuple[int,str]:
     command = [
                 "qemu-system-x86_64",
                 "-drive", "if=pflash,format=raw,readonly=on,file=OVMF_CODE.fd",
@@ -167,7 +167,8 @@ match args.subcommand:
         build(args.from_kernel_file)
     case "run":
         build()
-        exit(run_qemu(f"target/{target_inner}/popcorn2.iso"))
+        result, _ = run_qemu(f"target/{target_inner}/popcorn2.iso")
+        exit(result)
 
     case "clean":
         result = run_cargo_command("clean")
