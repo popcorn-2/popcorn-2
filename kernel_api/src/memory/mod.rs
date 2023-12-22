@@ -5,6 +5,7 @@
 pub mod allocator;
 pub mod heap;
 mod type_ops;
+pub mod r#virtual;
 
 const PAGE_SIZE: usize = 4096;
 const PAGE_MAP_OFFSET: usize = 0xffff_8000_0000_0000;

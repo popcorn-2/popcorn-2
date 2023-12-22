@@ -49,6 +49,57 @@ impl From<AllocError> for MapPageError {
 	}
 }
 
+mod mapping {
+	use kernel_api::memory::allocator::{AllocError, BackingAllocator};
+	use kernel_api::memory::{Frame, Page};
+	use kernel_api::memory::r#virtual::VirtualAllocator;
+	use crate::memory::paging::PageTable;
+	use crate::memory::physical::highmem;
+
+	pub struct Global;
+
+	impl VirtualAllocator for Global {
+
+	}
+
+	pub struct Mapping<A: VirtualAllocator = Global> {
+		base: Page,
+		len: usize,
+		allocator: A
+	}
+
+	impl Mapping<Global> {
+		fn new(len: usize) -> Result<Self, AllocError> {
+			let highmem_lock = highmem();
+			Self::new_with(len, &*highmem_lock)
+		}
+
+		fn new_with(len: usize, physical_allocator: impl BackingAllocator) -> Result<Self, AllocError> {
+			// FIXME: memory leak here from lack of ArcFrame
+			let physical = physical_allocator.allocate_contiguous(len)?;
+			let r#virtual: Page = {  }.allocate_contiguous(len)?;
+
+			// TODO: huge pages
+			let page_table: &mut PageTable = {  };
+			for (frame, page) in (0..len).map(|i| (physical + i, r#virtual + i)) {
+				page_table.map_page(page, frame, &physical_allocator).expect("todo");
+			}
+
+			Ok(Self {
+				base: r#virtual,
+				len,
+				allocator: Global
+			})
+		}
+	}
+
+	impl<A: VirtualAllocator> Drop for Mapping<A> {
+		fn drop(&mut self) {
+			// todo
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use crate::memory::physical::highmem;
