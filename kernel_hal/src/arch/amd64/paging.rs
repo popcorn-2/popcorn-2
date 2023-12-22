@@ -6,43 +6,43 @@ use crate::paging::levels::{L4, L3, L2, L1};
 impl Level for L4 {
 	const MASK: usize = 0o777_000_000_000_0000;
 	const SHIFT: usize = 12 + 9*3;
-	type Entry = Entry;
+	type Entry = Amd64Entry;
 	const ENTRY_COUNT: usize = 512;
 }
 
 impl Level for L3 {
 	const MASK: usize = 0o777_000_000__0000;
 	const SHIFT: usize = 12 + 9*2;
-	type Entry = Entry;
+	type Entry = Amd64Entry;
 	const ENTRY_COUNT: usize = 512;
 }
 
 impl Level for L2 {
 	const MASK: usize = 0o777_000_0000;
 	const SHIFT: usize = 12 + 9*1;
-	type Entry = Entry;
+	type Entry = Amd64Entry;
 	const ENTRY_COUNT: usize = 512;
 }
 
 impl Level for L1 {
 	const MASK: usize = 0o777_0000;
 	const SHIFT: usize = 12 + 9*0;
-	type Entry = Entry;
+	type Entry = Amd64Entry;
 	const ENTRY_COUNT: usize = 512;
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 #[repr(transparent)]
-pub struct Entry(u64);
+pub struct Amd64Entry(u64);
 
 bitflags! {
-		impl Entry: u64 {
+		impl Amd64Entry: u64 {
 			const PRESENT = 1<<0;
 			const ADDRESS = 0x0fff_ffff_ffff_f000;
 		}
 	}
 
-impl Entry for Entry {
+impl Entry for Amd64Entry {
 	fn empty() -> Self {
 		<Self as Flags>::empty()
 	}
