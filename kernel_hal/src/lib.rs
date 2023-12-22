@@ -14,8 +14,6 @@
 #![warn(missing_docs)]
 
 pub mod arch;
-#[cfg(target_arch = "x86_64")]
-pub use arch::amd64; // FIXME
 
 pub mod paging;
 
@@ -27,6 +25,8 @@ pub unsafe trait Hal {
 	fn breakpoint();
 	fn exit(result: Result) -> !;
 	fn debug_output(data: &[u8]) -> core::result::Result<(), ()>;
+	fn early_init();
+	fn init_idt();
 }
 
 pub trait FormatWriter {

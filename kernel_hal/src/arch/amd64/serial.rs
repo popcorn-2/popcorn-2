@@ -1,7 +1,7 @@
 use core::fmt::{self, Arguments, Write};
 use bitflags::{bitflags, Flags};
 use kernel_api::sync::{LazyLock, Mutex};
-use crate::amd64::port::Port;
+use crate::arch::amd64::port::Port;
 
 static SERIAL0: LazyLock<Mutex<SerialPort>> = LazyLock::new(|| {
 	Mutex::new(unsafe { SerialPort::new(0x3f8) }.expect("Unable to start serial port") )

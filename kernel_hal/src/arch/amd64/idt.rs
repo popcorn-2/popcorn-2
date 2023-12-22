@@ -75,7 +75,7 @@ pub mod handler {
 pub mod entry {
 	use core::marker::PhantomData;
 	use core::num::NonZeroU8;
-	use crate::amd64::idt::handler::Handler;
+	use crate::arch::amd64::idt::handler::Handler;
 
 	pub enum Type {
 		InterruptGate,

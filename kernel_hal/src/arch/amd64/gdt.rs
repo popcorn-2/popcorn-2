@@ -1,7 +1,7 @@
 use core::arch::asm;
 use core::mem::offset_of;
 use kernel_api::sync::OnceLock;
-use crate::amd64::tss::{Tss, TSS};
+use crate::arch::amd64::tss::{Tss, TSS};
 
 pub static GDT: OnceLock<Gdt> = OnceLock::new();
 

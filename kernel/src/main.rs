@@ -112,8 +112,8 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 	trace!("Handoff data:\n{handoff_data:x?}");
 
-	kernel_hal::amd64::__popcorn_hal_early_init();
-
+	CurrentHal::early_init();
+	CurrentHal::init_idt();
 	CurrentHal::breakpoint();
 
 	let usable_memory = handoff_data.memory.map.iter().filter(|entry|

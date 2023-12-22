@@ -1,4 +1,4 @@
-use crate::amd64::port::Port;
+use crate::arch::amd64::port::Port;
 
 pub fn debug_con_write(data: &[u8]) {
 	let mut qemu_debug = Port::<u8>::new(0xe9);
