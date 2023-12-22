@@ -5,6 +5,7 @@ use crate::{panicking::do_panic, panicking, sprintln};
 use kernel_api::sync::Mutex;
 use core::panic::PanicInfo;
 use test::{ShouldPanic, TestDescAndFn, TestFn, TestName};
+use kernel_hal::Hal;
 
 mod junit;
 mod pretty;
@@ -139,30 +140,24 @@ pub fn test_runner(tests: &[&TestDescAndFn]) -> ! {
 
 	<FORMATTER as Formatter>::teardown(success, success_count, tests.len() - success_count - ignore_count, ignore_count);
 
-	struct QemuDebug;
+	struct DebugOut;
 
-	impl minicov::CoverageWriter for QemuDebug {
+	impl minicov::CoverageWriter for DebugOut {
 		fn write(&mut self, data: &[u8]) -> core::result::Result<(), minicov::CoverageWriteError> {
-			let mut qemu_debug = crate::arch::Port::<u8>::new(0xe9);
-			for byte in data {
-				unsafe { qemu_debug.write(*byte); }
-			}
-			Ok(())
+			kernel_hal::CurrentHal::debug_output(data).map_err(|_| minicov::CoverageWriteError)
 		}
 	}
 
     unsafe {
         // Note that this function is not thread-safe! Use a lock if needed.
-        minicov::capture_coverage(&mut QemuDebug).unwrap();
+        minicov::capture_coverage(&mut DebugOut).unwrap();
     }
 
-	let mut qemu_exit = crate::arch::Port::<u32>::new(0xf4);
 	if success {
-		unsafe { qemu_exit.write(0x10); }
+		kernel_hal::CurrentHal::exit(kernel_hal::Result::Success)
 	} else {
-		unsafe { qemu_exit.write(0); }
+		kernel_hal::CurrentHal::exit(kernel_hal::Result::Failure)
 	}
-	unreachable!("qemu did not exit")
 }
 
 trait Formatter {

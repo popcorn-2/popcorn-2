@@ -224,10 +224,11 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         Err(e) => return e.status()
     };
 
+    /*
     let Ok(popfs_driver) = fs.read(Path::new(cstr16!(r"EFI\POPCORN\popfs.efi"))) else {
         panic!("Unable to find popfs driver")
     };
-    /* TODO: Check if already loaded and if not, add to Driver#### efivars, adjust BootNext to point to uwave, then reboot
+     TODO: Check if already loaded and if not, add to Driver#### efivars, adjust BootNext to point to uwave, then reboot
     let popfs_driver = services.load_image(image_handle, LoadImageSource::FromBuffer {
 
         buffer: &popfs_driver,

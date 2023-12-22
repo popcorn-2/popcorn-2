@@ -55,7 +55,9 @@ def run_cargo_command(subcommand: str, *cargo_args: [str], env: dict[str, str] |
             data = json.loads(line.strip())
             if data["reason"] == "compiler-message":
                 if data["message"]["rendered"] is not None:
-                    print(data["message"]["rendered"])
+                    ty, message = data["message"]["rendered"].split(":", 1)
+                    color = "\033[31m" if data["message"]["level"] == "error" else "\033[33m" if data["message"]["level"] == "warning" else ""
+                    print(f"{color}{ty}\033[0m:{message}")
                 else:
                     print(data["message"], data["spans"])
         raise RuntimeError("cargo failed")
@@ -86,7 +88,7 @@ def generate_iso(kernel_file: str, bootloader_file: str, driver_file: str, outpu
         sys.exit("iso generation failed")
 
 
-def run_qemu(iso: str, *qemu_args: [str], capture_output: bool) -> tuple[int,str]:
+def run_qemu(iso: str, *qemu_args: [str], capture_output: bool = False) -> tuple[int,str]:
     command = [
                 "qemu-system-x86_64",
                 "-drive", "if=pflash,format=raw,readonly=on,file=OVMF_CODE.fd",
@@ -132,7 +134,7 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
             "-C", "relocation-model=static",
             "-C", "symbol-mangling-version=v0",
             "-C", "panic=unwind",
-            "-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
+            "-C", "link-args=-Tkernel_hal/src/arch/amd64/linker.ld",
             env=kernel_build_env
         )
 
@@ -165,7 +167,8 @@ match args.subcommand:
         build(args.from_kernel_file)
     case "run":
         build()
-        exit(run_qemu(f"target/{target_inner}/popcorn2.iso"))
+        result, _ = run_qemu(f"target/{target_inner}/popcorn2.iso")
+        exit(result)
 
     case "clean":
         result = run_cargo_command("clean")

@@ -106,19 +106,42 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
 }
 
 fn enable_irq() {
+    #[cfg(target_arch = "x86_64")]
     unsafe { asm!("sti", options(preserves_flags, nomem)); }
+
+    // FIXME: these flags should be the same as when interrupts were disabled
+    #[cfg(target_arch = "aarch64")]
+    unsafe { asm!("msr DAIFSet, #0b1111"); }
 }
 
 /// Returns whether interrupts were enabled before disablement
 fn disable_irq() -> bool {
-    let flags: u64;
-    unsafe {
-        asm!("
+    #[cfg(target_arch = "x86_64")]
+    fn disable() -> bool {
+        let flags: u64;
+        unsafe {
+            asm!("
 			pushf
 			pop {}
 			cli
 		", out(reg) flags, options(preserves_flags, nomem))
+        }
+
+        (flags & 0x0200) != 0
     }
 
-    (flags & 0x0200) != 0
+    #[cfg(target_arch = "aarch64")]
+    fn disable() -> bool {
+        let daif: u64;
+        unsafe {
+            asm!("
+			mrs {}, DAIF
+			msr DAIFClr, #0b1111
+		", out(reg) daif)
+        }
+
+        (daif & 0b1111) != 0
+    }
+
+    disable()
 }

@@ -1,7 +1,7 @@
 use core::arch::asm;
 use core::mem::offset_of;
 use kernel_api::sync::OnceLock;
-use crate::tss::{Tss, TSS};
+use crate::arch::amd64::tss::{Tss, TSS};
 
 pub static GDT: OnceLock<Gdt> = OnceLock::new();
 
@@ -63,15 +63,13 @@ impl Gdt {
     }
 
     pub(crate) const fn add_entry(&mut self, ty: EntryTy, entry: Entry) {
-        let e = match ty {
-            EntryTy::KernelCode => &mut self.kernel_code,
-            EntryTy::KernelData => &mut self.kernel_data,
-            EntryTy::UserCompatCode => &mut self.user_compat_code,
-            EntryTy::UserData => &mut self.user_data,
-            EntryTy::UserLongCode => &mut self.user_long_code,
-        };
-
-        *e = entry;
+        match ty {
+            EntryTy::KernelCode => self.kernel_code = entry,
+            EntryTy::KernelData => self.kernel_data = entry,
+            EntryTy::UserCompatCode => self.user_compat_code = entry,
+            EntryTy::UserData => self.user_data = entry,
+            EntryTy::UserLongCode => self.user_long_code = entry,
+        }
     }
 
     pub(crate) fn add_tss(&mut self, tss: &'static Tss) {
