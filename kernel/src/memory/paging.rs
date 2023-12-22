@@ -2,10 +2,10 @@ use core::ptr::NonNull;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::allocator::{AllocError, BackingAllocator};
 
-use kernel_hal::paging::{Table, PageIndices, levels::L4};
+use kernel_hal::paging::{Table, PageIndices, levels::Global, Entry};
 
 pub struct PageTable {
-	l4: NonNull<Table<L4>>
+	l4: NonNull<Table<Global>>
 }
 
 impl PageTable {
@@ -16,10 +16,10 @@ impl PageTable {
 	}
 
 	fn translate_page(&self, page: Page) -> Option<Frame> {
-		let l3_table = unsafe { self.l4.as_ref() }.child_table(page.l4_index())?;
-		let l2_table = l3_table.child_table(page.l3_index())?;
-		let l1_table = l2_table.child_table(page.l2_index())?;
-		l1_table.entries[page.l1_index()].pointed_frame()
+		let upper_table = unsafe { self.l4.as_ref() }.child_table(page.global_index())?;
+		let middle_table = upper_table.child_table(page.upper_index())?;
+		let lower_table = middle_table.child_table(page.middle_index())?;
+		lower_table.entries[page.lower_index()].pointed_frame()
 	}
 
 	fn translate_address(&self, addr: VirtualAddress) -> Option<PhysicalAddress> {
@@ -30,10 +30,10 @@ impl PageTable {
 	}
 
 	fn map_page(&mut self, page: Page, frame: Frame, allocator: impl BackingAllocator) -> Result<(), MapPageError> {
-		let l3_table = unsafe { self.l4.as_mut() }.child_table_or_new(page.l4_index(), &allocator)?;
-		let l2_table = l3_table.child_table_or_new(page.l3_index(), &allocator)?;
-		let l1_table = l2_table.child_table_or_new(page.l2_index(), &allocator)?;
-		l1_table.entries[page.l1_index()].point_to_frame(frame).map_err(|_| MapPageError::AlreadyMapped)
+		let upper_table = unsafe { self.l4.as_mut() }.child_table_or_new(page.global_index(), &allocator)?;
+		let middle_table = upper_table.child_table_or_new(page.upper_index(), &allocator)?;
+		let lower_table = middle_table.child_table_or_new(page.middle_index(), &allocator)?;
+		lower_table.entries[page.lower_index()].point_to_frame(frame).map_err(|_| MapPageError::AlreadyMapped)
 	}
 }
 

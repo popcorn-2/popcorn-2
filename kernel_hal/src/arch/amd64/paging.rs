@@ -1,30 +1,30 @@
 use bitflags::{bitflags, Flags};
 use kernel_api::memory::{Frame, PhysicalAddress};
 use crate::paging::{Entry, Level};
-use crate::paging::levels::{L4, L3, L2, L1};
+use crate::paging::levels::{Global, Upper, Middle, Lower};
 
-impl Level for L4 {
+impl Level for Global {
 	const MASK: usize = 0o777_000_000_000_0000;
 	const SHIFT: usize = 12 + 9*3;
 	type Entry = Amd64Entry;
 	const ENTRY_COUNT: usize = 512;
 }
 
-impl Level for L3 {
+impl Level for Upper {
 	const MASK: usize = 0o777_000_000__0000;
 	const SHIFT: usize = 12 + 9*2;
 	type Entry = Amd64Entry;
 	const ENTRY_COUNT: usize = 512;
 }
 
-impl Level for L2 {
+impl Level for Middle {
 	const MASK: usize = 0o777_000_0000;
 	const SHIFT: usize = 12 + 9*1;
 	type Entry = Amd64Entry;
 	const ENTRY_COUNT: usize = 512;
 }
 
-impl Level for L1 {
+impl Level for Lower {
 	const MASK: usize = 0o777_0000;
 	const SHIFT: usize = 12 + 9*0;
 	type Entry = Amd64Entry;

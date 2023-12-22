@@ -1,7 +1,7 @@
 use core::ptr::NonNull;
 use kernel_api::memory::allocator::{AllocError, BackingAllocator};
 use kernel_api::memory::{Frame, Page};
-use crate::paging::levels::{L1, L2, L3, L4, ParentLevel};
+use crate::paging::levels::{Lower, Middle, Upper, Global, ParentLevel};
 
 pub mod levels;
 
@@ -24,34 +24,34 @@ mod sanity {
 	use super::Level;
 
 	trait SanityCheck: Level {}
-	impl SanityCheck for super::levels::L4 {}
-	impl SanityCheck for super::levels::L3 {}
-	impl SanityCheck for super::levels::L2 {}
-	impl SanityCheck for super::levels::L1 {}
+	impl SanityCheck for super::levels::Global {}
+	impl SanityCheck for super::levels::Upper {}
+	impl SanityCheck for super::levels::Middle {}
+	impl SanityCheck for super::levels::Lower {}
 }
 
 pub trait PageIndices {
-	fn l4_index(self) -> usize;
-	fn l3_index(self) -> usize;
-	fn l2_index(self) -> usize;
-	fn l1_index(self) -> usize;
+	fn global_index(self) -> usize;
+	fn upper_index(self) -> usize;
+	fn middle_index(self) -> usize;
+	fn lower_index(self) -> usize;
 }
 
 impl PageIndices for Page {
-	fn l4_index(self) -> usize {
-		(self.start().addr & L4::MASK) >> L4::SHIFT
+	fn global_index(self) -> usize {
+		(self.start().addr & Global::MASK) >> Global::SHIFT
 	}
 
-	fn l3_index(self) -> usize {
-		(self.start().addr & L3::MASK) >> L3::SHIFT
+	fn upper_index(self) -> usize {
+		(self.start().addr & Upper::MASK) >> Upper::SHIFT
 	}
 
-	fn l2_index(self) -> usize {
-		(self.start().addr & L2::MASK) >> L2::SHIFT
+	fn middle_index(self) -> usize {
+		(self.start().addr & Middle::MASK) >> Middle::SHIFT
 	}
 
-	fn l1_index(self) -> usize {
-		(self.start().addr & L1::MASK) >> L1::SHIFT
+	fn lower_index(self) -> usize {
+		(self.start().addr & Lower::MASK) >> Lower::SHIFT
 	}
 }
 

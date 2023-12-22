@@ -1,14 +1,14 @@
-pub enum L4 {}
-pub enum L3 {}
-pub enum L2 {}
-pub enum L1 {}
+pub enum Global {}
+pub enum Upper {}
+pub enum Middle {}
+pub enum Lower {}
 
 mod private {
 	pub trait Sealed {}
-	impl Sealed for super::L4 {}
-	impl Sealed for super::L3 {}
-	impl Sealed for super::L2 {}
-	impl Sealed for super::L1 {}
+	impl Sealed for super::Global {}
+	impl Sealed for super::Upper {}
+	impl Sealed for super::Middle {}
+	impl Sealed for super::Lower {}
 }
 
 pub trait LevelInternal: private::Sealed {}
@@ -17,19 +17,19 @@ pub trait ParentLevel: LevelInternal {
 	type Child: LevelInternal;
 }
 
-impl LevelInternal for L4 {}
-impl LevelInternal for L3 {}
-impl LevelInternal for L2 {}
-impl LevelInternal for L1 {}
+impl LevelInternal for Global {}
+impl LevelInternal for Upper {}
+impl LevelInternal for Middle {}
+impl LevelInternal for Lower {}
 
-impl ParentLevel for L4 {
-	type Child = L3;
+impl ParentLevel for Global {
+	type Child = Upper;
 }
 
-impl ParentLevel for L3 {
-	type Child = L2;
+impl ParentLevel for Upper {
+	type Child = Middle;
 }
 
-impl ParentLevel for L2 {
-	type Child = L1;
+impl ParentLevel for Middle {
+	type Child = Lower;
 }
