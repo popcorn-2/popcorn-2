@@ -5,12 +5,13 @@ use crate::arch::amd64::idt::entry::Type;
 use crate::arch::amd64::idt::handler::InterruptStackFrame;
 use crate::arch::amd64::idt::Idt;
 
-pub mod gdt;
+mod gdt;
 mod tss;
-pub mod idt;
+mod idt;
 mod serial;
 mod port;
 mod qemu;
+mod paging;
 
 #[derive(Hal)]
 struct Amd64Hal;

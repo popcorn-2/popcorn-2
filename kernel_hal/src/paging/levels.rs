@@ -11,16 +11,16 @@ mod private {
 	impl Sealed for super::L1 {}
 }
 
-pub trait Level: private::Sealed {}
+pub trait LevelInternal: private::Sealed {}
 
-pub trait ParentLevel: Level {
-	type Child: Level;
+pub trait ParentLevel: LevelInternal {
+	type Child: LevelInternal;
 }
 
-impl Level for L4 {}
-impl Level for L3 {}
-impl Level for L2 {}
-impl Level for L1 {}
+impl LevelInternal for L4 {}
+impl LevelInternal for L3 {}
+impl LevelInternal for L2 {}
+impl LevelInternal for L1 {}
 
 impl ParentLevel for L4 {
 	type Child = L3;

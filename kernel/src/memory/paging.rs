@@ -2,7 +2,7 @@ use core::ptr::NonNull;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::allocator::{AllocError, BackingAllocator};
 
-use kernel_hal::paging::{Table, ImplementedEntry, PageIndices, levels::L4};
+use kernel_hal::paging::{Table, PageIndices, levels::L4};
 
 pub struct PageTable {
 	l4: NonNull<Table<L4>>

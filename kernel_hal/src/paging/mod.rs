@@ -5,15 +5,15 @@ use crate::paging::levels::{L1, L2, L3, L4, ParentLevel};
 
 pub mod levels;
 
-pub trait ImplementedLevel: levels::Level {
+pub trait Level: levels::LevelInternal {
 	const MASK: usize;
 	const SHIFT: usize;
 
-	type Entry: ImplementedEntry;
+	type Entry: Entry;
 	const ENTRY_COUNT: usize;
 }
 
-pub trait ImplementedEntry: Copy {
+pub trait Entry: Copy {
 	fn empty() -> Self;
 	fn is_present(self) -> bool;
 	fn pointed_frame(self) -> Option<Frame>;
@@ -21,84 +21,13 @@ pub trait ImplementedEntry: Copy {
 }
 
 mod sanity {
-	use super::ImplementedLevel;
+	use super::Level;
 
-	trait SanityCheck: ImplementedLevel {}
+	trait SanityCheck: Level {}
 	impl SanityCheck for super::levels::L4 {}
 	impl SanityCheck for super::levels::L3 {}
 	impl SanityCheck for super::levels::L2 {}
 	impl SanityCheck for super::levels::L1 {}
-}
-
-mod amd64 {
-	use bitflags::{bitflags, Flags};
-	use kernel_api::memory::{Frame, PhysicalAddress};
-	use crate::paging::{ImplementedEntry, ImplementedLevel};
-	use crate::paging::levels::{L4, L3, L2, L1};
-
-	impl ImplementedLevel for L4 {
-		const MASK: usize = 0o777_000_000_000_0000;
-		const SHIFT: usize = 12 + 9*3;
-		type Entry = Entry;
-		const ENTRY_COUNT: usize = 512;
-	}
-
-	impl ImplementedLevel for L3 {
-		const MASK: usize = 0o777_000_000__0000;
-		const SHIFT: usize = 12 + 9*2;
-		type Entry = Entry;
-		const ENTRY_COUNT: usize = 512;
-	}
-
-	impl ImplementedLevel for L2 {
-		const MASK: usize = 0o777_000_0000;
-		const SHIFT: usize = 12 + 9*1;
-		type Entry = Entry;
-		const ENTRY_COUNT: usize = 512;
-	}
-
-	impl ImplementedLevel for L1 {
-		const MASK: usize = 0o777_0000;
-		const SHIFT: usize = 12 + 9*0;
-		type Entry = Entry;
-		const ENTRY_COUNT: usize = 512;
-	}
-
-	#[derive(Copy, Clone, Eq, PartialEq)]
-	#[repr(transparent)]
-	pub struct Entry(u64);
-
-	bitflags! {
-		impl Entry: u64 {
-			const PRESENT = 1<<0;
-			const ADDRESS = 0x0fff_ffff_ffff_f000;
-		}
-	}
-
-	impl ImplementedEntry for Entry {
-		fn empty() -> Self {
-			<Self as Flags>::empty()
-		}
-
-		fn is_present(self) -> bool { self.contains(Self::PRESENT) }
-
-		fn pointed_frame(self) -> Option<Frame> {
-			if !self.is_present() { return None; }
-
-			let addr = self.0 & Self::ADDRESS.0;
-			Some(Frame::new(PhysicalAddress::new(addr.try_into().unwrap())))
-		}
-
-		fn point_to_frame(&mut self, frame: Frame) -> Result<(), ()> {
-			if self.is_present() { return Err(()); }
-
-			let empty_entry = self.0 & !Self::ADDRESS.0;
-			let masked_addr = u64::try_from(frame.start().addr).unwrap() & Self::ADDRESS.0;
-			self.0 = empty_entry | masked_addr | Self::PRESENT.0;
-
-			Ok(())
-		}
-	}
 }
 
 pub trait PageIndices {
@@ -127,11 +56,11 @@ impl PageIndices for Page {
 }
 
 #[repr(C)]
-pub struct Table<L: ImplementedLevel> where [(); L::ENTRY_COUNT]: {
+pub struct Table<L: Level> where [(); L::ENTRY_COUNT]: {
 	pub entries: [L::Entry; L::ENTRY_COUNT]
 }
 
-impl<L: ImplementedLevel> Table<L> where [(); L::ENTRY_COUNT]: {
+impl<L: Level> Table<L> where [(); L::ENTRY_COUNT]: {
 	pub fn empty() -> Self {
 		Self {
 			entries: [L::Entry::empty(); L::ENTRY_COUNT]
@@ -151,7 +80,7 @@ impl<L: ImplementedLevel> Table<L> where [(); L::ENTRY_COUNT]: {
 	}
 }
 
-impl<L: ImplementedLevel + ParentLevel> Table<L> where L::Child: ImplementedLevel, [(); L::ENTRY_COUNT]:, [(); <L::Child as ImplementedLevel>::ENTRY_COUNT]: {
+impl<L: Level + ParentLevel> Table<L> where L::Child: Level, [(); L::ENTRY_COUNT]:, [(); <L::Child as Level>::ENTRY_COUNT]: {
 	pub fn child_table(&self, idx: usize) -> Option<&Table<L::Child>> {
 		let entry = self.entries[idx];
 		let table_frame = entry.pointed_frame()?;
