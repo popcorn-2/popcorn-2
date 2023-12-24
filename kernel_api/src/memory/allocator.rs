@@ -120,7 +120,7 @@ pub unsafe trait BackingAllocator: Send + Sync {
     fn push(&mut self, allocation: AllocationMeta) { unimplemented!("experimental") }
 
     #[unstable(feature = "kernel_allocation_new", issue = "5")]
-    fn drain_into(&mut self, into: &mut dyn BackingAllocator) { unimplemented!("experimental") }
+    fn drain_into(self, into: &mut dyn BackingAllocator) where Self: Sized { unimplemented!("experimental") }
 
     /// Allocate a continuous range of `count` frames, aligned to 2^`alignment_log2` frames
     ///

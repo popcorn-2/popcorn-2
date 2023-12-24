@@ -128,12 +128,11 @@ unsafe impl BackingAllocator for Wrapped {
         }
     }
 
-    fn drain_into(&mut self, into: &mut dyn BackingAllocator) {
-        let allocator = self.0.get_mut();
+    fn drain_into(self, into: &mut dyn BackingAllocator) {
+        let allocator = self.0.into_inner();
 
         for frame in allocator.first_frame..allocator.last_frame() {
             if allocator.get_frame(frame).unwrap() == FrameState::Allocated {
-                let _ = allocator.set_frame(frame, FrameState::Free);
                 into.push(AllocationMeta { region: frame .. frame+1 });
             }
         }
