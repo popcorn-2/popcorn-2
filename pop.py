@@ -17,6 +17,7 @@ parser.add_argument("--arch", choices=["x86_64", "host"], default="host")
 parser.add_argument("-j", "--jobs", action="store", type=int)
 parser.add_argument("--release", action="store_true")
 parser.add_argument("--accel", choices=["none", "kvm", "hvf"], default="none")
+parser.add_argument("--symbol-map", action="store_true")
 
 args, subcommand_parse = parser.parse_known_args()
 
@@ -70,7 +71,7 @@ def run_cargo_command(subcommand: str, *cargo_args: [str], env: dict[str, str] |
     return ("", result)
 
 
-def generate_iso(kernel_file: str, bootloader_file: str, driver_file: str, output_dir: str):
+def generate_iso(kernel_file: str, bootloader_file: str, driver_file: str, map_file: str, output_dir: str):
     result = subprocess.run([
         "cargo",
         "run",
@@ -81,6 +82,7 @@ def generate_iso(kernel_file: str, bootloader_file: str, driver_file: str, outpu
         "CARGO_BIN_FILE_BOOTLOADER": bootloader_file,
         "CARGO_BIN_FILE_POPFS_popfs_uefi_driver": driver_file,
         "CARGO_CFG_TARGET_ARCH": "x86_64",
+        "CARGO_FILE_MAP": map_file,
         "OUT_DIR": output_dir,
     })
 
@@ -143,6 +145,10 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
 
         kernel_file = file
 
+    if args.symbol_map:
+        kernel_map = subprocess.run(["llvm-nm", "-f", "bsd", "-C", "-n", kernel_file], capture_output=True, text=True)
+        open(f"target/{target_inner}/kernel.map", "w").write(kernel_map.stdout)
+
     _, result = run_cargo_command(
         "rustc",
         "-p", "popfs",
@@ -155,7 +161,7 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
     if result.returncode != 0:
         sys.exit("popfs build failed")
 
-    generate_iso(kernel_file, f"target/x86_64-unknown-uefi/{target_inner}/bootloader.efi", f"target/x86_64-unknown-uefi/{target_inner}/popfs_uefi_driver.efi", f"target/{target_inner}")
+    generate_iso(kernel_file, f"target/x86_64-unknown-uefi/{target_inner}/bootloader.efi", f"target/x86_64-unknown-uefi/{target_inner}/popfs_uefi_driver.efi", f"target/{target_inner}/kernel.map", f"target/{target_inner}")
 
 
 match args.subcommand:
