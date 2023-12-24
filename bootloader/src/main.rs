@@ -763,7 +763,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         address_range.start + STACK_PAGE_COUNT*4096
     };
 
-    let symbol_map = symbol_map.map(|m| NonNull::from(&mut *m.into_boxed_slice()));
+    let symbol_map = symbol_map.map(|m| Box::leak(m.into_boxed_slice()));
 
     info!("new stack top at {:#x}", stack_top.addr);
 
@@ -900,7 +900,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         },
         log: handoff::Logging {
-            symbol_map
+            symbol_map: symbol_map.map(NonNull::from)
         },
         test: handoff::Testing {
             module_func: unsafe { mem::transmute(1usize) }
