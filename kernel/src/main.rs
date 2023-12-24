@@ -113,6 +113,13 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 	trace!("Handoff data:\n{handoff_data:x?}");
 
+	unsafe {
+		use memory::paging::{PageTable, init_page_table};
+
+		let table = PageTable::new_unchecked(handoff_data.memory.page_table_root);
+		init_page_table(table);
+	}
+
 	CurrentHal::early_init();
 	CurrentHal::init_idt();
 	CurrentHal::breakpoint();
