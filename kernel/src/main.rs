@@ -108,7 +108,7 @@ use crate::resource::watermark_allocator::WatermarkAllocator;
 fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 	let _ = logging::init();
 
-	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| ptr.as_ref()) };
+	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| &*ptr.as_ptr().byte_add(0xffff_8000_0000_0000)) };
 	*panicking::SYMBOL_MAP.write() = map;
 
 	trace!("Handoff data:\n{handoff_data:x?}");
