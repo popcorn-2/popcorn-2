@@ -13,8 +13,8 @@ mod private {
 
 pub trait LevelInternal: private::Sealed {}
 
-pub trait ParentLevel: LevelInternal {
-	type Child: LevelInternal;
+pub trait ParentLevel: super::Level {
+	type Child: super::Level;
 }
 
 impl LevelInternal for Global {}
