@@ -167,7 +167,7 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 			});
 
 		let mut spaces2 = spaces.clone();
-		let mut watermark_allocator = WatermarkAllocator::new(&mut spaces2);
+		let watermark_allocator = WatermarkAllocator::new(&mut spaces2);
 		let mut new_alloc = memory::physical::with_highmem_as(&watermark_allocator, || {
 			// TODO: initialise heap
 			<bitmap_allocator::Wrapped as BackingAllocator>::new(
@@ -180,8 +180,7 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 		let allocator = Arc::get_mut(&mut new_alloc).expect("No other references to allocator should exist yet");
 		watermark_allocator.drain_into(allocator);
-
-		let allocator = memory::physical::highmem();
+		memory::physical::set_highmem(new_alloc);
 	}
 
 /*
