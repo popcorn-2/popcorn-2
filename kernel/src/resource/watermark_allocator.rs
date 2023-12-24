@@ -212,7 +212,7 @@ use kernel_api::sync::Mutex;
 pub struct WatermarkAllocator<'mem_map>(Mutex<Inner<'mem_map>>);
 
 impl<'mem_map> WatermarkAllocator<'mem_map> {
-	pub fn new(free_regions: &'mem_map mut (dyn DoubleEndedIterator<Item = core::ops::Range<Frame>> + Send)) -> Self {
+	pub fn new(free_regions: &'mem_map mut (dyn DoubleEndedIterator<Item = Range<Frame>> + Send)) -> Self {
 		Self(Mutex::new(Inner::new(free_regions)))
 	}
 }
@@ -231,16 +231,24 @@ unsafe impl BackingAllocator for WatermarkAllocator<'_> {
 	unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZeroUsize) {
 		trace!("WatermarkAllocator ignoring request to deallocate");
 	}
+
+	fn drain_into(mut self, into: &mut dyn BackingAllocator) where Self: Sized {
+		let inner = self.0.into_inner();
+		into.push(AllocationMeta {
+			region: inner.prev_frame..inner.top
+		});
+	}
 }
 
 pub struct Inner<'mem_map> {
-	free_regions: &'mem_map mut (dyn DoubleEndedIterator<Item = core::ops::Range<Frame>> + Send),
+	free_regions: &'mem_map mut (dyn DoubleEndedIterator<Item = Range<Frame>> + Send),
 	last_in_current_region: Frame,
-	prev_frame: Frame
+	prev_frame: Frame,
+	top: Frame
 }
 
 impl<'mem_map> Inner<'mem_map> {
-	pub fn new(free_regions: &'mem_map mut (dyn DoubleEndedIterator<Item = core::ops::Range<Frame>> + Send)) -> Inner<'mem_map> {
+	pub fn new(free_regions: &'mem_map mut (dyn DoubleEndedIterator<Item = Range<Frame>> + Send)) -> Inner<'mem_map> {
 		let last_free_section = free_regions.next_back()
 			.expect("Unable to find any free memory")
 			.clone();
@@ -248,7 +256,8 @@ impl<'mem_map> Inner<'mem_map> {
 		Self {
 			free_regions,
 			last_in_current_region: last_free_section.start,
-			prev_frame: last_free_section.end
+			prev_frame: last_free_section.end,
+			top: last_free_section.end
 		}
 	}
 
