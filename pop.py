@@ -113,6 +113,10 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
         kernel_cargo_flags = []
     if kernel_build_env is None:
         kernel_build_env = {}
+    try:
+        kernel_build_env["RUSTFLAGS"] += " -C symbol-mangling-version=v0"
+    except KeyError:
+        kernel_build_env["RUSTFLAGS"] = "-C symbol-mangling-version=v0"
 
     _, result = run_cargo_command(
         "build",
@@ -134,7 +138,6 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
             "-C", "link-args=-export-dynamic",
             "-Z", "export-executable-symbols=on",
             "-C", "relocation-model=static",
-            "-C", "symbol-mangling-version=v0",
             "-C", "panic=unwind",
             "-C", "link-args=-Tkernel_hal/src/arch/amd64/linker.ld",
             env=kernel_build_env
