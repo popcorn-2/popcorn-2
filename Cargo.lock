@@ -117,6 +117,7 @@ name = "bitmap_allocator"
 version = "0.1.0"
 dependencies = [
  "kernel_api",
+ "log",
 ]
 
 [[package]]

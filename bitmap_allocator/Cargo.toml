@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 kernel_api = { version = "0.1.0", path = "../kernel_api" }
+log = "0.4.20"
