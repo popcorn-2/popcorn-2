@@ -15,6 +15,7 @@ use core::ops::Range;
 use kernel_api::memory::{Frame, PhysicalAddress, AllocError};
 use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config};
 use kernel_api::sync::Mutex;
+use log::info;
 
 #[derive(Debug, Eq, PartialEq)]
 enum FrameState {
@@ -80,7 +81,10 @@ pub struct Wrapped(Mutex<BitmapAllocator>);
 
 unsafe impl BackingAllocator for Wrapped {
     fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
-        if frame_count != 1 { return Err(AllocError); }
+        if frame_count != 1 {
+            info!("BitmapAllocator cannot allocate >1 frame");
+            return Err(AllocError);
+        }
 
         let mut guard = self.0.lock();
 
