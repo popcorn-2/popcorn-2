@@ -1,5 +1,8 @@
 #![unstable(feature = "kernel_virtual_memory", issue = "none")]
 
-pub trait VirtualAllocator {
+use crate::memory::Page;
+use super::AllocError;
 
+pub trait VirtualAllocator {
+	fn allocate_contiguous(&self, len: usize) -> Result<Page, AllocError>;
 }
