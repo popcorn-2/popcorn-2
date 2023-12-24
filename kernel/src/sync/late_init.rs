@@ -8,7 +8,12 @@ impl<T> LateInit<T> {
 		Self(OnceLock::new())
 	}
 
-	pub fn init(&mut self, val: T) -> &mut T {
+	pub fn init_ref(&self, val: T) -> &T {
+		self.0.get_or_init(|| val);
+		self.0.get().expect("Just initialised OnceLock")
+	}
+
+	pub fn init_mut(&mut self, val: T) -> &mut T {
 		self.0.get_or_init(|| val);
 		self.0.get_mut().expect("Just initialised OnceLock")
 	}
@@ -51,7 +56,7 @@ mod tests {
 	#[test]
 	fn no_panic_once_init() {
 		let mut init = LateInit::<u8>::new();
-		init.init(5);
+		init.init_mut(5);
 		assert_eq!(*init, 5);
 	}
 }
