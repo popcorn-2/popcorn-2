@@ -33,7 +33,7 @@ struct BitmapAllocator {
 
 impl BitmapAllocator {
     fn last_frame(&self) -> Frame {
-        self.first_frame + (self.bitmap.len() / mem::size_of::<usize>())
+        self.first_frame + (self.bitmap.len() * mem::size_of::<usize>())
     }
 
     fn set_frame(&mut self, frame: Frame, state: FrameState) -> Result<(), OutOfRangeError> {
