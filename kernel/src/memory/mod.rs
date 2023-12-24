@@ -13,7 +13,7 @@ use core::ops::{Deref, DerefMut};
 use kernel_api::sync::{RwLock, RwReadGuard, RwUpgradableReadGuard, RwWriteGuard};
 //pub use kernel_exports::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 
-use kernel_api::memory::{Frame, PhysicalAddress, allocator::{BackingAllocator, AllocError, GlobalAllocator}};
+use kernel_api::memory::{Frame, PhysicalAddress, AllocError, allocator::{BackingAllocator, GlobalAllocator}};
 
 /*
 pub mod alloc {

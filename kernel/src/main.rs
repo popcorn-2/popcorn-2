@@ -265,7 +265,7 @@ mod allocator {
 	use core::ptr;
 	use core::ptr::NonNull;
 	use log::{debug, trace};
-	use kernel_api::memory::heap::{AllocError, Heap};
+	use kernel_api::memory::{AllocError, heap::Heap};
 
 	struct HookAllocator;
 

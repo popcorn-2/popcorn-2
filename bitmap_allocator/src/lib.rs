@@ -12,8 +12,8 @@ use alloc::vec::Vec;
 use core::mem;
 use core::num::NonZeroUsize;
 use core::ops::Range;
-use kernel_api::memory::{Frame, PhysicalAddress};
-use kernel_api::memory::allocator::{AllocationMeta, AllocError, BackingAllocator, Config};
+use kernel_api::memory::{Frame, PhysicalAddress, AllocError};
+use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config};
 use kernel_api::sync::Mutex;
 
 #[derive(Debug, Eq, PartialEq)]

@@ -2,8 +2,8 @@ use alloc::sync::Arc;
 use core::num::NonZeroUsize;
 use core::ops::Range;
 use log::trace;
-use kernel_api::memory::allocator::{AllocError, BackingAllocator, Config};
-use kernel_api::memory::{Frame, PhysicalAddress};
+use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config};
+use kernel_api::memory::{Frame, PhysicalAddress, AllocError};
 use kernel_api::sync::Mutex;
 
 /*mod negative_slice {

@@ -6,11 +6,9 @@ use core::alloc::Layout;
 use core::cmp::min;
 use core::ptr;
 use core::ptr::NonNull;
+use super::AllocError;
 
 use crate::memory::VirtualAddress;
-
-/// Error returned when a heap allocation was unsuccessful
-pub struct AllocError;
 
 /// A heap manager
 pub trait Heap {

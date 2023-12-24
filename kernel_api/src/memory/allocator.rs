@@ -12,8 +12,7 @@ use super::PAGE_SIZE;
 
 /// The error returned when an allocation was unsuccessful
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct AllocError;
+pub type AllocError = super::AllocError;
 
 /// The error returned when an allocation requesting zeroed out memory was unsuccessful
 #[unstable(feature = "kernel_allocation_zeroing", issue = "2")]
@@ -101,7 +100,7 @@ pub unsafe trait BackingAllocator: Send + Sync {
         let frames = self.try_allocate_zeroed(frame_count);
         match frames {
             Ok(frame) => Ok(frame),
-            Err(ZeroAllocError::AllocError) => Err(AllocError),
+            Err(ZeroAllocError::AllocError) => Err(crate::memory::AllocError),
             Err(ZeroAllocError::Uninit(frame)) => {
                 do_zero(frame, frame_count);
                 Ok(frame)

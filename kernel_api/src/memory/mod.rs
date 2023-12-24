@@ -7,6 +7,10 @@ pub mod heap;
 mod type_ops;
 pub mod r#virtual;
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
+pub struct AllocError;
+
 const PAGE_SIZE: usize = 4096;
 const PAGE_MAP_OFFSET: usize = 0xffff_8000_0000_0000;
 
