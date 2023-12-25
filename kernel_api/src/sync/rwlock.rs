@@ -186,7 +186,7 @@ unsafe impl lock_api::RawRwLockUpgradeDowngrade for RwCount {
 
     unsafe fn downgrade_to_upgradable(&self) {
         if cfg!(debug_assertions) {
-            self.0.compare_exchange(Self::WRITE_BIT_MASK, 1, Ordering::SeqCst, Ordering::Relaxed)
+            self.0.compare_exchange(Self::WRITE_BIT_MASK, Self::UPGRADEABLE_BIT_MASK, Ordering::SeqCst, Ordering::Relaxed)
                 .expect("BUG: RwLock writer downgraded while readers were active");
         } else {
             // No existing readers should exist therefore can unconditionally set upgradable bit

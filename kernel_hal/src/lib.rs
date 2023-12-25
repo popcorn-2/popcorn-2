@@ -6,6 +6,7 @@
 #![feature(offset_of)]
 #![feature(asm_const)]
 #![feature(const_mut_refs)]
+#![feature(min_specialization)]
 
 #![feature(kernel_sync_once)]
 #![feature(kernel_physical_page_offset)]

@@ -18,6 +18,24 @@ pub fn highmem() -> impl Deref<Target = GlobalAllocator> {
 	)
 }
 
+pub fn set_highmem(allocator: Arc<dyn BackingAllocator>) {
+	let mut write_lock = GLOBAL_HIGHMEM.write();
+	write_lock.replace(GlobalAllocator::Arc(allocator));
+}
+
+#[inline]
+pub fn dmamem() -> impl Deref<Target = GlobalAllocator> {
+	RwReadGuard::map(
+		GLOBAL_DMA.read(),
+		|inner| inner.as_ref().expect("No dmamem allocator")
+	)
+}
+
+pub fn set_dmamem(allocator: Arc<dyn BackingAllocator>) {
+	let mut write_lock = GLOBAL_DMA.write();
+	write_lock.replace(GlobalAllocator::Arc(allocator));
+}
+
 pub fn with_highmem_as<'a, R>(allocator: &'a dyn BackingAllocator, f: impl FnOnce() -> R) -> R {
 	// FIXME: huge issue in that all allocations get lost therefore only safe to use for bootstrap
 	// FIXME(soundness): is this sound?

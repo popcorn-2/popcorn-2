@@ -12,9 +12,10 @@ use alloc::vec::Vec;
 use core::mem;
 use core::num::NonZeroUsize;
 use core::ops::Range;
-use kernel_api::memory::{Frame, PhysicalAddress};
-use kernel_api::memory::allocator::{AllocationMeta, AllocError, BackingAllocator, Config};
+use kernel_api::memory::{Frame, PhysicalAddress, AllocError};
+use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config};
 use kernel_api::sync::Mutex;
+use log::info;
 
 #[derive(Debug, Eq, PartialEq)]
 enum FrameState {
@@ -32,7 +33,7 @@ struct BitmapAllocator {
 
 impl BitmapAllocator {
     fn last_frame(&self) -> Frame {
-        self.first_frame + (self.bitmap.len() / mem::size_of::<usize>())
+        self.first_frame + (self.bitmap.len() * mem::size_of::<usize>())
     }
 
     fn set_frame(&mut self, frame: Frame, state: FrameState) -> Result<(), OutOfRangeError> {
@@ -80,7 +81,10 @@ pub struct Wrapped(Mutex<BitmapAllocator>);
 
 unsafe impl BackingAllocator for Wrapped {
     fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
-        if frame_count != 1 { return Err(AllocError); }
+        if frame_count != 1 {
+            info!("BitmapAllocator cannot allocate >1 frame");
+            return Err(AllocError);
+        }
 
         let mut guard = self.0.lock();
 
@@ -124,12 +128,11 @@ unsafe impl BackingAllocator for Wrapped {
         }
     }
 
-    fn drain_into(&mut self, into: &mut dyn BackingAllocator) {
-        let allocator = self.0.get_mut();
+    fn drain_into(self, into: &mut dyn BackingAllocator) {
+        let allocator = self.0.into_inner();
 
         for frame in allocator.first_frame..allocator.last_frame() {
             if allocator.get_frame(frame).unwrap() == FrameState::Allocated {
-                let _ = allocator.set_frame(frame, FrameState::Free);
                 into.push(AllocationMeta { region: frame .. frame+1 });
             }
         }

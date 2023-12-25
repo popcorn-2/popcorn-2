@@ -11,7 +11,7 @@ mod idt;
 mod serial;
 mod port;
 mod qemu;
-mod paging;
+pub(crate) mod paging;
 
 #[derive(Hal)]
 struct Amd64Hal;

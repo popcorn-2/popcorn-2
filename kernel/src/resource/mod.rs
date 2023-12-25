@@ -1,6 +1,5 @@
 use crate::resource::arc_frames::OwnedFrames;
 
-pub mod watermark_allocator;
 //pub mod background_zeroer;
 
 pub trait FrameAllocator {

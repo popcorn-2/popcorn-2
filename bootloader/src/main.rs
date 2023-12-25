@@ -763,7 +763,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         address_range.start + STACK_PAGE_COUNT*4096
     };
 
-    let symbol_map = symbol_map.map(|m| NonNull::from(&mut *m.into_boxed_slice()));
+    let symbol_map = symbol_map.map(|m| Box::leak(m.into_boxed_slice()));
 
     info!("new stack top at {:#x}", stack_top.addr);
 
@@ -798,8 +798,11 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             mem.ty == MemoryType::ACPI_RECLAIM ||
             mem.ty == memory_types::KERNEL_STACK ||
             mem.ty == MemoryType::RUNTIME_SERVICES_CODE ||
-            mem.ty == MemoryType::RUNTIME_SERVICES_DATA
+            mem.ty == MemoryType::RUNTIME_SERVICES_DATA ||
+            mem.ty == MemoryType::CONVENTIONAL
     ) {
+        debug!("[page map] {:x?} ({:#x} -> {:#x}) -> {:#x}", mem.ty, mem.phys_start, mem.phys_start + mem.page_count * 4096, mem.phys_start + PAGE_MAP_OFFSET);
+
         // UEFI memory sections are always aligned by firmware
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
             let virt_addr = addr + PAGE_MAP_OFFSET;
@@ -900,7 +903,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         },
         log: handoff::Logging {
-            symbol_map
+            symbol_map: symbol_map.map(NonNull::from)
         },
         test: handoff::Testing {
             module_func: unsafe { mem::transmute(1usize) }

@@ -12,8 +12,7 @@ use super::PAGE_SIZE;
 
 /// The error returned when an allocation was unsuccessful
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct AllocError;
+pub type AllocError = super::AllocError;
 
 /// The error returned when an allocation requesting zeroed out memory was unsuccessful
 #[unstable(feature = "kernel_allocation_zeroing", issue = "2")]
@@ -101,7 +100,7 @@ pub unsafe trait BackingAllocator: Send + Sync {
         let frames = self.try_allocate_zeroed(frame_count);
         match frames {
             Ok(frame) => Ok(frame),
-            Err(ZeroAllocError::AllocError) => Err(AllocError),
+            Err(ZeroAllocError::AllocError) => Err(crate::memory::AllocError),
             Err(ZeroAllocError::Uninit(frame)) => {
                 do_zero(frame, frame_count);
                 Ok(frame)
@@ -121,7 +120,7 @@ pub unsafe trait BackingAllocator: Send + Sync {
     fn push(&mut self, allocation: AllocationMeta) { unimplemented!("experimental") }
 
     #[unstable(feature = "kernel_allocation_new", issue = "5")]
-    fn drain_into(&mut self, into: &mut dyn BackingAllocator) { unimplemented!("experimental") }
+    fn drain_into(self, into: &mut dyn BackingAllocator) where Self: Sized { unimplemented!("experimental") }
 
     /// Allocate a continuous range of `count` frames, aligned to 2^`alignment_log2` frames
     ///

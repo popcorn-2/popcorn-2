@@ -28,6 +28,7 @@
 #![feature(kernel_sync_once)]
 #![feature(kernel_physical_page_offset)]
 #![feature(kernel_memory_addr_access)]
+#![feature(kernel_virtual_memory)]
 
 #![no_std]
 #![no_main]
@@ -56,7 +57,6 @@ pub use kernel_hal::{sprint, sprintln};
 mod sync;
 mod memory;
 mod panicking;
-mod resource;
 mod logging;
 
 #[cfg(test)]
@@ -92,7 +92,7 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
             Frame::new(entry.start().align_up())..Frame::new(entry.end().align_down())
         });
 
-		let mut watermark_allocator = resource::watermark_allocator::WatermarkAllocator::new(&mut spaces);
+		let mut watermark_allocator = memory::watermark_allocator::WatermarkAllocator::new(&mut spaces);
 		memory::physical::with_highmem_as(&mut watermark_allocator, || test_main());
 
 		unreachable!("test harness returned")
@@ -102,15 +102,22 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::Config;
 use utils::handoff::MemoryType;
-use crate::resource::watermark_allocator::WatermarkAllocator;
+use crate::memory::watermark_allocator::WatermarkAllocator;
 
 fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 	let _ = logging::init();
 
-	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| ptr.as_ref()) };
+	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| &*ptr.as_ptr().byte_add(0xffff_8000_0000_0000)) };
 	*panicking::SYMBOL_MAP.write() = map;
 
 	trace!("Handoff data:\n{handoff_data:x?}");
+
+	unsafe {
+		use memory::paging::{PageTable, init_page_table};
+
+		let table = PageTable::new_unchecked(handoff_data.memory.page_table_root);
+		init_page_table(table);
+	}
 
 	CurrentHal::early_init();
 	CurrentHal::init_idt();
@@ -159,9 +166,8 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 			});
 
 		let mut spaces2 = spaces.clone();
-		let mut watermark_allocator = WatermarkAllocator::new(&mut spaces2);
+		let watermark_allocator = WatermarkAllocator::new(&mut spaces2);
 		let mut new_alloc = memory::physical::with_highmem_as(&watermark_allocator, || {
-			// TODO: initialise heap
 			<bitmap_allocator::Wrapped as BackingAllocator>::new(
 				Config {
 					allocation_range: Frame::new(PhysicalAddress::new(0))..Frame::new(max_usable_memory.align_down()),
@@ -172,36 +178,10 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 		let allocator = Arc::get_mut(&mut new_alloc).expect("No other references to allocator should exist yet");
 		watermark_allocator.drain_into(allocator);
-
-		let allocator = memory::physical::highmem();
+		memory::physical::set_highmem(new_alloc.clone());
+		memory::physical::set_dmamem(new_alloc);
 	}
 
-/*
-	{
-		let wmark = WatermarkAllocator::new(&handoff_data.memory.map);
-		// SAFETY: We `take()` the allocator at the end of this block, so the allocator is "static" for the time in between
-		let static_wmark = unsafe { mem::transmute::<&dyn Allocator, &'static dyn Allocator>(&wmark) };
-		memory::alloc::phys::GLOBAL_HIGH_MEM_ALLOCATOR.set(static_wmark);
-
-		sprintln!("{:#x?}", memory::paging3::CURRENT_PAGE_TABLE.lock().unwrap().debug_mappings());
-		let mut baz = memory::paging3::InactiveTable::new().unwrap();
-		memory::paging3::CURRENT_PAGE_TABLE.lock().unwrap().modify_with(&mut baz, |m| {
-			sprintln!("{:#x?}", m.debug_mappings());
-			sprintln!("{:#x?}", m.debug_table());
-		});
-		sprintln!("{:#x?}", memory::paging3::CURRENT_PAGE_TABLE.lock().unwrap().debug_mappings());
-
-		memory::alloc::phys::GLOBAL_HIGH_MEM_ALLOCATOR.take();
-	}
-
-	let split_allocators = false; // todo
-	/*unsafe {
-		// SAFETY: unset a few lines below
-		memory::alloc::phys::GLOBAL_ALLOCATOR.set_unchecked(&mut wmark);
-	}
-	let thingy = (handoff_data.modules.phys_allocator_start)(Range(Frame::new(PhysicalAddress(0)), Frame::new(PhysicalAddress(0x10000))));
-	memory::alloc::phys::GLOBAL_ALLOCATOR.unset();*/
-*/
 	if let Some(ref fb) = handoff_data.framebuffer {
 		let size = fb.stride * fb.height;
 		for pixel in unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.cast::<u32>(), size) } {
@@ -264,7 +244,7 @@ mod allocator {
 	use core::ptr;
 	use core::ptr::NonNull;
 	use log::{debug, trace};
-	use kernel_api::memory::heap::{AllocError, Heap};
+	use kernel_api::memory::{AllocError, heap::Heap};
 
 	struct HookAllocator;
 

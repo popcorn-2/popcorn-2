@@ -33,11 +33,12 @@ impl Level for Lower {
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 #[repr(transparent)]
-pub struct Amd64Entry(u64);
+pub struct Amd64Entry(pub u64);
 
 bitflags! {
 		impl Amd64Entry: u64 {
 			const PRESENT = 1<<0;
+			const WRITABLE = 1<<1;
 			const ADDRESS = 0x0fff_ffff_ffff_f000;
 		}
 	}
@@ -61,7 +62,7 @@ impl Entry for Amd64Entry {
 
 		let empty_entry = self.0 & !Self::ADDRESS.0;
 		let masked_addr = u64::try_from(frame.start().addr).unwrap() & Self::ADDRESS.0;
-		self.0 = empty_entry | masked_addr | Self::PRESENT.0;
+		self.0 = empty_entry | masked_addr | Self::PRESENT.0 | Self::WRITABLE.0;
 
 		Ok(())
 	}

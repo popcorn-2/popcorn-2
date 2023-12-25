@@ -54,6 +54,12 @@ pub fn main() {
 		out_dir.join("popcorn2.iso")
 	};
 
+	let mut kernel_map = {
+		let kernel_map_path = std::env::var("CARGO_FILE_MAP").ok();
+		let f = kernel_map_path.and_then(|p| File::open(p).ok());
+		f.map(BufReader::new)
+	};
+
 	let mut disk_image = File::options()
 			.create(true)
 			.read(true)
@@ -78,7 +84,7 @@ pub fn main() {
 
 		match partition.part_type {
 			PartitionType::Efi => init_efi_partition(fs, &mut bootloader, &mut popfs_driver),
-			PartitionType::System => init_system_partition(fs, &mut kernel),
+			PartitionType::System => init_system_partition(fs, &mut kernel, kernel_map.as_mut()),
 			_ => {}
 		}
 	}
@@ -111,12 +117,18 @@ fn init_efi_partition(fs: FileSystem<impl ReadWriteSeek>, mut bootloader_data: i
 	io::copy(&mut popfs_data, &mut popfs).unwrap();
 }
 
-fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: impl Read) {
+fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: impl Read, mut map_data: Option<impl Read>) {
 	let root_dir = fs.root_dir();
 	root_dir.create_dir("kernel").unwrap();
 	let mut kernel = root_dir.create_file("kernel/kernel.exec").unwrap();
 	kernel.truncate().unwrap();
 	io::copy(&mut kernel_data, &mut kernel).unwrap();
+
+	if let Some(mut map_data) = map_data {
+		let mut map = root_dir.create_file("kernel/kernel.map").unwrap();
+		map.truncate().unwrap();
+		io::copy(&mut map_data, &mut map).unwrap();
+	}
 }
 
 fn create_fat_partition<T: Read + Write + Seek + Debug>(mut disk: T, size: u64, name: &str, part_type: Type) -> FileSystem<impl ReadWriteSeek> {

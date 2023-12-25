@@ -174,19 +174,19 @@ type FORMATTER = junit::JUnit;
 type FORMATTER = pretty::Pretty;
 
 #[cfg_attr(test, global_allocator)]
-static ALLOCATOR: Foo = Foo(Mutex::new(FooInner {
+static ALLOCATOR: ExceptionAllocator = ExceptionAllocator(Mutex::new(ExceptionAllocatorInner {
 	buffer: [0; 20],
 	used: false,
 }));
 
-struct Foo(Mutex<FooInner>);
+struct ExceptionAllocator(Mutex<ExceptionAllocatorInner>);
 
-struct FooInner {
+struct ExceptionAllocatorInner {
 	buffer: [u64; 20],
 	used: bool
 }
 
-unsafe impl GlobalAlloc for Foo {
+unsafe impl GlobalAlloc for ExceptionAllocator {
 	unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
 		let mut this = self.0.lock();
 		if this.used || layout.size() > (this.buffer.len() * 8) || layout.align() > 8 { core::ptr::null_mut() }
