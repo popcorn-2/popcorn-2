@@ -11,8 +11,8 @@ static HEAP_END: AtomicUsize = AtomicUsize::new(0x10000);
 
 #[no_mangle]
 pub fn __popcorn_adjust_heap(offset: isize) -> (VirtualAddress, isize) {
-    let mut page_count = offset.div_ceil(4096);
-    let offset = page_count * 4096;
+    let page_count = offset.div_ceil(4096);
+    let mut offset = page_count * 4096;
 
     let old = match offset {
         0 => HEAP_END.load(Ordering::Relaxed),
@@ -34,8 +34,8 @@ pub fn __popcorn_adjust_heap(offset: isize) -> (VirtualAddress, isize) {
                 &*highmem_lock
             ).expect("Unable to map heap pages")
         }
-    } else { page_count = 0; }
+    } else { offset = 0; }
     // todo: shrink heap when
 
-    (old.align_down(), page_count*4096)
+    (old.align_down(), offset)
 }
