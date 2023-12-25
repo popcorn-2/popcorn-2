@@ -1,94 +1,37 @@
+#![feature(map_try_insert)]
 #![no_std]
 
 extern crate alloc;
 use alloc::collections::BTreeMap;
 use core::cmp::Ordering;
-use core::ops;
+use core::ops::Range;
 
-pub struct RangedBTreeMap<K, V> where K: Ord {
+pub struct RangedBTreeMap<K, V> {
     inner: BTreeMap<KeyType<K>, V>
 }
 
-impl<K, V> RangedBTreeMap<K, V> where K: Ord {
+impl<K, V> RangedBTreeMap<K, V> {
     pub fn new() -> Self {
         Self {
             inner: BTreeMap::new()
         }
     }
+}
 
-    fn insert(&mut self, range: impl Into<Range<K>>, value: V) {
-        self.inner.insert(KeyType::Range(range.into()), value);
+impl<K, V> RangedBTreeMap<K, V> where K: Ord {
+    fn insert(&mut self, range: Range<K>, value: V) -> Result<(), ()> {
+        let res = self.inner.try_insert(KeyType::Range(range), value);
+        res.map(|_| ()).map_err(|_| ())
     }
 
-    fn get_entry_at_point(&self, point: K) -> &V {
-        self.inner.get(&KeyType::Point(point));
-        todo!()
+    fn get_entry_at_point(&self, point: K) -> Option<&V> {
+        self.inner.get(&KeyType::Point(point))
     }
 }
 
-enum KeyType<T> where T: Ord {
+enum KeyType<T> {
     Range(Range<T>),
     Point(T)
-}
-
-enum Bound<T> {
-    Inclusive(T),
-    Exclusive(T),
-    Unbounded
-}
-
-struct Range<T>  {
-    start: Bound<T>,
-    end: Bound<T>
-}
-
-impl<T> Range<T> where T: Ord {
-    fn compare_point(&self, rhs: &T) -> Ordering {
-        let above_start = match &self.start {
-            Bound::Inclusive(v) => rhs >= v,
-            Bound::Exclusive(v) => rhs > v,
-            Bound::Unbounded => true
-        };
-
-        let below_end = match &self.end {
-            Bound::Inclusive(v) => rhs <= v,
-            Bound::Exclusive(v) => rhs < v,
-            Bound::Unbounded => true
-        };
-
-        match (above_start, below_end) {
-            (true, true) => Ordering::Equal,
-            (false, _) => Ordering::Less,
-            (_, false) => Ordering::Greater
-        }
-    }
-}
-
-impl<T> From<ops::Range<T>> for Range<T> {
-    fn from(value: ops::Range<T>) -> Self {
-        Self {
-            start: Bound::Inclusive(value.start),
-            end: Bound::Exclusive(value.end)
-        }
-    }
-}
-
-impl<T> From<ops::RangeFrom<T>> for Range<T> {
-    fn from(value: ops::RangeFrom<T>) -> Self {
-        Self {
-            start: Bound::Inclusive(value.start),
-            end: Bound::Unbounded
-        }
-    }
-}
-
-impl<T> From<ops::RangeTo<T>> for Range<T> {
-    fn from(value: ops::RangeTo<T>) -> Self {
-        Self {
-            start: Bound::Unbounded,
-            end: Bound::Exclusive(value.end)
-        }
-    }
 }
 
 impl<T> PartialEq for KeyType<T> where T: Ord {
@@ -107,12 +50,18 @@ impl<T> Eq for KeyType<T> where T: Ord {}
 
 impl<T> Ord for KeyType<T> where T: Ord {
     fn cmp(&self, other: &Self) -> Ordering {
-        assert_ne!(core::mem::discriminant(self), core::mem::discriminant(other));
-        match self {
-            KeyType::Range(_) => other.cmp(self),
-            KeyType::Point(val) => {
-                let KeyType::Range(cmp_range) = other else { unreachable!() };
-                cmp_range.compare_point(val)
+        match (self, other) {
+            (KeyType::Point(a), KeyType::Point(b)) => a.cmp(b),
+            (KeyType::Point(a), KeyType::Range(b)) => {
+                if b.start > *a { Ordering::Less }
+                else if b.end <= *a { Ordering::Greater }
+                else { Ordering::Equal }
+            },
+            (KeyType::Range(_), KeyType::Point(_)) => other.cmp(self).reverse(),
+            (KeyType::Range(a), KeyType::Range(b)) => {
+                if a.start >= b.end { Ordering::Greater }
+                else if a.end <= b.start { Ordering::Less }
+                else { Ordering::Equal }
             }
         }
     }
@@ -125,9 +74,26 @@ mod tests {
     #[test]
     fn add_and_retrieve() {
         let mut b = RangedBTreeMap::new();
-        b.insert(0u8..5, "foo");
-        b.insert(5u8.., "bar");
-        assert_eq!(*b.get_entry_at_point(3), "foo");
-        assert_eq!(*b.get_entry_at_point(58), "bar");
+        b.insert(0u8..5, "foo").unwrap();
+        b.insert(5u8..u8::MAX, "bar").unwrap();
+        assert_eq!(*b.get_entry_at_point(3).unwrap(), "foo");
+        assert_eq!(*b.get_entry_at_point(5).unwrap(), "bar");
+        assert_eq!(*b.get_entry_at_point(58).unwrap(), "bar");
+    }
+
+    #[test]
+    fn cannot_insert_overlapping_range() {
+        let mut b = RangedBTreeMap::new();
+        b.insert(0u8..5, "foo").unwrap();
+        b.insert(3u8..u8::MAX, "bar").unwrap_err();
+    }
+
+    #[test]
+    fn cannot_retrieve_outside_range() {
+        let mut b = RangedBTreeMap::new();
+        b.insert(6u8..34, "foo").unwrap();
+        assert_eq!(b.get_entry_at_point(3), None);
+        assert_eq!(b.get_entry_at_point(34), None);
+        assert_eq!(b.get_entry_at_point(u8::MAX), None);
     }
 }
