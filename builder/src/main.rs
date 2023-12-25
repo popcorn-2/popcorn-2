@@ -102,15 +102,7 @@ fn init_efi_partition(fs: FileSystem<impl ReadWriteSeek>, mut bootloader_data: i
 
 	root_dir.create_dir("efi/popcorn").unwrap();
 	let mut conf = root_dir.create_file("efi/popcorn/config.toml").unwrap();
-	let data = r#"
-        [fonts]
-        default = ""
-
-        [kernel]
-        root_disk = "8A6CC16C-D110-46F1-813F-0382046342C8"
-        image = "foo"
-        modules = []
-    "#;
+	let data = "";
 	conf.write(data.as_bytes()).unwrap();
 
 	let mut popfs = root_dir.create_file("efi/popcorn/popfs.efi").unwrap();
