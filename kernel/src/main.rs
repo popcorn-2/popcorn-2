@@ -57,7 +57,6 @@ pub use kernel_hal::{sprint, sprintln};
 mod sync;
 mod memory;
 mod panicking;
-mod resource;
 mod logging;
 
 #[cfg(test)]
@@ -93,7 +92,7 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
             Frame::new(entry.start().align_up())..Frame::new(entry.end().align_down())
         });
 
-		let mut watermark_allocator = resource::watermark_allocator::WatermarkAllocator::new(&mut spaces);
+		let mut watermark_allocator = memory::watermark_allocator::WatermarkAllocator::new(&mut spaces);
 		memory::physical::with_highmem_as(&mut watermark_allocator, || test_main());
 
 		unreachable!("test harness returned")
@@ -103,7 +102,7 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::Config;
 use utils::handoff::MemoryType;
-use crate::resource::watermark_allocator::WatermarkAllocator;
+use crate::memory::watermark_allocator::WatermarkAllocator;
 
 fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 	let _ = logging::init();
