@@ -28,6 +28,7 @@
 #![feature(kernel_sync_once)]
 #![feature(kernel_physical_page_offset)]
 #![feature(kernel_memory_addr_access)]
+#![feature(noop_waker)]
 #![feature(kernel_virtual_memory)]
 #![feature(kernel_internals)]
 #![feature(strict_provenance_atomic_ptr)]
@@ -53,6 +54,8 @@ use core::panic::PanicInfo;
 use core::ptr::slice_from_raw_parts_mut;
 use log::{debug, info, trace};
 use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
+use core::future;
+use core::task::Poll;
 use kernel_api::memory::{allocator::BackingAllocator};
 use kernel_hal::{CurrentHal, Hal};
 
@@ -63,6 +66,7 @@ mod memory;
 mod panicking;
 mod logging;
 mod bridge;
+mod task;
 
 #[cfg(test)]
 pub mod test_harness;
@@ -108,6 +112,7 @@ use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
 use utils::handoff::MemoryType;
 use crate::memory::watermark_allocator::WatermarkAllocator;
+use crate::task::executor::Executor;
 
 fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 	let _ = logging::init();
@@ -220,6 +225,27 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 			*pixel = 0xeeeeee;
 		}
 	}
+
+	let mut executor = Executor::new();
+
+	executor.spawn(|| async {
+		sprintln!("inside async fn, about to wait");
+
+		let mut x = 0;
+		let waiter = future::poll_fn(|_| {
+			if x < 5 { x += 1; Poll::Pending }
+			else { Poll::Ready(()) }
+		});
+		waiter.await;
+
+		sprintln!("async fn back");
+	});
+
+	executor.spawn(|| async {
+		sprintln!("Inside other async fn");
+	});
+
+	executor.run();
 
 	loop {}
 }
