@@ -169,7 +169,6 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 		let mut spaces2 = spaces.clone();
 		let watermark_allocator = WatermarkAllocator::new(&mut spaces2);
 		let mut new_alloc = memory::physical::with_highmem_as(&watermark_allocator, || {
-			// TODO: initialise heap
 			<bitmap_allocator::Wrapped as BackingAllocator>::new(
 				Config {
 					allocation_range: Frame::new(PhysicalAddress::new(0))..Frame::new(max_usable_memory.align_down()),
