@@ -183,32 +183,6 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 		memory::physical::set_dmamem(new_alloc);
 	}
 
-/*
-	{
-		let wmark = WatermarkAllocator::new(&handoff_data.memory.map);
-		// SAFETY: We `take()` the allocator at the end of this block, so the allocator is "static" for the time in between
-		let static_wmark = unsafe { mem::transmute::<&dyn Allocator, &'static dyn Allocator>(&wmark) };
-		memory::alloc::phys::GLOBAL_HIGH_MEM_ALLOCATOR.set(static_wmark);
-
-		sprintln!("{:#x?}", memory::paging3::CURRENT_PAGE_TABLE.lock().unwrap().debug_mappings());
-		let mut baz = memory::paging3::InactiveTable::new().unwrap();
-		memory::paging3::CURRENT_PAGE_TABLE.lock().unwrap().modify_with(&mut baz, |m| {
-			sprintln!("{:#x?}", m.debug_mappings());
-			sprintln!("{:#x?}", m.debug_table());
-		});
-		sprintln!("{:#x?}", memory::paging3::CURRENT_PAGE_TABLE.lock().unwrap().debug_mappings());
-
-		memory::alloc::phys::GLOBAL_HIGH_MEM_ALLOCATOR.take();
-	}
-
-	let split_allocators = false; // todo
-	/*unsafe {
-		// SAFETY: unset a few lines below
-		memory::alloc::phys::GLOBAL_ALLOCATOR.set_unchecked(&mut wmark);
-	}
-	let thingy = (handoff_data.modules.phys_allocator_start)(Range(Frame::new(PhysicalAddress(0)), Frame::new(PhysicalAddress(0x10000))));
-	memory::alloc::phys::GLOBAL_ALLOCATOR.unset();*/
-*/
 	if let Some(ref fb) = handoff_data.framebuffer {
 		let size = fb.stride * fb.height;
 		for pixel in unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.cast::<u32>(), size) } {
