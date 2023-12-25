@@ -6,6 +6,7 @@ use crate::memory::paging::current_page_table;
 use crate::memory::physical::highmem;
 
 // TODO: replace with AtomicPtr or AtomicVirtualAddress
+// FIXME: this needs to move out of userspace
 static HEAP_END: AtomicUsize = AtomicUsize::new(0x10000);
 
 #[no_mangle]
