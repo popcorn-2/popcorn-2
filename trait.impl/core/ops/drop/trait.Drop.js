@@ -1,0 +1,3 @@
+(function() {var implementors = {
+"kernel_api":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"kernel_api/memory/mapping/struct.Mapping.html\" title=\"struct kernel_api::memory::mapping::Mapping\">Mapping</a>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

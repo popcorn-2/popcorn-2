@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AlignedAllocError","ZeroAllocError"],"struct":["AllocationMeta","Config"],"trait":["BackingAllocator"],"type":["AllocError"]};

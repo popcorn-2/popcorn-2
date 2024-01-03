@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["adjust_heap"],"trait":["Heap"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["allocator","heap","mapping","virtual"],"struct":["AllocError","Frame","Page","PhysicalAddress","VirtualAddress"]};
