@@ -29,6 +29,7 @@
 #![feature(kernel_physical_page_offset)]
 #![feature(kernel_memory_addr_access)]
 #![feature(kernel_virtual_memory)]
+#![feature(kernel_internals)]
 
 #![no_std]
 #![no_main]
