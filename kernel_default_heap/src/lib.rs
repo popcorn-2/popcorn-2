@@ -3,6 +3,8 @@
 #![feature(kernel_heap)]
 #![feature(kernel_address_alignment_runtime)]
 #![feature(kernel_sync_once)]
+#![feature(kernel_mmap)]
+#![feature(int_roundings)]
 
 use core::alloc::Layout;
 use core::fmt::{Debug};
@@ -12,6 +14,7 @@ use kernel_api::memory::heap::{adjust_heap, Heap};
 use kernel_api::memory::{Page, VirtualAddress, AllocError};
 use kernel_api::sync::{LazyLock, Mutex};
 use log::debug;
+use kernel_api::memory::mapping::Mapping;
 
 //const _: () = {
     static KERNEL_HEAP: LazyLock<SyncHeap> = LazyLock::new(SyncHeap::new);
@@ -33,16 +36,16 @@ struct SyncHeap(Mutex<BadHeap>);
 #[derive(Debug)]
 struct BadHeap {
     watermark: VirtualAddress,
-    max_address: VirtualAddress
+    mapping: Mapping
 }
 
 impl Heap for SyncHeap {
     fn new() -> Self where Self: Sized {
-        let (watermark, _) = adjust_heap(0);
+        let mapping = Mapping::new(0).unwrap();
 
         Self(Mutex::new(BadHeap {
-            watermark,
-            max_address: watermark
+            watermark: mapping.end().start().align_down(),
+            mapping
         }))
     }
 
@@ -53,11 +56,14 @@ impl Heap for SyncHeap {
         let start = guard.watermark.align_up_runtime(layout.align());
         let end = start + layout.size();
 
-        if end > guard.max_address {
-            let increment = isize::try_from(end - guard.max_address).map_err(|_| AllocError)?;
-            let (_, increment) = adjust_heap(increment);
-
-            guard.max_address = guard.max_address + increment.unsigned_abs();
+        let max_addr = guard.mapping.end().start();
+        if end > max_addr {
+            debug!("Increment heap end");
+            let increment = isize::try_from(end - max_addr).map_err(|_| AllocError)?;
+            let increment = increment.div_ceil(4096);
+            let new_len = guard.mapping.len() + increment.unsigned_abs();
+            debug!("Trying to remap");
+            guard.mapping.remap_in_place(new_len)?;
         }
 
         guard.watermark = end;
