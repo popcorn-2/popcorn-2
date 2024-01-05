@@ -6,6 +6,8 @@ pub mod allocator;
 pub mod heap;
 mod type_ops;
 pub mod r#virtual;
+#[cfg(not(feature = "use_std"))]
+pub mod mapping;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
