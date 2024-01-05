@@ -34,6 +34,7 @@ jobs:
       - name: Build docs
         run: |
           cargo rustdoc -p kernel_api
+          echo "" > target/doc/index.html
       - name: Setup Pages
         uses: actions/configure-pages@v4
       - name: Upload artifact
