@@ -13,7 +13,7 @@ use core::mem;
 use core::num::NonZeroUsize;
 use core::ops::Range;
 use kernel_api::memory::{Frame, PhysicalAddress, AllocError};
-use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config};
+use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, SizedBackingAllocator};
 use kernel_api::sync::Mutex;
 use log::info;
 
@@ -105,20 +105,6 @@ unsafe impl BackingAllocator for Wrapped {
         todo!()
     }
 
-    fn new(config: Config) -> Arc<dyn BackingAllocator> where Self: Sized {
-        let Range { start, end } = config.allocation_range;
-        let mut allocator = BitmapAllocator::new(start, end - start);
-
-        for free_region in config.regions {
-            for frame in free_region {
-                allocator.set_frame(frame, FrameState::Free)
-                    .unwrap();
-            }
-        }
-
-        Arc::new(Wrapped(Mutex::new(allocator)))
-    }
-
     fn push(&mut self, allocation: AllocationMeta) {
         let allocator = self.0.get_mut();
 
@@ -127,13 +113,29 @@ unsafe impl BackingAllocator for Wrapped {
                 .unwrap();
         }
     }
+}
+
+unsafe impl SizedBackingAllocator for Wrapped {
+    fn new(config: Config) -> Arc<dyn BackingAllocator> where Self: Sized {
+        let Range { start, end } = config.allocation_range;
+        let mut allocator = BitmapAllocator::new(start, end - start);
+
+        for free_region in config.regions {
+            for frame in free_region {
+                allocator.set_frame(frame, FrameState::Free)
+                         .unwrap();
+            }
+        }
+
+        Arc::new(Wrapped(Mutex::new(allocator)))
+    }
 
     fn drain_into(self, into: &mut dyn BackingAllocator) {
         let allocator = self.0.into_inner();
 
         for frame in allocator.first_frame..allocator.last_frame() {
             if allocator.get_frame(frame).unwrap() == FrameState::Allocated {
-                into.push(AllocationMeta { region: frame .. frame+1 });
+                into.push(AllocationMeta { region: frame..frame + 1 });
             }
         }
     }

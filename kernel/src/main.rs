@@ -100,7 +100,7 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 }
 
 use kernel_api::memory::{Frame};
-use kernel_api::memory::allocator::Config;
+use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
 use utils::handoff::MemoryType;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 
@@ -168,7 +168,7 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 		let mut spaces2 = spaces.clone();
 		let watermark_allocator = WatermarkAllocator::new(&mut spaces2);
 		let mut new_alloc = memory::physical::with_highmem_as(&watermark_allocator, || {
-			<bitmap_allocator::Wrapped as BackingAllocator>::new(
+			<bitmap_allocator::Wrapped as SizedBackingAllocator>::new(
 				Config {
 					allocation_range: Frame::new(PhysicalAddress::new(0))..Frame::new(max_usable_memory.align_down()),
 					regions: &mut spaces

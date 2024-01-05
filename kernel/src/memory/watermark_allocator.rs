@@ -1,7 +1,7 @@
 use core::num::NonZeroUsize;
 use core::ops::Range;
 use log::trace;
-use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator};
+use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, SizedBackingAllocator};
 use kernel_api::memory::{Frame, PhysicalAddress, AllocError};
 use kernel_api::sync::Mutex;
 
@@ -19,7 +19,7 @@ unsafe impl BackingAllocator for WatermarkAllocator<'_> {
 			None => Ok(Frame::new(PhysicalAddress::new(0))),
 			Some(count) => {
 				self.0.lock()
-					.allocate_contiguous(count, 0)
+				    .allocate_contiguous(count, 0)
 			}
 		}
 	}
@@ -27,7 +27,9 @@ unsafe impl BackingAllocator for WatermarkAllocator<'_> {
 	unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZeroUsize) {
 		trace!("WatermarkAllocator ignoring request to deallocate");
 	}
+}
 
+unsafe impl SizedBackingAllocator for WatermarkAllocator<'_> {
 	fn drain_into(mut self, into: &mut dyn BackingAllocator) where Self: Sized {
 		let inner = self.0.into_inner();
 		into.push(AllocationMeta {
