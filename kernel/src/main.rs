@@ -58,6 +58,7 @@ mod sync;
 mod memory;
 mod panicking;
 mod logging;
+mod bridge;
 
 #[cfg(test)]
 pub mod test_harness;

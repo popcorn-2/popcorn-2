@@ -2,10 +2,13 @@ use core::arch::asm;
 use core::convert::Into;
 use core::sync::atomic::{AtomicU8, Ordering};
 
+/// A mutual exclusion primitive useful for protecting shared data
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 pub type Mutex<T> = lock_api::Mutex<RawSpinlock, T>;
 #[unstable(feature = "kernel_spinlocks", issue = "none")]
 pub type Spinlock<T> = lock_api::Mutex<RawSpinlock, T>;
+
+/// An RAII implementation of a “scoped lock” of a mutex. When this structure is dropped (falls out of scope), the lock will be unlocked.
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 pub type MutexGuard<'a, T> = lock_api::MutexGuard<'a, RawSpinlock, T>;
 #[unstable(feature = "kernel_spinlocks", issue = "none")]
@@ -67,7 +70,7 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
     type GuardMarker = lock_api::GuardNoSend; // Interrupts are only disabled on the locking core so sending guard
 
     fn lock(&self) {
-        let irqs = disable_irq();
+        let irqs = unsafe { crate::bridge::hal::__popcorn_disable_irq() };
 
         while let Err(_) = self.state.compare_exchange_weak(
             State::Unlocked.into(),
@@ -80,7 +83,7 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
     }
 
     fn try_lock(&self) -> bool {
-        let irqs = disable_irq();
+        let irqs = unsafe { crate::bridge::hal::__popcorn_disable_irq() };
         let success = self.state.compare_exchange(
             State::Unlocked.into(),
             if irqs { State::LockedReenableIrq.into() } else { State::LockedNoIrq.into() },
@@ -88,7 +91,7 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
             Ordering::Relaxed
         ).is_ok();
 
-        if !success && irqs { enable_irq(); }
+        if !success && irqs { unsafe { crate::bridge::hal::__popcorn_enable_irq() } }
 
         success
     }
@@ -99,12 +102,13 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
 
         match old_state {
             State::Unlocked => unreachable!("Mutex was unlocked while unlocked"),
-            State::LockedReenableIrq => enable_irq(),
+            State::LockedReenableIrq => unsafe { crate::bridge::hal::__popcorn_enable_irq() },
             State::LockedNoIrq => {}
         }
     }
 }
 
+/*
 fn enable_irq() {
     #[cfg(target_arch = "x86_64")]
     unsafe { asm!("sti", options(preserves_flags, nomem)); }
@@ -144,4 +148,4 @@ fn disable_irq() -> bool {
     }
 
     disable()
-}
+}*/

@@ -10,6 +10,7 @@ use kernel_api::sync::{RwLock, RwReadGuard, RwUpgradableReadGuard, RwWriteGuard}
 static GLOBAL_HIGHMEM: RwLock<Option<GlobalAllocator>> = RwLock::new(None);
 static GLOBAL_DMA: RwLock<Option<GlobalAllocator>> = RwLock::new(None);
 
+#[export_name = "__popcorn_memory_physical_get_kernel_highmem"]
 #[inline]
 pub fn highmem() -> impl Deref<Target = GlobalAllocator> {
 	RwReadGuard::map(

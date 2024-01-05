@@ -17,6 +17,7 @@ pub unsafe fn init_page_table(active_page_table: PageTable) {
 	});
 }
 
+#[export_name = "__popcorn_paging_get_current_page_table"]
 pub fn current_page_table() -> impl DerefMut<Target = PageTable> {
 	ACTIVE_PAGE_TABLE.table.borrow_mut()
 }
@@ -65,11 +66,17 @@ impl PageTable {
 		Some(physical.start() + diff)
 	}
 
+	// TODO: merge these
 	pub fn map_page(&mut self, page: Page, frame: Frame, allocator: impl BackingAllocator) -> Result<(), MapPageError> {
 		let upper_table = unsafe { self.l4.as_mut() }.child_table_or_new(page.global_index(), &allocator)?;
 		let middle_table = upper_table.child_table_or_new(page.upper_index(), &allocator)?;
 		let lower_table = middle_table.child_table_or_new(page.middle_index(), &allocator)?;
 		lower_table.entries[page.lower_index()].point_to_frame(frame).map_err(|_| MapPageError::AlreadyMapped)
+	}
+
+	#[export_name = "__popcorn_paging_map_page"]
+	pub fn map_page_dyn(&mut self, page: Page, frame: Frame, allocator: &dyn BackingAllocator) -> Result<(), MapPageError> {
+		self.map_page(page, frame, allocator)
 	}
 }
 
