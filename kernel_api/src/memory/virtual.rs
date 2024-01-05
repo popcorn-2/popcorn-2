@@ -7,6 +7,7 @@ use super::AllocError;
 pub trait VirtualAllocator {
 	fn allocate_contiguous(&self, len: usize) -> Result<Page, AllocError>;
 	fn allocate_contiguous_at(&self, at: Page, len: usize) -> Result<Page, AllocError>;
+	fn deallocate_contiguous(&self, base: Page, len: usize);
 }
 
 static FIXME_END: AtomicUsize = AtomicUsize::new(0x10000);
@@ -35,4 +36,6 @@ impl VirtualAllocator for ThisNeedsFixing {
 			Err(_) => Err(AllocError)
 		}
 	}
+
+	fn deallocate_contiguous(&self, _: Page, _: usize) {}
 }

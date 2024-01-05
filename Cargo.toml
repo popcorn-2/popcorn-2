@@ -24,7 +24,7 @@ members = [
 	"kernel_default_heap",
 	"bitmap_allocator",
 	"test_harness",
-	"kernel_hal",
+	"kernel_hal", "ranged_btree_allocator",
 ]
 
 [profile.release-debug]
