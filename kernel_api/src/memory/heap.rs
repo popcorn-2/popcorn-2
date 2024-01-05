@@ -8,8 +8,6 @@ use core::ptr;
 use core::ptr::NonNull;
 use super::AllocError;
 
-use crate::memory::VirtualAddress;
-
 /// A heap manager
 pub trait Heap {
     /// Creates a new instance of the heap manager
@@ -49,15 +47,3 @@ pub trait Heap {
         Ok(new)
     }
 }
-
-extern "Rust" {
-    fn __popcorn_adjust_heap(offset: isize) -> (VirtualAddress, isize);
-}
-
-/// Adjusts the available heap area, similar to `sbrk`
-///
-/// Returns the [`VirtualAddress`] pointing to the old heap end, as well as the actual offset.
-/// The actual offset may be different due to rounding to page boundaries.
-/// However, it will always be greater than or equal to `offset`, such that when requesting more memory, the requested
-/// amount will always be available, and when requesting a reduction in memory, enough memory will still be usable.
-pub fn adjust_heap(offset: isize) -> (VirtualAddress, isize) { unsafe { __popcorn_adjust_heap(offset) } }
