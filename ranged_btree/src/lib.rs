@@ -6,6 +6,7 @@ use alloc::collections::BTreeMap;
 use core::cmp::Ordering;
 use core::ops::Range;
 
+#[derive(Debug)]
 pub struct RangedBTreeMap<K, V> {
     inner: BTreeMap<KeyType<K>, V>
 }
@@ -19,16 +20,45 @@ impl<K, V> RangedBTreeMap<K, V> {
 }
 
 impl<K, V> RangedBTreeMap<K, V> where K: Ord {
-    fn insert(&mut self, range: Range<K>, value: V) -> Result<(), ()> {
+    pub fn insert(&mut self, range: Range<K>, value: V) -> Result<(), ()> {
         let res = self.inner.try_insert(KeyType::Range(range), value);
         res.map(|_| ()).map_err(|_| ())
     }
 
-    fn get_entry_at_point(&self, point: K) -> Option<&V> {
+    pub fn get_entry_at_point(&self, point: K) -> Option<&V> {
         self.inner.get(&KeyType::Point(point))
+    }
+
+    pub fn used_regions(&self) -> impl Iterator<Item = &Range<K>> + '_ {
+        self.inner.keys()
+                .map(|key| match key {
+                    KeyType::Range(r) => r,
+                    _ => unreachable!()
+                })
+    }
+
+    pub fn first_key(&self) -> Option<&K> {
+        self.inner.first_key_value()
+            .map(|(k, _)| match k {
+                KeyType::Range(r) => &r.start,
+                _ => unreachable!()
+            })
+    }
+
+    pub fn last_key(&self) -> Option<&K> {
+        self.inner.last_key_value()
+                .map(|(k, _)| match k {
+                    KeyType::Range(r) => &r.end,
+                    _ => unreachable!()
+                })
+    }
+
+    pub fn remove(&mut self, point: K) -> Option<V> {
+        self.inner.remove(&KeyType::Point(point))
     }
 }
 
+#[derive(Debug)]
 enum KeyType<T> {
     Range(Range<T>),
     Point(T)
