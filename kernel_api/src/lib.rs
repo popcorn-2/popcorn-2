@@ -8,6 +8,7 @@
 #![feature(step_trait)]
 #![feature(generic_const_items)]
 #![feature(generic_const_exprs)]
+#![feature(dyn_star)]
 #![feature(extern_types)]
 #![cfg_attr(feature = "use_std", feature(lazy_cell))]
 #![warn(missing_docs)]

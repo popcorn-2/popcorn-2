@@ -75,7 +75,4 @@ pub mod memory {
 
 		__popcorn_memory_physical_get_kernel_highmem()
 	}
-
-	extern "Rust" {
-	}
 }

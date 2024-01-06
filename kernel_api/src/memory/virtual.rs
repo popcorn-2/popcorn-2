@@ -1,41 +1,36 @@
 #![unstable(feature = "kernel_virtual_memory", issue = "none")]
 
-use core::sync::atomic::{AtomicUsize, Ordering};
-use crate::memory::{Page, VirtualAddress};
+use auto_impl::auto_impl;
+use crate::memory::Page;
 use super::AllocError;
 
-pub trait VirtualAllocator {
+#[auto_impl(&, Box, Arc)]
+pub trait VirtualAllocator: Send + Sync {
 	fn allocate_contiguous(&self, len: usize) -> Result<Page, AllocError>;
 	fn allocate_contiguous_at(&self, at: Page, len: usize) -> Result<Page, AllocError>;
 	fn deallocate_contiguous(&self, base: Page, len: usize);
 }
 
-static FIXME_END: AtomicUsize = AtomicUsize::new(0x10000);
+pub struct Global;
 
-pub struct ThisNeedsFixing;
+extern "Rust" {
+	#[link_name = "__popcorn_memory_virtual_kernel_global"]
+	static GLOBAL_VIRTUAL_ALLOCATOR: dyn* VirtualAllocator;
+}
 
-impl VirtualAllocator for ThisNeedsFixing {
+impl VirtualAllocator for Global {
+	#[track_caller]
 	fn allocate_contiguous(&self, len: usize) -> Result<Page, AllocError> {
-		let old = match len {
-			0 => FIXME_END.load(Ordering::Relaxed),
-			1.. => FIXME_END.fetch_add(len * 4096, Ordering::Relaxed)
-		};
-
-		if old > 0x1_0000_0000_0000 { return Err(AllocError); }
-
-		Ok(Page::new(VirtualAddress::new(old)))
+		unsafe { &GLOBAL_VIRTUAL_ALLOCATOR }.allocate_contiguous(len)
 	}
 
+	#[track_caller]
 	fn allocate_contiguous_at(&self, at: Page, len: usize) -> Result<Page, AllocError> {
-		let current_end = FIXME_END.load(Ordering::Relaxed);
-
-		if current_end != at.start().addr { return Err(AllocError); }
-
-		match FIXME_END.compare_exchange(current_end, current_end + len * 4098, Ordering::Relaxed, Ordering::Relaxed) {
-			Ok(_) => Ok(at),
-			Err(_) => Err(AllocError)
-		}
+		unsafe { &GLOBAL_VIRTUAL_ALLOCATOR }.allocate_contiguous_at(at, len)
 	}
 
-	fn deallocate_contiguous(&self, _: Page, _: usize) {}
+	#[track_caller]
+	fn deallocate_contiguous(&self, base: Page, len: usize) {
+		unsafe { &GLOBAL_VIRTUAL_ALLOCATOR }.deallocate_contiguous(base, len)
+	}
 }

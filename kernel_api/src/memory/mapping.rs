@@ -3,7 +3,7 @@
 use log::debug;
 use crate::memory::allocator::{BackingAllocator};
 use crate::memory::{AllocError, Frame, Page};
-use crate::memory::r#virtual::{ThisNeedsFixing, VirtualAllocator};
+use crate::memory::r#virtual::{Global, VirtualAllocator};
 
 /// An owned region of memory
 ///
@@ -23,7 +23,7 @@ impl Mapping {
 	pub fn new_with(len: usize, physical_allocator: impl BackingAllocator) -> Result<Self, AllocError> {
 		// FIXME: memory leak here on error from lack of ArcFrame
 		let physical_mem = physical_allocator.allocate_contiguous(len)?;
-		let virtual_mem = ThisNeedsFixing.allocate_contiguous(len)?;
+		let virtual_mem = Global.allocate_contiguous(len)?;
 
 		// TODO: huge pages
 		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_current_page_table() };
@@ -56,7 +56,7 @@ impl Mapping {
 			// fixme: physical mem leak
 			let extra_physical_mem = original_physical_allocator.allocate_contiguous(extra_len).map_err(|_| None)?;
 			debug!("allocating extra virtual memory");
-			let extra_virtual_mem = ThisNeedsFixing.allocate_contiguous_at(self.base + self.len, extra_len);
+			let extra_virtual_mem = Global.allocate_contiguous_at(self.base + self.len, extra_len);
 
 			match extra_virtual_mem {
 				Ok(_) => {
@@ -94,7 +94,7 @@ impl Mapping {
 				let original_physical_allocator = unsafe { crate::bridge::memory::__popcorn_memory_physical_get_kernel_highmem() };
 
 				let extra_len = new_len - self.len;
-				let new_virtual_mem = ThisNeedsFixing.allocate_contiguous(new_len)?;
+				let new_virtual_mem = Global.allocate_contiguous(new_len)?;
 
 				let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_current_page_table() };
 
