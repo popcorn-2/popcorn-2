@@ -7,11 +7,10 @@
 #![feature(int_roundings)]
 
 use core::alloc::Layout;
-use core::fmt::{Debug};
-use core::mem::MaybeUninit;
-use core::ptr::{NonNull};
-use kernel_api::memory::heap::{adjust_heap, Heap};
-use kernel_api::memory::{Page, VirtualAddress, AllocError};
+use core::fmt::Debug;
+use core::ptr::NonNull;
+use kernel_api::memory::heap::Heap;
+use kernel_api::memory::{VirtualAddress, AllocError};
 use kernel_api::sync::{LazyLock, Mutex};
 use log::debug;
 use kernel_api::memory::mapping::Mapping;
