@@ -93,8 +93,6 @@ impl Gdt {
                 mov {3:x}, {2}
                 mov ds, {3:x}
                 mov es, {3:x}
-                mov fs, {3:x}
-                mov gs, {3:x}
                 mov ss, {3:x}
             ", in(reg) &ptr, const offset_of!(Gdt, kernel_code), const offset_of!(Gdt, kernel_data), out(reg) _);
         }

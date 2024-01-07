@@ -88,7 +88,7 @@ unsafe impl Hal for Amd64Hal {
 
 # Design notes that should go somewhere else
 
-- **TODO**: On amd64, just before handoff, the `fs` register is initialised to the value of `0xdead101ca1` ("dead local"). If a page fault occurs in the <**TODO**> bytes of memory below this address, a debug note is printed that this may be due to use of core locals before initialisation. Once the TLS section for the bootstrap processor is initialised, the `fs` register is updated to point at the end of the actual TLS section.
+- **TODO**: On amd64, just before handoff, the `fs` register is initialised to the value of `0xdead10ca1` ("dead local"). If a page fault occurs in the <**TODO**> bytes of memory below this address, a debug note is printed that this may be due to use of core locals before initialisation. Once the TLS section for the bootstrap processor is initialised, the `fs` register is updated to point at the end of the actual TLS section.
   > Can we pass off the actual TLS size from the handover process to the page fault handler rather than guessing the size of the checked region?
 
 ---

@@ -919,11 +919,17 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     //type KernelStart = ffi_abi!(type fn(&handoff::Data) -> !);
     //let kernel_entry: KernelStart = unsafe { mem::transmute(kernel_entry) };
     unsafe {
-        asm!("
-            mov rsp, {}
-            xor ebp, ebp
-            call {}
-        ", in(reg) stack_top.addr, in(reg) kernel_entry, in("rdi") &handoff, options(noreturn))
+        asm!(
+            "mov rsp, rcx",
+            "xor ebp, ebp",
+
+            "mov eax, 0xead10ca1",
+            "mov edx, 0xd", // edx:eax = 0xdead10cal
+            "mov ecx, 0xc0000100", // ecx = FSBase MSR
+            "wrmsr",
+
+            "call rsi",
+        in("rcx") stack_top.addr, in("rsi") kernel_entry, in("rdi") &handoff, options(noreturn))
     }
 }
 
