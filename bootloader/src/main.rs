@@ -911,7 +911,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         },
         test: handoff::Testing {
             module_func: unsafe { mem::transmute(1usize) }
-        }
+        },
+        tls: Range(kernel_tls.start, kernel_tls.end)
     };
 
     let _ = system_table.exit_boot_services();
