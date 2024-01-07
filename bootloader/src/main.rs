@@ -622,13 +622,14 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     // FIXME: This shouldn't just be KERNEL_CODE
     let kernel = elf::load_kernel(&mut kernel, |count, ty| services.allocate_pages(ty, memory_types::KERNEL_CODE, count))
             .expect("Unable to load kernel");
-    let elf::KernelLoadInfo { kernel, mut page_table, address_range } = kernel;
+    let elf::KernelLoadInfo { kernel, mut page_table, address_range, tls: kernel_tls } = kernel;
     let mut address_range = {
         VirtualAddress::align_down::<4096>(address_range.start)..VirtualAddress::align_up::<4096>(address_range.end)
     };
 
     let kernel_symbols = kernel.exported_symbols();
     debug!("{:x?}", kernel_symbols);
+    debug!("kernel tls data = {kernel_tls:x?}");
 
     /*let mut testing_fn: u64 = 0;
     for module in &modules {
