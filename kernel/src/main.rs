@@ -22,13 +22,15 @@
 #![feature(pointer_like_trait)]
 #![feature(exclusive_range_pattern)]
 #![feature(int_roundings)]
+#![feature(thread_local)]
+#![feature(noop_waker)]
+#![feature(vec_into_raw_parts)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
 #![feature(kernel_sync_once)]
 #![feature(kernel_physical_page_offset)]
 #![feature(kernel_memory_addr_access)]
-#![feature(noop_waker)]
 #![feature(kernel_virtual_memory)]
 #![feature(kernel_internals)]
 #![feature(strict_provenance_atomic_ptr)]
@@ -46,13 +48,15 @@ extern crate self as kernel;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use core::alloc::{GlobalAlloc, Layout};
+use core::alloc::{Allocator, GlobalAlloc, Layout};
+use core::arch::asm;
+use core::cell::UnsafeCell;
 use core::fmt::Write;
 use core::iter::{empty, once};
 use core::ops::Deref;
 use core::panic::PanicInfo;
 use core::ptr::slice_from_raw_parts_mut;
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
 use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
 use core::future;
 use core::task::Poll;
@@ -70,6 +74,13 @@ mod task;
 
 #[cfg(test)]
 pub mod test_harness;
+
+#[thread_local]
+static FOO: UnsafeCell<usize> = UnsafeCell::new(6);
+
+fn get_foo() -> usize {
+	unsafe { *FOO.get() }
+}
 
 #[macro_export]
 macro_rules! usize {
@@ -228,6 +239,25 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 			*pixel = 0xeeeeee;
 		}
 	}
+
+	// FIXME: Move into HAL and align it properly
+	let tls_size = handoff_data.tls.end() - handoff_data.tls.start() + core::mem::size_of::<usize>();
+	let tls = Vec::<u8>::with_capacity(tls_size);
+	let (tls, _, _) = tls.into_raw_parts();
+	unsafe {
+		core::ptr::copy_nonoverlapping(handoff_data.tls.start().as_ptr(), tls, tls_size - core::mem::size_of::<usize>());
+		let tls_self_ptr = tls.byte_add(tls_size - core::mem::size_of::<usize>());
+		tls_self_ptr.cast::<*mut u8>().write(tls_self_ptr);
+		let tls_self_ptr_low = tls_self_ptr as usize as u32;
+		let tls_self_ptr_high = ((tls_self_ptr as usize) >> 32) as u32;
+		asm!(
+			"mov ecx, 0xc0000100", // ecx = FSBase MSR
+			"wrmsr",
+		in("edx") tls_self_ptr_high, in("eax") tls_self_ptr_low, out("ecx") _);
+	}
+
+	let x = get_foo();
+	warn!("TLS value is {x}");
 
 	let mut executor = Executor::new();
 
