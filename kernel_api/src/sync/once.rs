@@ -70,8 +70,17 @@ impl Once {
             core::hint::spin_loop();
         }
 
-        // FIXME: check for panic and poison
+        struct DropGuard<'a>(&'a Once);
+        impl Drop for DropGuard<'_> {
+            fn drop(&mut self) {
+                self.0.0.store(State::Poison.into(), Ordering::Relaxed);
+            }
+        }
+        let drop_guard = DropGuard(self);
+
         f();
+
+        core::mem::forget(drop_guard);
 
         self.0.store(State::Called.into(), Ordering::Release);
     }
