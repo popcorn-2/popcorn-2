@@ -3,7 +3,7 @@
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 use core::ops::Deref;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, fence, Ordering};
 
 pub struct Once(AtomicU8);
 
@@ -65,6 +65,7 @@ impl Once {
                 Err(s) if s == State::Poison.into() => panic!("poisoned `Once`"),
                 Err(s) if s == State::Running.into() => {}, // Currently running, spin until state changes
                 Err(s) if s == State::Called.into() => return, // Already called, return immediately
+                Err(s) if s == State::Uncalled.into() => {}, // weak cas fail, try again
                 _ => unreachable!()
             }
             core::hint::spin_loop();
@@ -103,6 +104,7 @@ impl<T> OnceLock<T> {
 
     pub fn get(&self) -> Option<&T> {
         if !self.once.is_complete() { return None; }
+        fence(Ordering::Acquire);
 
         unsafe {
             Some((*self.data.get()).assume_init_ref())
@@ -111,6 +113,7 @@ impl<T> OnceLock<T> {
 
     pub fn get_mut(&mut self) -> Option<&mut T> {
         if !self.once.is_complete() { return None; }
+        fence(Ordering::Acquire);
 
         unsafe {
             Some((*self.data.get()).assume_init_mut())
