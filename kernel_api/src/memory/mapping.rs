@@ -1,26 +1,68 @@
 #![unstable(feature = "kernel_mmap", issue = "24")]
 
+use core::num::NonZeroUsize;
 use log::debug;
-use crate::memory::allocator::{BackingAllocator};
-use crate::memory::{AllocError, Frame, Page};
+use crate::memory::allocator::{AlignedAllocError, AllocationMeta, BackingAllocator, ZeroAllocError};
+use crate::memory::{AllocError, Frame, highmem, Page};
 use crate::memory::r#virtual::{Global, VirtualAllocator};
+
+#[derive(Copy, Clone, Debug)]
+pub struct Highmem;
+
+unsafe impl BackingAllocator for Highmem {
+	fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, crate::memory::allocator::AllocError> {
+		highmem().allocate_contiguous(frame_count)
+	}
+
+	fn allocate_one(&self) -> Result<Frame, crate::memory::allocator::AllocError> {
+		highmem().allocate_one()
+	}
+
+	fn try_allocate_zeroed(&self, frame_count: usize) -> Result<Frame, ZeroAllocError> {
+		highmem().try_allocate_zeroed(frame_count)
+	}
+
+	fn allocate_zeroed(&self, frame_count: usize) -> Result<Frame, crate::memory::allocator::AllocError> {
+		highmem().allocate_zeroed(frame_count)
+	}
+
+	unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize) {
+		highmem().deallocate_contiguous(base, frame_count)
+	}
+
+	fn push(&mut self, allocation: AllocationMeta) {
+		unimplemented!()
+	}
+
+	fn allocate_contiguous_aligned(&self, count: NonZeroUsize, alignment_log2: u32) -> Result<Frame, crate::memory::allocator::AllocError> {
+		highmem().allocate_contiguous_aligned(count, alignment_log2)
+	}
+
+	fn try_allocate_contiguous_aligned(&self, count: NonZeroUsize, alignment_log2: u32) -> Result<Frame, AlignedAllocError> {
+		highmem().try_allocate_contiguous_aligned(count, alignment_log2)
+	}
+}
 
 /// An owned region of memory
 ///
 /// Depending on memory attributes, this may be invalid to read or write to
 #[derive(Debug)]
-pub struct Mapping {
+pub struct Mapping<A: BackingAllocator = Highmem> {
 	base: Page,
-	len: usize
+	len: usize,
+	allocator: A
 }
 
-impl Mapping {
-	pub fn new(len: usize) -> Result<Self, AllocError> {
-		let highmem = unsafe { crate::bridge::memory::__popcorn_memory_physical_get_kernel_highmem() };
-		Self::new_with(len, &*highmem)
+impl<A: BackingAllocator> Mapping<A> {
+	pub fn as_ptr(&self) -> *const u8 {
+		self.base.as_ptr()
 	}
-
-	pub fn new_with(len: usize, physical_allocator: impl BackingAllocator) -> Result<Self, AllocError> {
+	
+	pub fn as_mut_ptr(&mut self) -> *mut u8 {
+		self.base.as_ptr()
+	}
+	
+	pub fn new_with(len: usize, physical_allocator: A) -> Result<Self, AllocError> {
 		// FIXME: memory leak here on error from lack of ArcFrame
 		let physical_mem = physical_allocator.allocate_contiguous(len)?;
 		let virtual_mem = Global.allocate_contiguous(len)?;
@@ -29,20 +71,27 @@ impl Mapping {
 		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_current_page_table() };
 		for (frame, page) in (0..len).map(|i| (physical_mem + i, virtual_mem + i)) {
 			unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &physical_allocator) }
-				.expect("todo");
+					.expect("todo");
 		}
 
 		Ok(Self {
 			base: virtual_mem,
-			len
+			len,
+			allocator: physical_allocator
 		})
+	}
+}
+
+impl Mapping<Highmem> {
+	pub fn new(len: usize) -> Result<Self, AllocError> {
+		Self::new_with(len, Highmem)
 	}
 
 	fn remap_inner(&mut self, new_len: usize) -> Result<(), Option<Frame>> {
 		if new_len == self.len { return Ok(()); }
 
 		// FIXME: DOnT JUST USE HIGHMEM UnCOnDITIOnALLY
-		let original_physical_allocator = unsafe { crate::bridge::memory::__popcorn_memory_physical_get_kernel_highmem() };
+		let original_physical_allocator = self.allocator;
 
 		if new_len < self.len {
 			// todo: actually free and unmap the extra memory
@@ -66,7 +115,7 @@ impl Mapping {
 					let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_current_page_table() };
 
 					for (frame, page) in (0..extra_len).map(|i| (extra_physical_mem + i, start_of_extra + i)) {
-						unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &*original_physical_allocator) }
+						unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &original_physical_allocator) }
 								.expect("todo");
 					}
 
@@ -91,7 +140,7 @@ impl Mapping {
 				// can assume here that new_len > len as shrinking can't fail
 
 				// FIXME: DOnT JUST USE HIGHMEM UnCOnDITIOnALLY
-				let original_physical_allocator = unsafe { crate::bridge::memory::__popcorn_memory_physical_get_kernel_highmem() };
+				let original_physical_allocator = self.allocator;
 
 				let extra_len = new_len - self.len;
 				let new_virtual_mem = Global.allocate_contiguous(new_len)?;
@@ -100,10 +149,10 @@ impl Mapping {
 
 				let physical_base: Frame = todo!();
 				for (frame, page) in (0..self.len).map(|i| (physical_base + i, new_virtual_mem + i)) {
-					unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &*original_physical_allocator) }.expect("todo");
+					unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &original_physical_allocator) }.expect("todo");
 				}
 				for (frame, page) in (0..extra_len).map(|i| (extra_physical_mem + i, new_virtual_mem + self.len + i)) {
-					unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &*original_physical_allocator) }.expect("todo");
+					unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &original_physical_allocator) }.expect("todo");
 				}
 
 				self.base = new_virtual_mem;
@@ -174,7 +223,8 @@ impl Mapping {
 	pub unsafe fn from_raw_parts(base: Page, len: usize) -> Self {
 		Self {
 			base,
-			len
+			len,
+			allocator: Highmem
 		}
 	}
 
@@ -187,7 +237,7 @@ impl Mapping {
 	}
 }
 
-impl Drop for Mapping {
+impl<A: BackingAllocator> Drop for Mapping<A> {
 	fn drop(&mut self) {
 		// todo
 	}
