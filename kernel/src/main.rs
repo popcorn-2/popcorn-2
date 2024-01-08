@@ -30,6 +30,7 @@
 #![feature(kernel_memory_addr_access)]
 #![feature(kernel_virtual_memory)]
 #![feature(kernel_internals)]
+#![feature(strict_provenance_atomic_ptr)]
 
 #![no_std]
 #![no_main]
@@ -169,6 +170,9 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 		let mut spaces2 = spaces.clone();
 		let watermark_allocator = WatermarkAllocator::new(&mut spaces2);
+
+		debug!("Initialising highmem");
+
 		let allocator = memory::physical::with_highmem_as(&watermark_allocator, || {
 			<bitmap_allocator::Wrapped as SizedBackingAllocator>::new(
 				Config {
