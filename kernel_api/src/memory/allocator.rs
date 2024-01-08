@@ -155,9 +155,6 @@ pub unsafe trait BackingAllocator: Send + Sync {
 pub unsafe trait SizedBackingAllocator: BackingAllocator + Sized {
     #[unstable(feature = "kernel_allocation_new", issue = "5")]
     fn new(config: Config) -> Arc<dyn BackingAllocator> { unimplemented!("experimental") }
-
-    #[unstable(feature = "kernel_allocation_new", issue = "5")]
-    fn drain_into(self, into: &mut dyn BackingAllocator) { unimplemented!("experimental") }
 }
 
 /// The error returned when an allocation with a requested alignment could not be satisfied

@@ -1,7 +1,7 @@
 use core::num::NonZeroUsize;
 use core::ops::Range;
 use log::trace;
-use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, SizedBackingAllocator};
+use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, SizedBackingAllocator};
 use kernel_api::memory::{Frame, PhysicalAddress, AllocError};
 use kernel_api::sync::Mutex;
 
@@ -10,6 +10,11 @@ pub struct WatermarkAllocator<'mem_map>(Mutex<Inner<'mem_map>>);
 impl<'mem_map> WatermarkAllocator<'mem_map> {
 	pub fn new(free_regions: &'mem_map mut (dyn DoubleEndedIterator<Item = Range<Frame>> + Send)) -> Self {
 		Self(Mutex::new(Inner::new(free_regions)))
+	}
+
+	pub fn drain_into(mut self, into: &mut dyn BackingAllocator) where Self: Sized {
+		let inner = self.0.into_inner();
+		into.push(AllocationMeta::new(inner.prev_frame..inner.top));
 	}
 }
 
@@ -26,15 +31,6 @@ unsafe impl BackingAllocator for WatermarkAllocator<'_> {
 
 	unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZeroUsize) {
 		trace!("WatermarkAllocator ignoring request to deallocate");
-	}
-}
-
-unsafe impl SizedBackingAllocator for WatermarkAllocator<'_> {
-	fn drain_into(mut self, into: &mut dyn BackingAllocator) where Self: Sized {
-		let inner = self.0.into_inner();
-		into.push(AllocationMeta {
-			region: inner.prev_frame..inner.top
-		});
 	}
 }
 

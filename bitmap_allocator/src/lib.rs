@@ -135,21 +135,7 @@ unsafe impl SizedBackingAllocator for Wrapped {
 
         Arc::new(Wrapped(Mutex::new(allocator)))
     }
-
-    fn drain_into(self, into: &mut dyn BackingAllocator) {
-        let allocator = self.0.into_inner();
-
-        for frame in allocator.first_frame..allocator.last_frame() {
-            if allocator.get_frame(frame).unwrap() == FrameState::Allocated {
-                into.push(AllocationMeta { region: frame..frame + 1 });
-            }
-        }
-    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-
-}
+mod tests {}
