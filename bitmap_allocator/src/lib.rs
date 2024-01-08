@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use core::mem;
 use core::num::NonZeroUsize;
 use core::ops::Range;
-use kernel_api::memory::{Frame, PhysicalAddress, AllocError};
+use kernel_api::memory::{Frame, AllocError};
 use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, SizedBackingAllocator};
 use kernel_api::sync::Mutex;
 use log::info;
@@ -114,8 +114,7 @@ unsafe impl BackingAllocator for Wrapped {
         let allocator = self.0.get_mut();
 
         for frame in allocation.region {
-            allocator.set_frame(frame, FrameState::Allocated)
-                .unwrap();
+            let _ = allocator.set_frame(frame, FrameState::Allocated);
         }
     }
 }
