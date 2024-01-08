@@ -2,6 +2,7 @@
 
 #![feature(kernel_virtual_memory)]
 
+use core::cmp::{max, min};
 use core::ops::Range;
 use kernel_api::memory::{AllocError, Page};
 use ranged_btree::RangedBTreeMap;
@@ -13,6 +14,7 @@ struct Meta {
     len: usize
 }
 
+#[derive(Debug)]
 pub struct RangedBtreeAllocator {
     range: Range<Page>,
     map: Mutex<RangedBTreeMap<Page, Meta>>
@@ -23,6 +25,17 @@ impl RangedBtreeAllocator {
         Self {
             range,
             map: Mutex::new(RangedBTreeMap::new())
+        }
+    }
+
+    pub fn add_allocations(&mut self, allocations: impl IntoIterator<Item = Range<Page>>) {
+        let guard = self.map.get_mut();
+
+        for allocation in allocations {
+            let isect = min(allocation.start, self.range.start)..max(allocation.end, self.range.end);
+            if !isect.is_empty() {
+                let _ = guard.insert(allocation, Meta { len: isect.end - isect.start });
+            }
         }
     }
 }
