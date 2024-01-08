@@ -1,6 +1,7 @@
 use alloc::sync::Arc;
 use core::mem;
 use core::ops::Deref;
+use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use kernel_api::memory::allocator::{BackingAllocator, GlobalAllocator};
 use kernel_api::memory::Frame;
@@ -48,15 +49,26 @@ pub fn with_highmem_as<'a, R>(allocator: &'a dyn BackingAllocator, f: impl FnOnc
 	// To prevent the allocator being changed while the closure is executing, downgrade the write lock to a read lock held across the boundary
 	let read_lock = RwWriteGuard::downgrade_to_upgradable(write_lock);
 
-	let ret = crate::panicking::catch_unwind(f);
-
-	let mut write_lock = RwUpgradableReadGuard::upgrade(read_lock);
-	*write_lock = old_highmem;
-
-	match ret {
-		Ok(ret) => ret,
-		Err(payload) => crate::panicking::resume_unwind(payload)
+	struct DropGuard<'a, T> {
+		lock: ManuallyDrop<RwUpgradableReadGuard<'a, T>>,
+		old_val: ManuallyDrop<T>
 	}
+	impl<T> Drop for DropGuard<'_, T> {
+		fn drop(&mut self) {
+			let lock = unsafe { ManuallyDrop::take(&mut self.lock) };
+			let old_val = unsafe { ManuallyDrop::take(&mut self.old_val) };
+
+			let mut lock = RwUpgradableReadGuard::upgrade(lock);
+			*lock = old_val;
+		}
+	}
+
+	let _drop_guard = DropGuard {
+		lock: ManuallyDrop::new(read_lock),
+		old_val: ManuallyDrop::new(old_highmem)
+	};
+
+	f()
 }
 
 static REFCOUNTS: [RefCountEntry; 0] = [];
