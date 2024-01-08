@@ -102,7 +102,13 @@ unsafe impl BackingAllocator for Wrapped {
     }
 
     unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize) {
-        todo!()
+        let mut guard = self.0.lock();
+
+        for i in 0..frame_count.get() {
+            let frame = base + i;
+            guard.set_frame(frame, FrameState::Free)
+                    .expect("Attempted to free frame that wasn't allocated by this allocator");
+        }
     }
 
     fn push(&mut self, allocation: AllocationMeta) {
