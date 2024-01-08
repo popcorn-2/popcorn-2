@@ -17,7 +17,7 @@ pub use mutex::{Spinlock, SpinlockGuard};
 
 #[cfg(not(feature = "use_std"))]
 #[unstable(feature = "kernel_sync_once", issue = "none")]
-pub use once::{LazyLock, Once, OnceLock};
+pub use once::{LazyLock, Once, OnceLock, BootstrapOnceLock};
 #[cfg(feature = "use_std")]
 #[unstable(feature = "kernel_sync_once", issue = "none")]
 pub use std::sync::{LazyLock, Once, OnceLock};

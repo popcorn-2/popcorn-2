@@ -157,3 +157,131 @@ impl<T, F: FnOnce() -> T> Deref for LazyLock<T, F> {
         Self::force(self)
     }
 }
+
+pub use bootstrap::BootstrapOnceLock;
+
+mod bootstrap {
+    use core::cell::UnsafeCell;
+    use core::mem::MaybeUninit;
+    use core::sync::atomic::{AtomicU8, fence, Ordering};
+
+    #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+    #[repr(u8)]
+    enum State {
+        Uncalled = 0,
+        Saving = 1,
+        Running = 2,
+        Init = 3,
+        Poison = 4
+    }
+
+    impl State {
+        const fn const_into_u8(self) -> u8 {
+            match self {
+                State::Uncalled => 0,
+                State::Saving => 1,
+                State::Running => 2,
+                State::Init => 3,
+                State::Poison => 4
+            }
+        }
+
+        const fn const_from_u8(value: u8) -> Result<Self, ()> {
+            match value {
+                0 => Ok(State::Uncalled),
+                1 => Ok(State::Saving),
+                2 => Ok(State::Running),
+                3 => Ok(State::Init),
+                4 => Ok(State::Poison),
+                _ => Err(())
+            }
+        }
+    }
+
+    impl From<State> for u8 {
+        fn from(value: State) -> Self {
+            value.const_into_u8()
+        }
+    }
+
+    impl TryFrom<u8> for State {
+        type Error = ();
+
+        fn try_from(value: u8) -> Result<Self, Self::Error> {
+            Self::const_from_u8(value)
+        }
+    }
+
+    pub struct BootstrapOnceLock<T> {
+        data: UnsafeCell<MaybeUninit<T>>,
+        state: AtomicU8
+    }
+
+    unsafe impl<T> Send for BootstrapOnceLock<T> {}
+    unsafe impl<T> Sync for BootstrapOnceLock<T> {}
+
+    impl<T> BootstrapOnceLock<T> {
+        pub const fn new() -> Self {
+            Self {
+                data: UnsafeCell::new(MaybeUninit::uninit()),
+                state: AtomicU8::new(State::Uncalled.const_into_u8())
+            }
+        }
+
+        pub fn get(&self) -> Option<&T> {
+            let state: State = self.state.load(Ordering::Relaxed).try_into().unwrap();
+
+            if state == State::Poison { panic!("poisoned `BootstrapOnceLock`") }
+            if state == State::Uncalled || state == State::Saving { return None; }
+            fence(Ordering::Acquire);
+
+            unsafe {
+                Some((*self.data.get()).assume_init_ref())
+            }
+        }
+
+        /*
+        - Starts as `Uncalled`
+        - Move to `Saving`
+        - Store bootstrap value
+        - Move to `Running` - value is now legal to access
+        - Call function
+        - Move to `Saving` - value is now illegal to access
+        - Store new value
+        - Move to `Init` - value is now illegal to access
+         */
+        pub fn bootstrap(&self, bootstrap_value: T, f: impl FnOnce() -> T) -> &T {
+            loop {
+                let current = self.state.compare_exchange_weak(State::Uncalled.into(), State::Saving.into(), Ordering::Relaxed, Ordering::Acquire);
+                match current {
+                    Ok(_) => break, // Switched from Uncalled to Saving, bootstrap then call the function
+                    Err(s) if s == State::Poison.into() => panic!("poisoned `BootstrapOnceLock`"),
+                    Err(s) if s == State::Running.into() || s == State::Saving.into() => {}, // Currently running, spin until state changes
+                    Err(s) if s == State::Init.into() => {
+                        // Already called, return immediately
+                        return unsafe {
+                            (*self.data.get()).assume_init_ref()
+                        };
+                    },
+                    Err(s) if s == State::Uncalled.into() => {}, // Weak CAS failure so retry
+                    _ => unreachable!()
+                }
+                core::hint::spin_loop();
+            }
+
+            // We now need to bootstrap and init
+            unsafe { (*self.data.get()).write(bootstrap_value); }
+            // Release ordering so bootstrapped value syncs with Acquire ordering in Self::get
+            self.state.store(State::Running.into(), Ordering::Release);
+
+            let true_value = f();
+
+            // Relaxed ordering since no memory stuff to sync with (???)
+            self.state.store(State::Saving.into(), Ordering::Relaxed);
+            let ret = unsafe { (*self.data.get()).write(true_value) };
+            // Release ordering so bootstrapped value syncs with Acquire ordering in Self::get
+            self.state.store(State::Init.into(), Ordering::Release);
+            ret
+        }
+    }
+}
