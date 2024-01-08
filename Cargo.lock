@@ -470,6 +470,7 @@ dependencies = [
  "kernel_hal",
  "log",
  "minicov",
+ "ranged_btree_allocator",
  "test",
  "unwinding",
  "utils",
