@@ -21,7 +21,8 @@ extern crate alloc;
 pub use kernel_module_macros::module_export;
 
 pub mod memory;
+#[cfg(feature = "full")]
 pub mod sync;
 
-#[cfg(not(feature = "use_std"))]
+#[cfg(all(not(feature = "use_std"), feature = "full"))]
 pub mod bridge;

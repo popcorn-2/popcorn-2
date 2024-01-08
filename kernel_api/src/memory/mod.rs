@@ -3,10 +3,12 @@
 #![stable(feature = "kernel_core_api", since = "0.1.0")]
 
 pub mod allocator;
+#[cfg(feature = "full")]
 pub mod heap;
 mod type_ops;
+#[cfg(feature = "full")]
 pub mod r#virtual;
-#[cfg(not(feature = "use_std"))]
+#[cfg(all(not(feature = "use_std"), feature = "full"))]
 pub mod mapping;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

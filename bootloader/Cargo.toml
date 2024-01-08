@@ -23,4 +23,4 @@ elf = { version = "0.1.0", path = "../elf" }
 lvgl-sys = { git = "https://github.com/egkoppel/lvgl-rs.git", default-features = false }
 lvgl2 = { path = "../lvgl2" }
 aliasable = "0.1.3"
-kernel_api = { version = "0.1.0", path = "../kernel_api" }
+kernel_api = { version = "0.1.0", path = "../kernel_api", default-features = false }
