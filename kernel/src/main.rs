@@ -169,7 +169,7 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 		let mut spaces2 = spaces.clone();
 		let watermark_allocator = WatermarkAllocator::new(&mut spaces2);
-		let mut new_alloc = memory::physical::with_highmem_as(&watermark_allocator, || {
+		let allocator = memory::physical::with_highmem_as(&watermark_allocator, || {
 			<bitmap_allocator::Wrapped as SizedBackingAllocator>::new(
 				Config {
 					allocation_range: Frame::new(PhysicalAddress::new(0))..Frame::new(max_usable_memory.align_down()),
@@ -178,9 +178,7 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 			)
 		});
 
-		let allocator = Arc::get_mut(&mut new_alloc).expect("No other references to allocator should exist yet");
 		watermark_allocator.drain_into(allocator);
-		let allocator = unsafe { &*Arc::into_raw(&mut new_alloc) };
 		memory::physical::init_highmem(allocator);
 		memory::physical::init_dmamem(allocator);
 	}

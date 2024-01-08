@@ -6,7 +6,6 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::mem;
@@ -122,7 +121,7 @@ unsafe impl BackingAllocator for Wrapped {
 }
 
 unsafe impl SizedBackingAllocator for Wrapped {
-    fn new(config: Config) -> Arc<dyn BackingAllocator> where Self: Sized {
+    fn new(config: Config) -> &'static mut dyn BackingAllocator where Self: Sized {
         let Range { start, end } = config.allocation_range;
         let mut allocator = BitmapAllocator::new(start, end - start);
 
@@ -133,7 +132,7 @@ unsafe impl SizedBackingAllocator for Wrapped {
             }
         }
 
-        Arc::new(Wrapped(Mutex::new(allocator)))
+        Box::leak(Box::new(Wrapped(Mutex::new(allocator))))
     }
 }
 
