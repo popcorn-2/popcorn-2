@@ -37,8 +37,16 @@ pub struct Config<'a> {
 }
 
 #[unstable(feature = "kernel_allocation_new", issue = "5")]
+#[non_exhaustive]
 pub struct AllocationMeta {
     pub region: Range<Frame>
+}
+
+impl AllocationMeta {
+    #[unstable(feature = "kernel_allocation_new", issue = "5")]
+    pub fn new(region: Range<Frame>) -> Self {
+        Self { region }
+    }
 }
 
 /// An allocator that managed physical memory
