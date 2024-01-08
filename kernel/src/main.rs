@@ -43,14 +43,16 @@ extern crate unwinding;
 
 extern crate self as kernel;
 
-use alloc::sync::Arc;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::alloc::{GlobalAlloc, Layout};
 use core::fmt::Write;
+use core::iter::{empty, once};
 use core::ops::Deref;
 use core::panic::PanicInfo;
 use core::ptr::slice_from_raw_parts_mut;
-use log::{info, trace};
-use kernel_api::memory::PhysicalAddress;
+use log::{debug, info, trace};
+use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::{allocator::BackingAllocator};
 use kernel_hal::{CurrentHal, Hal};
 
@@ -185,6 +187,29 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 		watermark_allocator.drain_into(allocator);
 		memory::physical::init_highmem(allocator);
 		memory::physical::init_dmamem(allocator);
+
+		let btree_alloc = {
+			use core::iter::{once, Iterator};
+
+			let mut btree_alloc = ranged_btree_allocator::RangedBtreeAllocator::new(
+				// unfortunately this means a page is missing :(
+				Page::new(VirtualAddress::new(0xffff_8000_0000_0000))..Page::new(VirtualAddress::new(0xffff_ffff_ffff_f000))
+			);
+
+			let virtual_reserved = once(
+				// entire bootstrap region in case adding allocations uses more heap
+				// realisation: this will now cause an OOM on all subsequent heap allocations
+				Page::new(VirtualAddress::new(memory::r#virtual::VMEM_BOOTSTRAP_START.0 as usize))..Page::new(VirtualAddress::new(memory::r#virtual::VMEM_BOOTSTRAP_END.0 as usize))
+			).chain(empty(/* todo: don't overmap the kernel */));
+
+			btree_alloc.add_allocations(virtual_reserved);
+
+			btree_alloc
+		};
+
+		debug!("btree_alloc = {btree_alloc:x?}");
+
+		*memory::r#virtual::GLOBAL_VIRTUAL_ALLOCATOR.write() = Box::leak(Box::new(btree_alloc));
 	}
 
 	if let Some(ref fb) = handoff_data.framebuffer {
