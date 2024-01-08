@@ -63,16 +63,14 @@ pub mod paging {
 }
 
 pub mod memory {
-	use core::ops::Deref;
-	use lock_api::MappedRwLockReadGuard;
-	use crate::memory::allocator::GlobalAllocator;
-	use crate::sync::rwlock::RwCount;
+	use crate::memory::allocator::BackingAllocator;
+	use crate::sync::RwLock;
 
-	pub unsafe fn __popcorn_memory_physical_get_kernel_highmem() -> impl Deref<Target = GlobalAllocator> {
-		extern "Rust" {
-			pub fn __popcorn_memory_physical_get_kernel_highmem() -> MappedRwLockReadGuard<'static, RwCount, GlobalAllocator>;
-		}
+	extern "Rust" {
+		#[link_name = "__popcorn_memory_physical_highmem"]
+		pub static GLOBAL_HIGHMEM: RwLock<Option<&'static dyn BackingAllocator>>;
 
-		__popcorn_memory_physical_get_kernel_highmem()
+		#[link_name = "__popcorn_memory_physical_dmamem"]
+		pub static GLOBAL_DMA: RwLock<Option<&'static dyn BackingAllocator>>;
 	}
 }

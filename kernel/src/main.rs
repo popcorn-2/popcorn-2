@@ -180,8 +180,9 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 		let allocator = Arc::get_mut(&mut new_alloc).expect("No other references to allocator should exist yet");
 		watermark_allocator.drain_into(allocator);
-		memory::physical::set_highmem(new_alloc.clone());
-		memory::physical::set_dmamem(new_alloc);
+		let allocator = unsafe { &*Arc::into_raw(&mut new_alloc) };
+		memory::physical::init_highmem(allocator);
+		memory::physical::init_dmamem(allocator);
 	}
 
 	if let Some(ref fb) = handoff_data.framebuffer {

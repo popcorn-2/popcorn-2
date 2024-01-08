@@ -1,41 +1,23 @@
-use alloc::sync::Arc;
 use core::mem;
-use core::ops::Deref;
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use kernel_api::memory::allocator::{BackingAllocator, GlobalAllocator};
+use kernel_api::memory::allocator::BackingAllocator;
 use kernel_api::memory::Frame;
-use kernel_api::sync::Mutex;
-use kernel_api::sync::{RwLock, RwReadGuard, RwUpgradableReadGuard, RwWriteGuard};
+use kernel_api::sync::{RwLock, RwUpgradableReadGuard, RwWriteGuard};
 
-static GLOBAL_HIGHMEM: RwLock<Option<GlobalAllocator>> = RwLock::new(None);
-static GLOBAL_DMA: RwLock<Option<GlobalAllocator>> = RwLock::new(None);
+#[export_name = "__popcorn_memory_physical_highmem"]
+static GLOBAL_HIGHMEM: RwLock<Option<&'static dyn BackingAllocator>> = RwLock::new(None);
+#[export_name = "__popcorn_memory_physical_dmamem"]
+static GLOBAL_DMA: RwLock<Option<&'static dyn BackingAllocator>> = RwLock::new(None);
 
-#[export_name = "__popcorn_memory_physical_get_kernel_highmem"]
-#[inline]
-pub fn highmem() -> impl Deref<Target = GlobalAllocator> {
-	RwReadGuard::map(
-		GLOBAL_HIGHMEM.read(),
-		|inner| inner.as_ref().expect("No highmem allocator")
-	)
+pub use kernel_api::memory::{highmem, dmamem};
+
+pub fn init_highmem<'a>(allocator: &'static dyn BackingAllocator) {
+	GLOBAL_HIGHMEM.write().replace(allocator);
 }
 
-pub fn set_highmem(allocator: Arc<dyn BackingAllocator>) {
-	let mut write_lock = GLOBAL_HIGHMEM.write();
-	write_lock.replace(GlobalAllocator::Arc(allocator));
-}
-
-#[inline]
-pub fn dmamem() -> impl Deref<Target = GlobalAllocator> {
-	RwReadGuard::map(
-		GLOBAL_DMA.read(),
-		|inner| inner.as_ref().expect("No dmamem allocator")
-	)
-}
-
-pub fn set_dmamem(allocator: Arc<dyn BackingAllocator>) {
-	let mut write_lock = GLOBAL_DMA.write();
-	write_lock.replace(GlobalAllocator::Arc(allocator));
+pub fn init_dmamem<'a>(allocator: &'static dyn BackingAllocator) {
+	GLOBAL_DMA.write().replace(allocator);
 }
 
 pub fn with_highmem_as<'a, R>(allocator: &'a dyn BackingAllocator, f: impl FnOnce() -> R) -> R {
@@ -44,7 +26,7 @@ pub fn with_highmem_as<'a, R>(allocator: &'a dyn BackingAllocator, f: impl FnOnc
 
 	let mut write_lock = GLOBAL_HIGHMEM.write();
 	let static_highmem = unsafe { mem::transmute::<_, &'static _>(allocator) };
-	let old_highmem = write_lock.replace(GlobalAllocator::Static(static_highmem));
+	let old_highmem = write_lock.replace(static_highmem);
 
 	// To prevent the allocator being changed while the closure is executing, downgrade the write lock to a read lock held across the boundary
 	let read_lock = RwWriteGuard::downgrade_to_upgradable(write_lock);
