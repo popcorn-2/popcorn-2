@@ -32,7 +32,7 @@ impl RangedBtreeAllocator {
         let guard = self.map.get_mut();
 
         for allocation in allocations {
-            let isect = min(allocation.start, self.range.start)..max(allocation.end, self.range.end);
+            let isect = max(allocation.start, self.range.start)..min(allocation.end, self.range.end);
             if !isect.is_empty() {
                 let _ = guard.insert(allocation, Meta { len: isect.end - isect.start });
             }
