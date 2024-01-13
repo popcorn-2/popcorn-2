@@ -14,7 +14,7 @@ use core::ops::Range;
 use kernel_api::memory::{Frame, AllocError};
 use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, SizedBackingAllocator};
 use kernel_api::sync::Mutex;
-use log::info;
+use log::warn;
 
 #[derive(Debug, Eq, PartialEq)]
 enum FrameState {
@@ -74,30 +74,121 @@ impl BitmapAllocator {
 
         (bitmap_index, bit_index)
     }
+
+    fn allocate_one(&mut self) -> Result<Frame, AllocError> {
+        for (i, entry) in self.bitmap.iter_mut().enumerate() {
+            let first_set_bit = usize::try_from(entry.trailing_zeros()).unwrap();
+            if first_set_bit != (mem::size_of::<usize>() * 8) {
+                *entry &= !(1usize << first_set_bit);
+                let bits_to_start = i * mem::size_of::<usize>();
+                let start = self.first_frame + bits_to_start + first_set_bit;
+                return Ok(start);
+            }
+        }
+
+        return Err(AllocError);
+    }
+
+    fn allocate_multiple_fast(&mut self, frame_count: usize) -> Result<Frame, AllocError> {
+        assert!(frame_count > 1);
+
+        // Cannot allocate bigger than number of bits in usize since can't check across boundaries
+        if frame_count > mem::size_of::<usize>() { return Err(AllocError); }
+
+        // Create a mask of `frame_count` contiguous bits
+        let mask = (2 << (frame_count - 1)) - 1;
+
+        for (i, entry) in self.bitmap.iter_mut().enumerate() {
+            // locate the first free frame so we don't waste time checking unnecessary bits
+            let first_set_bit = usize::try_from(entry.trailing_zeros()).unwrap();
+
+            /*
+             We slide the entry along, masking off the number of frames we want, and checking all the frames are free
+             We can't slide further than `size_of(usize) - frame_count` as this would mean there can't possibly be enough frames left,
+             since less than `frame_count` bits came from the original entry
+
+             `frame_count = 2`
+             `mask = 0b00000011`
+             `entry = 0b01100100`
+
+             `first_set_bit` is `2`, so we start with `slide = 2`
+             `shifted = entry >> slide = 0b00011001`
+             Then we mask the entry
+             `masked = shifted & mask = 0b00000001`
+             If enough frames were free, then the masked result should be equal to the mask, and we can allocate
+             If not, we repeat with a larger slide
+             */
+            for slide in first_set_bit..(mem::size_of::<usize>() - frame_count) {
+                let shifted = *entry >> slide;
+                let masked = shifted & mask;
+                if masked == mask {
+                    *entry &= !(mask << slide);
+                    let bits_to_start = i * mem::size_of::<usize>();
+                    let start = self.first_frame + bits_to_start + slide;
+                    return Ok(start);
+                }
+            }
+        }
+
+        Err(AllocError)
+    }
+
+    #[cold]
+    fn allocate_multiple_slow(&mut self, frame_count: usize) -> Result<Frame, AllocError> {
+        assert!(frame_count > 1);
+
+        // TODO: Can this be sped up? I hope so
+
+        let mut found_contiguous_frames = 0;
+        let mut contiguous_frames_start = Option::<(usize, usize)>::None;
+        let mut found = false;
+
+        'outer: for (word_idx, entry) in self.bitmap.iter_mut().enumerate() {
+            for bit_idx in 0..mem::size_of::<usize>() {
+                let free = ((*entry >> bit_idx) & 1) == 1;
+                if free {
+                    if found_contiguous_frames == 0 {
+                        contiguous_frames_start = Some((word_idx, bit_idx));
+                    }
+                    found_contiguous_frames += 1;
+                    if found_contiguous_frames == frame_count {
+                        found = true;
+                        break 'outer;
+                    }
+                }
+                else {
+                    found_contiguous_frames = 0;
+                    contiguous_frames_start = None;
+                }
+            }
+        }
+
+        if !found { Err(AllocError) }
+        else {
+            let contiguous_frames_start = contiguous_frames_start.expect("unreachable");
+            let start = self.first_frame + (contiguous_frames_start.0 * mem::size_of::<usize>()) + contiguous_frames_start.1;
+
+            for frame in start..(start + frame_count) {
+                self.set_frame(frame, FrameState::Allocated)
+                        .expect("Cannot have allocated an out of range frame");
+            }
+
+            Ok(start)
+        }
+    }
 }
 
 pub struct Wrapped(Mutex<BitmapAllocator>);
 
 unsafe impl BackingAllocator for Wrapped {
     fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
-        if frame_count != 1 {
-            info!("BitmapAllocator cannot allocate >1 frame");
-            return Err(AllocError);
-        }
-
         let mut guard = self.0.lock();
 
-        for (i, entry) in guard.bitmap.iter_mut().enumerate() {
-            let first_set_bit = usize::try_from(entry.trailing_zeros()).unwrap();
-            if first_set_bit != mem::size_of::<usize>() {
-                *entry &= !(1usize << first_set_bit);
-                let bits_to_start = i * mem::size_of::<usize>();
-                let start = guard.first_frame + bits_to_start + first_set_bit;
-                return Ok(start);
-            }
+        if frame_count == 1 { guard.allocate_one() }
+        else {
+            guard.allocate_multiple_fast(frame_count)
+                    .or_else(|_| guard.allocate_multiple_slow(frame_count))
         }
-
-        return Err(AllocError);
     }
 
     unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize) {
