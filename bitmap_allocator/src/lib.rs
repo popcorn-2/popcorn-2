@@ -91,6 +91,8 @@ impl BitmapAllocator {
     }
 
     fn allocate_multiple_fast(&mut self, frame_count: usize) -> Result<Frame, AllocError> {
+        assert!(frame_count > 1);
+
         // Cannot allocate bigger than number of bits in usize since can't check across boundaries
         if frame_count > mem::size_of::<usize>() { return Err(AllocError); }
 
