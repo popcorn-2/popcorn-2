@@ -79,6 +79,18 @@ unsafe impl Hal for Amd64Hal {
 
 		(flags & 0x0200) != 0
 	}
+
+	unsafe fn load_tls(ptr: *mut u8) {
+		let tls_self_ptr_low = ptr as usize as u32;
+		let tls_self_ptr_high = ((ptr as usize) >> 32) as u32;
+		unsafe {
+			asm!(
+				"mov ecx, 0xc0000100", // ecx = FSBase MSR
+				"wrmsr",
+				in("edx") tls_self_ptr_high, in("eax") tls_self_ptr_low, out("ecx") _
+			);
+		}
+	}
 }
 
 extern "x86-interrupt" fn breakpoint(frame: InterruptStackFrame) {
