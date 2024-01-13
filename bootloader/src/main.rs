@@ -893,6 +893,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         framebuffer: framebuffer_info,
         memory: handoff::Memory {
             map: kernel_mem_map,
+            used: Range(address_range.start.align_down(), address_range.end.align_down()),
             page_table_root: (&page_table).into(),
             stack: handoff::Stack {
                 top: stack_top.addr,
