@@ -28,6 +28,8 @@ pub unsafe trait Hal {
 	fn debug_output(data: &[u8]) -> core::result::Result<(), ()>;
 	fn early_init();
 	fn init_idt();
+	fn enable_interrupts();
+	fn get_and_disable_interrupts() -> bool;
 }
 
 pub trait FormatWriter {

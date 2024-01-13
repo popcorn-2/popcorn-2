@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::fmt::{Formatter, Pointer};
 use core::ptr::NonNull;
-use kernel_api::memory::{Frame, PhysicalAddress};
+use kernel_api::memory::{Frame, PhysicalAddress, VirtualAddress};
 
 #[derive(Debug)]
 #[repr(C)]
@@ -38,6 +38,7 @@ impl ColorMask {
 #[repr(C)]
 pub struct Memory {
 	pub map: Vec<MemoryMapEntry>,
+	pub used: Range<VirtualAddress<4096>>,
 	pub page_table_root: Frame,
 	pub stack: Stack
 }

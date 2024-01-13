@@ -6,14 +6,13 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::mem;
 use core::num::NonZeroUsize;
 use core::ops::Range;
-use kernel_api::memory::{Frame, PhysicalAddress, AllocError};
-use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config};
+use kernel_api::memory::{Frame, AllocError};
+use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, SizedBackingAllocator};
 use kernel_api::sync::Mutex;
 use log::info;
 
@@ -102,46 +101,39 @@ unsafe impl BackingAllocator for Wrapped {
     }
 
     unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize) {
-        todo!()
-    }
+        let mut guard = self.0.lock();
 
-    fn new(config: Config) -> Arc<dyn BackingAllocator> where Self: Sized {
-        let Range { start, end } = config.allocation_range;
-        let mut allocator = BitmapAllocator::new(start, end - start);
-
-        for free_region in config.regions {
-            for frame in free_region {
-                allocator.set_frame(frame, FrameState::Free)
-                    .unwrap();
-            }
+        for i in 0..frame_count.get() {
+            let frame = base + i;
+            guard.set_frame(frame, FrameState::Free)
+                    .expect("Attempted to free frame that wasn't allocated by this allocator");
         }
-
-        Arc::new(Wrapped(Mutex::new(allocator)))
     }
 
     fn push(&mut self, allocation: AllocationMeta) {
         let allocator = self.0.get_mut();
 
         for frame in allocation.region {
-            allocator.set_frame(frame, FrameState::Allocated)
-                .unwrap();
+            let _ = allocator.set_frame(frame, FrameState::Allocated);
         }
     }
+}
 
-    fn drain_into(self, into: &mut dyn BackingAllocator) {
-        let allocator = self.0.into_inner();
+unsafe impl SizedBackingAllocator for Wrapped {
+    fn new(config: Config) -> &'static mut dyn BackingAllocator where Self: Sized {
+        let Range { start, end } = config.allocation_range;
+        let mut allocator = BitmapAllocator::new(start, end - start);
 
-        for frame in allocator.first_frame..allocator.last_frame() {
-            if allocator.get_frame(frame).unwrap() == FrameState::Allocated {
-                into.push(AllocationMeta { region: frame .. frame+1 });
+        for free_region in config.regions {
+            for frame in free_region {
+                allocator.set_frame(frame, FrameState::Free)
+                         .unwrap();
             }
         }
+
+        Box::leak(Box::new(Wrapped(Mutex::new(allocator))))
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-
-}
+mod tests {}

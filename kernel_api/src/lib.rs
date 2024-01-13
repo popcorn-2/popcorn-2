@@ -1,6 +1,6 @@
 //! This crate provides public facing types and interfaces used within the popcorn2 kernel
 
-#![no_std]
+#![cfg_attr(not(feature = "use_std"), no_std)]
 #![feature(staged_api)]
 #![feature(min_specialization)]
 #![feature(custom_test_frameworks)]
@@ -8,6 +8,9 @@
 #![feature(step_trait)]
 #![feature(generic_const_items)]
 #![feature(generic_const_exprs)]
+#![feature(dyn_star)]
+#![feature(extern_types)]
+#![cfg_attr(feature = "use_std", feature(lazy_cell))]
 #![warn(missing_docs)]
 
 #![stable(feature = "kernel_core_api", since = "0.1.0")]
@@ -18,5 +21,8 @@ extern crate alloc;
 pub use kernel_module_macros::module_export;
 
 pub mod memory;
+#[cfg(feature = "full")]
 pub mod sync;
 
+#[cfg(all(not(feature = "use_std"), feature = "full"))]
+pub mod bridge;

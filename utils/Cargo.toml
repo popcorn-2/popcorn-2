@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 log = { version = "0.4.19", default-features = false }
-kernel_api = { path = "../kernel_api" }
+kernel_api = { path = "../kernel_api", default-features = false }

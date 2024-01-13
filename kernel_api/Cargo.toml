@@ -9,3 +9,10 @@ edition = "2021"
 lock_api = "0.4.11"
 kernel_module_macros = { path = "../kernel_module_macros" }
 auto_impl = "1.1.0"
+log = "0.4.20"
+parking_lot = { version = "0.12.1", optional = true, features = ["deadlock_detection"] }
+
+[features]
+use_std = ["parking_lot"]
+full = []
+default = ["full"]

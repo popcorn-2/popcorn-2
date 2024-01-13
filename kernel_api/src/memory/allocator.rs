@@ -37,8 +37,16 @@ pub struct Config<'a> {
 }
 
 #[unstable(feature = "kernel_allocation_new", issue = "5")]
+#[non_exhaustive]
 pub struct AllocationMeta {
     pub region: Range<Frame>
+}
+
+impl AllocationMeta {
+    #[unstable(feature = "kernel_allocation_new", issue = "5")]
+    pub fn new(region: Range<Frame>) -> Self {
+        Self { region }
+    }
 }
 
 /// An allocator that managed physical memory
@@ -114,13 +122,7 @@ pub unsafe trait BackingAllocator: Send + Sync {
     unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize);
 
     #[unstable(feature = "kernel_allocation_new", issue = "5")]
-    fn new(config: Config) -> Arc<dyn BackingAllocator> where Self: Sized { unimplemented!("experimental") }
-
-    #[unstable(feature = "kernel_allocation_new", issue = "5")]
     fn push(&mut self, allocation: AllocationMeta) { unimplemented!("experimental") }
-
-    #[unstable(feature = "kernel_allocation_new", issue = "5")]
-    fn drain_into(self, into: &mut dyn BackingAllocator) where Self: Sized { unimplemented!("experimental") }
 
     /// Allocate a continuous range of `count` frames, aligned to 2^`alignment_log2` frames
     ///
@@ -155,6 +157,12 @@ pub unsafe trait BackingAllocator: Send + Sync {
             } else { return Err(AlignedAllocError::AllocError) }
         }
     }
+}
+
+#[unstable(feature = "kernel_allocation_new", issue = "5")]
+pub unsafe trait SizedBackingAllocator: BackingAllocator + Sized {
+    #[unstable(feature = "kernel_allocation_new", issue = "5")]
+    fn new(config: Config) -> &'static mut dyn BackingAllocator;
 }
 
 /// The error returned when an allocation with a requested alignment could not be satisfied

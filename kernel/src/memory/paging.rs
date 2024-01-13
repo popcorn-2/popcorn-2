@@ -17,6 +17,7 @@ pub unsafe fn init_page_table(active_page_table: PageTable) {
 	});
 }
 
+#[export_name = "__popcorn_paging_get_current_page_table"]
 pub fn current_page_table() -> impl DerefMut<Target = PageTable> {
 	ACTIVE_PAGE_TABLE.table.borrow_mut()
 }
@@ -65,11 +66,17 @@ impl PageTable {
 		Some(physical.start() + diff)
 	}
 
+	// TODO: merge these
 	pub fn map_page(&mut self, page: Page, frame: Frame, allocator: impl BackingAllocator) -> Result<(), MapPageError> {
 		let upper_table = unsafe { self.l4.as_mut() }.child_table_or_new(page.global_index(), &allocator)?;
 		let middle_table = upper_table.child_table_or_new(page.upper_index(), &allocator)?;
 		let lower_table = middle_table.child_table_or_new(page.middle_index(), &allocator)?;
 		lower_table.entries[page.lower_index()].point_to_frame(frame).map_err(|_| MapPageError::AlreadyMapped)
+	}
+
+	#[export_name = "__popcorn_paging_map_page"]
+	pub fn map_page_dyn(&mut self, page: Page, frame: Frame, allocator: &dyn BackingAllocator) -> Result<(), MapPageError> {
+		self.map_page(page, frame, allocator)
 	}
 }
 
@@ -79,81 +86,7 @@ impl Debug for PageTable {
 	}
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum MapPageError {
-	AllocError,
-	AlreadyMapped
-}
-
-#[doc(hidden)]
-impl From<AllocError> for MapPageError {
-	fn from(_value: AllocError) -> Self {
-		Self::AllocError
-	}
-}
-
-mod mapping {
-	use kernel_api::memory::allocator::{AllocError, BackingAllocator};
-	use kernel_api::memory::{Frame, Page};
-	use kernel_api::memory::r#virtual::VirtualAllocator;
-	use crate::memory::paging::{current_page_table, PageTable};
-	use crate::memory::physical::highmem;
-	use crate::memory::r#virtual::Global;
-
-	pub struct Mapping<A: VirtualAllocator = Global> {
-		base: Page,
-		len: usize,
-		allocator: A
-	}
-
-	impl Mapping<Global> {
-		pub fn new(len: usize) -> Result<Self, AllocError> {
-			let highmem_lock = highmem();
-			Self::new_with(len, &*highmem_lock)
-		}
-
-		pub fn new_with(len: usize, physical_allocator: impl BackingAllocator) -> Result<Self, AllocError> {
-			// FIXME: memory leak here from lack of ArcFrame
-			let physical = physical_allocator.allocate_contiguous(len)?;
-			let r#virtual: Page = Global.allocate_contiguous(len)?;
-
-			// TODO: huge pages
-			let mut page_table = current_page_table();
-			for (frame, page) in (0..len).map(|i| (physical + i, r#virtual + i)) {
-				page_table.map_page(page, frame, &physical_allocator).expect("todo");
-			}
-
-			Ok(Self {
-				base: r#virtual,
-				len,
-				allocator: Global
-			})
-		}
-
-		fn into_raw(self) -> (Page, usize) {
-			let Self { base, len, .. } = self;
-			(base, len)
-		}
-
-		unsafe fn from_raw(base: Page, len: usize) -> Self {
-			Self {
-				base,
-				len,
-				allocator: Global
-			}
-		}
-
-		pub fn as_ptr(&mut self) -> *mut u8 {
-			self.base.as_ptr()
-		}
-	}
-
-	impl<A: VirtualAllocator> Drop for Mapping<A> {
-		fn drop(&mut self) {
-			// todo
-		}
-	}
-}
+pub use kernel_api::bridge::paging::MapPageError;
 
 #[cfg(test)]
 mod tests {

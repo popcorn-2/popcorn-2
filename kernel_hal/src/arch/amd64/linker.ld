@@ -120,6 +120,11 @@ SECTIONS {
 	    *(.dynamic .dynamic.*)
 	} :data :dynamic
 
+	. = ALIGN(4K);
+	PROVIDE(__popcorn_vmem_bootstrap_start = .);
+	. += 1M;
+	PROVIDE(__popcorn_vmem_bootstrap_end = .);
+
 	/DISCARD/ : {
 		*(.debug_gdb_scripts .debug_gdb_scripts.*)
 	}

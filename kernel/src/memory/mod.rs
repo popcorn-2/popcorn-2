@@ -1,4 +1,3 @@
-pub mod heap;
 pub mod r#virtual;
 pub mod physical;
 pub mod paging;

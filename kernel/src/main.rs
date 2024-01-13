@@ -29,6 +29,8 @@
 #![feature(kernel_physical_page_offset)]
 #![feature(kernel_memory_addr_access)]
 #![feature(kernel_virtual_memory)]
+#![feature(kernel_internals)]
+#![feature(strict_provenance_atomic_ptr)]
 
 #![no_std]
 #![no_main]
@@ -41,14 +43,16 @@ extern crate unwinding;
 
 extern crate self as kernel;
 
-use alloc::sync::Arc;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::alloc::{GlobalAlloc, Layout};
 use core::fmt::Write;
+use core::iter::{empty, once};
 use core::ops::Deref;
 use core::panic::PanicInfo;
 use core::ptr::slice_from_raw_parts_mut;
-use log::{info, trace};
-use kernel_api::memory::PhysicalAddress;
+use log::{debug, info, trace};
+use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::{allocator::BackingAllocator};
 use kernel_hal::{CurrentHal, Hal};
 
@@ -58,6 +62,7 @@ mod sync;
 mod memory;
 mod panicking;
 mod logging;
+mod bridge;
 
 #[cfg(test)]
 pub mod test_harness;
@@ -100,7 +105,7 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 }
 
 use kernel_api::memory::{Frame};
-use kernel_api::memory::allocator::Config;
+use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
 use utils::handoff::MemoryType;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 
@@ -167,8 +172,11 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 		let mut spaces2 = spaces.clone();
 		let watermark_allocator = WatermarkAllocator::new(&mut spaces2);
-		let mut new_alloc = memory::physical::with_highmem_as(&watermark_allocator, || {
-			<bitmap_allocator::Wrapped as BackingAllocator>::new(
+
+		debug!("Initialising highmem");
+
+		let allocator = memory::physical::with_highmem_as(&watermark_allocator, || {
+			<bitmap_allocator::Wrapped as SizedBackingAllocator>::new(
 				Config {
 					allocation_range: Frame::new(PhysicalAddress::new(0))..Frame::new(max_usable_memory.align_down()),
 					regions: &mut spaces
@@ -176,10 +184,34 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 			)
 		});
 
-		let allocator = Arc::get_mut(&mut new_alloc).expect("No other references to allocator should exist yet");
 		watermark_allocator.drain_into(allocator);
-		memory::physical::set_highmem(new_alloc.clone());
-		memory::physical::set_dmamem(new_alloc);
+		memory::physical::init_highmem(allocator);
+		memory::physical::init_dmamem(allocator);
+
+		let btree_alloc = {
+			use core::iter::{once, Iterator};
+
+			let mut btree_alloc = ranged_btree_allocator::RangedBtreeAllocator::new(
+				// unfortunately this means a page is missing :(
+				Page::new(VirtualAddress::new(0xffff_8000_0000_0000))..Page::new(VirtualAddress::new(0xffff_ffff_ffff_f000))
+			);
+
+			let virtual_reserved = [
+				// entire bootstrap region in case adding allocations uses more heap
+				// realisation: this will now cause an OOM on all subsequent heap allocations
+				Page::new(VirtualAddress::new(memory::r#virtual::VMEM_BOOTSTRAP_START.0 as usize))..Page::new(VirtualAddress::new(memory::r#virtual::VMEM_BOOTSTRAP_END.0 as usize)),
+
+				Page::new(handoff_data.memory.used.start())..Page::new(handoff_data.memory.used.end())
+			].into_iter();
+
+			btree_alloc.add_allocations(virtual_reserved);
+
+			btree_alloc
+		};
+
+		debug!("btree_alloc = {btree_alloc:x?}");
+
+		*memory::r#virtual::GLOBAL_VIRTUAL_ALLOCATOR.write() = Box::leak(Box::new(btree_alloc));
 	}
 
 	if let Some(ref fb) = handoff_data.framebuffer {

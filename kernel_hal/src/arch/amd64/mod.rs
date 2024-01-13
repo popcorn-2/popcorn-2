@@ -60,6 +60,25 @@ unsafe impl Hal for Amd64Hal {
 		});
 		idt.load();
 	}
+
+	#[export_name = "__popcorn_enable_irq"]
+	fn enable_interrupts() {
+		unsafe { asm!("sti", options(preserves_flags, nomem)); }
+	}
+
+	#[export_name = "__popcorn_disable_irq"]
+	fn get_and_disable_interrupts() -> bool {
+		let flags: u64;
+		unsafe {
+			asm!("
+			pushf
+			pop {}
+			cli
+		", out(reg) flags, options(preserves_flags, nomem))
+		}
+
+		(flags & 0x0200) != 0
+	}
 }
 
 extern "x86-interrupt" fn breakpoint(frame: InterruptStackFrame) {

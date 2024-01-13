@@ -2,11 +2,40 @@
 //! interfaces for memory related kernel modules to implement (such as [`BackingAllocator`](allocator::BackingAllocator))
 #![stable(feature = "kernel_core_api", since = "0.1.0")]
 
+use core::ops::Deref;
+#[cfg(feature = "full")]
+use crate::sync::RwReadGuard;
+
+#[cfg(feature = "full")]
 pub mod allocator;
+#[cfg(feature = "full")]
 pub mod heap;
 mod type_ops;
+#[cfg(feature = "full")]
 pub mod r#virtual;
+#[cfg(all(not(feature = "use_std"), feature = "full"))]
+pub mod mapping;
 
+#[cfg(feature = "full")]
+#[unstable(feature = "kernel_internals", issue = "none")]
+#[inline]
+#[track_caller]
+pub fn highmem() -> impl Deref<Target = dyn allocator::BackingAllocator> {
+    RwReadGuard::map(
+        unsafe { crate::bridge::memory::GLOBAL_HIGHMEM.read()},
+        |a| a.expect("no highmem allocator")
+    )
+}
+
+#[cfg(feature = "full")]
+#[unstable(feature = "kernel_internals", issue = "none")]
+#[inline]
+#[track_caller]
+pub fn dmamem() -> &'static dyn allocator::BackingAllocator {
+    todo!()
+}
+
+/// The error returned when an allocation was unsuccessful
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 pub struct AllocError;
