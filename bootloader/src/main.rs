@@ -622,13 +622,14 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     // FIXME: This shouldn't just be KERNEL_CODE
     let kernel = elf::load_kernel(&mut kernel, |count, ty| services.allocate_pages(ty, memory_types::KERNEL_CODE, count))
             .expect("Unable to load kernel");
-    let elf::KernelLoadInfo { kernel, mut page_table, address_range } = kernel;
+    let elf::KernelLoadInfo { kernel, mut page_table, address_range, tls: kernel_tls } = kernel;
     let mut address_range = {
         VirtualAddress::align_down::<4096>(address_range.start)..VirtualAddress::align_up::<4096>(address_range.end)
     };
 
     let kernel_symbols = kernel.exported_symbols();
     debug!("{:x?}", kernel_symbols);
+    debug!("kernel tls data = {kernel_tls:x?}");
 
     /*let mut testing_fn: u64 = 0;
     for module in &modules {
@@ -910,7 +911,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         },
         test: handoff::Testing {
             module_func: unsafe { mem::transmute(1usize) }
-        }
+        },
+        tls: Range(kernel_tls.start, kernel_tls.end)
     };
 
     let _ = system_table.exit_boot_services();
@@ -919,11 +921,17 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     //type KernelStart = ffi_abi!(type fn(&handoff::Data) -> !);
     //let kernel_entry: KernelStart = unsafe { mem::transmute(kernel_entry) };
     unsafe {
-        asm!("
-            mov rsp, {}
-            xor ebp, ebp
-            call {}
-        ", in(reg) stack_top.addr, in(reg) kernel_entry, in("rdi") &handoff, options(noreturn))
+        asm!(
+            "mov rsp, rcx",
+            "xor ebp, ebp",
+
+            "mov eax, 0xead10ca1",
+            "mov edx, 0xd", // edx:eax = 0xdead10cal
+            "mov ecx, 0xc0000100", // ecx = FSBase MSR
+            "wrmsr",
+
+            "call rsi",
+        in("rcx") stack_top.addr, in("rsi") kernel_entry, in("rdi") &handoff, options(noreturn))
     }
 }
 

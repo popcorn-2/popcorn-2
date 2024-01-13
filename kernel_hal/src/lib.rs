@@ -30,6 +30,7 @@ pub unsafe trait Hal {
 	fn init_idt();
 	fn enable_interrupts();
 	fn get_and_disable_interrupts() -> bool;
+	unsafe fn load_tls(ptr: *mut u8);
 }
 
 pub trait FormatWriter {

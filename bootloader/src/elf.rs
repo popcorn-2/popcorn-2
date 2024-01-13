@@ -58,7 +58,8 @@ fn load_segment<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(kerne
 pub struct KernelLoadInfo<'a> {
 	pub kernel: File<'a>,
 	pub page_table: PageTable,
-	pub address_range: Range<VirtualAddress>
+	pub address_range: Range<VirtualAddress>,
+	pub tls: Range<VirtualAddress>
 }
 
 pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(from: &mut [u8], mut allocator: F) -> Result<KernelLoadInfo<'_>, ()> {
@@ -67,14 +68,21 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 
 	let mut kernel_last_page = VirtualAddress::new(usize::MIN);
 	let mut kernel_first_page = VirtualAddress::new(usize::MAX);
+	let mut tls_start = Option::<VirtualAddress>::None;
+	let mut tls_end = Option::<VirtualAddress>::None;
 
-	kernel.segments().filter(|segment| segment.segment_type == SegmentType::LOAD)
-	      .try_for_each(|segment| {
-		     let segment = load_segment(&kernel, &segment, &mut allocator)?;
+	kernel.segments().filter(|segment| segment.segment_type == SegmentType::LOAD || segment.segment_type == SegmentType::TLS)
+	      .try_for_each(|segment_meta| {
+		     let segment = load_segment(&kernel, &segment_meta, &mut allocator)?;
 
 		      if segment.virtual_addr < kernel_first_page { kernel_first_page = segment.virtual_addr }
 		      let last_page = segment.virtual_addr + segment.page_count * PAGE_SIZE;
 		      if last_page > kernel_last_page { kernel_last_page = last_page };
+
+		      if segment_meta.segment_type == SegmentType::TLS {
+			      tls_start = Some(segment.virtual_addr);
+			      tls_end = Some(segment.virtual_addr + usize::try_from(segment_meta.memory_size).unwrap());
+		      }
 
 		      page_table.try_map_range(
 			      Page(segment.virtual_addr.addr.try_into().unwrap()),
@@ -89,7 +97,8 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 	Ok(KernelLoadInfo {
 		kernel,
 		page_table,
-		address_range: kernel_first_page..kernel_last_page
+		address_range: kernel_first_page..kernel_last_page,
+		tls: tls_start.map(|start| start..tls_end.unwrap()).unwrap_or(VirtualAddress::new(0)..VirtualAddress::new(0))
 	})
 }
 

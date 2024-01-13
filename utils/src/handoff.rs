@@ -10,7 +10,8 @@ pub struct Data {
 	pub memory: Memory,
 	pub modules: Modules,
 	pub log: Logging,
-	pub test: Testing
+	pub test: Testing,
+	pub tls: Range<VirtualAddress>
 }
 
 #[derive(Debug)]
