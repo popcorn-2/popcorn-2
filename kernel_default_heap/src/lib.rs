@@ -62,7 +62,7 @@ impl Heap for SyncHeap {
             let increment = increment.div_ceil(4096);
             let new_len = guard.mapping.len() + increment.unsigned_abs();
             debug!("Trying to remap");
-            guard.mapping.remap_in_place(new_len)?;
+            guard.mapping.resize_in_place(new_len)?;
         }
 
         guard.watermark = end;

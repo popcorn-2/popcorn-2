@@ -87,7 +87,7 @@ impl Mapping<Highmem> {
 		Self::new_with(len, Highmem)
 	}
 
-	fn remap_inner(&mut self, new_len: usize) -> Result<(), Option<Frame>> {
+	fn resize_inner(&mut self, new_len: usize) -> Result<(), Option<Frame>> {
 		if new_len == self.len { return Ok(()); }
 
 		// FIXME: DOnT JUST USE HIGHMEM UnCOnDITIOnALLY
@@ -127,13 +127,13 @@ impl Mapping<Highmem> {
 		}
 	}
 
-	pub fn remap_in_place(&mut self, new_len: usize) -> Result<(), AllocError> {
-		self.remap_inner(new_len)
+	pub fn resize_in_place(&mut self, new_len: usize) -> Result<(), AllocError> {
+		self.resize_inner(new_len)
 				.map_err(|_| AllocError)
 	}
 
-	pub fn remap(&mut self, new_len: usize) -> Result<(), AllocError> {
-		match self.remap_inner(new_len) {
+	pub fn resize(&mut self, new_len: usize) -> Result<(), AllocError> {
+		match self.resize_inner(new_len) {
 			Ok(_) => Ok(()),
 			Err(None) => Err(AllocError),
 			Err(Some(extra_physical_mem)) => {
