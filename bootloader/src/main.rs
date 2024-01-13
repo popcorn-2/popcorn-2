@@ -751,16 +751,16 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let stack_top = {
         const STACK_PAGE_COUNT: usize = 32;
-        address_range.start = VirtualAddress::align_down(address_range.start - STACK_PAGE_COUNT*4096);
+        address_range.start = VirtualAddress::align_down(address_range.start - (STACK_PAGE_COUNT + 1)*4096); // `+ 1` for guard page
 
         let Ok(allocation) = services.allocate_pages(AllocateType::AnyPages, memory_types::KERNEL_STACK, STACK_PAGE_COUNT) else {
             panic!("Failed to allocate enough memory to load popcorn2");
         };
 
-        page_table.try_map_range::<(), _>(Page(address_range.start.addr.try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()))
+        page_table.try_map_range::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()))
                          .unwrap();
 
-        address_range.start + STACK_PAGE_COUNT*4096
+        address_range.start + (STACK_PAGE_COUNT + 1)*4096
     };
 
     let symbol_map = symbol_map.map(|m| Box::leak(m.into_boxed_slice()));
