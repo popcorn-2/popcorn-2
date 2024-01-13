@@ -136,8 +136,46 @@ impl BitmapAllocator {
 
     #[cold]
     fn allocate_multiple_slow(&mut self, frame_count: usize) -> Result<Frame, AllocError> {
-        warn!("TODO: Check cross-word boundary");
-        Err(AllocError)
+        assert!(frame_count > 1);
+
+        // TODO: Can this be sped up? I hope so
+
+        let mut found_contiguous_frames = 0;
+        let mut contiguous_frames_start = Option::<(usize, usize)>::None;
+        let mut found = false;
+
+        'outer: for (word_idx, entry) in self.bitmap.iter_mut().enumerate() {
+            for bit_idx in 0..mem::size_of::<usize>() {
+                let free = ((*entry >> bit_idx) & 1) == 1;
+                if free {
+                    if found_contiguous_frames == 0 {
+                        contiguous_frames_start = Some((word_idx, bit_idx));
+                    }
+                    found_contiguous_frames += 1;
+                    if found_contiguous_frames == frame_count {
+                        found = true;
+                        break 'outer;
+                    }
+                }
+                else {
+                    found_contiguous_frames = 0;
+                    contiguous_frames_start = None;
+                }
+            }
+        }
+
+        if !found { Err(AllocError) }
+        else {
+            let contiguous_frames_start = contiguous_frames_start.expect("unreachable");
+            let start = self.first_frame + (contiguous_frames_start.0 * mem::size_of::<usize>()) + contiguous_frames_start.1;
+
+            for frame in start..(start + frame_count) {
+                self.set_frame(frame, FrameState::Allocated)
+                        .expect("Cannot have allocated an out of range frame");
+            }
+
+            Ok(start)
+        }
     }
 }
 
