@@ -189,11 +189,14 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 		memory::physical::init_dmamem(allocator);
 
 		let btree_alloc = {
-			use core::iter::{once, Iterator};
+			use core::iter::Iterator;
+
+			const PAGE_MAP_OFFSET: usize = 0xffff_8000_0000_0000;
+			const PAGE_MAP_OFFSET_LEN: usize = 2usize.pow(46);
 
 			let mut btree_alloc = ranged_btree_allocator::RangedBtreeAllocator::new(
 				// unfortunately this means a page is missing :(
-				Page::new(VirtualAddress::new(0xffff_8000_0000_0000))..Page::new(VirtualAddress::new(0xffff_ffff_ffff_f000))
+				Page::new(VirtualAddress::new(PAGE_MAP_OFFSET+PAGE_MAP_OFFSET_LEN))..Page::new(VirtualAddress::new(0xffff_ffff_ffff_f000))
 			);
 
 			let virtual_reserved = [
