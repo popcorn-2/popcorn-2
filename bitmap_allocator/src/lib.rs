@@ -79,7 +79,7 @@ impl BitmapAllocator {
     fn allocate_one(&mut self) -> Result<Frame, AllocError> {
         for (i, entry) in self.bitmap.iter_mut().enumerate() {
             let first_set_bit = usize::try_from(entry.trailing_zeros()).unwrap();
-            if first_set_bit != mem::size_of::<usize>() {
+            if first_set_bit != (mem::size_of::<usize>() * 8) {
                 *entry &= !(1usize << first_set_bit);
                 let bits_to_start = i * mem::size_of::<usize>();
                 let start = self.first_frame + bits_to_start + first_set_bit;
