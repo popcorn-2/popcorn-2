@@ -196,11 +196,13 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 				Page::new(VirtualAddress::new(0xffff_8000_0000_0000))..Page::new(VirtualAddress::new(0xffff_ffff_ffff_f000))
 			);
 
-			let virtual_reserved = once(
+			let virtual_reserved = [
 				// entire bootstrap region in case adding allocations uses more heap
 				// realisation: this will now cause an OOM on all subsequent heap allocations
-				Page::new(VirtualAddress::new(memory::r#virtual::VMEM_BOOTSTRAP_START.0 as usize))..Page::new(VirtualAddress::new(memory::r#virtual::VMEM_BOOTSTRAP_END.0 as usize))
-			).chain(empty(/* todo: don't overmap the kernel */));
+				Page::new(VirtualAddress::new(memory::r#virtual::VMEM_BOOTSTRAP_START.0 as usize))..Page::new(VirtualAddress::new(memory::r#virtual::VMEM_BOOTSTRAP_END.0 as usize)),
+
+				Page::new(handoff_data.memory.used.start())..Page::new(handoff_data.memory.used.end())
+			].into_iter();
 
 			btree_alloc.add_allocations(virtual_reserved);
 

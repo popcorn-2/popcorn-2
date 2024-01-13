@@ -38,7 +38,7 @@ impl ColorMask {
 #[repr(C)]
 pub struct Memory {
 	pub map: Vec<MemoryMapEntry>,
-	pub used: Range<VirtualAddress>,
+	pub used: Range<VirtualAddress<4096>>,
 	pub page_table_root: Frame,
 	pub stack: Stack
 }
