@@ -134,7 +134,7 @@ impl SystemEntry {
 
         let mut low = 0u64;
         let addr: u64 = (tss as *const _ as usize).try_into().unwrap();
-        let limit: u64 =  size_of_val(tss).try_into().unwrap();
+        let limit = u64::try_from(size_of_val(tss)).unwrap() - 1;
 
         const ACCESS_BYTE_DEFAULT: u64 = 0b1000_1001;
 
