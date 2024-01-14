@@ -21,6 +21,7 @@ unwinding = { version = "0.2.1", default-features = false, features = ["unwinder
 kernel_default_heap = { path = "../kernel_default_heap" }
 bitmap_allocator = { path = "../bitmap_allocator" }
 ranged_btree_allocator = { version = "0.1.0", path = "../ranged_btree_allocator" }
+crossbeam-queue = { version = "0.3.11", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 minicov = "0.3"

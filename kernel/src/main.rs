@@ -57,7 +57,7 @@ use core::ptr::slice_from_raw_parts_mut;
 use log::{debug, info, trace, warn};
 use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
 use core::future;
-use core::task::Poll;
+use core::task::{Poll, Waker};
 use kernel_api::memory::{allocator::BackingAllocator};
 use kernel_api::memory::mapping::Mapping;
 use kernel_hal::{CurrentHal, Hal};
@@ -255,13 +255,15 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 	warn!("TLS value is {x}");
 
 	let mut executor = Executor::new();
+	static mut WAKER: Option<Waker> = None;
 
 	executor.spawn(|| async {
 		sprintln!("inside async fn, about to wait");
 
 		let mut x = 0;
-		let waiter = future::poll_fn(|_| {
-			if x < 5 { x += 1; Poll::Pending }
+		let waiter = future::poll_fn(|ctx| {
+			unsafe { WAKER = Some(ctx.waker().clone()); }
+			if x < 5 { sprintln!("{x}"); x += 1; Poll::Pending }
 			else { Poll::Ready(()) }
 		});
 		waiter.await;
@@ -269,13 +271,12 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 		sprintln!("async fn back");
 	});
 
-	executor.spawn(|| async {
+	executor.spawn(|| async { for _ in 0..5 {
 		sprintln!("Inside other async fn");
-	});
+		unsafe { WAKER.as_ref().unwrap().wake_by_ref(); }
+	}});
 
 	executor.run();
-
-	loop {}
 }
 
 #[cfg(not(test))]
