@@ -15,6 +15,8 @@ mod type_ops;
 pub mod r#virtual;
 #[cfg(all(not(feature = "use_std"), feature = "full"))]
 pub mod mapping;
+#[cfg(feature = "full")]
+pub mod physical;
 
 #[cfg(feature = "full")]
 #[unstable(feature = "kernel_internals", issue = "none")]
