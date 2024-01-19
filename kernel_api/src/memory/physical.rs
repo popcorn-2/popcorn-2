@@ -1,5 +1,6 @@
 #![unstable(feature = "kernel_internals", issue = "none")]
 
+use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
 use crate::memory::allocator::BackingAllocator;
 use crate::memory::{AllocError, Frame, highmem};
@@ -45,7 +46,8 @@ impl<'a> OwnedFrames<'a> {
 	}
 
 	pub fn into_raw_parts(self) -> (Frame, NonZeroUsize, &'a dyn BackingAllocator) {
-		(self.base, self.len, self.allocator)
+		let me = ManuallyDrop::new(self);
+		(me.base, me.len, me.allocator)
 	}
 
 	pub unsafe fn from_raw_parts(base: Frame, len: NonZeroUsize, allocator: &'a dyn BackingAllocator) -> Self {
