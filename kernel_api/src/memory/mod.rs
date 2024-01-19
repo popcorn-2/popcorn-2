@@ -2,6 +2,7 @@
 //! interfaces for memory related kernel modules to implement (such as [`BackingAllocator`](allocator::BackingAllocator))
 #![stable(feature = "kernel_core_api", since = "0.1.0")]
 
+use core::num::NonZeroUsize;
 use core::ops::Deref;
 #[cfg(feature = "full")]
 use crate::sync::RwReadGuard;
@@ -20,20 +21,37 @@ pub mod physical;
 
 #[cfg(feature = "full")]
 #[unstable(feature = "kernel_internals", issue = "none")]
-#[inline]
-#[track_caller]
-pub fn highmem() -> impl Deref<Target = dyn allocator::BackingAllocator> {
-    RwReadGuard::map(
-        unsafe { crate::bridge::memory::GLOBAL_HIGHMEM.read()},
-        |a| a.expect("no highmem allocator")
-    )
+pub struct GlobalAllocator {}
+
+#[cfg(feature = "full")]
+#[unstable(feature = "kernel_internals", issue = "none")]
+unsafe impl allocator::BackingAllocator for GlobalAllocator {
+    fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, allocator::AllocError> {
+        todo!()
+    }
+
+    unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize) {
+        todo!()
+    }
 }
 
 #[cfg(feature = "full")]
 #[unstable(feature = "kernel_internals", issue = "none")]
 #[inline]
 #[track_caller]
-pub fn dmamem() -> &'static dyn allocator::BackingAllocator {
+pub fn highmem() -> &'static GlobalAllocator {
+    let _ = RwReadGuard::map(
+        unsafe { crate::bridge::memory::GLOBAL_HIGHMEM.read()},
+        |a| a.expect("no highmem allocator")
+    );
+    todo!()
+}
+
+#[cfg(feature = "full")]
+#[unstable(feature = "kernel_internals", issue = "none")]
+#[inline]
+#[track_caller]
+pub fn dmamem() -> &'static GlobalAllocator {
     todo!()
 }
 
