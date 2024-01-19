@@ -2,7 +2,7 @@
 
 use core::num::NonZeroUsize;
 use crate::memory::allocator::BackingAllocator;
-use crate::memory::Frame;
+use crate::memory::{AllocError, Frame, highmem};
 use crate::memory::mapping::Highmem;
 
 /// Conceptually the same as a hypothetical `Arc<[Frame]>`
@@ -17,7 +17,22 @@ pub struct OwnedFrames<'allocator> {
 	allocator: &'allocator dyn BackingAllocator
 }
 
+impl OwnedFrames<'static> {
+	pub fn new(count: NonZeroUsize) -> Result<Self, AllocError> {
+		Self::new_with(count, highmem())
+	}
+}
+
 impl<'a> OwnedFrames<'a> {
+	pub fn new_with(count: NonZeroUsize, allocator: &'a dyn BackingAllocator) -> Result<Self, AllocError> {
+		let base = allocator.allocate_contiguous(count.get())?;
+		Ok(OwnedFrames {
+			base,
+			len: count,
+			allocator
+		})
+	}
+
 	fn split_at(self, n: NonZeroUsize) -> (Self, Self) {
 		assert!(n <= self.len);
 
