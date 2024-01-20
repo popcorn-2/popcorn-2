@@ -72,11 +72,11 @@ impl<A: VirtualAllocator> OwnedPages<A> {
 	}
 
 	pub fn into_raw_parts(self) -> (Page, NonZeroUsize, A) {
-		let me = ManuallyDrop::new(self);
+		let this = ManuallyDrop::new(self);
 		(
-			me.base,
-			me.len,
-			unsafe { ptr::read(&me.allocator) }
+			this.base,
+			this.len,
+			unsafe { ptr::read(&this.allocator) }
 		)
 	}
 

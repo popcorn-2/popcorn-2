@@ -46,8 +46,8 @@ impl<'a> OwnedFrames<'a> {
 	}
 
 	pub fn into_raw_parts(self) -> (Frame, NonZeroUsize, &'a dyn BackingAllocator) {
-		let me = ManuallyDrop::new(self);
-		(me.base, me.len, me.allocator)
+		let this = ManuallyDrop::new(self);
+		(this.base, this.len, this.allocator)
 	}
 
 	pub unsafe fn from_raw_parts(base: Frame, len: NonZeroUsize, allocator: &'a dyn BackingAllocator) -> Self {
