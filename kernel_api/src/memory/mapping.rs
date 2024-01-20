@@ -258,7 +258,55 @@ pub struct NewMap<'phys_allocator, R: RawMap, A: VirtualAllocator> {
 	virtual_allocator: ManuallyDrop<A>,
 }
 
-impl<'phys_alloc, R: RawMap, A: VirtualAllocator> NewMap<'phys_alloc, R, A> {}
+// todo: replace this mess with builder
+impl<R: RawMap> NewMap<'static, R, Global> {
+	pub fn new(len: NonZeroUsize) -> Result<Self, AllocError> {
+		Self::new_with(len, highmem(), Global)
+	}
+}
+
+impl<'phys_alloc, R: RawMap, A: VirtualAllocator> NewMap<'phys_alloc, R, A> {
+	pub fn new_with(len: NonZeroUsize, physical_allocator: &'phys_alloc dyn BackingAllocator, virtual_allocator: A) -> Result<Self, AllocError> {
+		let virtual_len = R::physical_length_to_virtual_length(len);
+		let physical_len = len;
+
+		let physical_mem = OwnedFrames::new_with(physical_len, physical_allocator)?;
+		let virtual_mem = OwnedPages::new_with(virtual_len, virtual_allocator)?;
+
+		let physical_base = physical_mem.base;
+		let (virtual_base, _, virtual_allocator) = virtual_mem.into_raw_parts();
+		let offset_base = virtual_base + R::physical_start_offset_from_virtual();
+
+		// TODO: huge pages
+		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_current_page_table() };
+		for (frame, page) in (0..physical_len.get()).map(|i| (physical_base + i, offset_base + i)) {
+			unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &physical_allocator) }
+					.expect("Virtual memory uniquely owned by the allocation so should not be mapped in this address space");
+		}
+
+		Ok(Self {
+			raw: PhantomData,
+			physical: physical_mem,
+			virtual_base,
+			virtual_allocator: ManuallyDrop::new(virtual_allocator)
+		})
+	}
+}
+
+impl<R: RawMap, A: VirtualAllocator> Drop for NewMap<'_, R, A> {
+	fn drop(&mut self) {
+		// todo: unmap stuff
+
+		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
+		let _pages = unsafe {
+			OwnedPages::from_raw_parts(
+				self.virtual_base,
+				R::physical_length_to_virtual_length(self.physical.len),
+				virtual_allocator
+			)
+		};
+	}
+}
 
 pub enum MmapRawMap {}
 

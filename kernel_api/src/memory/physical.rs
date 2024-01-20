@@ -13,8 +13,8 @@ use crate::memory::mapping::Highmem;
 /// Internal implementation assumes that two `OwnedFrames` cannot overlap unless they came from the same original `OwnedFrames`
 /// object
 pub struct OwnedFrames<'allocator> {
-	base: Frame,
-	len: NonZeroUsize,
+	pub(super) base: Frame,
+	pub(super) len: NonZeroUsize,
 	allocator: &'allocator dyn BackingAllocator
 }
 
