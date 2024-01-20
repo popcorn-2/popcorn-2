@@ -244,10 +244,8 @@ impl<A: BackingAllocator> Drop for Mapping<A> {
 }
 
 pub trait RawMap {
-	fn new() -> Self;
-	fn raw_length_to_physical_length(raw_length: usize) -> usize;
-	fn raw_length_to_virtual_length(raw_length: usize) -> usize;
-	fn virtual_start_offset_from_physical() -> isize;
+	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize;
+	fn physical_start_offset_from_virtual() -> isize;
 }
 
 pub struct NewMap<R: RawMap, A: VirtualAllocator> {
@@ -263,19 +261,17 @@ impl<R: RawMap, A: VirtualAllocator> NewMap<R, A> {}
 pub struct MmapRawMap;
 
 impl RawMap for MmapRawMap {
-	fn new() -> Self { Self }
-	fn raw_length_to_physical_length(raw_length: usize) -> usize { raw_length }
-	fn raw_length_to_virtual_length(raw_length: usize) -> usize { raw_length }
-	fn virtual_start_offset_from_physical() -> isize { 0 }
+	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize { physical_length }
+	fn physical_start_offset_from_virtual() -> isize { 0 }
 }
 
 pub struct KstackRawMap;
 
 impl RawMap for KstackRawMap {
-	fn new() -> Self { Self }
-	fn raw_length_to_physical_length(raw_length: usize) -> usize { raw_length }
-	fn raw_length_to_virtual_length(raw_length: usize) -> usize { raw_length + 1 }
-	fn virtual_start_offset_from_physical() -> isize { -1 }
+	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize {
+		physical_length.checked_add(1).expect("Stack size overflow")
+	}
+	fn physical_start_offset_from_virtual() -> isize { 1 }
 }
 
 pub type NewMmap<V = Global> = NewMap<MmapRawMap, V>;
