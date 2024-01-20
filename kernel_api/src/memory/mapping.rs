@@ -251,24 +251,23 @@ pub trait RawMap {
 	fn physical_start_offset_from_virtual() -> isize;
 }
 
-pub struct NewMap<R: RawMap, A: VirtualAllocator> {
-	raw: R,
-	physical_base: Frame,
+pub struct NewMap<'phys_allocator, R: RawMap, A: VirtualAllocator> {
+	raw: PhantomData<R>,
+	physical: OwnedFrames<'phys_allocator>,
 	virtual_base: Page,
-	raw_length: NonZeroUsize,
-	virtual_allocator: A
+	virtual_allocator: ManuallyDrop<A>,
 }
 
-impl<R: RawMap, A: VirtualAllocator> NewMap<R, A> {}
+impl<'phys_alloc, R: RawMap, A: VirtualAllocator> NewMap<'phys_alloc, R, A> {}
 
-pub struct MmapRawMap;
+pub enum MmapRawMap {}
 
 impl RawMap for MmapRawMap {
 	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize { physical_length }
 	fn physical_start_offset_from_virtual() -> isize { 0 }
 }
 
-pub struct KstackRawMap;
+pub enum KstackRawMap {}
 
 impl RawMap for KstackRawMap {
 	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize {
@@ -277,5 +276,5 @@ impl RawMap for KstackRawMap {
 	fn physical_start_offset_from_virtual() -> isize { 1 }
 }
 
-pub type NewMmap<V = Global> = NewMap<MmapRawMap, V>;
-pub type Stack<V = Global> = NewMap<KstackRawMap, V>;
+pub type NewMmap<'phys_alloc, V: VirtualAllocator = Global> = NewMap<'phys_alloc, MmapRawMap, V>;
+pub type Stack<'phys_alloc, V: VirtualAllocator = Global> = NewMap<'phys_alloc, KstackRawMap, V>;
