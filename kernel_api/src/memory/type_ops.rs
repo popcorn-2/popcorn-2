@@ -55,6 +55,42 @@ impl<const ALIGN: usize> Add<usize> for PhysicalAddress<ALIGN> {
 }
 
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
+impl<const ALIGN: usize> Add<isize> for VirtualAddress<ALIGN> {
+    type Output = VirtualAddress<1>;
+
+    #[track_caller]
+    fn add(self, rhs: isize) -> Self::Output {
+        #[cfg(debug_assertions)]
+        return VirtualAddress {
+            addr: self.addr.checked_add_signed(rhs).expect("attempt to add with overflow")
+        };
+
+        #[cfg(not(debug_assertions))]
+        return VirtualAddress {
+            addr: self.addr.wrapping_add_signed(rhs)
+        };
+    }
+}
+
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
+impl<const ALIGN: usize> Add<isize> for PhysicalAddress<ALIGN> {
+    type Output = PhysicalAddress<1>;
+
+    #[track_caller]
+    fn add(self, rhs: isize) -> Self::Output {
+        #[cfg(debug_assertions)]
+        return PhysicalAddress {
+            addr: self.addr.checked_add_signed(rhs).expect("attempt to add with overflow")
+        };
+
+        #[cfg(not(debug_assertions))]
+        return PhysicalAddress {
+            addr: self.addr.wrapping_add_signed(rhs)
+        };
+    }
+}
+
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
 impl<const ALIGN: usize> Sub<usize> for VirtualAddress<ALIGN> {
     type Output = VirtualAddress<1>;
 
@@ -73,6 +109,42 @@ impl<const ALIGN: usize> Sub<usize> for PhysicalAddress<ALIGN> {
         PhysicalAddress {
             addr: self.addr - rhs
         }
+    }
+}
+
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
+impl<const ALIGN: usize> Sub<isize> for VirtualAddress<ALIGN> {
+    type Output = VirtualAddress<1>;
+
+    #[track_caller]
+    fn sub(self, rhs: isize) -> Self::Output {
+        #[cfg(debug_assertions)]
+        return VirtualAddress {
+            addr: self.addr.checked_add_signed(-rhs).expect("attempt to subtract with overflow")
+        };
+
+        #[cfg(not(debug_assertions))]
+        return VirtualAddress {
+            addr: self.addr.wrapping_add_signed(-rhs)
+        };
+    }
+}
+
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
+impl<const ALIGN: usize> Sub<isize> for PhysicalAddress<ALIGN> {
+    type Output = PhysicalAddress<1>;
+
+    #[track_caller]
+    fn sub(self, rhs: isize) -> Self::Output {
+        #[cfg(debug_assertions)]
+        return PhysicalAddress {
+            addr: self.addr.checked_add_signed(-rhs).expect("attempt to subtract with overflow")
+        };
+
+        #[cfg(not(debug_assertions))]
+        return PhysicalAddress {
+            addr: self.addr.wrapping_add_signed(-rhs)
+        };
     }
 }
 
@@ -117,6 +189,28 @@ impl Add<usize> for Frame {
 }
 
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
+impl Add<isize> for Page {
+    type Output = Page;
+
+    fn add(self, rhs: isize) -> Self::Output {
+        Page {
+            base: unsafe { (self.base + rhs * (PAGE_SIZE as isize)).align_unchecked() }
+        }
+    }
+}
+
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
+impl Add<isize> for Frame {
+    type Output = Frame;
+
+    fn add(self, rhs: isize) -> Self::Output {
+        Frame {
+            base: unsafe { (self.base + rhs * (PAGE_SIZE as isize)).align_unchecked() }
+        }
+    }
+}
+
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
 impl Sub<usize> for Page {
     type Output = Page;
 
@@ -134,6 +228,28 @@ impl Sub<usize> for Frame {
     fn sub(self, rhs: usize) -> Self::Output {
         Frame {
             base: unsafe { (self.base - rhs * PAGE_SIZE).align_unchecked() }
+        }
+    }
+}
+
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
+impl Sub<isize> for Page {
+    type Output = Page;
+
+    fn sub(self, rhs: isize) -> Self::Output {
+        Page {
+            base: unsafe { (self.base - rhs * (PAGE_SIZE as isize)).align_unchecked() }
+        }
+    }
+}
+
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
+impl Sub<isize> for Frame {
+    type Output = Frame;
+
+    fn sub(self, rhs: isize) -> Self::Output {
+        Frame {
+            base: unsafe { (self.base - rhs * (PAGE_SIZE as isize)).align_unchecked() }
         }
     }
 }

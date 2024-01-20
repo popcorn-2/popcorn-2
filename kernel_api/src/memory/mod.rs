@@ -78,6 +78,7 @@ pub struct Page {
 }
 
 /// A physical memory address of alignment `ALIGN`
+// todo: replace ALIGN with a NonZeroUsize
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 #[derive(Debug, Copy, Clone, Eq, Ord)]
 pub struct PhysicalAddress<const ALIGN: usize = 1> {

@@ -1,10 +1,13 @@
 #![unstable(feature = "kernel_mmap", issue = "24")]
 
+use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
 use log::debug;
 use crate::memory::allocator::{AlignedAllocError, AllocationMeta, BackingAllocator, ZeroAllocError};
 use crate::memory::{AllocError, Frame, highmem, Page};
-use crate::memory::r#virtual::{Global, VirtualAllocator};
+use crate::memory::physical::OwnedFrames;
+use crate::memory::r#virtual::{Global, OwnedPages, VirtualAllocator};
 
 #[derive(Copy, Clone, Debug)]
 pub struct Highmem;
