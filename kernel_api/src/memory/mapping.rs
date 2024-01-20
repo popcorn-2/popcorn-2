@@ -242,3 +242,41 @@ impl<A: BackingAllocator> Drop for Mapping<A> {
 		// todo
 	}
 }
+
+pub trait RawMap {
+	fn new() -> Self;
+	fn raw_length_to_physical_length(raw_length: usize) -> usize;
+	fn raw_length_to_virtual_length(raw_length: usize) -> usize;
+	fn virtual_start_offset_from_physical() -> isize;
+}
+
+pub struct NewMap<R: RawMap, A: VirtualAllocator> {
+	raw: R,
+	physical_base: Frame,
+	virtual_base: Page,
+	raw_length: NonZeroUsize,
+	virtual_allocator: A
+}
+
+impl<R: RawMap, A: VirtualAllocator> NewMap<R, A> {}
+
+pub struct MmapRawMap;
+
+impl RawMap for MmapRawMap {
+	fn new() -> Self { Self }
+	fn raw_length_to_physical_length(raw_length: usize) -> usize { raw_length }
+	fn raw_length_to_virtual_length(raw_length: usize) -> usize { raw_length }
+	fn virtual_start_offset_from_physical() -> isize { 0 }
+}
+
+pub struct KstackRawMap;
+
+impl RawMap for KstackRawMap {
+	fn new() -> Self { Self }
+	fn raw_length_to_physical_length(raw_length: usize) -> usize { raw_length }
+	fn raw_length_to_virtual_length(raw_length: usize) -> usize { raw_length + 1 }
+	fn virtual_start_offset_from_physical() -> isize { -1 }
+}
+
+pub type NewMmap<V = Global> = NewMap<MmapRawMap, V>;
+pub type Stack<V = Global> = NewMap<KstackRawMap, V>;
