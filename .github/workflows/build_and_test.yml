@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   pull_request:
   merge_group:
+  push:
+    branches:
+      - trunk
 
 env:
   CARGO_TERM_COLOR: always
