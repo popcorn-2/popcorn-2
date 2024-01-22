@@ -49,14 +49,16 @@ unsafe impl BackingAllocator for Highmem {
 /// An owned region of memory
 ///
 /// Depending on memory attributes, this may be invalid to read or write to
+#[deprecated(since = "0.1.0", note = "Use Mapping instead")]
+#[unstable(feature = "kernel_mmap", issue = "24")]
 #[derive(Debug)]
-pub struct Mapping<A: BackingAllocator = Highmem> {
+pub struct OldMapping<A: BackingAllocator = Highmem> {
 	base: Page,
 	len: usize,
 	allocator: A
 }
 
-impl<A: BackingAllocator> Mapping<A> {
+impl<A: BackingAllocator> OldMapping<A> {
 	pub fn as_ptr(&self) -> *const u8 {
 		self.base.as_ptr()
 	}
@@ -85,7 +87,7 @@ impl<A: BackingAllocator> Mapping<A> {
 	}
 }
 
-impl Mapping<Highmem> {
+impl OldMapping<Highmem> {
 	pub fn new(len: usize) -> Result<Self, AllocError> {
 		Self::new_with(len, Highmem)
 	}
@@ -240,18 +242,18 @@ impl Mapping<Highmem> {
 	}
 }
 
-impl<A: BackingAllocator> Drop for Mapping<A> {
+impl<A: BackingAllocator> Drop for OldMapping<A> {
 	fn drop(&mut self) {
 		// todo
 	}
 }
 
-pub trait RawMap {
+pub trait Mappable {
 	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize;
 	fn physical_start_offset_from_virtual() -> isize;
 }
 
-pub struct NewMap<'phys_allocator, R: RawMap, A: VirtualAllocator> {
+pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
 	raw: PhantomData<R>,
 	physical: OwnedFrames<'phys_allocator>,
 	virtual_base: Page,
@@ -259,13 +261,13 @@ pub struct NewMap<'phys_allocator, R: RawMap, A: VirtualAllocator> {
 }
 
 // todo: replace this mess with builder
-impl<R: RawMap> NewMap<'static, R, Global> {
+impl<R: Mappable> RawMapping<'static, R, Global> {
 	pub fn new(len: NonZeroUsize) -> Result<Self, AllocError> {
 		Self::new_with(len, highmem(), Global)
 	}
 }
 
-impl<'phys_alloc, R: RawMap, A: VirtualAllocator> NewMap<'phys_alloc, R, A> {
+impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A> {
 	pub fn new_with(len: NonZeroUsize, physical_allocator: &'phys_alloc dyn BackingAllocator, virtual_allocator: A) -> Result<Self, AllocError> {
 		let virtual_len = R::physical_length_to_virtual_length(len);
 		let physical_len = len;
@@ -293,7 +295,7 @@ impl<'phys_alloc, R: RawMap, A: VirtualAllocator> NewMap<'phys_alloc, R, A> {
 	}
 }
 
-impl<R: RawMap, A: VirtualAllocator> Drop for NewMap<'_, R, A> {
+impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 	fn drop(&mut self) {
 		// todo: unmap stuff
 
@@ -308,21 +310,24 @@ impl<R: RawMap, A: VirtualAllocator> Drop for NewMap<'_, R, A> {
 	}
 }
 
-pub enum MmapRawMap {}
+pub enum MappingRaw {}
 
-impl RawMap for MmapRawMap {
+impl Mappable for MappingRaw {
 	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize { physical_length }
 	fn physical_start_offset_from_virtual() -> isize { 0 }
 }
 
-pub enum KstackRawMap {}
+pub enum StackRaw {}
 
-impl RawMap for KstackRawMap {
+impl Mappable for StackRaw {
 	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize {
 		physical_length.checked_add(1).expect("Stack size overflow")
 	}
 	fn physical_start_offset_from_virtual() -> isize { 1 }
 }
 
-pub type NewMmap<'phys_alloc, V: VirtualAllocator = Global> = NewMap<'phys_alloc, MmapRawMap, V>;
-pub type Stack<'phys_alloc, V: VirtualAllocator = Global> = NewMap<'phys_alloc, KstackRawMap, V>;
+#[allow(type_alias_bounds)] // makes docs nicer
+pub type Mapping<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, MappingRaw, V>;
+
+#[allow(type_alias_bounds)] // makes docs nicer
+pub type Stack<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, StackRaw, V>;
