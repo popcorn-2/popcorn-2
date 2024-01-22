@@ -5,8 +5,8 @@ use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
 use log::debug;
 use crate::memory::allocator::{AlignedAllocError, AllocationMeta, BackingAllocator, ZeroAllocError};
-use crate::memory::{AllocError, Frame, highmem, Page};
-use crate::memory::physical::OwnedFrames;
+use crate::memory::{AllocError, Frame, Page};
+use crate::memory::physical::{OwnedFrames, highmem};
 use crate::memory::r#virtual::{Global, OwnedPages, VirtualAllocator};
 
 #[derive(Copy, Clone, Debug)]

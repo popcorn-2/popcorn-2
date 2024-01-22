@@ -10,7 +10,8 @@ static GLOBAL_HIGHMEM: RwLock<Option<&'static dyn BackingAllocator>> = RwLock::n
 #[export_name = "__popcorn_memory_physical_dmamem"]
 static GLOBAL_DMA: RwLock<Option<&'static dyn BackingAllocator>> = RwLock::new(None);
 
-pub use kernel_api::memory::{highmem, dmamem};
+pub use kernel_api::memory::physical::{highmem, dmamem};
+use kernel_api::memory::mapping::Highmem;
 
 pub fn init_highmem<'a>(allocator: &'static dyn BackingAllocator) {
 	GLOBAL_HIGHMEM.write().replace(allocator);

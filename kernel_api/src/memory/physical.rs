@@ -3,8 +3,38 @@
 use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
 use crate::memory::allocator::BackingAllocator;
-use crate::memory::{AllocError, Frame, highmem};
+use crate::memory::{allocator, AllocError, Frame};
 use crate::memory::mapping::Highmem;
+use crate::sync::{RwLock, RwReadGuard};
+
+#[unstable(feature = "kernel_internals", issue = "none")]
+pub struct GlobalAllocator {
+}
+
+#[unstable(feature = "kernel_internals", issue = "none")]
+unsafe impl BackingAllocator for GlobalAllocator {
+	fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, allocator::AllocError> {
+		todo!()
+	}
+
+	unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize) {
+		todo!()
+	}
+}
+
+#[unstable(feature = "kernel_internals", issue = "none")]
+#[inline]
+#[track_caller]
+pub fn highmem() -> &'static GlobalAllocator {
+	todo!()
+}
+
+#[unstable(feature = "kernel_internals", issue = "none")]
+#[inline]
+#[track_caller]
+pub fn dmamem() -> &'static GlobalAllocator {
+	todo!()
+}
 
 /// Conceptually the same as a hypothetical `Arc<[Frame]>`
 ///

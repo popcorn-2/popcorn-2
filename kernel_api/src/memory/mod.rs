@@ -19,42 +19,6 @@ pub mod mapping;
 #[cfg(feature = "full")]
 pub mod physical;
 
-#[cfg(feature = "full")]
-#[unstable(feature = "kernel_internals", issue = "none")]
-pub struct GlobalAllocator {}
-
-#[cfg(feature = "full")]
-#[unstable(feature = "kernel_internals", issue = "none")]
-unsafe impl allocator::BackingAllocator for GlobalAllocator {
-    fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, allocator::AllocError> {
-        todo!()
-    }
-
-    unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize) {
-        todo!()
-    }
-}
-
-#[cfg(feature = "full")]
-#[unstable(feature = "kernel_internals", issue = "none")]
-#[inline]
-#[track_caller]
-pub fn highmem() -> &'static GlobalAllocator {
-    let _ = RwReadGuard::map(
-        unsafe { crate::bridge::memory::GLOBAL_HIGHMEM.read()},
-        |a| a.expect("no highmem allocator")
-    );
-    todo!()
-}
-
-#[cfg(feature = "full")]
-#[unstable(feature = "kernel_internals", issue = "none")]
-#[inline]
-#[track_caller]
-pub fn dmamem() -> &'static GlobalAllocator {
-    todo!()
-}
-
 /// The error returned when an allocation was unsuccessful
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
