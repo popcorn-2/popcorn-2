@@ -33,7 +33,7 @@ jobs:
         with:
           name: Live ISO
           path: |
-            target/debug/popcorn2.iso
+            target/release/popcorn2.iso
   test:
     runs-on: ubuntu-latest
     permissions:
