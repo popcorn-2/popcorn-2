@@ -4,21 +4,27 @@ use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
 use crate::memory::allocator::BackingAllocator;
 use crate::memory::{allocator, AllocError, Frame};
-use crate::memory::mapping::Highmem;
-use crate::sync::{RwLock, RwReadGuard};
+use crate::sync::RwLock;
 
 #[unstable(feature = "kernel_internals", issue = "none")]
 pub struct GlobalAllocator {
+	#[unstable(feature = "kernel_internals", issue = "none")]
+	pub rwlock: RwLock<Option<&'static dyn BackingAllocator>>
 }
 
+// todo: can this be a macro?
 #[unstable(feature = "kernel_internals", issue = "none")]
 unsafe impl BackingAllocator for GlobalAllocator {
 	fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, allocator::AllocError> {
-		todo!()
+		self.rwlock.read()
+				.expect("No global allocator set")
+				.allocate_contiguous(frame_count)
 	}
 
 	unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize) {
-		todo!()
+		self.rwlock.read()
+		    .expect("No global allocator set")
+		    .deallocate_contiguous(base, frame_count)
 	}
 }
 
@@ -26,14 +32,14 @@ unsafe impl BackingAllocator for GlobalAllocator {
 #[inline]
 #[track_caller]
 pub fn highmem() -> &'static GlobalAllocator {
-	todo!()
+	unsafe { &crate::bridge::memory::GLOBAL_HIGHMEM }
 }
 
 #[unstable(feature = "kernel_internals", issue = "none")]
 #[inline]
 #[track_caller]
 pub fn dmamem() -> &'static GlobalAllocator {
-	todo!()
+	unsafe { &crate::bridge::memory::GLOBAL_DMA }
 }
 
 /// Conceptually the same as a hypothetical `Arc<[Frame]>`

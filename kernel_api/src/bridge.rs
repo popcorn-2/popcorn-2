@@ -63,14 +63,13 @@ pub mod paging {
 }
 
 pub mod memory {
-	use crate::memory::allocator::BackingAllocator;
-	use crate::sync::RwLock;
+	use crate::memory::physical::GlobalAllocator;
 
 	extern "Rust" {
 		#[link_name = "__popcorn_memory_physical_highmem"]
-		pub static GLOBAL_HIGHMEM: RwLock<Option<&'static dyn BackingAllocator>>;
+		pub static GLOBAL_HIGHMEM: GlobalAllocator;
 
 		#[link_name = "__popcorn_memory_physical_dmamem"]
-		pub static GLOBAL_DMA: RwLock<Option<&'static dyn BackingAllocator>>;
+		pub static GLOBAL_DMA: GlobalAllocator;
 	}
 }
