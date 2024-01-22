@@ -51,30 +51,30 @@ jobs:
           cp /usr/share/OVMF/OVMF_VARS.fd ./OVMF_VARS.fd
           ./pop.py test --arch x86_64 -v --coverage coverage.profraw --junit junit.xml
       - name: Test Summary
-        if: always()
+        if: success() || failure()
         uses: test-summary/action@v2
         with:
           paths: "junit.xml"
           show: "fail, skip"
           output: "tests.md"
       - name: 'Archive results'
-        if: always()
+        if: success() || failure()
         uses: actions/upload-artifact@v3
         with:
           name: Test results
           path: |
             junit.xml
       - name: 'Add results to PR'
-        if: github.event_name == 'pull_request'
+        if: (success() || failure()) && github.event_name == 'pull_request'
         uses: mshick/add-pr-comment@v2
         with:
           message-path: "tests.md"
       - name: 'Add results to workflow summary'
-        if: always()
+        if: success() || failure()
         run: |
           cat tests.md >> $GITHUB_STEP_SUMMARY
       - name: 'Archive coverage'
-        if: always()
+        if: success() || failure()
         uses: actions/upload-artifact@v3
         with:
           name: Test coverage
