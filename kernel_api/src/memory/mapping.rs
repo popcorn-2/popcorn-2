@@ -393,16 +393,24 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		R::physical_length_to_virtual_length(self.physical.len)
 	}
 
-	pub fn start(&self) -> Page {
+	pub fn virtual_start(&self) -> Page {
 		self.virtual_base
 	}
 
-	pub fn end(&self) -> Page {
-		self.virtual_base + self.virtual_len().get()
+	pub fn virtual_end(&self) -> Page {
+		self.virtual_start() + self.virtual_len().get()
 	}
 
-	pub fn len(&self) -> NonZeroUsize {
+	pub fn physical_len(&self) -> NonZeroUsize {
 		self.physical.len
+	}
+
+	pub fn physical_start(&self) -> Frame {
+		self.physical.base
+	}
+
+	pub fn physical_end(&self) -> Frame {
+		self.physical_start() + self.physical_len().get()
 	}
 }
 
