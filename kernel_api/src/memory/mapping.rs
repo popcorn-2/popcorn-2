@@ -283,8 +283,6 @@ pub enum Location<A: Address> {
 
 pub enum Laziness { Lazy, Prefault }
 
-pub enum Grow { Up }
-
 pub struct Config<'physical_allocator, A: VirtualAllocator> {
 	physical_location: Location<Frame>,
 	virtual_location: Location<Page>,
@@ -293,7 +291,6 @@ pub struct Config<'physical_allocator, A: VirtualAllocator> {
 	physical_allocator: &'physical_allocator dyn BackingAllocator,
 	virtual_allocator: A,
 	protection: Protection,
-	grow: Grow,
 }
 
 impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
@@ -306,7 +303,6 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 			physical_allocator: highmem(),
 			virtual_allocator: Global,
 			protection: Protection::RWX,
-			grow: Grow::Up,
 		}
 	}
 
@@ -327,13 +323,6 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	pub fn protection(self, protection: Protection) -> Self {
 		Config {
 			protection,
-			.. self
-		}
-	}
-
-	pub fn direction(self, grow: Grow) -> Self {
-		Config {
-			grow,
 			.. self
 		}
 	}
