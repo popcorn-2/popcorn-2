@@ -3,6 +3,7 @@
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::num::{NonZeroU32, NonZeroUsize};
+use core::ptr;
 use log::debug;
 use crate::memory::allocator::{AlignedAllocError, AllocationMeta, BackingAllocator, ZeroAllocError};
 use crate::memory::{AllocError, Frame, Page};
@@ -370,6 +371,47 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 			virtual_base,
 			virtual_allocator: ManuallyDrop::new(virtual_allocator)
 		})
+	}
+
+	pub fn into_raw_parts(mut self) -> (OwnedFrames<'phys_alloc>, OwnedPages<A>) {
+		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
+		let pages = unsafe {
+			OwnedPages::from_raw_parts(
+				self.virtual_base,
+				R::physical_length_to_virtual_length(self.physical.len),
+				virtual_allocator
+			)
+		};
+
+		let this = ManuallyDrop::new(self);
+		(unsafe { ptr::read(&this.physical) }, pages)
+	}
+
+	pub unsafe fn from_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>) -> Self {
+		let (virtual_base, _, virtual_allocator) = pages.into_raw_parts();
+
+		Self {
+			raw: PhantomData,
+			physical: frames,
+			virtual_base,
+			virtual_allocator: ManuallyDrop::new(virtual_allocator)
+		}
+	}
+
+	fn virtual_len(&self) -> NonZeroUsize {
+		R::physical_length_to_virtual_length(self.physical.len)
+	}
+
+	pub fn start(&self) -> Page {
+		self.virtual_base
+	}
+
+	pub fn end(&self) -> Page {
+		self.virtual_base + self.virtual_len().get()
+	}
+
+	pub fn len(&self) -> NonZeroUsize {
+		self.physical.len
 	}
 }
 
