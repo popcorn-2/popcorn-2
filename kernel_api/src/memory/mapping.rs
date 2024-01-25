@@ -10,6 +10,8 @@ use crate::memory::{AllocError, Frame, Page};
 use crate::memory::physical::{OwnedFrames, highmem};
 use crate::memory::r#virtual::{Global, OwnedPages, VirtualAllocator};
 
+#[deprecated(since = "0.1.0", note = "Use Mapping instead")]
+#[unstable(feature = "kernel_mmap", issue = "24")]
 #[derive(Copy, Clone, Debug)]
 pub struct Highmem;
 
