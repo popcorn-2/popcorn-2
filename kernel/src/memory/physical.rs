@@ -2,29 +2,29 @@ use core::mem;
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use kernel_api::memory::allocator::BackingAllocator;
-use kernel_api::memory::Frame;
 use kernel_api::sync::{RwLock, RwUpgradableReadGuard, RwWriteGuard};
+use kernel_api::memory::physical::GlobalAllocator;
 
 #[export_name = "__popcorn_memory_physical_highmem"]
-static GLOBAL_HIGHMEM: RwLock<Option<&'static dyn BackingAllocator>> = RwLock::new(None);
+static GLOBAL_HIGHMEM: GlobalAllocator = GlobalAllocator { rwlock: RwLock::new(None) };
 #[export_name = "__popcorn_memory_physical_dmamem"]
-static GLOBAL_DMA: RwLock<Option<&'static dyn BackingAllocator>> = RwLock::new(None);
+static GLOBAL_DMA: GlobalAllocator = GlobalAllocator { rwlock: RwLock::new(None) };
 
-pub use kernel_api::memory::{highmem, dmamem};
+pub use kernel_api::memory::physical::{highmem, dmamem};
 
 pub fn init_highmem<'a>(allocator: &'static dyn BackingAllocator) {
-	GLOBAL_HIGHMEM.write().replace(allocator);
+	GLOBAL_HIGHMEM.rwlock.write().replace(allocator);
 }
 
 pub fn init_dmamem<'a>(allocator: &'static dyn BackingAllocator) {
-	GLOBAL_DMA.write().replace(allocator);
+	GLOBAL_DMA.rwlock.write().replace(allocator);
 }
 
 pub fn with_highmem_as<'a, R>(allocator: &'a dyn BackingAllocator, f: impl FnOnce() -> R) -> R {
 	// FIXME: huge issue in that all allocations get lost therefore only safe to use for bootstrap
 	// FIXME(soundness): is this sound?
 
-	let mut write_lock = GLOBAL_HIGHMEM.write();
+	let mut write_lock = GLOBAL_HIGHMEM.rwlock.write();
 	let static_highmem = unsafe { mem::transmute::<_, &'static _>(allocator) };
 	let old_highmem = write_lock.replace(static_highmem);
 
@@ -67,48 +67,5 @@ impl RefCountEntry {
 
 	fn decrement(&self) -> bool {
 todo!()
-	}
-}
-
-/// Conceptually the same as a hypothetical `Arc<[Frame]>`
-///
-/// # Invariants
-///
-/// Internal implementation assumes that two `ArcFrames` cannot overlap unless they came from the same original `ArcFrames`
-/// object
-pub struct ArcFrames {
-	base: Frame,
-	len: usize
-}
-
-impl ArcFrames {
-	unsafe fn new(base: Frame, len: usize) -> Self {
-		Self {
-			base, len
-		}
-	}
-
-	fn split_at(self, n: usize) -> (Self, Self) {
-		assert!(n <= self.len);
-
-		let second_base = self.base + n;
-		let lens = (n, self.len - n);
-
-		todo!("Insert new RC node");
-
-		(Self { base: self.base, len: lens.0 }, Self { base: second_base, len: lens.1 })
-	}
-}
-
-impl Clone for ArcFrames {
-	fn clone(&self) -> Self {
-		todo!("Update RC nodes");
-		Self { .. *self }
-	}
-}
-
-impl Drop for ArcFrames {
-	fn drop(&mut self) {
-		todo!()
 	}
 }

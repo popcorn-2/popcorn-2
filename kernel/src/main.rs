@@ -59,7 +59,8 @@ use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
 use core::future;
 use core::task::{Poll, Waker};
 use kernel_api::memory::{allocator::BackingAllocator};
-use kernel_api::memory::mapping::Mapping;
+#[warn(deprecated)]
+use kernel_api::memory::mapping::OldMapping;
 use kernel_hal::{CurrentHal, Hal};
 
 pub use kernel_hal::{sprint, sprintln};
@@ -241,7 +242,8 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 	let tls_size = handoff_data.tls.end() - handoff_data.tls.start() + core::mem::size_of::<*mut u8>();
 	// Is this always correctly aligned?
-	let tls = Mapping::new(tls_size.div_ceil(4096))
+	#[warn(deprecated)]
+	let tls = OldMapping::new(tls_size.div_ceil(4096))
 			.expect("Unable to allocate TLS area");
 	let (tls, _) = tls.into_raw_parts();
 	unsafe {

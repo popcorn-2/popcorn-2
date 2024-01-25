@@ -1,11 +1,29 @@
+//! API for managing memory at a high level.
+//!
+//! The mapping API implements a RAII based API for managing memory maps. Each memory map owns a region of physical
+//! and virtual memory, and manages the paging required to map the two together. It is also possible for only a subset
+//! of the virtual memory region to be mapped to physical memory.
+//!
+//! Each map is built on a [`Mappable`] type, which implements the required methods to calculate the required virtual
+//! memory, and how to map it to physical memory. This can be used to instantiate a [`RawMapping`] which handles the
+//! actual mapping.
+//!
+//! This module exports two common flavours of memory map: [`Mapping`] and [`Stack`].
+
 #![unstable(feature = "kernel_mmap", issue = "24")]
 
-use core::num::NonZeroUsize;
+use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
+use core::num::{NonZeroU32, NonZeroUsize};
+use core::ptr;
 use log::debug;
 use crate::memory::allocator::{AlignedAllocError, AllocationMeta, BackingAllocator, ZeroAllocError};
-use crate::memory::{AllocError, Frame, highmem, Page};
-use crate::memory::r#virtual::{Global, VirtualAllocator};
+use crate::memory::{AllocError, Frame, Page};
+use crate::memory::physical::{OwnedFrames, highmem};
+use crate::memory::r#virtual::{Global, OwnedPages, VirtualAllocator};
 
+#[deprecated(since = "0.1.0", note = "Use Mapping instead")]
+#[unstable(feature = "kernel_mmap", issue = "24")]
 #[derive(Copy, Clone, Debug)]
 pub struct Highmem;
 
@@ -46,14 +64,16 @@ unsafe impl BackingAllocator for Highmem {
 /// An owned region of memory
 ///
 /// Depending on memory attributes, this may be invalid to read or write to
+#[deprecated(since = "0.1.0", note = "Use Mapping instead")]
+#[unstable(feature = "kernel_mmap", issue = "24")]
 #[derive(Debug)]
-pub struct Mapping<A: BackingAllocator = Highmem> {
+pub struct OldMapping<A: BackingAllocator = Highmem> {
 	base: Page,
 	len: usize,
 	allocator: A
 }
 
-impl<A: BackingAllocator> Mapping<A> {
+impl<A: BackingAllocator> OldMapping<A> {
 	pub fn as_ptr(&self) -> *const u8 {
 		self.base.as_ptr()
 	}
@@ -82,7 +102,7 @@ impl<A: BackingAllocator> Mapping<A> {
 	}
 }
 
-impl Mapping<Highmem> {
+impl OldMapping<Highmem> {
 	pub fn new(len: usize) -> Result<Self, AllocError> {
 		Self::new_with(len, Highmem)
 	}
@@ -237,8 +257,240 @@ impl Mapping<Highmem> {
 	}
 }
 
-impl<A: BackingAllocator> Drop for Mapping<A> {
+impl<A: BackingAllocator> Drop for OldMapping<A> {
 	fn drop(&mut self) {
 		// todo
 	}
 }
+
+/// Basic operations to decide how to map memory together.
+///
+/// Implementations of this can be used to instantiate a [`RawMapping`].
+pub trait Mappable {
+	/// The amount of virtual memory required to create a mapping with `physical_length` [`Frame`]s
+	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize;
+
+	/// The number of [`Page`]s to offset the physical memory into the allocated virtual memory
+	fn physical_start_offset_from_virtual() -> isize;
+}
+
+/// The memory protection to use for the memory mapping
+pub enum Protection {
+	/// The mapping is read-write and can be executed from
+	RWX
+}
+
+mod private {
+	use crate::memory::{Frame, Page};
+
+	pub trait Sealed {}
+
+	impl Sealed for Page {}
+	impl Sealed for Frame {}
+}
+
+/// A marker trait for types that can be used as a [`Location`]
+pub trait Address: private::Sealed {}
+impl Address for Page {}
+impl Address for Frame {}
+
+/// The location at which to make the [mapping](self)
+pub enum Location<A: Address> {
+	/// The mapping can go anywhere
+	Any,
+	/// The mapping must be aligned to a specific number of [`Page`]s/[`Frame`]s
+	Aligned(NonZeroU32),
+	/// The mapping will fail if it cannot be allocated at this exact location
+	At(A),
+	/// The mapping must be below this location, aligned to `with_alignment` number of [`Page`]s/[`Frame`]s
+	Below { location: A, with_alignment: NonZeroU32 }
+}
+
+/// When to allocate physical memory for the [mapping](self)
+pub enum Laziness { Lazy, Prefault }
+
+/// Configuration for creating a [mapping](self)
+///
+/// By default, it will allocate memory anywhere that is valid, using the kernel [`VirtualAllocator`], and the
+/// `highmem` [`physical allocator`](BackingAllocator). It will lazily allocate physical memory, and map it
+/// with read and write permissions only.
+pub struct Config<'physical_allocator, A: VirtualAllocator> {
+	physical_location: Location<Frame>,
+	virtual_location: Location<Page>,
+	laziness: Laziness,
+	length: NonZeroUsize,
+	physical_allocator: &'physical_allocator dyn BackingAllocator,
+	virtual_allocator: A,
+	protection: Protection,
+}
+
+impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
+	/// Creates a new [mapping](self) configuration with default options
+	pub fn new(length: NonZeroUsize) -> Config<'static, Global> {
+		Config {
+			physical_location: Location::Any,
+			virtual_location: Location::Any,
+			laziness: Laziness::Lazy,
+			length,
+			physical_allocator: highmem(),
+			virtual_allocator: Global,
+			protection: Protection::RWX,
+		}
+	}
+
+	pub fn physical_allocator<'a>(self, allocator: &'a dyn BackingAllocator) -> Config<'a, A> {
+		Config {
+			physical_allocator: allocator,
+			.. self
+		}
+	}
+
+	pub fn virtual_allocator<New: VirtualAllocator>(self, allocator: New) -> Config<'physical_allocator, New> {
+		Config {
+			virtual_allocator: allocator,
+			.. self
+		}
+	}
+
+	pub fn protection(self, protection: Protection) -> Self {
+		Config {
+			protection,
+			.. self
+		}
+	}
+}
+
+/// The raw type underlying all memory mappings.
+///
+/// This will allocate any required memory when created, and register any lazily mapped memory as such.
+/// It will also manage the page tables to correctly unmap the memory when dropped.
+pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
+	raw: PhantomData<R>,
+	physical: OwnedFrames<'phys_allocator>,
+	virtual_base: Page,
+	virtual_allocator: ManuallyDrop<A>,
+}
+
+impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A> {
+	pub fn new(config: Config<'phys_alloc, A>) -> Result<Self, AllocError> {
+		let Config { length, physical_allocator, virtual_allocator, .. } = config;
+
+		let virtual_len = R::physical_length_to_virtual_length(length);
+		let physical_len = length;
+
+		let physical_mem = OwnedFrames::new_with(physical_len, physical_allocator)?;
+		let virtual_mem = OwnedPages::new_with(virtual_len, virtual_allocator)?;
+
+		let physical_base = physical_mem.base;
+		let (virtual_base, _, virtual_allocator) = virtual_mem.into_raw_parts();
+		let offset_base = virtual_base + R::physical_start_offset_from_virtual();
+
+		// TODO: huge pages
+		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_current_page_table() };
+		for (frame, page) in (0..physical_len.get()).map(|i| (physical_base + i, offset_base + i)) {
+			unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &physical_allocator) }
+					.expect("Virtual memory uniquely owned by the allocation so should not be mapped in this address space");
+		}
+
+		Ok(Self {
+			raw: PhantomData,
+			physical: physical_mem,
+			virtual_base,
+			virtual_allocator: ManuallyDrop::new(virtual_allocator)
+		})
+	}
+
+	pub fn into_raw_parts(mut self) -> (OwnedFrames<'phys_alloc>, OwnedPages<A>) {
+		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
+		let pages = unsafe {
+			OwnedPages::from_raw_parts(
+				self.virtual_base,
+				R::physical_length_to_virtual_length(self.physical.len),
+				virtual_allocator
+			)
+		};
+
+		let this = ManuallyDrop::new(self);
+		(unsafe { ptr::read(&this.physical) }, pages)
+	}
+
+	pub unsafe fn from_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>) -> Self {
+		let (virtual_base, _, virtual_allocator) = pages.into_raw_parts();
+
+		Self {
+			raw: PhantomData,
+			physical: frames,
+			virtual_base,
+			virtual_allocator: ManuallyDrop::new(virtual_allocator)
+		}
+	}
+
+	fn virtual_len(&self) -> NonZeroUsize {
+		R::physical_length_to_virtual_length(self.physical.len)
+	}
+
+	pub fn virtual_start(&self) -> Page {
+		self.virtual_base
+	}
+
+	pub fn virtual_end(&self) -> Page {
+		self.virtual_start() + self.virtual_len().get()
+	}
+
+	pub fn physical_len(&self) -> NonZeroUsize {
+		self.physical.len
+	}
+
+	pub fn physical_start(&self) -> Frame {
+		self.physical.base
+	}
+
+	pub fn physical_end(&self) -> Frame {
+		self.physical_start() + self.physical_len().get()
+	}
+}
+
+impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
+	fn drop(&mut self) {
+		// todo: unmap stuff
+
+		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
+		let _pages = unsafe {
+			OwnedPages::from_raw_parts(
+				self.virtual_base,
+				R::physical_length_to_virtual_length(self.physical.len),
+				virtual_allocator
+			)
+		};
+	}
+}
+
+#[doc(hidden)]
+pub enum RawMmap {}
+
+impl Mappable for RawMmap {
+	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize { physical_length }
+	fn physical_start_offset_from_virtual() -> isize { 0 }
+}
+
+#[doc(hidden)]
+pub enum RawStack {}
+
+impl Mappable for RawStack {
+	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize {
+		physical_length.checked_add(1).expect("Stack size overflow")
+	}
+	fn physical_start_offset_from_virtual() -> isize { 1 }
+}
+
+/// A RAII memory mapping
+///
+/// Manages a mapping directly between physical and virtual memory.
+#[allow(type_alias_bounds)] // makes docs nicer
+pub type Mapping<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, RawMmap, V>;
+
+/// A RAII stack
+///
+/// Manages the memory map for a stack, including a guard page below the stack.
+#[allow(type_alias_bounds)] // makes docs nicer
+pub type Stack<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, RawStack, V>;
