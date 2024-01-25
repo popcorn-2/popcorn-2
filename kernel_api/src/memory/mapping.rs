@@ -1,3 +1,15 @@
+//! API for managing memory at a high level.
+//!
+//! The mapping API implements a RAII based API for managing memory maps. Each memory map owns a region of physical
+//! and virtual memory, and manages the paging required to map the two together. It is also possible for only a subset
+//! of the virtual memory region to be mapped to physical memory.
+//!
+//! Each map is built on a [`Mappable`] type, which implements the required methods to calculate the required virtual
+//! memory, and how to map it to physical memory. This can be used to instantiate a [`RawMapping`] which handles the
+//! actual mapping.
+//!
+//! This module exports two common flavours of memory map: [`Mapping`] and [`Stack`].
+
 #![unstable(feature = "kernel_mmap", issue = "24")]
 
 use core::marker::PhantomData;
@@ -251,12 +263,20 @@ impl<A: BackingAllocator> Drop for OldMapping<A> {
 	}
 }
 
+/// Basic operations to decide how to map memory together.
+///
+/// Implementations of this can be used to instantiate a [`RawMapping`].
 pub trait Mappable {
+	/// The amount of virtual memory required to create a mapping with `physical_length` [`Frame`]s
 	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize;
+
+	/// The number of [`Page`]s to offset the physical memory into the allocated virtual memory
 	fn physical_start_offset_from_virtual() -> isize;
 }
 
+/// The memory protection to use for the memory mapping
 pub enum Protection {
+	/// The mapping is read-write and can be executed from
 	RWX
 }
 
@@ -269,20 +289,31 @@ mod private {
 	impl Sealed for Frame {}
 }
 
+/// A marker trait for types that can be used as a [`Location`]
 pub trait Address: private::Sealed {}
 impl Address for Page {}
 impl Address for Frame {}
 
+/// The location at which to make the [mapping](self)
 pub enum Location<A: Address> {
+	/// The mapping can go anywhere
 	Any,
+	/// The mapping must be aligned to a specific number of [`Page`]s/[`Frame`]s
 	Aligned(NonZeroU32),
+	/// The mapping will fail if it cannot be allocated at this exact location
 	At(A),
-	Near { location: A, with_alignment: NonZeroU32 },
+	/// The mapping must be below this location, aligned to `with_alignment` number of [`Page`]s/[`Frame`]s
 	Below { location: A, with_alignment: NonZeroU32 }
 }
 
+/// When to allocate physical memory for the [mapping](self)
 pub enum Laziness { Lazy, Prefault }
 
+/// Configuration for creating a [mapping](self)
+///
+/// By default, it will allocate memory anywhere that is valid, using the kernel [`VirtualAllocator`], and the
+/// `highmem` [`physical allocator`](BackingAllocator). It will lazily allocate physical memory, and map it
+/// with read and write permissions only.
 pub struct Config<'physical_allocator, A: VirtualAllocator> {
 	physical_location: Location<Frame>,
 	virtual_location: Location<Page>,
@@ -294,6 +325,7 @@ pub struct Config<'physical_allocator, A: VirtualAllocator> {
 }
 
 impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
+	/// Creates a new [mapping](self) configuration with default options
 	pub fn new(length: NonZeroUsize) -> Config<'static, Global> {
 		Config {
 			physical_location: Location::Any,
@@ -328,6 +360,10 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	}
 }
 
+/// The raw type underlying all memory mappings.
+///
+/// This will allocate any required memory when created, and register any lazily mapped memory as such.
+/// It will also manage the page tables to correctly unmap the memory when dropped.
 pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
 	raw: PhantomData<R>,
 	physical: OwnedFrames<'phys_allocator>,
@@ -447,8 +483,14 @@ impl Mappable for RawStack {
 	fn physical_start_offset_from_virtual() -> isize { 1 }
 }
 
+/// A RAII memory mapping
+///
+/// Manages a mapping directly between physical and virtual memory.
 #[allow(type_alias_bounds)] // makes docs nicer
 pub type Mapping<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, RawMmap, V>;
 
+/// A RAII stack
+///
+/// Manages the memory map for a stack, including a guard page below the stack.
 #[allow(type_alias_bounds)] // makes docs nicer
 pub type Stack<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, RawStack, V>;
