@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
-use core::num::NonZeroUsize;
+use core::num::{NonZeroU32, NonZeroUsize};
 use log::debug;
 use crate::memory::allocator::{AlignedAllocError, AllocationMeta, BackingAllocator, ZeroAllocError};
 use crate::memory::{AllocError, Frame, Page};
@@ -253,6 +253,89 @@ pub trait Mappable {
 	fn physical_start_offset_from_virtual() -> isize;
 }
 
+pub enum Protection {
+	RWX
+}
+
+mod private {
+	use crate::memory::{Frame, Page};
+
+	pub trait Sealed {}
+
+	impl Sealed for Page {}
+	impl Sealed for Frame {}
+}
+
+pub trait Address: private::Sealed {}
+impl Address for Page {}
+impl Address for Frame {}
+
+pub enum Location<A: Address> {
+	Any,
+	Aligned(NonZeroU32),
+	At(A),
+	Near { location: A, with_alignment: NonZeroU32 },
+	Below { location: A, with_alignment: NonZeroU32 }
+}
+
+pub enum Laziness { Lazy, Prefault }
+
+pub enum Grow { Up }
+
+pub struct Config<'physical_allocator, A: VirtualAllocator> {
+	physical_location: Location<Frame>,
+	virtual_location: Location<Page>,
+	laziness: Laziness,
+	length: NonZeroUsize,
+	physical_allocator: &'physical_allocator dyn BackingAllocator,
+	virtual_allocator: A,
+	protection: Protection,
+	grow: Grow,
+}
+
+impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
+	pub fn new(length: NonZeroUsize) -> Config<'static, Global> {
+		Config {
+			physical_location: Location::Any,
+			virtual_location: Location::Any,
+			laziness: Laziness::Lazy,
+			length,
+			physical_allocator: highmem(),
+			virtual_allocator: Global,
+			protection: Protection::RWX,
+			grow: Grow::Up,
+		}
+	}
+
+	pub fn physical_allocator<'a>(self, allocator: &'a dyn BackingAllocator) -> Config<'a, A> {
+		Config {
+			physical_allocator: allocator,
+			.. self
+		}
+	}
+
+	pub fn virtual_allocator<New: VirtualAllocator>(self, allocator: New) -> Config<'physical_allocator, New> {
+		Config {
+			virtual_allocator: allocator,
+			.. self
+		}
+	}
+
+	pub fn protection(self, protection: Protection) -> Self {
+		Config {
+			protection,
+			.. self
+		}
+	}
+
+	pub fn direction(self, grow: Grow) -> Self {
+		Config {
+			grow,
+			.. self
+		}
+	}
+}
+
 pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
 	raw: PhantomData<R>,
 	physical: OwnedFrames<'phys_allocator>,
@@ -260,17 +343,12 @@ pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
 	virtual_allocator: ManuallyDrop<A>,
 }
 
-// todo: replace this mess with builder
-impl<R: Mappable> RawMapping<'static, R, Global> {
-	pub fn new(len: NonZeroUsize) -> Result<Self, AllocError> {
-		Self::new_with(len, highmem(), Global)
-	}
-}
-
 impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A> {
-	pub fn new_with(len: NonZeroUsize, physical_allocator: &'phys_alloc dyn BackingAllocator, virtual_allocator: A) -> Result<Self, AllocError> {
-		let virtual_len = R::physical_length_to_virtual_length(len);
-		let physical_len = len;
+	pub fn new(config: Config<'phys_alloc, A>) -> Result<Self, AllocError> {
+		let Config { length, physical_allocator, virtual_allocator, .. } = config;
+
+		let virtual_len = R::physical_length_to_virtual_length(length);
+		let physical_len = length;
 
 		let physical_mem = OwnedFrames::new_with(physical_len, physical_allocator)?;
 		let virtual_mem = OwnedPages::new_with(virtual_len, virtual_allocator)?;
