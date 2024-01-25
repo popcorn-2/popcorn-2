@@ -429,16 +429,18 @@ impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 	}
 }
 
-pub enum MappingRaw {}
+#[doc(hidden)]
+pub enum RawMmap {}
 
-impl Mappable for MappingRaw {
+impl Mappable for RawMmap {
 	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize { physical_length }
 	fn physical_start_offset_from_virtual() -> isize { 0 }
 }
 
-pub enum StackRaw {}
+#[doc(hidden)]
+pub enum RawStack {}
 
-impl Mappable for StackRaw {
+impl Mappable for RawStack {
 	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize {
 		physical_length.checked_add(1).expect("Stack size overflow")
 	}
@@ -446,7 +448,7 @@ impl Mappable for StackRaw {
 }
 
 #[allow(type_alias_bounds)] // makes docs nicer
-pub type Mapping<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, MappingRaw, V>;
+pub type Mapping<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, RawMmap, V>;
 
 #[allow(type_alias_bounds)] // makes docs nicer
-pub type Stack<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, StackRaw, V>;
+pub type Stack<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, RawStack, V>;
