@@ -6,7 +6,7 @@ use core::ops;
 use core::ptr::addr_of;
 
 use bitflags::{bitflags, Flags};
-use log::debug;
+use log::{debug, warn};
 
 use kernel_api::memory::{Frame as KernelFrame, Page as KernelPage, PhysicalAddress};
 
@@ -38,11 +38,21 @@ impl From<KernelFrame> for Frame {
 pub struct PageTable(&'static mut Table<Level4>);
 
 impl PageTable {
-	pub unsafe fn try_new<E, F: FnOnce() -> Result<u64, E>>(allocate: F) -> Result<PageTable, E> {
-		let table_ptr = allocate()? as *mut MaybeUninit<Table<Level4>>;
+	pub unsafe fn try_new<E, F: FnMut(usize) -> Result<u64, E>>(mut allocate: F) -> Result<PageTable, E> {
+		let table_ptr = allocate(1)? as *mut MaybeUninit<Table<Level4>>;
 		debug_assert!(table_ptr.is_aligned() && !table_ptr.is_null());
 		let table = &mut *table_ptr;
 		let table = table.write(Table::new());
+		let l3_kernel_tables = allocate(256)? as *mut MaybeUninit<[Table<Level3>; 256]>;
+		let l3_kernel_tables = &mut *l3_kernel_tables;
+		for i in 0..256 {
+			let tab = l3_kernel_tables.as_mut_ptr()
+					.cast::<Table<Level3>>()
+					.add(i);
+			tab.write(Table::new());
+			table[i + 256].set_pointed_frame(Frame(tab as u64), TableEntryFlags::PERMISSIVE)
+					.unwrap();
+		}
 
 		Ok(PageTable(table))
 	}
@@ -146,6 +156,9 @@ impl<Level: ParentTableLevel> Table<Level> {
 	pub fn try_get_or_create_child_table<E, F: FnOnce() -> Result<u64, E>>(&mut self, index: usize, allocate: F) -> Result<&'static mut Table<Level::Child>, E> {
 		self.get_child_table_mut(index).map_or_else(|| {
 			debug!("New page table Level {}, index {}", Level::Child::VALUE, index);
+			if Level::Child::VALUE == 3 {
+				warn!("L3 table did not exist already - if this is not in lower half, this is a bug");
+			}
 			let table_ptr = allocate()? as *mut MaybeUninit<Table<_>>;
 			assert!(table_ptr.is_aligned() && !table_ptr.is_null());
 			let table = unsafe { &mut *table_ptr };
