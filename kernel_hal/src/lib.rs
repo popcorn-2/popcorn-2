@@ -20,6 +20,8 @@ pub mod arch;
 
 pub mod paging;
 
+pub mod paging2;
+
 pub enum Result { Success, Failure }
 
 pub unsafe trait Hal {

@@ -40,6 +40,7 @@ impl ColorMask {
 pub struct Memory {
 	pub map: Vec<MemoryMapEntry>,
 	pub used: Range<VirtualAddress<4096>>,
+	#[deprecated = "Use HAL methods to construct page tables directly"]
 	pub page_table_root: Frame,
 	pub stack: Stack
 }

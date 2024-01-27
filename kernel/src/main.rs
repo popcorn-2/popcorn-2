@@ -121,6 +121,7 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
+use kernel_hal::paging2::construct_tables;
 use utils::handoff::MemoryType;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::task::executor::Executor;
@@ -136,6 +137,11 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 	unsafe {
 		use memory::paging::{PageTable, init_page_table};
 
+		let (ktable, ttable) = construct_tables();
+		sprintln!("TTable: {ttable:x?}");
+		sprintln!("KTable: {ktable:x?}");
+
+		#[allow(deprecated)]
 		let table = PageTable::new_unchecked(handoff_data.memory.page_table_root);
 		init_page_table(table);
 	}

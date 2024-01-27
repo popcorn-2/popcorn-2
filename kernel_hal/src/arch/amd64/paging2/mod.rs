@@ -1,3 +1,4 @@
+use core::arch::asm;
 use core::fmt::{Debug, Formatter};
 use kernel_api::bridge::paging::MapPageError;
 use kernel_api::memory::allocator::{AllocError, BackingAllocator};
@@ -7,6 +8,27 @@ use crate::paging::Entry;
 
 mod table;
 
+pub(crate) unsafe fn construct_tables() -> (KTable, TTable) {
+	let ttable_base: usize;
+	unsafe {
+		asm!(
+			"mov {}, cr3",
+		out(reg) ttable_base)
+	};
+	let ttable_base = ttable_base & 0xffff_ffff_ffff_f000;
+
+	let ttable = unsafe { TTable::new_unchecked(Frame::new(PhysicalAddress::new(ttable_base))) };
+
+	let ktable_base = ttable.pml4().entries[256].pointed_frame()
+			.expect("Invalid TTable");
+	let ktable = KTable {
+		tables: ktable_base
+	};
+
+	(ktable, ttable)
+}
+
+#[derive(Debug)]
 pub struct KTable {
 	tables: Frame, // points to a [Table<PDPT>; 256]
 }
