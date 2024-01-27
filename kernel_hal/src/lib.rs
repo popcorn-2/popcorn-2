@@ -11,6 +11,7 @@
 #![feature(kernel_sync_once)]
 #![feature(kernel_physical_page_offset)]
 #![feature(kernel_memory_addr_access)]
+#![feature(pointer_is_aligned)]
 
 #![warn(missing_docs)]
 

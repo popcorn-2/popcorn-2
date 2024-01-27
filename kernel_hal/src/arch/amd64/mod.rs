@@ -11,6 +11,7 @@ mod idt;
 mod serial;
 mod port;
 mod qemu;
+pub(crate) mod paging2;
 pub(crate) mod paging;
 
 #[derive(Hal)]
