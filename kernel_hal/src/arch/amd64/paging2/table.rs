@@ -13,12 +13,16 @@ pub(super) trait ParentLevel: Level {
 	type Child: Level;
 }
 
+#[derive(Debug)]
 pub(super) enum PML4 {}
 
+#[derive(Debug)]
 pub(super) enum PDPT {}
 
+#[derive(Debug)]
 pub(super) enum PD {}
 
+#[derive(Debug)]
 pub(super) enum PT {}
 
 impl Level for PML4 {
@@ -56,6 +60,7 @@ impl ParentLevel for PD {
 	type Child = PT;
 }
 
+#[derive(Debug)]
 #[repr(C, align(4096))]
 pub(super) struct Table<L> {
 	pub(super) entries: [Amd64Entry; 512],

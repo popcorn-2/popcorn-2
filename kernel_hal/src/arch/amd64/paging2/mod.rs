@@ -1,3 +1,4 @@
+use core::fmt::{Debug, Formatter};
 use kernel_api::bridge::paging::MapPageError;
 use kernel_api::memory::allocator::{AllocError, BackingAllocator};
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
@@ -57,6 +58,12 @@ impl TTable {
 		unsafe {
 			&mut *self.pml4.to_page().as_ptr().cast()
 		}
+	}
+}
+
+impl Debug for TTable {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		Debug::fmt(self.pml4(), f)
 	}
 }
 
