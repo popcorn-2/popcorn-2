@@ -7,11 +7,12 @@
 #![feature(asm_const)]
 #![feature(const_mut_refs)]
 #![feature(min_specialization)]
+#![feature(pointer_is_aligned)]
 
 #![feature(kernel_sync_once)]
 #![feature(kernel_physical_page_offset)]
 #![feature(kernel_memory_addr_access)]
-#![feature(pointer_is_aligned)]
+#![feature(kernel_internals)]
 
 #![warn(missing_docs)]
 
