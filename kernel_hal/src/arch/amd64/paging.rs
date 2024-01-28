@@ -44,6 +44,11 @@ bitflags! {
 		}
 	}
 
+impl Amd64Entry {
+	// in future will take into account on-demand paging etc.
+	pub(crate) fn is_used(self) -> bool { self.is_present() }
+}
+
 impl Entry for Amd64Entry {
 	fn empty() -> Self {
 		<Self as Flags>::empty()
