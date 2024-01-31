@@ -41,7 +41,7 @@ pub trait FormatWriter {
 	fn print(fmt: core::fmt::Arguments);
 }
 
-pub type CurrentHal = impl Hal;
+pub type HalTy = impl Hal;
 
 #[macro_export]
 macro_rules! sprintln {
@@ -53,7 +53,7 @@ macro_rules! sprintln {
 macro_rules! sprint {
 	($($arg:tt)*) => {{
 		use $crate::FormatWriter;
-		<$crate::CurrentHal as $crate::Hal>::SerialOut::print(format_args!($($arg)*))
+		<$crate::HalTy as $crate::Hal>::SerialOut::print(format_args!($($arg)*))
 	}}
 }
 

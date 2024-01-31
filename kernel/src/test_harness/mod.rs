@@ -144,7 +144,7 @@ pub fn test_runner(tests: &[&TestDescAndFn]) -> ! {
 
 	impl minicov::CoverageWriter for DebugOut {
 		fn write(&mut self, data: &[u8]) -> core::result::Result<(), minicov::CoverageWriteError> {
-			kernel_hal::CurrentHal::debug_output(data).map_err(|_| minicov::CoverageWriteError)
+			kernel_hal::HalTy::debug_output(data).map_err(|_| minicov::CoverageWriteError)
 		}
 	}
 
@@ -154,9 +154,9 @@ pub fn test_runner(tests: &[&TestDescAndFn]) -> ! {
     }
 
 	if success {
-		kernel_hal::CurrentHal::exit(kernel_hal::Result::Success)
+		kernel_hal::HalTy::exit(kernel_hal::Result::Success)
 	} else {
-		kernel_hal::CurrentHal::exit(kernel_hal::Result::Failure)
+		kernel_hal::HalTy::exit(kernel_hal::Result::Failure)
 	}
 }
 
