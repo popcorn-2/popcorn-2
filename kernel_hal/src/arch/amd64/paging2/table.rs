@@ -85,7 +85,7 @@ impl<L: Level> Table<L> {
 		Ok(table_frame)
 	}
 
-	pub(super) fn is_empty(&self) -> {
+	pub(super) fn is_empty(&self) -> bool {
 		self.entries.iter().all(|entry| !entry.is_used())
 	}
 }
