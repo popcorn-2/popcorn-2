@@ -4,89 +4,23 @@ use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::allocator::{AllocError, BackingAllocator};
+use kernel_api::sync::RwLock;
 
 use kernel_hal::paging::{Table, PageIndices, levels::Global, Entry, TableDebug};
+use kernel_hal::paging2::{KTable, KTableTy};
 use kernel_hal::paging::levels::ParentLevel;
 use crate::sync::late_init::LateInit;
 
-static ACTIVE_PAGE_TABLE: LateInit<ActivePageTable> = LateInit::new();
+static KERNEL_PAGE_TABLE: LateInit<RwLock<KTableTy>> = LateInit::new();
 
-pub unsafe fn init_page_table(active_page_table: PageTable) {
-	ACTIVE_PAGE_TABLE.init_ref(ActivePageTable {
-		table: RefCell::new(active_page_table)
-	});
+pub unsafe fn init_page_table(active_page_table: KTableTy) {
+	KERNEL_PAGE_TABLE.init_ref(RwLock::new(active_page_table));
 }
 
-#[export_name = "__popcorn_paging_get_current_page_table"]
-pub fn current_page_table() -> impl DerefMut<Target = PageTable> {
-	ACTIVE_PAGE_TABLE.table.borrow_mut()
+#[export_name = "__popcorn_paging_get_ktable"]
+pub fn ktable() -> impl DerefMut<Target = impl KTable> {
+	KERNEL_PAGE_TABLE.write()
 }
-
-/*
-FIXME: This entire struct should be used as a `thread_local` and so lack of Sync is fine
- However, SMP is currently not supported so we only have one active page table and one "thread"
- This is possibly unsound because of interrupts, but the RefCell here will attempt to catch any
- misuse
- Under amd64, which this is mostly tested using, this should maybe work fine because of always
- strong memory ordering?
- */
-struct ActivePageTable {
-	table: RefCell<PageTable>
-}
-unsafe impl Sync for ActivePageTable {}
-
-pub struct PageTable {
-	l4: NonNull<Table<Global>>
-}
-
-impl PageTable {
-	pub unsafe fn new_unchecked(frame: Frame) -> Self {
-		Self {
-			l4: NonNull::new_unchecked(frame.to_page().as_ptr().cast())
-		}
-	}
-
-	fn empty(allocator: impl BackingAllocator) -> Result<Self, AllocError> {
-		Ok(PageTable {
-			l4: Table::empty_with(allocator)?.1
-		})
-	}
-
-	fn translate_page(&self, page: Page) -> Option<Frame> {
-		let upper_table = unsafe { self.l4.as_ref() }.child_table(page.global_index())?;
-		let middle_table = upper_table.child_table(page.upper_index())?;
-		let lower_table = middle_table.child_table(page.middle_index())?;
-		lower_table.entries[page.lower_index()].pointed_frame()
-	}
-
-	fn translate_address(&self, addr: VirtualAddress) -> Option<PhysicalAddress> {
-		let aligned = addr.align_down();
-		let diff = addr - aligned;
-		let physical = self.translate_page(Page::new(aligned))?;
-		Some(physical.start() + diff)
-	}
-
-	// TODO: merge these
-	pub fn map_page(&mut self, page: Page, frame: Frame, allocator: impl BackingAllocator) -> Result<(), MapPageError> {
-		let upper_table = unsafe { self.l4.as_mut() }.child_table_or_new(page.global_index(), &allocator)?;
-		let middle_table = upper_table.child_table_or_new(page.upper_index(), &allocator)?;
-		let lower_table = middle_table.child_table_or_new(page.middle_index(), &allocator)?;
-		lower_table.entries[page.lower_index()].point_to_frame(frame).map_err(|_| MapPageError::AlreadyMapped)
-	}
-
-	#[export_name = "__popcorn_paging_map_page"]
-	pub fn map_page_dyn(&mut self, page: Page, frame: Frame, allocator: &dyn BackingAllocator) -> Result<(), MapPageError> {
-		self.map_page(page, frame, allocator)
-	}
-}
-
-impl Debug for PageTable {
-	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		unsafe { self.l4.as_ref() }.debug_fmt(f, 0)
-	}
-}
-
-pub use kernel_api::bridge::paging::MapPageError;
 
 #[cfg(test)]
 mod tests {

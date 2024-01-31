@@ -135,15 +135,13 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 	trace!("Handoff data:\n{handoff_data:x?}");
 
 	unsafe {
-		use memory::paging::{PageTable, init_page_table};
+		use memory::paging::{init_page_table};
 
 		let (ktable, ttable) = construct_tables();
 		sprintln!("TTable: {ttable:x?}");
 		sprintln!("KTable: {ktable:x?}");
 
-		#[allow(deprecated)]
-		let table = PageTable::new_unchecked(handoff_data.memory.page_table_root);
-		init_page_table(table);
+		init_page_table(ktable);
 	}
 
 	HalTy::early_init();

@@ -14,7 +14,7 @@
 #![feature(kernel_memory_addr_access)]
 #![feature(kernel_internals)]
 
-#![warn(missing_docs)]
+//#![warn(missing_docs)]
 
 pub mod arch;
 
@@ -40,6 +40,7 @@ pub unsafe trait Hal {
 	fn enable_interrupts();
 	fn get_and_disable_interrupts() -> bool;
 	unsafe fn load_tls(ptr: *mut u8);
+	//fn interrupt_table() -> impl InterruptTable;
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
 }
 
