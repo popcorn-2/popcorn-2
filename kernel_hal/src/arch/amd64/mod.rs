@@ -11,7 +11,7 @@ mod idt;
 mod serial;
 mod port;
 mod qemu;
-pub(crate) mod paging2;
+mod paging2;
 pub(crate) mod paging;
 
 #[derive(Hal)]
@@ -19,6 +19,8 @@ struct Amd64Hal;
 
 unsafe impl Hal for Amd64Hal {
 	type SerialOut = serial::HalWriter;
+	type KTableTy = paging2::Amd64KTable;
+	type TTableTy = paging2::Amd64TTable;
 
 	fn breakpoint() { unsafe { asm!("int3"); } }
 
@@ -91,6 +93,10 @@ unsafe impl Hal for Amd64Hal {
 				in("edx") tls_self_ptr_high, in("eax") tls_self_ptr_low, out("ecx") _
 			);
 		}
+	}
+
+	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy) {
+		paging2::construct_tables()
 	}
 }
 

@@ -22,10 +22,15 @@ pub mod paging;
 
 pub mod paging2;
 
+pub(crate) use macros::Hal;
+use crate::paging2::{KTable, TTable};
+
 pub enum Result { Success, Failure }
 
 pub unsafe trait Hal {
 	type SerialOut: FormatWriter;
+	type KTableTy: KTable;
+	type TTableTy: TTable;
 
 	fn breakpoint();
 	fn exit(result: Result) -> !;
@@ -35,10 +40,15 @@ pub unsafe trait Hal {
 	fn enable_interrupts();
 	fn get_and_disable_interrupts() -> bool;
 	unsafe fn load_tls(ptr: *mut u8);
+	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
 }
 
 pub trait FormatWriter {
 	fn print(fmt: core::fmt::Arguments);
+}
+
+pub trait InterruptTable {
+	unsafe fn set_syscall_handler(handler: unsafe fn());
 }
 
 pub type HalTy = impl Hal;
@@ -56,5 +66,3 @@ macro_rules! sprint {
 		<$crate::HalTy as $crate::Hal>::SerialOut::print(format_args!($($arg)*))
 	}}
 }
-
-pub(crate) use macros::Hal;

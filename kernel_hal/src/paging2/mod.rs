@@ -2,11 +2,11 @@ use core::fmt::Debug;
 use kernel_api::bridge::paging::MapPageError;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 
-pub type KTableTy = crate::arch::amd64::paging2::KTable;
-pub type TTableTy = crate::arch::amd64::paging2::TTable;
+pub type KTableTy = <crate::HalTy as crate::Hal>::KTableTy;
+pub type TTableTy = <crate::HalTy as crate::Hal>::TTableTy;
 
-pub unsafe fn construct_tables() -> (KTable, TTable) {
-	crate::arch::amd64::paging2::construct_tables()
+pub unsafe fn construct_tables() -> (KTableTy, TTableTy) {
+	<crate::HalTy as crate::Hal>::construct_tables()
 }
 
 pub trait KTable: Debug {

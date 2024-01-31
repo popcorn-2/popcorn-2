@@ -3,12 +3,14 @@ use core::fmt::{Debug, Formatter};
 use kernel_api::bridge::paging::MapPageError;
 use kernel_api::memory::allocator::{AllocError, BackingAllocator};
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
+use kernel_api::memory::physical::highmem;
 use table::{Table, PDPT, PML4, PageIndices};
+use crate::paging2::{KTable, TTable};
 use crate::paging::Entry;
 
 mod table;
 
-pub(crate) unsafe fn construct_tables() -> (KTable, TTable) {
+pub(crate) unsafe fn construct_tables() -> (Amd64KTable, Amd64TTable) {
 	let ttable_base: usize;
 	unsafe {
 		asm!(
@@ -17,11 +19,11 @@ pub(crate) unsafe fn construct_tables() -> (KTable, TTable) {
 	};
 	let ttable_base = ttable_base & 0xffff_ffff_ffff_f000;
 
-	let ttable = unsafe { TTable::new_unchecked(Frame::new(PhysicalAddress::new(ttable_base))) };
+	let ttable = unsafe { Amd64TTable::new_unchecked(Frame::new(PhysicalAddress::new(ttable_base))) };
 
-	let ktable_base = ttable.pml4().entries[256].pointed_frame()
+	let ktable_base = ttable.pml4.pml4().entries[256].pointed_frame()
 			.expect("Invalid TTable");
-	let ktable = KTable {
+	let ktable = Amd64KTable {
 		tables: ktable_base
 	};
 
@@ -29,11 +31,11 @@ pub(crate) unsafe fn construct_tables() -> (KTable, TTable) {
 }
 
 #[derive(Debug)]
-pub struct KTable {
+pub struct Amd64KTable {
 	tables: Frame, // points to a [Table<PDPT>; 256]
 }
 
-impl KTable {
+impl Amd64KTable {
 	fn tables(&self) -> &[Table<PDPT>; 256] {
 		unsafe {
 			&*self.tables.to_page().as_ptr().cast()
@@ -41,19 +43,36 @@ impl KTable {
 	}
 }
 
-#[repr(transparent)]
-pub struct TTable {
-	pml4: Frame, // points to a Table<PML4>
-}
+struct TTablePtr(Frame); // points to a Table<PML4>
 
-impl TTable {
-	pub unsafe fn new_unchecked(pml4: Frame) -> Self {
-		Self {
-			pml4
+impl TTablePtr {
+	fn pml4(&self) -> &Table<PML4> {
+		unsafe {
+			&*self.0.to_page().as_ptr().cast()
 		}
 	}
 
-	pub fn new(ktable: &KTable, allocator: impl BackingAllocator) -> Result<Self, AllocError> {
+	fn pml4_mut(&mut self) -> &mut Table<PML4> {
+		unsafe {
+			&mut *self.0.to_page().as_ptr().cast()
+		}
+	}
+}
+
+pub struct Amd64TTable {
+	pml4: TTablePtr,
+	allocator: &'static dyn BackingAllocator
+}
+
+impl Amd64TTable {
+	pub unsafe fn new_unchecked(pml4: Frame) -> Self {
+		Self {
+			pml4: TTablePtr(pml4),
+			allocator: highmem()
+		}
+	}
+
+	pub fn new(ktable: &Amd64KTable, allocator: &'static dyn BackingAllocator) -> Result<Self, AllocError> {
 		let pml4_frame = Table::<PML4>::empty_with(allocator)?;
 		let pml4 = pml4_frame.to_page().as_ptr().cast::<Table<PML4>>();
 		assert!(!pml4.is_null() && pml4.is_aligned());
@@ -66,58 +85,51 @@ impl TTable {
 		}
 
 		Ok(Self {
-			pml4: pml4_frame,
+			pml4: TTablePtr(pml4_frame),
+			allocator
 		})
 	}
-
-	fn pml4(&self) -> &Table<PML4> {
-		unsafe {
-			&*self.pml4.to_page().as_ptr().cast()
-		}
-	}
-
-	fn pml4_mut(&mut self) -> &mut Table<PML4> {
-		unsafe {
-			&mut *self.pml4.to_page().as_ptr().cast()
-		}
-	}
 }
 
-impl Debug for TTable {
+impl Debug for Amd64TTable {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		Debug::fmt(self.pml4(), f)
+		Debug::fmt(self.pml4.pml4(), f)
 	}
 }
 
-trait PageTable {
-	fn translate_page(&self, page: Page) -> Option<Frame>;
-
-	fn translate_address(&self, addr: VirtualAddress) -> Option<PhysicalAddress> {
-		let aligned = addr.align_down();
-		let diff = addr - aligned;
-		let physical = self.translate_page(Page::new(aligned))?;
-		Some(physical.start() + diff)
-	}
-
-	fn map_page(&mut self, page: Page, frame: Frame, allocator: impl BackingAllocator) -> Result<(), MapPageError>;
-}
-
-impl PageTable for TTable {
+impl KTable for Amd64TTable {
 	fn translate_page(&self, page: Page) -> Option<Frame> {
 		assert!(page.start().addr < 0xffff_8000_0000_0000, "TTable only handles lower half addresses");
 
-		let pdpt = self.pml4().child_table(page.pml4_index())?;
+		let pdpt = self.pml4.pml4().child_table(page.pml4_index())?;
 		let pd = pdpt.child_table(page.pdpt_index())?;
 		let pt = pd.child_table(page.pd_index())?;
 		pt.entries[page.pt_index()].pointed_frame()
 	}
 
-	fn map_page(&mut self, page: Page, frame: Frame, allocator: impl BackingAllocator) -> Result<(), MapPageError> {
+	fn map_page(&mut self, page: Page, frame: Frame) -> Result<(), MapPageError> {
 		assert!(page.start().addr < 0xffff_8000_0000_0000, "TTable only handles lower half addresses");
 
-		let pdpt = self.pml4_mut().child_table_or_new(page.pml4_index(), &allocator)?;
-		let pd = pdpt.child_table_or_new(page.pdpt_index(), &allocator)?;
-		let pt = pd.child_table_or_new(page.pd_index(), &allocator)?;
+		let pdpt = self.pml4.pml4_mut().child_table_or_new(page.pml4_index(), &self.allocator)?;
+		let pd = pdpt.child_table_or_new(page.pdpt_index(), &self.allocator)?;
+		let pt = pd.child_table_or_new(page.pd_index(), &self.allocator)?;
 		pt.entries[page.pt_index()].point_to_frame(frame).map_err(|_| MapPageError::AlreadyMapped)
+	}
+}
+
+impl KTable for Amd64KTable {
+	fn translate_page(&self, page: Page) -> Option<Frame> {
+		todo!()
+	}
+
+	fn map_page(&mut self, page: Page, frame: Frame) -> Result<(), MapPageError> {
+		todo!()
+	}
+}
+
+impl TTable for Amd64TTable {
+	unsafe fn load(&self) {
+		let addr = self.pml4.0.start().addr;
+		unsafe { asm!("mov cr3, {}", in(reg) addr); }
 	}
 }
