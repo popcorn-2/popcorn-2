@@ -135,11 +135,21 @@ impl KTable for Amd64TTable {
 
 impl KTable for Amd64KTable {
 	fn translate_page(&self, page: Page) -> Option<Frame> {
-		todo!()
+		assert!(page.start().addr < 0xffff_8000_0000_0000, "TTable only handles lower half addresses");
+
+		let pdpt = &self.tables.tables()[page.pml4_index() - 256];
+		let pd = pdpt.child_table(page.pdpt_index())?;
+		let pt = pd.child_table(page.pd_index())?;
+		pt.entries[page.pt_index()].pointed_frame()
 	}
 
 	fn map_page(&mut self, page: Page, frame: Frame) -> Result<(), MapPageError> {
-		todo!()
+		assert!(page.start().addr >= 0xffff_8000_0000_0000, "KTable only handles upper half addresses");
+
+		let pdpt = &mut self.tables.tables_mut()[page.pml4_index() - 256];
+		let pd = pdpt.child_table_or_new(page.pdpt_index(), &self.allocator)?;
+		let pt = pd.child_table_or_new(page.pd_index(), &self.allocator)?;
+		pt.entries[page.pt_index()].point_to_frame(frame).map_err(|_| MapPageError::AlreadyMapped)
 	}
 }
 
