@@ -24,22 +24,38 @@ pub(crate) unsafe fn construct_tables() -> (Amd64KTable, Amd64TTable) {
 	let ktable_base = ttable.pml4.pml4().entries[256].pointed_frame()
 			.expect("Invalid TTable");
 	let ktable = Amd64KTable {
-		tables: ktable_base
+		tables: KTablePtr(ktable_base),
+		allocator: highmem()
 	};
 
 	(ktable, ttable)
 }
 
 #[derive(Debug)]
+struct KTablePtr(Frame); // points to a [Table<PDPT>; 256]
+
 pub struct Amd64KTable {
-	tables: Frame, // points to a [Table<PDPT>; 256]
+	tables: KTablePtr, // points to a [Table<PDPT>; 256]
+	allocator: &'static dyn BackingAllocator,
 }
 
-impl Amd64KTable {
+impl KTablePtr {
 	fn tables(&self) -> &[Table<PDPT>; 256] {
 		unsafe {
-			&*self.tables.to_page().as_ptr().cast()
+			&*self.0.to_page().as_ptr().cast()
 		}
+	}
+
+	fn tables_mut(&mut self) -> &mut [Table<PDPT>; 256] {
+		unsafe {
+			&mut *self.0.to_page().as_ptr().cast()
+		}
+	}
+}
+
+impl Debug for Amd64KTable {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		Debug::fmt(&self.tables, f)
 	}
 }
 
@@ -61,7 +77,7 @@ impl TTablePtr {
 
 pub struct Amd64TTable {
 	pml4: TTablePtr,
-	allocator: &'static dyn BackingAllocator
+	allocator: &'static dyn BackingAllocator,
 }
 
 impl Amd64TTable {
@@ -79,7 +95,7 @@ impl Amd64TTable {
 		let pml4 = unsafe { &mut *pml4 };
 
 		for (i, entry) in pml4.entries[256..].iter_mut().enumerate() {
-			let ktable_frame = ktable.tables + i;
+			let ktable_frame = ktable.tables.0 + i;
 			entry.point_to_frame(ktable_frame)
 					.expect("Empty table should have no mappings");
 		}
