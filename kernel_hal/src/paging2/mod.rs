@@ -35,24 +35,24 @@ pub trait TTable: KTable {
 }
 
 trait HackyExportTrick: KTable {
-	fn translate_page(&self, page: Page) -> Option<Frame>;
-	fn translate_address(&self, addr: VirtualAddress) -> Option<PhysicalAddress>;
-	fn map_page(&mut self, page: Page, frame: Frame) -> Result<(), MapPageError>;
+	fn translate_page(this: &Self, page: Page) -> Option<Frame>;
+	fn translate_address(this: &Self, addr: VirtualAddress) -> Option<PhysicalAddress>;
+	fn map_page(this: &mut Self, page: Page, frame: Frame) -> Result<(), MapPageError>;
 }
 
 impl HackyExportTrick for <HalTy as Hal>::KTableTy {
 	#[export_name = "__popcorn_paging_ktable_translate_page"]
-	fn translate_page(&self, page: Page) -> Option<Frame> {
-		<Self as KTable>::translate_page(self, page)
+	fn translate_page(this: &Self, page: Page) -> Option<Frame> {
+		<Self as KTable>::translate_page(this, page)
 	}
 
 	#[export_name = "__popcorn_paging_ktable_translate_address"]
-	fn translate_address(&self, addr: VirtualAddress) -> Option<PhysicalAddress> {
-		<Self as KTable>::translate_address(self, addr)
+	fn translate_address(this: &Self, addr: VirtualAddress) -> Option<PhysicalAddress> {
+		<Self as KTable>::translate_address(this, addr)
 	}
 
 	#[export_name = "__popcorn_paging_ktable_map_page"]
-	fn map_page(&mut self, page: Page, frame: Frame) -> Result<(), MapPageError> {
-		<Self as KTable>::map_page(self, page, frame)
+	fn map_page(this: &mut Self, page: Page, frame: Frame) -> Result<(), MapPageError> {
+		<Self as KTable>::map_page(this, page, frame)
 	}
 }
