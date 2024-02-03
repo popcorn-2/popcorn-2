@@ -24,35 +24,32 @@ pub fn ktable() -> impl DerefMut<Target = impl KTable> {
 
 #[cfg(test)]
 mod tests {
+	use kernel_hal::paging2::{TTable, TTableTy};
 	use crate::memory::physical::highmem;
 	use super::*;
 
-	#[cfg(any())]
 	#[test]
 	fn unmapped_page_doesnt_translate() {
-		let table = PageTable::empty(&*highmem()).unwrap();
+		let table = TTableTy::new(&*KERNEL_PAGE_TABLE.read(), highmem()).unwrap();
 		assert_eq!(table.translate_page(Page::new(VirtualAddress::new(0xcafebabe000))), None);
 		assert_eq!(table.translate_page(Page::new(VirtualAddress::new(0xdeadbeef000))), None);
 		assert_eq!(table.translate_page(Page::new(VirtualAddress::new(0x347e40000))), None);
 	}
 
-	#[cfg(any())]
 	#[test]
 	fn unmapped_address_doesnt_translate() {
-		let table = PageTable::empty(&*highmem()).unwrap();
+		let table = TTableTy::new(&*KERNEL_PAGE_TABLE.read(), highmem()).unwrap();
 		assert_eq!(table.translate_address(VirtualAddress::new(0xcafebabe)), None);
 		assert_eq!(table.translate_address(VirtualAddress::new(0xdeadbeef)), None);
 		assert_eq!(table.translate_address(VirtualAddress::new(0x347e40)), None);
 	}
 
-	#[cfg(any())]
 	#[test]
 	fn translations_after_mapping() {
-		let mut table = PageTable::empty(&*highmem()).unwrap();
+		let mut table = TTableTy::new(&*KERNEL_PAGE_TABLE.read(), highmem()).unwrap();
 		table.map_page(
 			Page::new(VirtualAddress::new(0xcafebabe000)),
 			Frame::new(PhysicalAddress::new(0x347e40000)),
-			&*highmem()
 		).expect("Page not yet mapped");
 		assert_eq!(
 			table.translate_page(Page::new(VirtualAddress::new(0xcafebabe000))),
@@ -60,30 +57,25 @@ mod tests {
 		);
 	}
 
-	#[cfg(any())]
 	#[test]
 	fn cannot_overmap() {
-		let mut table = PageTable::empty(&*highmem()).unwrap();
+		let mut table = TTableTy::new(&*KERNEL_PAGE_TABLE.read(), highmem()).unwrap();
 		table.map_page(
 			Page::new(VirtualAddress::new(0xcafebabe000)),
 			Frame::new(PhysicalAddress::new(0x347e40000)),
-			&*highmem()
 		).expect("Page not yet mapped");
 		table.map_page(
 			Page::new(VirtualAddress::new(0xcafebabe000)),
 			Frame::new(PhysicalAddress::new(0xcafebabe000)),
-			&*highmem()
 		).expect_err("Page already mapped");
 	}
 
-	#[cfg(any())]
 	#[test]
 	fn address_offset() {
-		let mut table = PageTable::empty(&*highmem()).unwrap();
+		let mut table = TTableTy::new(&*KERNEL_PAGE_TABLE.read(), highmem()).unwrap();
 		table.map_page(
 			Page::new(VirtualAddress::new(0xcafebabe000)),
 			Frame::new(PhysicalAddress::new(0x347e40000)),
-			&*highmem()
 		).expect("Page not yet mapped");
 		assert_eq!(
 			table.translate_address(VirtualAddress::new(0xcafebabe123)),

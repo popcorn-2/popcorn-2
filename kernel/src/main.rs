@@ -101,6 +101,14 @@ macro_rules! into {
 extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 	sprintln!("Hello world!");
 
+	unsafe {
+		use memory::paging::{init_page_table};
+
+		let (ktable, _ttable) = construct_tables();
+
+		init_page_table(ktable);
+	}
+
 	#[cfg(not(test))] kmain(handoff_data);
 	#[cfg(test)] {
 		let mut spaces = handoff_data.memory.map.iter().filter(|entry|
@@ -133,16 +141,6 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 	*panicking::SYMBOL_MAP.write() = map;
 
 	trace!("Handoff data:\n{handoff_data:x?}");
-
-	unsafe {
-		use memory::paging::{init_page_table};
-
-		let (ktable, ttable) = construct_tables();
-		sprintln!("TTable: {ttable:x?}");
-		sprintln!("KTable: {ktable:x?}");
-
-		init_page_table(ktable);
-	}
 
 	HalTy::early_init();
 	HalTy::init_idt();
