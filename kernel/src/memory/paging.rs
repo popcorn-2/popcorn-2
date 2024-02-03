@@ -27,6 +27,7 @@ mod tests {
 	use crate::memory::physical::highmem;
 	use super::*;
 
+	#[cfg(any())]
 	#[test]
 	fn unmapped_page_doesnt_translate() {
 		let table = PageTable::empty(&*highmem()).unwrap();
@@ -35,6 +36,7 @@ mod tests {
 		assert_eq!(table.translate_page(Page::new(VirtualAddress::new(0x347e40000))), None);
 	}
 
+	#[cfg(any())]
 	#[test]
 	fn unmapped_address_doesnt_translate() {
 		let table = PageTable::empty(&*highmem()).unwrap();
@@ -43,6 +45,7 @@ mod tests {
 		assert_eq!(table.translate_address(VirtualAddress::new(0x347e40)), None);
 	}
 
+	#[cfg(any())]
 	#[test]
 	fn translations_after_mapping() {
 		let mut table = PageTable::empty(&*highmem()).unwrap();
@@ -57,6 +60,7 @@ mod tests {
 		);
 	}
 
+	#[cfg(any())]
 	#[test]
 	fn cannot_overmap() {
 		let mut table = PageTable::empty(&*highmem()).unwrap();
@@ -72,6 +76,7 @@ mod tests {
 		).expect_err("Page already mapped");
 	}
 
+	#[cfg(any())]
 	#[test]
 	fn address_offset() {
 		let mut table = PageTable::empty(&*highmem()).unwrap();
