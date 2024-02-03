@@ -71,6 +71,7 @@ mod panicking;
 mod logging;
 mod bridge;
 mod task;
+mod threading;
 
 #[cfg(test)]
 pub mod test_harness;
