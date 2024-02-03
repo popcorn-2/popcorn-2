@@ -1,3 +1,4 @@
+use core::fmt::{Debug, Formatter};
 use bitflags::{bitflags, Flags};
 use kernel_api::memory::{Frame, PhysicalAddress};
 use crate::paging::{Entry, Level};
@@ -43,6 +44,11 @@ bitflags! {
 		}
 	}
 
+impl Amd64Entry {
+	// in future will take into account on-demand paging etc.
+	pub(crate) fn is_used(self) -> bool { self.is_present() }
+}
+
 impl Entry for Amd64Entry {
 	fn empty() -> Self {
 		<Self as Flags>::empty()
@@ -65,5 +71,17 @@ impl Entry for Amd64Entry {
 		self.0 = empty_entry | masked_addr | Self::PRESENT.0 | Self::WRITABLE.0;
 
 		Ok(())
+	}
+}
+
+impl Debug for Amd64Entry {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		let mut builder = f.debug_tuple("Amd64Entry");
+		if let Some(f) = self.pointed_frame() {
+			builder.field(&f);
+		} else {
+			builder.field(&"<unmapped>");
+		}
+		builder.finish()
 	}
 }

@@ -7,21 +7,30 @@
 #![feature(asm_const)]
 #![feature(const_mut_refs)]
 #![feature(min_specialization)]
+#![feature(pointer_is_aligned)]
 
 #![feature(kernel_sync_once)]
 #![feature(kernel_physical_page_offset)]
 #![feature(kernel_memory_addr_access)]
+#![feature(kernel_internals)]
 
-#![warn(missing_docs)]
+//#![warn(missing_docs)]
 
 pub mod arch;
 
 pub mod paging;
 
+pub mod paging2;
+
+pub(crate) use macros::Hal;
+use crate::paging2::{KTable, TTable};
+
 pub enum Result { Success, Failure }
 
 pub unsafe trait Hal {
 	type SerialOut: FormatWriter;
+	type KTableTy: KTable;
+	type TTableTy: TTable<KTableTy = Self::KTableTy>;
 
 	fn breakpoint();
 	fn exit(result: Result) -> !;
@@ -31,13 +40,19 @@ pub unsafe trait Hal {
 	fn enable_interrupts();
 	fn get_and_disable_interrupts() -> bool;
 	unsafe fn load_tls(ptr: *mut u8);
+	//fn interrupt_table() -> impl InterruptTable;
+	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
 }
 
 pub trait FormatWriter {
 	fn print(fmt: core::fmt::Arguments);
 }
 
-pub type CurrentHal = impl Hal;
+pub trait InterruptTable {
+	unsafe fn set_syscall_handler(handler: unsafe fn());
+}
+
+pub type HalTy = impl Hal;
 
 #[macro_export]
 macro_rules! sprintln {
@@ -49,8 +64,6 @@ macro_rules! sprintln {
 macro_rules! sprint {
 	($($arg:tt)*) => {{
 		use $crate::FormatWriter;
-		<$crate::CurrentHal as $crate::Hal>::SerialOut::print(format_args!($($arg)*))
+		<$crate::HalTy as $crate::Hal>::SerialOut::print(format_args!($($arg)*))
 	}}
 }
-
-pub(crate) use macros::Hal;

@@ -64,7 +64,7 @@ pub struct KernelLoadInfo<'a> {
 
 pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(from: &mut [u8], mut allocator: F) -> Result<KernelLoadInfo<'_>, ()> {
 	let kernel = File::try_new(from).map_err(|_| ())?;
-	let mut page_table = unsafe { PageTable::try_new(|| allocator(1, AllocateType::AnyPages)) }.map_err(|_| ())?;
+	let mut page_table = unsafe { PageTable::try_new(|count| allocator(count, AllocateType::AnyPages)) }.map_err(|_| ())?;
 
 	let mut kernel_last_page = VirtualAddress::new(usize::MIN);
 	let mut kernel_first_page = VirtualAddress::new(usize::MAX);

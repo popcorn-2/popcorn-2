@@ -66,6 +66,6 @@ impl RefCountEntry {
 	}
 
 	fn decrement(&self) -> bool {
-todo!()
+		self.strong_count.fetch_sub(1, Ordering::Relaxed) == 1
 	}
 }

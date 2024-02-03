@@ -88,9 +88,9 @@ impl<A: BackingAllocator> OldMapping<A> {
 		let virtual_mem = Global.allocate_contiguous(len)?;
 
 		// TODO: huge pages
-		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_current_page_table() };
+		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
 		for (frame, page) in (0..len).map(|i| (physical_mem + i, virtual_mem + i)) {
-			unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &physical_allocator) }
+			unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut page_table, page, frame) }
 					.expect("todo");
 		}
 
@@ -132,10 +132,10 @@ impl OldMapping<Highmem> {
 					let start_of_extra = self.base + self.len;
 
 					// TODO: huge pages
-					let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_current_page_table() };
+					let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
 
 					for (frame, page) in (0..extra_len).map(|i| (extra_physical_mem + i, start_of_extra + i)) {
-						unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &original_physical_allocator) }
+						unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut page_table, page, frame) }
 								.expect("todo");
 					}
 
@@ -165,14 +165,14 @@ impl OldMapping<Highmem> {
 				let extra_len = new_len - self.len;
 				let new_virtual_mem = Global.allocate_contiguous(new_len)?;
 
-				let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_current_page_table() };
+				let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
 
 				let physical_base: Frame = todo!();
 				for (frame, page) in (0..self.len).map(|i| (physical_base + i, new_virtual_mem + i)) {
-					unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &original_physical_allocator) }.expect("todo");
+					unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut page_table, page, frame) }.expect("todo");
 				}
 				for (frame, page) in (0..extra_len).map(|i| (extra_physical_mem + i, new_virtual_mem + self.len + i)) {
-					unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &original_physical_allocator) }.expect("todo");
+					unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut page_table, page, frame) }.expect("todo");
 				}
 
 				self.base = new_virtual_mem;
@@ -386,9 +386,9 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		let offset_base = virtual_base + R::physical_start_offset_from_virtual();
 
 		// TODO: huge pages
-		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_current_page_table() };
+		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
 		for (frame, page) in (0..physical_len.get()).map(|i| (physical_base + i, offset_base + i)) {
-			unsafe { crate::bridge::paging::__popcorn_paging_map_page(&mut page_table, page, frame, &physical_allocator) }
+			unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut page_table, page, frame) }
 					.expect("Virtual memory uniquely owned by the allocation so should not be mapped in this address space");
 		}
 

@@ -61,7 +61,7 @@ use core::task::{Poll, Waker};
 use kernel_api::memory::{allocator::BackingAllocator};
 #[warn(deprecated)]
 use kernel_api::memory::mapping::OldMapping;
-use kernel_hal::{CurrentHal, Hal};
+use kernel_hal::{HalTy, Hal};
 
 pub use kernel_hal::{sprint, sprintln};
 
@@ -101,6 +101,14 @@ macro_rules! into {
 extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 	sprintln!("Hello world!");
 
+	unsafe {
+		use memory::paging::{init_page_table};
+
+		let (ktable, _ttable) = construct_tables();
+
+		init_page_table(ktable);
+	}
+
 	#[cfg(not(test))] kmain(handoff_data);
 	#[cfg(test)] {
 		let mut spaces = handoff_data.memory.map.iter().filter(|entry|
@@ -121,6 +129,7 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
+use kernel_hal::paging2::construct_tables;
 use utils::handoff::MemoryType;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::task::executor::Executor;
@@ -133,16 +142,9 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 	trace!("Handoff data:\n{handoff_data:x?}");
 
-	unsafe {
-		use memory::paging::{PageTable, init_page_table};
-
-		let table = PageTable::new_unchecked(handoff_data.memory.page_table_root);
-		init_page_table(table);
-	}
-
-	CurrentHal::early_init();
-	CurrentHal::init_idt();
-	CurrentHal::breakpoint();
+	HalTy::early_init();
+	HalTy::init_idt();
+	HalTy::breakpoint();
 
 	let usable_memory = handoff_data.memory.map.iter().filter(|entry|
 		entry.ty == MemoryType::Free
@@ -250,7 +252,7 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 		core::ptr::copy_nonoverlapping(handoff_data.tls.start().as_ptr(), tls.as_ptr(), tls_size - core::mem::size_of::<*mut u8>());
 		let tls_self_ptr = tls.as_ptr().byte_add(tls_size - core::mem::size_of::<*mut u8>());
 		tls_self_ptr.cast::<*mut u8>().write(tls_self_ptr);
-		CurrentHal::load_tls(tls_self_ptr);
+		HalTy::load_tls(tls_self_ptr);
 	}
 
 	let x = get_foo();

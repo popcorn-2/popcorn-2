@@ -29,23 +29,25 @@ pub mod hal {
 }
 
 pub mod paging {
-	use core::cell::RefMut;
 	use core::ops::DerefMut;
-	use crate::memory::{Frame, Page};
+	use crate::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 	use crate::memory::allocator::{AllocError, BackingAllocator, GlobalAllocator};
+	use crate::sync::RwWriteGuard;
 
 	extern "Rust" {
-		pub type PageTable;
+		pub type KTable;
 
-		pub fn __popcorn_paging_map_page(this: &mut PageTable, page: Page, frame: Frame, allocator: &dyn BackingAllocator) -> Result<(), MapPageError>;
+		pub fn __popcorn_paging_ktable_translate_page(this: &KTable, page: Page) -> Option<Frame>;
+		pub fn __popcorn_paging_ktable_translate_address(this: &KTable, addr: VirtualAddress) -> Option<PhysicalAddress>;
+		pub fn __popcorn_paging_ktable_map_page(this: &KTable, page: Page, frame: Frame) -> Result<(), MapPageError>;
 	}
 
-	pub unsafe fn __popcorn_paging_get_current_page_table() -> impl DerefMut<Target = PageTable> {
+	pub unsafe fn __popcorn_paging_get_ktable() -> impl DerefMut<Target = KTable> {
 		extern "Rust" {
-			pub fn __popcorn_paging_get_current_page_table() -> RefMut<'static, PageTable>;
+			pub fn __popcorn_paging_get_ktable() -> RwWriteGuard<'static, KTable>;
 		}
 
-		__popcorn_paging_get_current_page_table()
+		__popcorn_paging_get_ktable()
 	}
 
 	#[derive(Debug, Copy, Clone)]
