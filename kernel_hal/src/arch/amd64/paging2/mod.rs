@@ -87,24 +87,6 @@ impl Amd64TTable {
 			allocator: highmem()
 		}
 	}
-
-	pub fn new(ktable: &Amd64KTable, allocator: &'static dyn BackingAllocator) -> Result<Self, AllocError> {
-		let pml4_frame = Table::<PML4>::empty_with(allocator)?;
-		let pml4 = pml4_frame.to_page().as_ptr().cast::<Table<PML4>>();
-		assert!(!pml4.is_null() && pml4.is_aligned());
-		let pml4 = unsafe { &mut *pml4 };
-
-		for (i, entry) in pml4.entries[256..].iter_mut().enumerate() {
-			let ktable_frame = ktable.tables.0 + i;
-			entry.point_to_frame(ktable_frame)
-					.expect("Empty table should have no mappings");
-		}
-
-		Ok(Self {
-			pml4: TTablePtr(pml4_frame),
-			allocator
-		})
-	}
 }
 
 impl Debug for Amd64TTable {
@@ -154,8 +136,28 @@ impl KTable for Amd64KTable {
 }
 
 impl TTable for Amd64TTable {
+	type KTableTy = Amd64KTable;
+
 	unsafe fn load(&self) {
 		let addr = self.pml4.0.start().addr;
 		unsafe { asm!("mov cr3, {}", in(reg) addr); }
+	}
+
+	fn new(ktable: &Amd64KTable, allocator: &'static dyn BackingAllocator) -> Result<Self, AllocError> {
+		let pml4_frame = Table::<PML4>::empty_with(allocator)?;
+		let pml4 = pml4_frame.to_page().as_ptr().cast::<Table<PML4>>();
+		assert!(!pml4.is_null() && pml4.is_aligned());
+		let pml4 = unsafe { &mut *pml4 };
+
+		for (i, entry) in pml4.entries[256..].iter_mut().enumerate() {
+			let ktable_frame = ktable.tables.0 + i;
+			entry.point_to_frame(ktable_frame)
+					.expect("Empty table should have no mappings");
+		}
+
+		Ok(Self {
+			pml4: TTablePtr(pml4_frame),
+			allocator
+		})
 	}
 }

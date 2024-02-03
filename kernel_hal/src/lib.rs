@@ -30,7 +30,7 @@ pub enum Result { Success, Failure }
 pub unsafe trait Hal {
 	type SerialOut: FormatWriter;
 	type KTableTy: KTable;
-	type TTableTy: TTable;
+	type TTableTy: TTable<KTableTy = Self::KTableTy>;
 
 	fn breakpoint();
 	fn exit(result: Result) -> !;
