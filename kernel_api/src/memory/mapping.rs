@@ -426,7 +426,9 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	}
 
 	pub unsafe fn from_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>) -> Self {
-		let (virtual_base, _, virtual_allocator) = pages.into_raw_parts();
+		let (virtual_base, actual_vlen, virtual_allocator) = pages.into_raw_parts();
+		let correct_vlen = R::physical_length_to_virtual_length(frames.len);
+		debug_assert_eq!(actual_vlen, correct_vlen);
 
 		Self {
 			raw: PhantomData,
