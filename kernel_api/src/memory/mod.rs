@@ -242,6 +242,12 @@ impl<const ALIGN: usize> VirtualAddress<ALIGN> {
         };
         a.align_down_runtime(new_alignment)
     }
+
+    #[track_caller]
+    #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
+    pub const fn aligned<const N: usize>(self) -> VirtualAddress<N> {
+        VirtualAddress::new(self.addr)
+    }
 }
 
 impl Page {

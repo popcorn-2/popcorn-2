@@ -15,6 +15,7 @@
 #![feature(noop_waker)]
 #![feature(c_str_literals)]
 #![feature(kernel_memory_addr_access)]
+#![feature(kernel_address_alignment_runtime)]
 #![no_main]
 #![no_std]
 
@@ -50,7 +51,7 @@ use uefi::proto::media::partition::PartitionInfo;
 use uefi::table::boot::{AllocateType, EventType, MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams, PAGE_SIZE, SearchType, TimerTrigger, Tpl};
 use uefi::table::runtime::ResetType;
 
-use kernel_api::memory::{PhysicalAddress, VirtualAddress};
+use kernel_api::memory::{PhysicalAddress, VirtualAddress, Frame as KFrame, Page as KPage};
 use lvgl2::font::Font;
 use lvgl2::input::{encoder, pointer};
 use lvgl2::input::encoder::ButtonUpdate;
@@ -751,7 +752,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         }
     };
 
-    let stack_top = {
+    let stack = {
         const STACK_PAGE_COUNT: usize = 32;
         address_range.start = VirtualAddress::align_down(address_range.start - (STACK_PAGE_COUNT + 1)*4096); // `+ 1` for guard page
 
@@ -762,12 +763,16 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         page_table.try_map_range::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()))
                          .unwrap();
 
-        address_range.start + (STACK_PAGE_COUNT + 1)*4096
+        handoff::Stack {
+            bottom_virt: KPage::new(address_range.start.aligned()),
+            top_virt: KPage::new(address_range.start.aligned()) + STACK_PAGE_COUNT + 1usize,
+            top_phys: KFrame::new(PhysicalAddress::new(allocation.try_into().unwrap())) + STACK_PAGE_COUNT
+        }
     };
 
     let symbol_map = symbol_map.map(|m| Box::leak(m.into_boxed_slice()));
 
-    info!("new stack top at {:#x}", stack_top.addr);
+    info!("new stack top at {:#x}", stack.top_phys.start().addr);
 
     // allocate before getting memory map from UEFI
     let mut kernel_mem_map = {
@@ -898,10 +903,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             map: kernel_mem_map,
             used: Range(address_range.start, address_range.end),
             page_table_root: (&page_table).into(),
-            stack: handoff::Stack {
-                top: stack_top.addr,
-                bottom: address_range.start.addr
-            }
+            stack,
         },
         modules: handoff::Modules {
 
@@ -931,7 +933,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             "wrmsr",
 
             "call rsi",
-        in("rcx") stack_top.addr, in("rsi") kernel_entry, in("rdi") &handoff, options(noreturn))
+        in("rcx") stack.top_virt.start().addr, in("rsi") kernel_entry, in("rdi") &handoff, options(noreturn))
     }
 }
 

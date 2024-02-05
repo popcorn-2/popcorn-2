@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::fmt::{Formatter, Pointer};
 use core::ptr::NonNull;
-use kernel_api::memory::{Frame, PhysicalAddress, VirtualAddress};
+use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 
 #[derive(Debug)]
 #[repr(C)]
@@ -45,11 +45,12 @@ pub struct Memory {
 	pub stack: Stack
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct Stack {
-	pub top: usize,
-	pub bottom: usize
+	pub top_virt: Page,
+	pub bottom_virt: Page,
+	pub top_phys: Frame,
 }
 
 #[derive(Debug, Clone, Copy)]
