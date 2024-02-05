@@ -30,6 +30,7 @@ const PAGE_MAP_OFFSET: usize = 0xffff_8000_0000_0000;
 /// A memory frame
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[repr(transparent)]
 pub struct Frame {
     base: PhysicalAddress<PAGE_SIZE>
 }
@@ -37,6 +38,7 @@ pub struct Frame {
 /// A memory page
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[repr(transparent)]
 pub struct Page {
     base: VirtualAddress<PAGE_SIZE>
 }
@@ -45,6 +47,7 @@ pub struct Page {
 // todo: replace ALIGN with a NonZeroUsize
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 #[derive(Debug, Copy, Clone, Eq, Ord)]
+#[repr(transparent)]
 pub struct PhysicalAddress<const ALIGN: usize = 1> {
     #[unstable(feature = "kernel_memory_addr_access", issue = "none")]
     pub addr: usize
@@ -53,6 +56,7 @@ pub struct PhysicalAddress<const ALIGN: usize = 1> {
 /// A virtual memory address of alignment `ALIGN`
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 #[derive(Debug, Copy, Clone, Eq, Ord)]
+#[repr(transparent)]
 pub struct VirtualAddress<const ALIGN: usize = 1> {
     #[unstable(feature = "kernel_memory_addr_access", issue = "none")]
     pub addr: usize

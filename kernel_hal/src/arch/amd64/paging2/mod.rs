@@ -59,7 +59,8 @@ impl Debug for Amd64KTable {
 	}
 }
 
-struct TTablePtr(Frame); // points to a Table<PML4>
+#[repr(transparent)]
+pub(super) struct TTablePtr(pub(super) Frame); // points to a Table<PML4>
 
 impl TTablePtr {
 	fn pml4(&self) -> &Table<PML4> {
@@ -76,7 +77,7 @@ impl TTablePtr {
 }
 
 pub struct Amd64TTable {
-	pml4: TTablePtr,
+	pub(super) pml4: TTablePtr,
 	allocator: &'static dyn BackingAllocator,
 }
 
