@@ -1,6 +1,8 @@
 use core::arch::asm;
+use core::mem;
+use core::mem::offset_of;
 use log::warn;
-use crate::Hal;
+use crate::{Hal, SaveState, ThreadControlBlock};
 use crate::arch::amd64::idt::entry::Type;
 use crate::arch::amd64::idt::handler::InterruptStackFrame;
 use crate::arch::amd64::idt::Idt;
@@ -21,6 +23,7 @@ unsafe impl Hal for Amd64Hal {
 	type SerialOut = serial::HalWriter;
 	type KTableTy = paging2::Amd64KTable;
 	type TTableTy = paging2::Amd64TTable;
+	type SaveState = Amd64SaveState;
 
 	fn breakpoint() { unsafe { asm!("int3"); } }
 
@@ -97,6 +100,73 @@ unsafe impl Hal for Amd64Hal {
 
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy) {
 		paging2::construct_tables()
+	}
+
+	#[naked]
+	unsafe extern "C" fn switch_thread(from: &mut ThreadControlBlock, to: &ThreadControlBlock) {
+		asm!(
+			"mov [rdi + {0}], rbx",
+			"mov [rdi + {1}], rsp",
+			"mov [rdi + {2}], rbp",
+			"mov [rdi + {3}], r12",
+			"mov [rdi + {4}], r13",
+			"mov [rdi + {5}], r14",
+			"mov [rdi + {6}], r15",
+
+			"mov rax, [rsi + {7}]",
+			"mov rcx, cr3",
+			"cmp rax, rcx",
+			"je 1f",
+			"mov cr3, rax",
+			"1:",
+
+			// todo: adjust RSP0 in TSS
+			"mov rbx, [rsi + {0}]",
+			"mov rsp, [rsi + {1}]",
+			"mov rbp, [rsi + {2}]",
+			"mov r12, [rsi + {3}]",
+			"mov r13, [rsi + {4}]",
+			"mov r14, [rsi + {5}]",
+			"mov r15, [rsi + {6}]",
+
+			"ret",
+
+			const offset_of!(Amd64SaveState, rbx) + offset_of!(ThreadControlBlock, save_state),
+			const offset_of!(Amd64SaveState, rsp) + offset_of!(ThreadControlBlock, save_state),
+			const offset_of!(Amd64SaveState, rbp) + offset_of!(ThreadControlBlock, save_state),
+			const offset_of!(Amd64SaveState, r12) + offset_of!(ThreadControlBlock, save_state),
+			const offset_of!(Amd64SaveState, r13) + offset_of!(ThreadControlBlock, save_state),
+			const offset_of!(Amd64SaveState, r14) + offset_of!(ThreadControlBlock, save_state),
+			const offset_of!(Amd64SaveState, r15) + offset_of!(ThreadControlBlock, save_state),
+			const offset_of!(paging2::Amd64TTable, pml4) + offset_of!(ThreadControlBlock, ttable),
+			options(noreturn)
+		);
+	}
+}
+
+#[derive(Debug, Default)]
+struct Amd64SaveState {
+	pub rbx: usize,
+	pub rsp: usize,
+	pub rbp: usize,
+	pub r12: usize,
+	pub r13: usize,
+	pub r14: usize,
+	pub r15: usize
+}
+
+impl SaveState for Amd64SaveState {
+	fn new(tcb: &mut ThreadControlBlock, ret: usize) -> Self {
+		let stack = &mut tcb.kernel_stack;
+		unsafe {
+			let ret_addr = stack.virtual_end().start().as_ptr().sub(mem::size_of::<usize>()).cast::<usize>();
+			ret_addr.write(ret);
+		}
+
+		Self {
+			rsp: tcb.kernel_stack.virtual_end().start().addr - mem::size_of::<usize>(),
+			.. Self::default()
+		}
 	}
 }
 

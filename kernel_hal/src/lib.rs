@@ -8,11 +8,13 @@
 #![feature(const_mut_refs)]
 #![feature(min_specialization)]
 #![feature(pointer_is_aligned)]
+#![feature(naked_functions)]
 
 #![feature(kernel_sync_once)]
 #![feature(kernel_physical_page_offset)]
 #![feature(kernel_memory_addr_access)]
 #![feature(kernel_internals)]
+#![feature(kernel_mmap)]
 
 //#![warn(missing_docs)]
 
@@ -22,15 +24,22 @@ pub mod paging;
 
 pub mod paging2;
 
+use core::fmt::Debug;
+use kernel_api::memory::mapping::Stack;
 pub(crate) use macros::Hal;
-use crate::paging2::{KTable, TTable};
+use crate::paging2::{KTable, TTable, TTableTy};
 
 pub enum Result { Success, Failure }
+
+pub trait SaveState: Debug + Default {
+	fn new(tcb: &mut ThreadControlBlock, ret: usize) -> Self;
+}
 
 pub unsafe trait Hal {
 	type SerialOut: FormatWriter;
 	type KTableTy: KTable;
 	type TTableTy: TTable<KTableTy = Self::KTableTy>;
+	type SaveState: SaveState;
 
 	fn breakpoint();
 	fn exit(result: Result) -> !;
@@ -42,6 +51,7 @@ pub unsafe trait Hal {
 	unsafe fn load_tls(ptr: *mut u8);
 	//fn interrupt_table() -> impl InterruptTable;
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
+	unsafe extern "C" fn switch_thread(from: &mut ThreadControlBlock, to: &ThreadControlBlock);
 }
 
 pub trait FormatWriter {
@@ -66,4 +76,19 @@ macro_rules! sprint {
 		use $crate::FormatWriter;
 		<$crate::HalTy as $crate::Hal>::SerialOut::print(format_args!($($arg)*))
 	}}
+}
+
+#[derive(Debug)]
+pub struct ThreadControlBlock {
+	pub ttable: TTableTy,
+	pub save_state: <HalTy as Hal>::SaveState,
+	pub name: &'static str,
+	pub kernel_stack: Stack<'static>,
+	pub state: ThreadState,
+}
+
+#[derive(Debug)]
+pub enum ThreadState {
+	Ready,
+	Running
 }
