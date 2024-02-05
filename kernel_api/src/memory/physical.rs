@@ -1,5 +1,6 @@
 #![unstable(feature = "kernel_internals", issue = "none")]
 
+use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
 use crate::memory::allocator::BackingAllocator;
@@ -52,6 +53,16 @@ pub struct OwnedFrames<'allocator> {
 	pub(super) base: Frame,
 	pub(super) len: NonZeroUsize,
 	allocator: &'allocator dyn BackingAllocator
+}
+
+impl Debug for OwnedFrames<'_> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		f.debug_struct("OwnedFrames")
+				.field("base", &self.base)
+				.field("len", &self.len)
+				.field("allocator", &"<physical allocator>")
+				.finish()
+	}
 }
 
 impl OwnedFrames<'static> {

@@ -12,6 +12,7 @@
 
 #![unstable(feature = "kernel_mmap", issue = "24")]
 
+use core::fmt::{Debug, Formatter};
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::num::{NonZeroU32, NonZeroUsize};
@@ -369,6 +370,16 @@ pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
 	physical: OwnedFrames<'phys_allocator>,
 	virtual_base: Page,
 	virtual_allocator: ManuallyDrop<A>,
+}
+
+impl<R: Mappable, A: VirtualAllocator> Debug for RawMapping<'_, R, A> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		f.debug_struct("RawMapping")
+		 .field("physical", &self.physical)
+		 .field("virtual_base", &self.virtual_base)
+		 .field("virtual_allocator", &"<virtual allocator>")
+		 .finish()
+	}
 }
 
 impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A> {
