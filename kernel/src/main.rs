@@ -35,6 +35,7 @@
 #![feature(kernel_virtual_memory)]
 #![feature(kernel_mmap)]
 #![feature(kernel_internals)]
+#![feature(maybe_uninit_uninit_array_transpose)]
 
 #![no_std]
 #![no_main]

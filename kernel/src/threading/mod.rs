@@ -7,6 +7,8 @@ use kernel_hal::{ThreadControlBlock, ThreadState};
 use utils::handoff;
 
 pub unsafe fn init(stack: &handoff::Stack, ttable: TTableTy) -> ThreadControlBlock {
+pub mod scheduler;
+
 	// fixme: is highmem always correct?
 	let stack_phys_len = stack.top_virt - stack.bottom_virt - 1;
 	let stack_frames = OwnedFrames::from_raw_parts(
