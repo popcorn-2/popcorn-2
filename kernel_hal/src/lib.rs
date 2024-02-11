@@ -55,6 +55,8 @@ pub unsafe trait Hal {
 	unsafe extern "C" fn switch_thread(from: &mut ThreadControlBlock, to: &ThreadControlBlock);
 }
 
+const _: () = { if core::mem::align_of::<<HalTy as Hal>::KTableTy>() != 8 { panic!("for... reasons... KTables must be 8 byte aligned"); } };
+
 pub trait FormatWriter {
 	fn print(fmt: core::fmt::Arguments);
 }

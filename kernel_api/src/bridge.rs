@@ -29,13 +29,18 @@ pub mod hal {
 }
 
 pub mod paging {
+	use core::marker::PhantomData;
 	use core::ops::DerefMut;
 	use crate::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 	use crate::memory::allocator::{AllocError, BackingAllocator, GlobalAllocator};
 	use crate::sync::RwWriteGuard;
 
+	// FIXME: replace with extern type when alignment can be specified
+	#[repr(align(8))]
+	pub struct KTable((), PhantomData<KTableInner>);
+
 	extern "Rust" {
-		pub type KTable;
+		type KTableInner;
 
 		pub fn __popcorn_paging_ktable_translate_page(this: &KTable, page: Page) -> Option<Frame>;
 		pub fn __popcorn_paging_ktable_translate_address(this: &KTable, addr: VirtualAddress) -> Option<PhysicalAddress>;
