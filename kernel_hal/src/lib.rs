@@ -47,7 +47,8 @@ pub unsafe trait Hal {
 	fn early_init();
 	fn init_idt();
 	fn enable_interrupts();
-	fn get_and_disable_interrupts() -> bool;
+	fn get_and_disable_interrupts() -> usize;
+	fn set_interrupts(old_state: usize);
 	unsafe fn load_tls(ptr: *mut u8);
 	//fn interrupt_table() -> impl InterruptTable;
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);

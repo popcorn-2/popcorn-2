@@ -73,8 +73,8 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	#[export_name = "__popcorn_disable_irq"]
-	fn get_and_disable_interrupts() -> bool {
-		let flags: u64;
+	fn get_and_disable_interrupts() -> usize {
+		let flags: usize;
 		unsafe {
 			asm!("
 			pushf
@@ -83,7 +83,14 @@ unsafe impl Hal for Amd64Hal {
 		", out(reg) flags, options(preserves_flags, nomem))
 		}
 
-		(flags & 0x0200) != 0
+		flags & 0x0200
+	}
+
+	#[export_name = "__popcorn_set_irq"]
+	fn set_interrupts(old_state: usize) {
+		if old_state != 0 {
+			unsafe { asm!("sti", options(preserves_flags, nomem)); }
+		}
 	}
 
 	unsafe fn load_tls(ptr: *mut u8) {
