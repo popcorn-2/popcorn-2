@@ -163,15 +163,19 @@ struct Amd64SaveState {
 }
 
 impl SaveState for Amd64SaveState {
-	fn new(tcb: &mut ThreadControlBlock, ret: usize) -> Self {
+	fn new(tcb: &mut ThreadControlBlock, init: fn(), main: fn() -> !) -> Self {
 		let stack = &mut tcb.kernel_stack;
-		unsafe {
-			let ret_addr = stack.virtual_end().start().as_ptr().sub(mem::size_of::<usize>()).cast::<usize>();
-			ret_addr.write(ret);
-		}
+		let stack_start = unsafe {
+			let stack_top = stack.virtual_end().start().as_ptr().cast::<usize>();
+			stack_top.sub(1).write(0xdeadbeef);
+			stack_top.sub(2).write(0);
+			stack_top.sub(3).write(main as usize);
+			stack_top.sub(4).write(init as usize);
+			stack_top.sub(4)
+		};
 
 		Self {
-			rsp: tcb.kernel_stack.virtual_end().start().addr - mem::size_of::<usize>(),
+			rsp: stack_start as usize,
 			.. Self::default()
 		}
 	}
