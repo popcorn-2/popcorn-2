@@ -11,7 +11,8 @@ pub struct Data {
 	pub modules: Modules,
 	pub log: Logging,
 	pub test: Testing,
-	pub tls: Range<VirtualAddress>
+	pub tls: Range<VirtualAddress>,
+	pub acpi: Xsdp
 }
 
 #[derive(Debug)]
@@ -120,4 +121,11 @@ impl core::fmt::Debug for Testing {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		<(*const ()) as core::fmt::Pointer>::fmt(&{self.module_func as *const ()}, f)
 	}
+}
+
+#[derive(Debug)]
+#[repr(C, u8)]
+pub enum Xsdp {
+	Rsdp(PhysicalAddress),
+	Xsdp(PhysicalAddress),
 }

@@ -49,6 +49,7 @@ use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::fs::SimpleFileSystem;
 use uefi::proto::media::partition::PartitionInfo;
 use uefi::table::boot::{AllocateType, EventType, MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams, PAGE_SIZE, SearchType, TimerTrigger, Tpl};
+use uefi::table::cfg;
 use uefi::table::runtime::ResetType;
 
 use kernel_api::memory::{PhysicalAddress, VirtualAddress, Frame as KFrame, Page as KPage};
@@ -897,6 +898,15 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     drop(mouse);
     drop(keyboard);
 
+    let config_tables = system_table.config_table();
+    let acpi_table= if let Some(xsdp) = config_tables.iter().find(|table| table.guid == cfg::ACPI2_GUID) {
+        handoff::Xsdp::Xsdp(PhysicalAddress::new(xsdp.address as usize))
+    } else if let Some(rsdp) = config_tables.iter().find(|table| table.guid == cfg::ACPI_GUID) {
+        handoff::Xsdp::Rsdp(PhysicalAddress::new(rsdp.address as usize))
+    } else {
+        panic!("No RSDP found");
+    };
+
     let handoff = handoff::Data {
         framebuffer: framebuffer_info,
         memory: handoff::Memory {
@@ -914,7 +924,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         test: handoff::Testing {
             module_func: unsafe { mem::transmute(1usize) }
         },
-        tls: Range(kernel_tls.start, kernel_tls.end)
+        tls: Range(kernel_tls.start, kernel_tls.end),
+        acpi: acpi_table
     };
 
     let _ = system_table.exit_boot_services();
