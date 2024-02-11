@@ -35,6 +35,7 @@
 #![feature(kernel_virtual_memory)]
 #![feature(kernel_mmap)]
 #![feature(kernel_internals)]
+#![feature(maybe_uninit_uninit_array_transpose)]
 
 #![no_std]
 #![no_main]
@@ -47,21 +48,24 @@ extern crate unwinding;
 
 extern crate self as kernel;
 
+use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use core::alloc::{Allocator, GlobalAlloc, Layout};
+use core::arch::asm;
 use core::cell::UnsafeCell;
 use core::fmt::Write;
 use core::ops::Deref;
 use core::panic::PanicInfo;
 use core::ptr::slice_from_raw_parts_mut;
 use log::{debug, info, trace, warn};
-use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
+use kernel_api::memory::{mapping, Page, PhysicalAddress, VirtualAddress};
 use core::future;
+use core::num::NonZeroUsize;
 use core::task::{Poll, Waker};
 use kernel_api::memory::{allocator::BackingAllocator};
 #[warn(deprecated)]
 use kernel_api::memory::mapping::OldMapping;
-use kernel_hal::{HalTy, Hal};
+use kernel_hal::{HalTy, Hal, ThreadControlBlock, ThreadState, SaveState};
 
 pub use kernel_hal::{sprint, sprintln};
 
@@ -71,6 +75,7 @@ mod panicking;
 mod logging;
 mod bridge;
 mod task;
+mod threading;
 
 #[cfg(test)]
 pub mod test_harness;
@@ -101,15 +106,16 @@ macro_rules! into {
 extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 	sprintln!("Hello world!");
 
-	unsafe {
+	let ttable = unsafe {
 		use memory::paging::{init_page_table};
 
-		let (ktable, _ttable) = construct_tables();
+		let (ktable, ttable) = construct_tables();
 
 		init_page_table(ktable);
-	}
+		ttable
+	};
 
-	#[cfg(not(test))] kmain(handoff_data);
+	#[cfg(not(test))] kmain(handoff_data, ttable);
 	#[cfg(test)] {
 		let mut spaces = handoff_data.memory.map.iter().filter(|entry|
 				entry.ty == MemoryType::Free
@@ -129,12 +135,16 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
-use kernel_hal::paging2::construct_tables;
+use kernel_api::memory::mapping::Stack;
+use kernel_api::memory::physical::highmem;
+use kernel_api::memory::r#virtual::Global;
+use kernel_hal::paging2::{construct_tables, TTable, TTableTy};
 use utils::handoff::MemoryType;
+use crate::memory::paging::ktable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::task::executor::Executor;
 
-fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
+fn kmain(mut handoff_data: &utils::handoff::Data, ttable: TTableTy) -> ! {
 	let _ = logging::init();
 
 	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| &*ptr.as_ptr().byte_add(0xffff_8000_0000_0000)) };
@@ -257,6 +267,37 @@ fn kmain(mut handoff_data: &utils::handoff::Data) -> ! {
 
 	let x = get_foo();
 	warn!("TLS value is {x}");
+
+	let init_thread = unsafe { threading::init(&handoff_data.memory.stack, ttable) };
+	debug!("{init_thread:x?}");
+
+	fn foo() -> ! {
+		sprintln!("hello from foo!");
+
+		threading::thread_yield();
+
+		unreachable!()
+	}
+
+	fn bar() {
+		unsafe {
+			threading::scheduler::SCHEDULER.unlock();
+		}
+	}
+
+	{
+		let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
+		let task = ThreadControlBlock::new(
+			Cow::Borrowed("hellooo"),
+			ttable,
+			bar,
+			foo,
+		);
+		let mut guard = threading::scheduler::SCHEDULER.lock();
+		guard.add_task(task);
+	}
+
+	threading::thread_yield();
 
 	let mut executor = Executor::new();
 	static mut WAKER: Option<Waker> = None;

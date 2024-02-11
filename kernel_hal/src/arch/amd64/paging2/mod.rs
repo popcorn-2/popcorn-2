@@ -34,6 +34,7 @@ pub(crate) unsafe fn construct_tables() -> (Amd64KTable, Amd64TTable) {
 #[derive(Debug)]
 struct KTablePtr(Frame); // points to a [Table<PDPT>; 256]
 
+#[repr(align(8))]
 pub struct Amd64KTable {
 	tables: KTablePtr, // points to a [Table<PDPT>; 256]
 	allocator: &'static dyn BackingAllocator,
@@ -59,7 +60,8 @@ impl Debug for Amd64KTable {
 	}
 }
 
-struct TTablePtr(Frame); // points to a Table<PML4>
+#[repr(transparent)]
+pub(super) struct TTablePtr(pub(super) Frame); // points to a Table<PML4>
 
 impl TTablePtr {
 	fn pml4(&self) -> &Table<PML4> {
@@ -76,7 +78,7 @@ impl TTablePtr {
 }
 
 pub struct Amd64TTable {
-	pml4: TTablePtr,
+	pub(super) pml4: TTablePtr,
 	allocator: &'static dyn BackingAllocator,
 }
 

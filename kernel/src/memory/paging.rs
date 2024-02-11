@@ -18,7 +18,7 @@ pub unsafe fn init_page_table(active_page_table: KTableTy) {
 }
 
 #[export_name = "__popcorn_paging_get_ktable"]
-pub fn ktable() -> impl DerefMut<Target = impl KTable> {
+pub fn ktable() -> impl DerefMut<Target = KTableTy> {
 	KERNEL_PAGE_TABLE.write()
 }
 

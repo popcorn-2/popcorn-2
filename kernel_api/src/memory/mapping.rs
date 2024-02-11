@@ -12,6 +12,7 @@
 
 #![unstable(feature = "kernel_mmap", issue = "24")]
 
+use core::fmt::{Debug, Formatter};
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::num::{NonZeroU32, NonZeroUsize};
@@ -371,6 +372,16 @@ pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
 	virtual_allocator: ManuallyDrop<A>,
 }
 
+impl<R: Mappable, A: VirtualAllocator> Debug for RawMapping<'_, R, A> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		f.debug_struct("RawMapping")
+		 .field("physical", &self.physical)
+		 .field("virtual_base", &self.virtual_base)
+		 .field("virtual_allocator", &"<virtual allocator>")
+		 .finish()
+	}
+}
+
 impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A> {
 	pub fn new(config: Config<'phys_alloc, A>) -> Result<Self, AllocError> {
 		let Config { length, physical_allocator, virtual_allocator, .. } = config;
@@ -415,7 +426,9 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	}
 
 	pub unsafe fn from_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>) -> Self {
-		let (virtual_base, _, virtual_allocator) = pages.into_raw_parts();
+		let (virtual_base, actual_vlen, virtual_allocator) = pages.into_raw_parts();
+		let correct_vlen = R::physical_length_to_virtual_length(frames.len);
+		debug_assert_eq!(actual_vlen, correct_vlen);
 
 		Self {
 			raw: PhantomData,
