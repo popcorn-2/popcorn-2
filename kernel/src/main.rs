@@ -79,6 +79,7 @@ mod logging;
 mod bridge;
 mod task;
 mod threading;
+mod acpi;
 
 #[cfg(test)]
 pub mod test_harness;
