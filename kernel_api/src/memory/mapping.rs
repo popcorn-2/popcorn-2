@@ -359,6 +359,20 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 			.. self
 		}
 	}
+
+	pub fn physical_location(self, location: Location<Frame>) -> Self {
+		Config {
+			physical_location: location,
+			.. self
+		}
+	}
+
+	pub fn virtual_location(self, location: Location<Page>) -> Self {
+		Config {
+			virtual_location: location,
+			.. self
+		}
+	}
 }
 
 /// The raw type underlying all memory mappings.
