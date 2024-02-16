@@ -375,22 +375,47 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	}
 }
 
+// This exists to allow writing functions that only access the owned memory, rather than causing any allocations or deallocations,
+// to not have to be generic at runtime over the allocator and mapping controller
+pub(super) struct RawMappingInner<'phys_allocator> {
+	physical: OwnedFrames<'phys_allocator>,
+	virtual_valid_start: Page,
+}
+
+impl RawMappingInner<'_> {
+	pub(super) fn virtual_valid_start(&self) -> Page {
+		self.virtual_valid_start
+	}
+
+	pub(super) fn physical_len(&self) -> NonZeroUsize {
+		self.physical.len
+	}
+
+	pub(super) fn physical_start(&self) -> Frame {
+		self.physical.base
+	}
+
+	pub(super) fn physical_end(&self) -> Frame {
+		self.physical_start() + self.physical_len().get()
+	}
+}
+
 /// The raw type underlying all memory mappings.
 ///
 /// This will allocate any required memory when created, and register any lazily mapped memory as such.
 /// It will also manage the page tables to correctly unmap the memory when dropped.
 pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
 	raw: PhantomData<R>,
-	physical: OwnedFrames<'phys_allocator>,
-	virtual_base: Page,
 	virtual_allocator: ManuallyDrop<A>,
+	inner: RawMappingInner<'phys_allocator>
 }
 
 impl<R: Mappable, A: VirtualAllocator> Debug for RawMapping<'_, R, A> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		f.debug_struct("RawMapping")
-		 .field("physical", &self.physical)
-		 .field("virtual_base", &self.virtual_base)
+		 .field("physical", &self.inner.physical)
+		 .field("virtual_base", &self.virtual_start())
+		 .field("virtual_valid_start", &self.virtual_valid_start())
 		 .field("virtual_allocator", &"<virtual allocator>")
 		 .finish()
 	}
@@ -419,8 +444,10 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 
 		Ok(Self {
 			raw: PhantomData,
-			physical: physical_mem,
-			virtual_base,
+			inner: RawMappingInner {
+				physical: physical_mem,
+				virtual_valid_start: offset_base
+			},
 			virtual_allocator: ManuallyDrop::new(virtual_allocator)
 		})
 	}
@@ -429,14 +456,14 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
 		let pages = unsafe {
 			OwnedPages::from_raw_parts(
-				self.virtual_base,
-				R::physical_length_to_virtual_length(self.physical.len),
+				self.virtual_start(),
+				self.virtual_len(),
 				virtual_allocator
 			)
 		};
 
 		let this = ManuallyDrop::new(self);
-		(unsafe { ptr::read(&this.physical) }, pages)
+		(unsafe { ptr::read(&this.inner.physical) }, pages)
 	}
 
 	pub unsafe fn from_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>) -> Self {
@@ -446,18 +473,24 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 
 		Self {
 			raw: PhantomData,
-			physical: frames,
-			virtual_base,
+			inner: RawMappingInner {
+				physical: frames,
+				virtual_valid_start: virtual_base + R::physical_start_offset_from_virtual()
+			},
 			virtual_allocator: ManuallyDrop::new(virtual_allocator)
 		}
 	}
 
 	fn virtual_len(&self) -> NonZeroUsize {
-		R::physical_length_to_virtual_length(self.physical.len)
+		R::physical_length_to_virtual_length(self.physical_len())
 	}
 
 	pub fn virtual_start(&self) -> Page {
-		self.virtual_base
+		self.virtual_valid_start() - R::physical_start_offset_from_virtual()
+	}
+
+	fn virtual_valid_start(&self) -> Page {
+		self.inner.virtual_valid_start()
 	}
 
 	pub fn virtual_end(&self) -> Page {
@@ -465,15 +498,15 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	}
 
 	pub fn physical_len(&self) -> NonZeroUsize {
-		self.physical.len
+		self.inner.physical_len()
 	}
 
 	pub fn physical_start(&self) -> Frame {
-		self.physical.base
+		self.inner.physical_start()
 	}
 
 	pub fn physical_end(&self) -> Frame {
-		self.physical_start() + self.physical_len().get()
+		self.inner.physical_end()
 	}
 }
 
@@ -484,8 +517,8 @@ impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
 		let _pages = unsafe {
 			OwnedPages::from_raw_parts(
-				self.virtual_base,
-				R::physical_length_to_virtual_length(self.physical.len),
+				self.virtual_start(),
+				self.virtual_len(),
 				virtual_allocator
 			)
 		};
