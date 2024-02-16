@@ -2,6 +2,7 @@
 
 #![feature(kernel_allocation_new)]
 #![feature(kernel_frame_zero)]
+#![feature(kernel_physical_allocator_location)]
 
 extern crate alloc;
 
@@ -12,7 +13,7 @@ use core::mem;
 use core::num::NonZeroUsize;
 use core::ops::Range;
 use kernel_api::memory::{Frame, AllocError};
-use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, SizedBackingAllocator};
+use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, SizedBackingAllocator, SpecificLocation};
 use kernel_api::sync::Mutex;
 use log::warn;
 
@@ -182,6 +183,8 @@ pub struct Wrapped(Mutex<BitmapAllocator>);
 
 unsafe impl BackingAllocator for Wrapped {
     fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
+        if frame_count == 0 { return Ok(Frame::zero()); }
+
         let mut guard = self.0.lock();
 
         if frame_count == 1 { guard.allocate_one() }
@@ -206,6 +209,27 @@ unsafe impl BackingAllocator for Wrapped {
 
         for frame in allocation.region {
             let _ = allocator.set_frame(frame, FrameState::Allocated);
+        }
+    }
+
+    fn allocate_at(&self, frame_count: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
+        if frame_count == 0 { return Ok(Frame::zero()); }
+
+        let mut guard = self.0.lock();
+
+        match location {
+            SpecificLocation::Aligned(_) => todo!(),
+            SpecificLocation::At(addr) => {
+                let end = addr + frame_count;
+                let free = (addr..end).all(|f| match guard.get_frame(f) {
+                    Ok(state) => state == FrameState::Free,
+                    Err(_) => false,
+                });
+                if !free { return Err(AllocError); }
+                (addr..end).for_each(|f| guard.set_frame(f, FrameState::Allocated).expect("Must be in range"));
+                Ok(addr)
+            }
+            SpecificLocation::Below { .. } => todo!(),
         }
     }
 }

@@ -3,7 +3,7 @@
 use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
-use crate::memory::allocator::BackingAllocator;
+use crate::memory::allocator::{BackingAllocator, SpecificLocation};
 use crate::memory::{allocator, AllocError, Frame};
 use crate::sync::RwLock;
 
@@ -26,6 +26,12 @@ unsafe impl BackingAllocator for GlobalAllocator {
 		self.rwlock.read()
 		    .expect("No global allocator set")
 		    .deallocate_contiguous(base, frame_count)
+	}
+
+	fn allocate_at(&self, frame_count: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
+		self.rwlock.read()
+		    .expect("No global allocator set")
+		    .allocate_at(frame_count, location)
 	}
 }
 

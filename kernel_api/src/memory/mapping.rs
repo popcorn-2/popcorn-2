@@ -18,7 +18,7 @@ use core::mem::ManuallyDrop;
 use core::num::{NonZeroU32, NonZeroUsize};
 use core::ptr;
 use log::debug;
-use crate::memory::allocator::{AlignedAllocError, AllocationMeta, BackingAllocator, ZeroAllocError};
+use crate::memory::allocator::{AllocationMeta, BackingAllocator, SpecificLocation, ZeroAllocError};
 use crate::memory::{AllocError, Frame, Page};
 use crate::memory::physical::{OwnedFrames, highmem};
 use crate::memory::r#virtual::{Global, OwnedPages, VirtualAllocator};
@@ -53,12 +53,12 @@ unsafe impl BackingAllocator for Highmem {
 		unimplemented!()
 	}
 
-		highmem().allocate_contiguous_aligned(count, alignment_log2)
-	fn allocate_contiguous_aligned(&self, count: NonZeroUsize, alignment_log2: u32) -> Result<Frame, AllocError> {
+	fn allocate_at(&self, frame_count: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
+		highmem().allocate_at(frame_count, location)
 	}
 
-	fn try_allocate_contiguous_aligned(&self, count: NonZeroUsize, alignment_log2: u32) -> Result<Frame, AlignedAllocError> {
-		highmem().try_allocate_contiguous_aligned(count, alignment_log2)
+	fn allocate(&self, frame_count: usize) -> Result<crate::memory::allocator::AllocateNonContiguousRet, AllocError> {
+		highmem().allocate(frame_count)
 	}
 }
 

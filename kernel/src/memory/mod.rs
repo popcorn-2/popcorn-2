@@ -7,7 +7,7 @@ pub mod watermark_allocator;
 mod tests {
 	use core::num::NonZeroUsize;
 	use core::sync::atomic::{AtomicUsize, Ordering};
-	use kernel_api::memory::allocator::BackingAllocator;
+	use kernel_api::memory::allocator::{BackingAllocator, SpecificLocation};
 	use kernel_api::memory::{AllocError, Frame, PhysicalAddress};
 
 	struct MockAllocator {
@@ -64,6 +64,10 @@ mod tests {
 		}
 
 		unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZeroUsize) {}
+
+		fn allocate_at(&self, frame_count: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
+			unimplemented!()
+		}
 	}
 
 	#[test]

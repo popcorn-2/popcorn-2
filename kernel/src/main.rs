@@ -26,6 +26,7 @@
 #![feature(noop_waker)]
 #![feature(vec_into_raw_parts)]
 #![feature(strict_provenance_atomic_ptr)]
+#![feature(maybe_uninit_uninit_array_transpose)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -35,7 +36,9 @@
 #![feature(kernel_virtual_memory)]
 #![feature(kernel_mmap)]
 #![feature(kernel_internals)]
-#![feature(maybe_uninit_uninit_array_transpose)]
+#![feature(kernel_physical_allocator_v2)]
+#![feature(kernel_physical_allocator_non_contiguous)]
+#![feature(kernel_physical_allocator_location)]
 
 #![no_std]
 #![no_main]
