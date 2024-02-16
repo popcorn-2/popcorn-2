@@ -166,7 +166,78 @@ pub enum AlignError {
     Unaligned(AllocateNonContiguousRet)
 }
 
+pub mod new_allocator {
+    #![unstable(feature = "kernel_physical_allocator_v2", issue = "none")]
 
+    use core::arch::asm;
+    use core::ptr::slice_from_raw_parts_mut;
+    use crate::memory::mapping::RawMappingInner;
 
+    pub(crate) fn fast_zero_memory(memory: &mut RawMappingInner, _background: bool) {
+        let memory = unsafe { &mut *slice_from_raw_parts_mut(memory.virtual_valid_start().as_ptr(), memory.physical_len().get()) };
+        #[cfg(target_arch = "x86_64")]
+        {
+            // todo: use sse sometimes
+            fast_zero_memory_stos(memory);
+        }
+    }
 
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "sse,sse2")]
+    unsafe fn fast_zero_memory_sse_nocache(memory: &mut [u8]) {
+        let (prologue, aligned, epilogue) = unsafe { memory.align_to_mut::<u128>() };
+        fast_zero_memory_stos(prologue);
+        unsafe {
+            asm!(
+            "xorps {0}, {0}",
+            "jmp 2f",
+            "3:",
+            "movntdq [{2}], {0}",
+            "add {2}, 16",
+            "dec {1}",
+            "2:",
+            "jnz 3b",
+            out (xmm_reg) _,
+            inout (reg) aligned.len() => _,
+            inout (reg) aligned.as_mut_ptr() => _,
+            );
+        }
+        fast_zero_memory_stos(epilogue);
+    }
 
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "sse,sse2")]
+    unsafe fn fast_zero_memory_sse(memory: &mut [u8]) {
+        let (prologue, aligned, epilogue) = unsafe { memory.align_to_mut::<u128>() };
+        fast_zero_memory_stos(prologue);
+        unsafe {
+            asm!(
+            "xorps {0}, {0}",
+            "jmp 2f",
+            "3:",
+            "movdqa [{2}], {0}",
+            "add {2}, 16",
+            "dec {1}",
+            "2:",
+            "jnz 3b",
+            out (xmm_reg) _,
+            inout (reg) aligned.len() => _,
+            inout (reg) aligned.as_mut_ptr() => _,
+            );
+        }
+        fast_zero_memory_stos(epilogue);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn fast_zero_memory_stos(memory: &mut [u8]) {
+        unsafe {
+            asm!(
+                "xor eax, eax",
+                "rep stosb",
+                out ("rax") _,
+                inout ("rcx") memory.len() => _,
+                inout ("rdi") memory.as_mut_ptr() => _,
+            );
+        }
+    }
+}
