@@ -1,8 +1,8 @@
 use core::arch::asm;
 use core::fmt::{Debug, Formatter};
 use kernel_api::bridge::paging::MapPageError;
-use kernel_api::memory::allocator::{AllocError, BackingAllocator};
-use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
+use kernel_api::memory::allocator::{BackingAllocator};
+use kernel_api::memory::{Frame, Page, PhysicalAddress, AllocError};
 use kernel_api::memory::physical::highmem;
 use table::{Table, PDPT, PML4, PageIndices};
 use crate::paging2::{KTable, TTable};

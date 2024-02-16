@@ -1,8 +1,8 @@
 use core::fmt::Debug;
 use kernel_api::bridge::paging::MapPageError;
-use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
+use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
 use crate::{Hal, HalTy};
-use kernel_api::memory::allocator::{AllocError, BackingAllocator};
+use kernel_api::memory::allocator::{BackingAllocator};
 
 pub type KTableTy = <HalTy as crate::Hal>::KTableTy;
 pub type TTableTy = <HalTy as crate::Hal>::TTableTy;

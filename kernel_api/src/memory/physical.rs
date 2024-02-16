@@ -16,7 +16,7 @@ pub struct GlobalAllocator {
 // todo: can this be a macro?
 #[unstable(feature = "kernel_internals", issue = "none")]
 unsafe impl BackingAllocator for GlobalAllocator {
-	fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, allocator::AllocError> {
+	fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
 		self.rwlock.read()
 				.expect("No global allocator set")
 				.allocate_contiguous(frame_count)

@@ -29,11 +29,11 @@ use crate::memory::r#virtual::{Global, OwnedPages, VirtualAllocator};
 pub struct Highmem;
 
 unsafe impl BackingAllocator for Highmem {
-	fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, crate::memory::allocator::AllocError> {
+	fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
 		highmem().allocate_contiguous(frame_count)
 	}
 
-	fn allocate_one(&self) -> Result<Frame, crate::memory::allocator::AllocError> {
+	fn allocate_one(&self) -> Result<Frame, AllocError> {
 		highmem().allocate_one()
 	}
 
@@ -41,7 +41,7 @@ unsafe impl BackingAllocator for Highmem {
 		highmem().try_allocate_zeroed(frame_count)
 	}
 
-	fn allocate_zeroed(&self, frame_count: usize) -> Result<Frame, crate::memory::allocator::AllocError> {
+	fn allocate_zeroed(&self, frame_count: usize) -> Result<Frame, AllocError> {
 		highmem().allocate_zeroed(frame_count)
 	}
 
@@ -53,8 +53,8 @@ unsafe impl BackingAllocator for Highmem {
 		unimplemented!()
 	}
 
-	fn allocate_contiguous_aligned(&self, count: NonZeroUsize, alignment_log2: u32) -> Result<Frame, crate::memory::allocator::AllocError> {
 		highmem().allocate_contiguous_aligned(count, alignment_log2)
+	fn allocate_contiguous_aligned(&self, count: NonZeroUsize, alignment_log2: u32) -> Result<Frame, AllocError> {
 	}
 
 	fn try_allocate_contiguous_aligned(&self, count: NonZeroUsize, alignment_log2: u32) -> Result<Frame, AlignedAllocError> {
