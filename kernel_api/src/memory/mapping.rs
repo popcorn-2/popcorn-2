@@ -307,6 +307,18 @@ pub enum Location<A: Address> {
 	Below { location: A, with_alignment: NonZeroU32 }
 }
 
+impl From<Location<Frame>> for super::allocator::Location {
+	fn from(value: Location<Frame>) -> Self {
+		use super::allocator::{Location as XLocation, SpecificLocation};
+		match value {
+			Location::Any => XLocation::Any,
+			Location::Aligned(a) => XLocation::Specific(SpecificLocation::Aligned(a)),
+			Location::At(f) => XLocation::Specific(SpecificLocation::At(f)),
+			Location::Below { location, with_alignment } => XLocation::Specific(SpecificLocation::Below{ location, with_alignment }),
+		}
+	}
+}
+
 /// When to allocate physical memory for the [mapping](self)
 pub enum Laziness { Lazy, Prefault }
 
@@ -423,12 +435,12 @@ impl<R: Mappable, A: VirtualAllocator> Debug for RawMapping<'_, R, A> {
 
 impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A> {
 	pub fn new(config: Config<'phys_alloc, A>) -> Result<Self, AllocError> {
-		let Config { length, physical_allocator, virtual_allocator, .. } = config;
+		let Config { length, physical_allocator, virtual_allocator, physical_location, .. } = config;
 
 		let virtual_len = R::physical_length_to_virtual_length(length);
 		let physical_len = length;
 
-		let physical_mem = OwnedFrames::new_with(physical_len, physical_allocator)?;
+		let physical_mem = OwnedFrames::xnew(physical_len, physical_allocator, physical_location.into())?;
 		let virtual_mem = OwnedPages::new_with(virtual_len, virtual_allocator)?;
 
 		let physical_base = physical_mem.base;
