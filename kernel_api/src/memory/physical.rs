@@ -3,7 +3,7 @@
 use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
-use crate::memory::allocator::{BackingAllocator, SpecificLocation};
+use crate::memory::allocator::{BackingAllocator, Location, SpecificLocation};
 use crate::memory::{allocator, AllocError, Frame};
 use crate::sync::RwLock;
 
@@ -85,6 +85,20 @@ impl<'a> OwnedFrames<'a> {
 			len: count,
 			allocator
 		})
+	}
+
+	pub fn xnew(count: NonZeroUsize, allocator: &'a dyn BackingAllocator, location: Location) -> Result<Self, AllocError> {
+		match location {
+			Location::Any => Self::new_with(count, allocator),
+			Location::Specific(loc) => {
+				let base = allocator.allocate_at(count.get(), loc)?;
+				Ok(OwnedFrames {
+					base,
+					len: count,
+					allocator
+				})
+			},
+		}
 	}
 
 	fn split_at(self, n: NonZeroUsize) -> (Self, Self) {
