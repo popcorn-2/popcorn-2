@@ -899,10 +899,10 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     drop(keyboard);
 
     let config_tables = system_table.config_table();
-    let acpi_table= if let Some(xsdp) = config_tables.iter().find(|table| table.guid == cfg::ACPI2_GUID) {
-        handoff::Xsdp::Xsdp(PhysicalAddress::new(xsdp.address as usize))
+    let rsdp = if let Some(xsdp) = config_tables.iter().find(|table| table.guid == cfg::ACPI2_GUID) {
+        PhysicalAddress::new(xsdp.address as usize)
     } else if let Some(rsdp) = config_tables.iter().find(|table| table.guid == cfg::ACPI_GUID) {
-        handoff::Xsdp::Rsdp(PhysicalAddress::new(rsdp.address as usize))
+        PhysicalAddress::new(rsdp.address as usize)
     } else {
         panic!("No RSDP found");
     };
@@ -925,7 +925,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             module_func: unsafe { mem::transmute(1usize) }
         },
         tls: Range(kernel_tls.start, kernel_tls.end),
-        acpi: acpi_table
+        rsdp
     };
 
     let _ = system_table.exit_boot_services();

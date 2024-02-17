@@ -12,7 +12,7 @@ pub struct Data {
 	pub log: Logging,
 	pub test: Testing,
 	pub tls: Range<VirtualAddress>,
-	pub acpi: Xsdp
+	pub rsdp: PhysicalAddress
 }
 
 #[derive(Debug)]
@@ -123,9 +123,3 @@ impl core::fmt::Debug for Testing {
 	}
 }
 
-#[derive(Debug)]
-#[repr(C, u8)]
-pub enum Xsdp {
-	Rsdp(PhysicalAddress),
-	Xsdp(PhysicalAddress),
-}
