@@ -3,7 +3,7 @@
   "code-model": "kernel",
   "cpu": "x86-64",
   "crt-objects-fallback": "false",
-  "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128",
+  "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
   "disable-redzone": true,
   "dynamic-linking": true,
   "exe-suffix": ".exec",
@@ -18,12 +18,7 @@
   "panic-strategy": "unwind",
   "position-independent-executables": true,
   "stack-probes": {
-    "kind": "inline",
-    "min-llvm-version-for-inline": [
-      16,
-      0,
-      0
-    ]
+    "kind": "inline"
   },
   "target-pointer-width": "64"
 }
