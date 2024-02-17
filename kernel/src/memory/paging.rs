@@ -2,8 +2,8 @@ use core::cell::RefCell;
 use core::fmt::{Debug, Formatter};
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
-use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
-use kernel_api::memory::allocator::{AllocError, BackingAllocator};
+use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
+use kernel_api::memory::allocator::{BackingAllocator};
 use kernel_api::sync::RwLock;
 
 use kernel_hal::paging::{Table, PageIndices, levels::Global, Entry, TableDebug};

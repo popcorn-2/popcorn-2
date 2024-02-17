@@ -2,6 +2,7 @@
 
 #![feature(kernel_allocation_new)]
 #![feature(kernel_frame_zero)]
+#![feature(kernel_physical_allocator_location)]
 
 extern crate alloc;
 
@@ -12,9 +13,16 @@ use core::mem;
 use core::num::NonZeroUsize;
 use core::ops::Range;
 use kernel_api::memory::{Frame, AllocError};
-use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, SizedBackingAllocator};
+use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, SizedBackingAllocator, SpecificLocation};
 use kernel_api::sync::Mutex;
-use log::warn;
+use log::{debug, warn};
+
+macro_rules! alloc_err {
+    ($reason:literal) => {
+        debug!(concat!("BitmapAllocator: ", $reason));
+        return Err(AllocError.into());
+    };
+}
 
 #[derive(Debug, Eq, PartialEq)]
 enum FrameState {
@@ -86,14 +94,14 @@ impl BitmapAllocator {
             }
         }
 
-        return Err(AllocError);
+        alloc_err!("No free memory");
     }
 
     fn allocate_multiple_fast(&mut self, frame_count: usize) -> Result<Frame, AllocError> {
         assert!(frame_count > 1);
 
         // Cannot allocate bigger than number of bits in usize since can't check across boundaries
-        if frame_count > mem::size_of::<usize>() { return Err(AllocError); }
+        if frame_count > mem::size_of::<usize>() { alloc_err!("Too many pages for allocate_multiple_fast"); }
 
         // Create a mask of `frame_count` contiguous bits
         let mask = (2 << (frame_count - 1)) - 1;
@@ -130,7 +138,7 @@ impl BitmapAllocator {
             }
         }
 
-        Err(AllocError)
+        alloc_err!("No free memory");
     }
 
     #[cold]
@@ -163,7 +171,7 @@ impl BitmapAllocator {
             }
         }
 
-        if !found { Err(AllocError) }
+        if !found { alloc_err!("No free memory"); }
         else {
             let contiguous_frames_start = contiguous_frames_start.expect("unreachable");
             let start = self.first_frame + (contiguous_frames_start.0 * mem::size_of::<usize>()) + contiguous_frames_start.1;
@@ -182,6 +190,8 @@ pub struct Wrapped(Mutex<BitmapAllocator>);
 
 unsafe impl BackingAllocator for Wrapped {
     fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
+        if frame_count == 0 { return Ok(Frame::zero()); }
+
         let mut guard = self.0.lock();
 
         if frame_count == 1 { guard.allocate_one() }
@@ -206,6 +216,27 @@ unsafe impl BackingAllocator for Wrapped {
 
         for frame in allocation.region {
             let _ = allocator.set_frame(frame, FrameState::Allocated);
+        }
+    }
+
+    fn allocate_at(&self, frame_count: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
+        if frame_count == 0 { return Ok(Frame::zero()); }
+
+        let mut guard = self.0.lock();
+
+        match location {
+            SpecificLocation::Aligned(_) => todo!(),
+            SpecificLocation::At(addr) => {
+                let end = addr + frame_count;
+                let free = (addr..end).all(|f| match guard.get_frame(f) {
+                    Ok(state) => state == FrameState::Free,
+                    Err(_) => false,
+                });
+                if !free { alloc_err!("Requested memory already allocated"); }
+                (addr..end).for_each(|f| guard.set_frame(f, FrameState::Allocated).expect("Must be in range"));
+                Ok(addr)
+            }
+            SpecificLocation::Below { .. } => todo!(),
         }
     }
 }

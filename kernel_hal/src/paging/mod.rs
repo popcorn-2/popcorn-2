@@ -1,8 +1,8 @@
 use core::fmt::{Debug, Formatter};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
-use kernel_api::memory::allocator::{AllocError, BackingAllocator};
-use kernel_api::memory::{Frame, Page};
+use kernel_api::memory::allocator::{BackingAllocator};
+use kernel_api::memory::{Frame, Page, AllocError};
 use crate::paging::levels::{Lower, Middle, Upper, Global, ParentLevel};
 
 pub mod levels;

@@ -3,7 +3,7 @@
 use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
-use crate::memory::allocator::BackingAllocator;
+use crate::memory::allocator::{BackingAllocator, Location, SpecificLocation};
 use crate::memory::{allocator, AllocError, Frame};
 use crate::sync::RwLock;
 
@@ -16,7 +16,7 @@ pub struct GlobalAllocator {
 // todo: can this be a macro?
 #[unstable(feature = "kernel_internals", issue = "none")]
 unsafe impl BackingAllocator for GlobalAllocator {
-	fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, allocator::AllocError> {
+	fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
 		self.rwlock.read()
 				.expect("No global allocator set")
 				.allocate_contiguous(frame_count)
@@ -26,6 +26,12 @@ unsafe impl BackingAllocator for GlobalAllocator {
 		self.rwlock.read()
 		    .expect("No global allocator set")
 		    .deallocate_contiguous(base, frame_count)
+	}
+
+	fn allocate_at(&self, frame_count: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
+		self.rwlock.read()
+		    .expect("No global allocator set")
+		    .allocate_at(frame_count, location)
 	}
 }
 
@@ -79,6 +85,20 @@ impl<'a> OwnedFrames<'a> {
 			len: count,
 			allocator
 		})
+	}
+
+	pub fn xnew(count: NonZeroUsize, allocator: &'a dyn BackingAllocator, location: Location) -> Result<Self, AllocError> {
+		match location {
+			Location::Any => Self::new_with(count, allocator),
+			Location::Specific(loc) => {
+				let base = allocator.allocate_at(count.get(), loc)?;
+				Ok(OwnedFrames {
+					base,
+					len: count,
+					allocator
+				})
+			},
+		}
 	}
 
 	fn split_at(self, n: NonZeroUsize) -> (Self, Self) {

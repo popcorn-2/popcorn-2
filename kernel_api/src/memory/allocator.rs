@@ -2,17 +2,11 @@
 
 #![stable(feature = "kernel_core_api", since = "0.1.0")]
 
-use alloc::sync::Arc;
-use core::num::NonZeroUsize;
+use core::num::{NonZeroU32, NonZeroUsize};
 use core::ops::Range;
 use auto_impl::auto_impl;
 
-use super::Frame;
-use super::PAGE_SIZE;
-
-/// The error returned when an allocation was unsuccessful
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub type AllocError = super::AllocError;
+use super::{Frame, AllocError, PAGE_SIZE};
 
 /// The error returned when an allocation requesting zeroed out memory was unsuccessful
 #[unstable(feature = "kernel_allocation_zeroing", issue = "2")]
@@ -49,6 +43,16 @@ impl AllocationMeta {
     }
 }
 
+#[unstable(feature = "kernel_physical_allocator_non_contiguous", issue = "none")]
+pub type AllocateNonContiguousRet = impl IntoIterator<Item = Frame>;
+
+const _: () = {
+    fn dummy() -> AllocateNonContiguousRet {
+        fn f() -> Range<Frame> { unimplemented!() }
+        f()
+    }
+};
+
 /// An allocator that managed physical memory
 ///
 /// In future, this may be replaced by a more general resource allocator. In that case, this trait will be deprecated
@@ -74,6 +78,12 @@ pub unsafe trait BackingAllocator: Send + Sync {
         }
     }*/
 
+    #[unstable(feature = "kernel_physical_allocator_non_contiguous", issue = "none")]
+    fn allocate(&self, frame_count: usize) -> Result<AllocateNonContiguousRet, AllocError> {
+        let base = self.allocate_contiguous(frame_count)?;
+        Ok(base..(base + frame_count))
+    }
+
     /// Allocates a contiguous range of physical memory
     #[stable(feature = "kernel_core_api", since = "0.1.0")]
     fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError>;
@@ -81,8 +91,8 @@ pub unsafe trait BackingAllocator: Send + Sync {
     /// Allocates a single [`Frame`]
     #[stable(feature = "kernel_core_api", since = "0.1.0")]
     fn allocate_one(&self) -> Result<Frame, AllocError> {
-        // FIXME: Use non-contig version
-        self.allocate_contiguous(1)
+        let frame = self.allocate(1)?;
+        Ok(frame.into_iter().next().expect("`allocate(1)` must return one frame"))
     }
 
     /// Tries to allocate a contiguous region of `frame_count` frames from a prezeroed buffer
@@ -108,7 +118,7 @@ pub unsafe trait BackingAllocator: Send + Sync {
         let frames = self.try_allocate_zeroed(frame_count);
         match frames {
             Ok(frame) => Ok(frame),
-            Err(ZeroAllocError::AllocError) => Err(crate::memory::AllocError),
+            Err(ZeroAllocError::AllocError) => Err(AllocError),
             Err(ZeroAllocError::Uninit(frame)) => {
                 do_zero(frame, frame_count);
                 Ok(frame)
@@ -124,39 +134,8 @@ pub unsafe trait BackingAllocator: Send + Sync {
     #[unstable(feature = "kernel_allocation_new", issue = "5")]
     fn push(&mut self, allocation: AllocationMeta) { unimplemented!("experimental") }
 
-    /// Allocate a continuous range of `count` frames, aligned to 2^`alignment_log2` frames
-    ///
-    /// # Errors
-    /// Returns an [`AllocError`](core::alloc::AllocError) if the allocation could not be made
-    #[unstable(feature = "kernel_allocation_aligned", issue = "3")]
-    fn allocate_contiguous_aligned(&self, count: NonZeroUsize, alignment_log2: u32) -> Result<Frame, AllocError> { unimplemented!("unstable feature") }
-
-    /// Allocate a continuous range of `count` frames.
-    /// If the alignment of 2^`alignment_log2` frames cannot be satisfied, make an allocation of the same size with a lower alignment.
-    /// The number of allocated frames shall be rounded up to the returned alignment
-    ///
-    /// # Errors
-    /// Returns an [`AlignedAllocError`] if the originally requested alignment could not be satisfied.
-    /// The new alignment shall be returned in [`AlignError`](AlignedAllocError::AlignError).
-    #[unstable(feature = "kernel_allocation_aligned", issue = "3")]
-    fn try_allocate_contiguous_aligned(&self, count: NonZeroUsize, mut alignment_log2: u32) -> Result<Frame, AlignedAllocError> {
-        let alignment_log2_orig = alignment_log2;
-        loop {
-            let alignment = 1 << alignment_log2;
-            let aligned_count = (count.get() + alignment - 1) / alignment * alignment;
-
-            // SAFETY: `aligned_count` cannot be zero unless `count` or `alignment` are equal to zero, neither of which is possible
-            match self.allocate_contiguous_aligned(unsafe { NonZeroUsize::new_unchecked(aligned_count) }, alignment_log2) {
-                Ok(frame) if alignment_log2 == alignment_log2_orig => return Ok(frame),
-                Ok(frame) => return Err(AlignedAllocError::AlignError(frame, alignment_log2)),
-                _ => {}
-            }
-
-            if let Some(new_alignment_log2) = alignment_log2.checked_sub(1) {
-                alignment_log2 = new_alignment_log2;
-            } else { return Err(AlignedAllocError::AllocError) }
-        }
-    }
+    #[unstable(feature = "kernel_physical_allocator_location", issue = "none")]
+    fn allocate_at(&self, frame_count: usize, location: SpecificLocation) -> Result<Frame, AllocError>;
 }
 
 #[unstable(feature = "kernel_allocation_new", issue = "5")]
@@ -165,61 +144,100 @@ pub unsafe trait SizedBackingAllocator: BackingAllocator + Sized {
     fn new(config: Config) -> &'static mut dyn BackingAllocator;
 }
 
-/// The error returned when an allocation with a requested alignment could not be satisfied
-#[unstable(feature = "kernel_allocation_aligned", issue = "3")]
-pub enum AlignedAllocError {
-    /// No allocation could be satisfied
-    AllocError,
-    /// An allocation with different alignment was returned instead
-    AlignError(
-        /// The start of the allocation
-        Frame,
-        /// The log_2 of the alignment
-        u32
-    )
+#[unstable(feature = "kernel_physical_allocator_location", issue = "none")]
+pub enum SpecificLocation {
+    /// The mapping must be aligned to a specific number of [`Frame`]s
+    Aligned(NonZeroU32),
+    /// The mapping will fail if it cannot be allocated at this exact location
+    At(Frame),
+    /// The mapping must be below this location, aligned to `with_alignment` number of [`Frame`]s
+    Below { location: Frame, with_alignment: NonZeroU32 }
 }
 
-#[doc(hidden)]
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub enum GlobalAllocator {
-    Static(&'static dyn BackingAllocator),
-    Arc(Arc<dyn BackingAllocator>)
+#[unstable(feature = "kernel_physical_allocator_location", issue = "none")]
+pub enum Location {
+    Any,
+    Specific(SpecificLocation)
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
-unsafe impl BackingAllocator for GlobalAllocator {
-    fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
-        match self {
-            Self::Static(a) => a.allocate_contiguous(frame_count),
-            Self::Arc(a) => a.allocate_contiguous(frame_count)
+#[unstable(feature = "kernel_physical_allocator_location", issue = "none")]
+pub enum AlignError {
+    OomError,
+    Unaligned(AllocateNonContiguousRet)
+}
+
+pub mod new_allocator {
+    #![unstable(feature = "kernel_physical_allocator_v2", issue = "none")]
+
+    use core::arch::asm;
+    use core::ptr::slice_from_raw_parts_mut;
+    use crate::memory::mapping::RawMappingInner;
+
+    pub(crate) fn fast_zero_memory(memory: &mut RawMappingInner, _background: bool) {
+        let memory = unsafe { &mut *slice_from_raw_parts_mut(memory.virtual_valid_start().as_ptr(), memory.physical_len().get()) };
+        #[cfg(target_arch = "x86_64")]
+        {
+            // todo: use sse sometimes
+            fast_zero_memory_stos(memory);
         }
     }
 
-    fn allocate_one(&self) -> Result<Frame, AllocError> {
-        match self {
-            Self::Static(a) => a.allocate_one(),
-            Self::Arc(a) => a.allocate_one()
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "sse,sse2")]
+    unsafe fn fast_zero_memory_sse_nocache(memory: &mut [u8]) {
+        let (prologue, aligned, epilogue) = unsafe { memory.align_to_mut::<u128>() };
+        fast_zero_memory_stos(prologue);
+        unsafe {
+            asm!(
+            "xorps {0}, {0}",
+            "jmp 2f",
+            "3:",
+            "movntdq [{2}], {0}",
+            "add {2}, 16",
+            "dec {1}",
+            "2:",
+            "jnz 3b",
+            out (xmm_reg) _,
+            inout (reg) aligned.len() => _,
+            inout (reg) aligned.as_mut_ptr() => _,
+            );
         }
+        fast_zero_memory_stos(epilogue);
     }
 
-    fn try_allocate_zeroed(&self, frame_count: usize) -> Result<Frame, ZeroAllocError> {
-        match self {
-            Self::Static(a) => a.try_allocate_zeroed(frame_count),
-            Self::Arc(a) => a.try_allocate_zeroed(frame_count)
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "sse,sse2")]
+    unsafe fn fast_zero_memory_sse(memory: &mut [u8]) {
+        let (prologue, aligned, epilogue) = unsafe { memory.align_to_mut::<u128>() };
+        fast_zero_memory_stos(prologue);
+        unsafe {
+            asm!(
+            "xorps {0}, {0}",
+            "jmp 2f",
+            "3:",
+            "movdqa [{2}], {0}",
+            "add {2}, 16",
+            "dec {1}",
+            "2:",
+            "jnz 3b",
+            out (xmm_reg) _,
+            inout (reg) aligned.len() => _,
+            inout (reg) aligned.as_mut_ptr() => _,
+            );
         }
+        fast_zero_memory_stos(epilogue);
     }
 
-    fn allocate_zeroed(&self, frame_count: usize) -> Result<Frame, AllocError> {
-        match self {
-            Self::Static(a) => a.allocate_zeroed(frame_count),
-            Self::Arc(a) => a.allocate_zeroed(frame_count)
-        }
-    }
-
-    unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize) {
-        match self {
-            Self::Static(a) => a.deallocate_contiguous(base, frame_count),
-            Self::Arc(a) => a.deallocate_contiguous(base, frame_count)
+    #[cfg(target_arch = "x86_64")]
+    fn fast_zero_memory_stos(memory: &mut [u8]) {
+        unsafe {
+            asm!(
+                "xor eax, eax",
+                "rep stosb",
+                out ("rax") _,
+                inout ("rcx") memory.len() => _,
+                inout ("rdi") memory.as_mut_ptr() => _,
+            );
         }
     }
 }
