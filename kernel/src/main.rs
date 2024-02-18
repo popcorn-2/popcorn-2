@@ -27,6 +27,7 @@
 #![feature(vec_into_raw_parts)]
 #![feature(strict_provenance_atomic_ptr)]
 #![feature(maybe_uninit_uninit_array_transpose)]
+#![feature(ptr_metadata)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
