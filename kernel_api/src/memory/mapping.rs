@@ -524,7 +524,14 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 
 impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 	fn drop(&mut self) {
-		// todo: unmap stuff
+		debug!("mmap dropped: {self:x?}");
+
+		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
+		for page in (0..self.physical_len().get()).map(|i| self.virtual_valid_start() + i) {
+			debug!("unmapping page {page:x?}");
+			unsafe { crate::bridge::paging::__popcorn_paging_ktable_unmap_page(&mut page_table, page) }
+					.expect("Virtual memory uniquely owned by this mmap so shouldn't be unmapped");
+		}
 
 		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
 		let _pages = unsafe {
