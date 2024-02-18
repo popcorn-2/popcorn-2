@@ -62,10 +62,11 @@ use core::ops::Deref;
 use core::panic::PanicInfo;
 use core::ptr::slice_from_raw_parts_mut;
 use log::{debug, info, trace, warn};
-use kernel_api::memory::{mapping, Page, PhysicalAddress, VirtualAddress};
+use kernel_api::memory::{AllocError, mapping, Page, PhysicalAddress, VirtualAddress};
 use core::future;
 use core::num::NonZeroUsize;
 use core::task::{Poll, Waker};
+use ::acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
 use kernel_api::memory::{allocator::BackingAllocator};
 #[warn(deprecated)]
 use kernel_api::memory::mapping::OldMapping;
@@ -140,7 +141,7 @@ extern "sysv64" fn kstart(handoff_data: &utils::handoff::Data) -> ! {
 }
 
 use kernel_api::memory::{Frame};
-use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
+use kernel_api::memory::allocator::{Config, SizedBackingAllocator, SpecificLocation};
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::highmem;
 use kernel_api::memory::r#virtual::Global;
@@ -194,14 +195,14 @@ fn kmain(mut handoff_data: &utils::handoff::Data, ttable: TTableTy) -> ! {
 		}
 
 		let max_usable_memory = usable_memory.clone()
-			.max_by(|a, b| a.end().cmp(&b.end()))
-			.expect("Free memory should exist");
+		                                     .max_by(|a, b| a.end().cmp(&b.end()))
+		                                     .expect("Free memory should exist");
 		let max_usable_memory = max_usable_memory.end();
 
 		let mut spaces = usable_memory.clone()
-			.map(|entry| {
-				Frame::new(entry.start().align_up())..Frame::new(entry.end().align_down())
-			});
+		                              .map(|entry| {
+			                              Frame::new(entry.start().align_up())..Frame::new(entry.end().align_down())
+		                              });
 
 		let mut spaces2 = spaces.clone();
 		let watermark_allocator = WatermarkAllocator::new(&mut spaces2);
@@ -250,10 +251,89 @@ fn kmain(mut handoff_data: &utils::handoff::Data, ttable: TTableTy) -> ! {
 		*memory::r#virtual::GLOBAL_VIRTUAL_ALLOCATOR.write() = Box::leak(Box::new(btree_alloc));
 	}
 
-	if let Some(ref fb) = handoff_data.framebuffer {
-		let size = fb.stride * fb.height;
-		for pixel in unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.cast::<u32>(), size) } {
-			*pixel = 0xeeeeee;
+	{
+		struct NullAllocator;
+
+		unsafe impl BackingAllocator for NullAllocator {
+			fn allocate_contiguous(&self, _: usize) -> Result<Frame, AllocError> { unimplemented!() }
+			unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZeroUsize) {}
+
+			fn allocate_at(&self, _: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
+				match location {
+					SpecificLocation::Aligned(_) => unimplemented!(),
+					SpecificLocation::At(f) => Ok(f),
+					SpecificLocation::Below { .. } => unimplemented!(),
+				}
+			}
+		}
+
+		let tables = unsafe { AcpiTables::from_rsdp(acpi::Handler::new(&NullAllocator), handoff_data.rsdp.addr) }
+				.expect("ACPI tables invalid");
+
+		if let Some(ref fb) = handoff_data.framebuffer {
+			let size = fb.stride * fb.height;
+			let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.cast::<u32>(), size) };
+
+			// Clear to true black to match background of BGRT logo
+			for pixel in fb_data.iter_mut() {
+				*pixel = 0;
+			}
+
+			let coord_to_fb = |x: usize, y: usize| {
+				x + y*fb.stride
+			};
+
+			// If extracted from BGRT, draw OEM logo
+			if let Ok(bgrt) = tables.find_table::<::acpi::bgrt::Bgrt>() {
+				let bitmap = bmp::from_bgrt(&bgrt, acpi::Handler::new(&NullAllocator));
+				if let Some(bitmap) = bitmap {
+					let width = bitmap.width as usize;
+
+					let (x_init, y) = bgrt.image_offset();
+					let x_init = x_init as usize;
+					let mut y = y as usize;
+					let mut x = x_init;
+
+					for pixel in bitmap {
+						fb_data[coord_to_fb(x, y)] = pixel;
+						x += 1;
+						if x - x_init >= width { x = x_init; y += 1; }
+					}
+				}
+			}
+
+			// Draw progress bar outline
+			const PROGRESS_BAR_COLOR_BG: u32 = 0x303030;
+			const PROGRESS_BAR_COLOR_FG: u32 = 0xababab;
+
+			let mut draw_hline = |startx, endx, y, c| {
+				for x in startx..endx {
+					fb_data[coord_to_fb(x, y)] = c;
+				}
+			};
+
+			let mut rounded_rect = |x_origin: usize, y_origin: usize, width: usize, height: usize, radius: usize, c| {
+				let mut x_start = (radius as f64) / 2.5 + 1.0;
+
+				for y in 0..height {
+					if y < radius { x_start /= 1.4; }
+					if y > (height - radius) { x_start *= 1.4; }
+
+					let x_start = x_start as usize;
+					draw_hline(x_origin + x_start, x_origin + width - x_start - 1, y_origin + y, c);
+				}
+			};
+
+			let progress_bar_height = ((fb.height as f32) * 0.005) as usize;
+			let progress_bar_width = ((fb.width as f32) * 0.60) as usize;
+			let progress_bar_start_x = ((fb.width as f32) * 0.20) as usize;
+			let progress_bar_start_y = ((fb.height as f32) * 0.65) as usize;
+			debug!("{progress_bar_start_x} {progress_bar_start_y}");
+
+			for y in progress_bar_start_y..progress_bar_start_y+progress_bar_height {
+				draw_hline(progress_bar_start_x, progress_bar_start_x+progress_bar_width, y, PROGRESS_BAR_COLOR_BG);
+				draw_hline(progress_bar_start_x, progress_bar_start_x+(progress_bar_width/3), y, PROGRESS_BAR_COLOR_FG);
+			}
 		}
 	}
 
