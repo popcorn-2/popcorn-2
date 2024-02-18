@@ -164,9 +164,8 @@ fn kmain(mut handoff_data: &utils::handoff::Data, ttable: TTableTy) -> ! {
 
 	let usable_memory = handoff_data.memory.map.iter().filter(|entry|
 		entry.ty == MemoryType::Free
-			|| entry.ty == MemoryType::AcpiReclaim
 			|| entry.ty == MemoryType::BootloaderCode
-			|| entry.ty == MemoryType::BootloaderData
+			//|| entry.ty == MemoryType::BootloaderData
 	);
 
 	// Split allocator system is used when a significant portion of memory is above the 4GiB boundary
