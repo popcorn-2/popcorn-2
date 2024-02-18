@@ -149,7 +149,7 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
         kernel_file = file
 
     if args.symbol_map:
-        kernel_map = subprocess.run(["llvm-nm", "-f", "bsd", "-C", "-n", kernel_file], capture_output=True, text=True)
+        kernel_map = subprocess.run(["llvm-nm", "-U", "-f", "bsd", "-C", "-n", kernel_file], capture_output=True, text=True)
         open(f"target/{target_inner}/kernel.map", "w").write(kernel_map.stdout)
 
     _, result = run_cargo_command(
