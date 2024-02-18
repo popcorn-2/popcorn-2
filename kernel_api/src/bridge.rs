@@ -44,7 +44,8 @@ pub mod paging {
 
 		pub fn __popcorn_paging_ktable_translate_page(this: &KTable, page: Page) -> Option<Frame>;
 		pub fn __popcorn_paging_ktable_translate_address(this: &KTable, addr: VirtualAddress) -> Option<PhysicalAddress>;
-		pub fn __popcorn_paging_ktable_map_page(this: &KTable, page: Page, frame: Frame) -> Result<(), MapPageError>;
+		pub fn __popcorn_paging_ktable_map_page(this: &mut KTable, page: Page, frame: Frame) -> Result<(), MapPageError>;
+		pub fn __popcorn_paging_ktable_unmap_page(this: &mut KTable, page: Page) -> Result<(), ()>;
 	}
 
 	pub unsafe fn __popcorn_paging_get_ktable() -> impl DerefMut<Target = KTable> {

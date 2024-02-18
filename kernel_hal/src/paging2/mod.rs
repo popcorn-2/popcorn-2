@@ -22,6 +22,7 @@ pub trait KTable: Debug + Sized {
 	}
 
 	fn map_page(&mut self, page: Page, frame: Frame) -> Result<(), MapPageError>;
+	fn unmap_page(&mut self, page: Page) -> Result<(), ()>;
 }
 
 pub trait TTable: KTable + Sized {
@@ -43,6 +44,7 @@ trait HackyExportTrick: KTable {
 	fn translate_page(this: &Self, page: Page) -> Option<Frame>;
 	fn translate_address(this: &Self, addr: VirtualAddress) -> Option<PhysicalAddress>;
 	fn map_page(this: &mut Self, page: Page, frame: Frame) -> Result<(), MapPageError>;
+	fn unmap_page(this: &mut Self, page: Page) -> Result<(), ()>;
 }
 
 impl HackyExportTrick for <HalTy as Hal>::KTableTy {
@@ -59,5 +61,10 @@ impl HackyExportTrick for <HalTy as Hal>::KTableTy {
 	#[export_name = "__popcorn_paging_ktable_map_page"]
 	fn map_page(this: &mut Self, page: Page, frame: Frame) -> Result<(), MapPageError> {
 		<Self as KTable>::map_page(this, page, frame)
+	}
+
+	#[export_name = "__popcorn_paging_ktable_unmap_page"]
+	fn unmap_page(this: &mut Self, page: Page) -> Result<(), ()> {
+		<Self as KTable>::unmap_page(this, page)
 	}
 }

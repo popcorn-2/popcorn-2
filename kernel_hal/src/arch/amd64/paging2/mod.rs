@@ -5,6 +5,7 @@ use kernel_api::memory::allocator::{BackingAllocator};
 use kernel_api::memory::{Frame, Page, PhysicalAddress, AllocError};
 use kernel_api::memory::physical::highmem;
 use table::{Table, PDPT, PML4, PageIndices};
+use crate::arch::amd64::paging::Amd64Entry;
 use crate::paging2::{KTable, TTable};
 use crate::paging::Entry;
 
@@ -115,6 +116,27 @@ impl KTable for Amd64TTable {
 		let pt = pd.child_table_or_new(page.pd_index(), &self.allocator)?;
 		pt.entries[page.pt_index()].point_to_frame(frame).map_err(|_| MapPageError::AlreadyMapped)
 	}
+
+	fn unmap_page(&mut self, page: Page) -> Result<(), ()> {
+		assert!(page.start().addr < 0xffff_8000_0000_0000, "TTable only handles lower half addresses");
+
+		let pdpt = self.pml4.pml4_mut().child_table_mut(page.pml4_index()).ok_or(())?;
+		let pd = pdpt.child_table_mut(page.pdpt_index()).ok_or(())?;
+		let pt = pd.child_table_mut(page.pd_index()).ok_or(())?;
+		let entry = &mut pt.entries[page.pt_index()];
+		match (entry.is_used(), entry.is_present()) {
+			(true, false) => {
+				// todo: remove from swap or something
+				Ok(())
+			},
+			(true, true) => {
+				*entry = Amd64Entry::empty();
+				unsafe { asm!("invlpg [{}]", in(reg) page.as_ptr()); }
+				Ok(())
+			},
+			(false, _) => Err(())
+		}
+	}
 }
 
 impl KTable for Amd64KTable {
@@ -134,6 +156,27 @@ impl KTable for Amd64KTable {
 		let pd = pdpt.child_table_or_new(page.pdpt_index(), &self.allocator)?;
 		let pt = pd.child_table_or_new(page.pd_index(), &self.allocator)?;
 		pt.entries[page.pt_index()].point_to_frame(frame).map_err(|_| MapPageError::AlreadyMapped)
+	}
+
+	fn unmap_page(&mut self, page: Page) -> Result<(), ()> {
+		assert!(page.start().addr >= 0xffff_8000_0000_0000, "KTable only handles upper half addresses");
+
+		let pdpt = &mut self.tables.tables_mut()[page.pml4_index() - 256];
+		let pd = pdpt.child_table_mut(page.pdpt_index()).ok_or(())?;
+		let pt = pd.child_table_mut(page.pd_index()).ok_or(())?;
+		let entry = &mut pt.entries[page.pt_index()];
+		match (entry.is_used(), entry.is_present()) {
+			(true, false) => {
+				// todo: remove from swap or something
+				Ok(())
+			},
+			(true, true) => {
+				*entry = Amd64Entry::empty();
+				unsafe { asm!("invlpg [{}]", in(reg) page.as_ptr()); }
+				Ok(())
+			},
+			(false, _) => Err(())
+		}
 	}
 }
 
