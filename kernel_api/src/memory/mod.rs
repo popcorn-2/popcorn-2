@@ -285,6 +285,20 @@ impl Page {
     }
 }
 
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
+impl<T: ?Sized> From<*mut T> for VirtualAddress<1> {
+    fn from(value: *mut T) -> Self {
+        VirtualAddress { addr: value as *mut u8 as usize }
+    }
+}
+
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
+impl<T: ?Sized> From<*const T> for VirtualAddress<1> {
+    fn from(value: *const T) -> Self {
+        VirtualAddress { addr: value as *const u8 as usize }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

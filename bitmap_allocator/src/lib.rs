@@ -22,6 +22,11 @@ macro_rules! alloc_err {
         debug!(concat!("BitmapAllocator: ", $reason));
         return Err(AllocError.into());
     };
+
+    ($reason:literal, $($arg:tt)+) => {
+        debug!(concat!("BitmapAllocator: ", $reason), $($arg)+);
+        return Err(AllocError.into());
+    };
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -232,7 +237,7 @@ unsafe impl BackingAllocator for Wrapped {
                     Ok(state) => state == FrameState::Free,
                     Err(_) => false,
                 });
-                if !free { alloc_err!("Requested memory already allocated"); }
+                if !free { alloc_err!("Requested memory at {:x?} already allocated", addr); }
                 (addr..end).for_each(|f| guard.set_frame(f, FrameState::Allocated).expect("Must be in range"));
                 Ok(addr)
             }

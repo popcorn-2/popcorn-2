@@ -11,7 +11,8 @@ pub struct Data {
 	pub modules: Modules,
 	pub log: Logging,
 	pub test: Testing,
-	pub tls: Range<VirtualAddress>
+	pub tls: Range<VirtualAddress>,
+	pub rsdp: PhysicalAddress
 }
 
 #[derive(Debug)]
@@ -121,3 +122,4 @@ impl core::fmt::Debug for Testing {
 		<(*const ()) as core::fmt::Pointer>::fmt(&{self.module_func as *const ()}, f)
 	}
 }
+
