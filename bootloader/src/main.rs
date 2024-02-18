@@ -7,13 +7,11 @@
 #![feature(slice_ptr_len)]
 #![feature(slice_ptr_get)]
 #![feature(inline_const)]
-#![feature(type_name_of_val)]
 #![feature(arbitrary_self_types)]
 #![feature(concat_bytes)]
 #![feature(allocator_api)]
 #![feature(iter_collect_into)]
 #![feature(noop_waker)]
-#![feature(c_str_literals)]
 #![feature(kernel_memory_addr_access)]
 #![feature(kernel_address_alignment_runtime)]
 #![no_main]
@@ -245,51 +243,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     };
     let config: Config = toml::from_str(&config).unwrap();
 
-   /* let regular = &default_font.regular;
-    let bold = &default_font.bold;
-    let italic = &default_font.italic;
-    let bold_italic = &default_font.bold_italic;
-
-    let regular = fs.read(regular).unwrap_or_else(|_| panic!("Unable to find regular font file"));
-    let bold = bold.as_ref().map(|path| fs.read(path).unwrap_or_else(|_| panic!("Unable to find bold font file")));
-    let italic = italic.as_ref().map(|path| fs.read(path).unwrap_or_else(|_| panic!("Unable to find italic font file")));
-    let bold_italic = bold_italic.as_ref().map(|path| fs.read(path).unwrap_or_else(|_| panic!("Unable to bold-italic regular font file")));
-
-    let regular = psf::try_parse(&regular).unwrap_or_else(|e| panic!("Invalid file for regular font: {}", e));
-    let bold = bold.as_ref().map(|data| psf::try_parse(data).unwrap_or_else(|e| panic!("Invalid file for bold font: {}", e)));
-    let italic = italic.as_ref().map(|data| psf::try_parse(data).unwrap_or_else(|e| panic!("Invalid file for italic font: {}", e)));
-    let bold_italic = bold_italic.as_ref().map(|data| psf::try_parse(data).unwrap_or_else(|e| panic!("Invalid file for bold-italic font: {}", e)));
-*/
     mouse.reset(false).unwrap();
-
-    //let default_font = FontFamily::new(regular, bold, italic, bold_italic);
-
-    let mode = {
-        let optimal_resolutions = gop.modes()
-                                     .filter(|mode|
-                                             mode.info().resolution().1 == 1080 ||
-                                                     mode.info().resolution().1 == 720 ||
-                                                     mode.info().resolution().1 == 480
-                                     );
-
-        let mut optimal_resolution = optimal_resolutions.max_by_key(|mode| mode.info().resolution().0);
-
-        if optimal_resolution.is_none() {
-            let fallback_optimal_resolutions = gop.modes()
-                                                  .filter(|mode|
-                                                          mode.info().resolution().0 == 1920 ||
-                                                                  mode.info().resolution().0 == 1280 ||
-                                                                  mode.info().resolution().0 == 640
-                                                  );
-            optimal_resolution = fallback_optimal_resolutions.max_by_key(|mode| mode.info().resolution().0);
-        }
-
-        optimal_resolution
-    };
-
-    if let Some(ref mode) = mode && gop.set_mode(mode).is_err() {
-        warn!("Unable to set display resolution");
-    }
 
     let (width, height) = gop.current_mode_info().resolution();
     let aspect = (width as f32) / (height as f32);
@@ -298,40 +252,6 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         let dpmm_height = height / usize::from(height_mm);
         (dpmm_width + dpmm_height) / 2
     }).unwrap_or(50 /* 130 dpi */);
-
-    /*lvgl2::init();
-    let buffer = DrawBuffer::new(8000);
-    let mut driver = Driver::new(buffer, width, height, |update| {
-        let update_width = update.area.x2 - update.area.x1 + 1;
-        let update_height = update.area.y2 - update.area.y1 + 1;
-
-        trace!("display update ({}, {}) ({}, {})", update.area.x1, update.area.y1, update_width, update_height);
-
-        for c in update.colors.iter_mut() {
-            c.set_a(0);
-        }
-
-        let buffer: &[BltPixel] = unsafe {
-            mem::transmute(update.colors)
-        };
-
-        let blt_op = BltOp::BufferToVideo {
-            buffer,
-            src: BltRegion::Full,
-            dest: (
-                update.area.x1.try_into().unwrap(),
-                update.area.y1.try_into().unwrap()
-            ),
-            dims: (
-                update_width.try_into().unwrap(),
-                update_height.try_into().unwrap()
-            ),
-        };
-
-        gop.blt(blt_op).expect("Failed to flush display");
-
-        trace!("paint finished");
-    });*/
 
     trace!("initalising lvgl");
     let mut ui = Gui::new(&mut gop);
