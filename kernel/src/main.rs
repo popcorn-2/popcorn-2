@@ -81,6 +81,7 @@ mod bridge;
 mod task;
 mod threading;
 mod acpi;
+mod bmp;
 
 #[cfg(test)]
 pub mod test_harness;
