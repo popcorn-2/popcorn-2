@@ -24,7 +24,8 @@ pub mod panic {
 pub mod hal {
 	extern "Rust" {
 		pub fn __popcorn_enable_irq();
-		pub fn __popcorn_disable_irq() -> bool;
+		pub fn __popcorn_set_irq(state: usize);
+		pub fn __popcorn_disable_irq() -> usize;
 	}
 }
 

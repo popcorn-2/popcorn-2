@@ -1,8 +1,8 @@
 use core::fmt::{Debug, Formatter};
 use bitflags::{bitflags, Flags};
 use kernel_api::memory::{Frame, PhysicalAddress};
-use crate::paging::{Entry, Level};
-use crate::paging::levels::{Global, Upper, Middle, Lower};
+use crate::hal::paging::{Entry, Level};
+use crate::hal::paging::levels::{Global, Upper, Middle, Lower};
 
 impl Level for Global {
 	const MASK: usize = 0o777_000_000_000_0000;

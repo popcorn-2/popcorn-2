@@ -139,7 +139,7 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
             "-Z", "export-executable-symbols=on",
             "-C", "relocation-model=static",
             "-C", "panic=unwind",
-            "-C", "link-args=-Tkernel_hal/src/arch/amd64/linker.ld",
+            "-C", "link-args=-Tkernel/src/hal/arch/amd64/linker.ld",
             env=kernel_build_env
         )
 

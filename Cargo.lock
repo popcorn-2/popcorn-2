@@ -503,15 +503,18 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "acpi",
+ "bit_field",
  "bitflags 2.4.2",
  "bitmap_allocator",
  "crossbeam-queue",
  "derive_more",
  "kernel_api",
  "kernel_default_heap",
- "kernel_hal",
  "log",
+ "macros",
  "minicov",
+ "num_enum 0.7.2",
+ "paste",
  "ranged_btree_allocator",
  "test",
  "unwinding",
@@ -535,16 +538,6 @@ version = "0.1.0"
 dependencies = [
  "kernel_api",
  "log",
-]
-
-[[package]]
-name = "kernel_hal"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.4.2",
- "kernel_api",
- "log",
- "macros",
 ]
 
 [[package]]

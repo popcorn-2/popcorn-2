@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::ptr::NonNull;
 use kernel_api::memory::allocator::{BackingAllocator};
 use kernel_api::memory::{Frame, Page, AllocError};
-use crate::paging::levels::{Lower, Middle, Upper, Global, ParentLevel};
+use crate::hal::paging::levels::{Lower, Middle, Upper, Global, ParentLevel};
 
 pub mod levels;
 
@@ -108,7 +108,7 @@ impl<L: Level + ParentLevel> Table<L> where L::Child: Level, [(); L::ENTRY_COUNT
 	}
 }*/
 
-use crate::arch::amd64::paging::Amd64Entry;
+use crate::hal::arch::amd64::paging::Amd64Entry;
 
 #[repr(C)]
 pub struct Table<L> {

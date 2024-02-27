@@ -3,8 +3,8 @@ use core::num::NonZeroUsize;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
 use kernel_api::memory::r#virtual::{Global, OwnedPages};
-use kernel_hal::paging2::TTableTy;
-use kernel_hal::{ThreadControlBlock, ThreadState};
+use crate::hal::paging2::TTableTy;
+use crate::hal::{ThreadControlBlock, ThreadState};
 use utils::handoff;
 use scheduler::Tid;
 

@@ -75,7 +75,7 @@ pub mod handler {
 pub mod entry {
 	use core::marker::PhantomData;
 	use core::num::NonZeroU8;
-	use crate::arch::amd64::idt::handler::Handler;
+	use crate::hal::arch::amd64::idt::handler::Handler;
 
 	pub enum Type {
 		InterruptGate,
@@ -136,6 +136,22 @@ pub mod entry {
 		}
 	}
 
+	impl Entry<unsafe extern "C" fn()> {
+		pub fn new_ptr(f: unsafe extern "C" fn(), ist_idx: Option<NonZeroU8>, dpl: u8, ty: Type) -> Self {
+			let addr = f as usize;
+			Self {
+				pointer_low: addr as u16,
+				segment_selector: 8,
+				ist: ist_idx,
+				attributes: Attributes::new(ty, dpl),
+				pointer_middle: (addr >> 16) as u16,
+				pointer_high: (addr >> 32) as u32,
+				_reserved: 0,
+				_phantom: PhantomData
+			}
+		}
+	}
+
 	impl<F: Handler> Entry<F> {
 		pub fn new(f: F, ist_idx: Option<NonZeroU8>, dpl: u8, ty: Type) -> Self {
 			let addr = f.addr() as usize;
@@ -157,69 +173,14 @@ use entry::Entry;
 use kernel_api::sync::OnceLock;
 
 #[repr(C, align(16))]
-pub struct Idt<const ENTRY_COUNT: usize> where [(); ENTRY_COUNT - 32]: {
-	pub div_by_zero: Entry<handler::Normal>,
-	pub debug: Entry<handler::Normal>,
-	pub nmi: Entry<handler::Normal>,
-	pub breakpoint: Entry<handler::Normal>,
-	pub overflow: Entry<handler::Normal>,
-	pub bound_range_fault: Entry<handler::Normal>,
-	pub invalid_opcode: Entry<handler::Normal>,
-	pub device_not_available: Entry<handler::Normal>,
-	pub double_fault: Entry<handler::Diverging>,
-	reserved1: Entry<handler::Normal>,
-	pub invalid_tss: Entry<handler::NormalWithError>,
-	pub segment_not_present: Entry<handler::NormalWithError>,
-	pub stack_exception: Entry<handler::NormalWithError>,
-	pub general_protection_fault: Entry<handler::NormalWithError>,
-	pub page_fault: Entry<handler::PageFault>,
-	reserved2: Entry<handler::Normal>,
-	pub x87_floating_point: Entry<handler::Normal>,
-	pub alignment_check: Entry<handler::NormalWithError>,
-	pub machine_check: Entry<handler::Diverging>,
-	pub sse_floating_point: Entry<handler::Normal>,
-	reserved3: Entry<handler::Normal>,
-	pub control_protection: Entry<handler::ControlFlow>,
-	reserved4: [Entry<handler::Normal>; 6],
-	pub hypervisor: Entry<handler::Normal>,
-	pub virtualization: Entry<handler::Normal>,
-	pub security: Entry<handler::Normal>,
-	reserved: Entry<handler::Normal>,
-	other: [Entry<handler::Normal>; ENTRY_COUNT - 32]
+pub struct Idt {
+	pub(crate) entries: [Entry<unsafe extern "C" fn()>; 256]
 }
 
-impl<const ENTRY_COUNT: usize> Idt<ENTRY_COUNT> where [(); ENTRY_COUNT - 32]: {
+impl Idt {
 	pub const fn new() -> Self {
 		Self {
-			// have to do this because Default isn't const and isn't implemented for generic arrays
-			div_by_zero: Entry::empty(),
-			debug: Entry::empty(),
-			nmi: Entry::empty(),
-			breakpoint: Entry::empty(),
-			overflow: Entry::empty(),
-			bound_range_fault: Entry::empty(),
-			invalid_opcode: Entry::empty(),
-			device_not_available: Entry::empty(),
-			double_fault: Entry::empty(),
-			reserved1: Entry::empty(),
-			invalid_tss: Entry::empty(),
-			segment_not_present: Entry::empty(),
-			stack_exception: Entry::empty(),
-			general_protection_fault: Entry::empty(),
-			page_fault: Entry::empty(),
-			reserved2: Entry::empty(),
-			x87_floating_point: Entry::empty(),
-			alignment_check: Entry::empty(),
-			machine_check: Entry::empty(),
-			sse_floating_point: Entry::empty(),
-			reserved3: Entry::empty(),
-			control_protection: Entry::empty(),
-			reserved4: [Entry::empty(); 6],
-			hypervisor: Entry::empty(),
-			virtualization: Entry::empty(),
-			security: Entry::empty(),
-			reserved: Entry::empty(),
-			other: [Entry::empty(); ENTRY_COUNT - 32],
+			entries: [Entry::empty(); 256],
 		}
 	}
 
@@ -233,42 +194,34 @@ impl<const ENTRY_COUNT: usize> Idt<ENTRY_COUNT> where [(); ENTRY_COUNT - 32]: {
 }
 
 #[repr(C, packed)]
-pub struct Pointer<const ENTRY_COUNT: usize> where [(); ENTRY_COUNT - 32]: {
+pub struct Pointer {
 	size: u16,
-	address: &'static Idt<ENTRY_COUNT>
+	address: &'static Idt
 }
 
-impl<const ENTRY_COUNT: usize> Pointer<ENTRY_COUNT> where [(); ENTRY_COUNT - 32]: {
-	fn new(idt: &'static Idt<ENTRY_COUNT>) -> Self {
+impl Pointer {
+	fn new(idt: &'static Idt) -> Self {
 		use core::mem::size_of;
 
 		Self {
-			size: u16::try_from(size_of::<Idt<ENTRY_COUNT>>()).unwrap() - 1,
+			size: u16::try_from(size_of::<Idt>()).unwrap() - 1,
 			address: idt
 		}
 	}
 }
 
-impl<const ENTRY_COUNT: usize> Index<usize> for Idt<ENTRY_COUNT> where [(); ENTRY_COUNT - 32]: {
-	type Output = Entry<handler::Normal>;
+impl Index<usize> for Idt {
+	type Output = Entry<unsafe extern "C" fn()>;
 
 	fn index(&self, index: usize) -> &Self::Output {
-		match index {
-			0..=31 => todo!(),
-			i @ 32.. => &self.other[i - 32]
-		}
+		&self.entries[index]
 	}
 }
 
-impl<const ENTRY_COUNT: usize> IndexMut<usize> for Idt<ENTRY_COUNT> where [(); ENTRY_COUNT - 32]: {
+impl IndexMut<usize> for Idt {
 	fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-		match index {
-			0..=31 => todo!(),
-			i @ 32.. => &mut self.other[i - 32]
-		}
+		&mut self.entries[index]
 	}
 }
 
-const ENTRY_COUNT: usize = 32;
-
-pub static IDT: OnceLock<Idt<ENTRY_COUNT>> = OnceLock::new();
+pub static IDT: OnceLock<Idt> = OnceLock::new();

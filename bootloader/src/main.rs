@@ -14,6 +14,7 @@
 #![feature(noop_waker)]
 #![feature(kernel_memory_addr_access)]
 #![feature(kernel_address_alignment_runtime)]
+#![feature(kernel_ptr)]
 #![no_main]
 #![no_std]
 
@@ -51,6 +52,7 @@ use uefi::table::cfg;
 use uefi::table::runtime::ResetType;
 
 use kernel_api::memory::{PhysicalAddress, VirtualAddress, Frame as KFrame, Page as KPage};
+use kernel_api::ptr::Unique;
 use lvgl2::font::Font;
 use lvgl2::input::{encoder, pointer};
 use lvgl2::input::encoder::ButtonUpdate;
@@ -665,7 +667,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         }?;
 
         handoff::Framebuffer {
-            buffer: fb_start.addr as *mut u8,
+            buffer: unsafe { Unique::new(fb_start.addr as *mut u8) },
             stride: mode_info.stride(),
             width,
             height,
@@ -693,7 +695,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let symbol_map = symbol_map.map(|m| Box::leak(m.into_boxed_slice()));
 
-    info!("new stack top at {:#x}", stack.top_phys.start().addr);
+    info!("new stack at {:#x?}", stack);
 
     // allocate before getting memory map from UEFI
     let mut kernel_mem_map = {
