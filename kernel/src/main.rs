@@ -507,7 +507,6 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 					let high: u32;
 
 					asm!("rdmsr", in("ecx") 0x1B, out("rax") low, out("rdx") high);
-					asm!("int 33");
 					(high as u64) << 32 | (low as u64)
 				};
 				debug!("current apic base {val:#x}");
@@ -533,10 +532,10 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 						eoi_addr.as_ptr().write_volatile(0);
 					};
 
-					IRQ_HANDLES.lock().insert(33, Box::new(tick_func));
+					IRQ_HANDLES.lock().insert(48, Box::new(tick_func));
 
 					addr_of_mut!(apic.timer_divide_config.0).write_volatile(0b1010); // div 128
-					addr_of_mut!(apic.timer_lvt.0).write_volatile(0b10_0000_0000_0010_0001); // unmasked, periodic, vector 33
+					addr_of_mut!(apic.timer_lvt.0).write_volatile(0b10_0000_0000_0011_0000); // unmasked, periodic, vector 48
 					let ticks_to_one_ms = lapic_timer_base_freq * 1_000_000 / 1_000 / 128;
 					addr_of_mut!(apic.timer_initial_count.0).write_volatile(ticks_to_one_ms.try_into().unwrap());
 				}
