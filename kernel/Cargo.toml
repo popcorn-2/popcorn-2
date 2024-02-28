@@ -14,7 +14,7 @@ kernel_api = { version = "0.1.0", path = "../kernel_api" }
 derive_more = "0.99.17"
 
 #[target.'cfg(panic = "unwind")'.dependencies]
-unwinding = { version = "0.2.1", default-features = false, features = ["unwinder", "panic", "personality", "fde-static"] }
+unwinding = { git = "https://github.com/nbdd0121/unwinding.git", rev = "d7cd46e", default-features = false, features = ["unwinder", "panic", "personality", "fde-static"] }
 
 kernel_default_heap = { path = "../kernel_default_heap" }
 bitmap_allocator = { path = "../bitmap_allocator" }
