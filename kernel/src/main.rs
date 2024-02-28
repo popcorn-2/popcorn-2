@@ -128,6 +128,41 @@ fn irq_handler(num: usize) {
 	}
 }
 
+#[inline]
+fn exception_handler(exception: hal::exception::Exception) {
+	// todo: update this to signal userspace
+	let is_kernel_mode = true;
+
+	match exception.ty {
+		// Signalling exceptions
+		ty @ (Ty::FloatingPoint | Ty::IllegalInstruction | Ty::BusFault | Ty::Generic(_)) => {
+			if is_kernel_mode {
+				error!("Kernel exception occurred at {:#x}:\n{ty}", exception.at_instruction);
+				loop {}
+			} else {
+				todo!()
+			}
+		},
+		ty @ Ty::PageFault(_) => {
+			// todo: check for CoW etc.
+			if is_kernel_mode {
+				error!("Kernel page fault occurred at {:#x}:\n{ty}", exception.at_instruction);
+				loop {}
+			} else {
+				todo!()
+			}
+		}
+		ty @ (Ty::Nmi | Ty::Panic) => {
+			// todo: BSOD equivalent?
+			error!("Unhandled exception occurred at {:#x}:\n{ty}", exception.at_instruction);
+			loop {}
+		},
+		ty @ (Ty::Unknown(_) | Ty::Debug(_)) => {
+			warn!("Ignoring exception at {:#x}:\n{ty}", exception.at_instruction);
+		}
+	}
+}
+
 #[export_name = "_start"]
 extern "sysv64" fn kstart(handoff_data: &'static utils::handoff::Data) -> ! {
 	sprintln!("Hello world!");
@@ -169,6 +204,7 @@ use kernel_api::sync::Mutex;
 use crate::hal::paging2::{construct_tables, TTable, TTableTy};
 use utils::handoff::MemoryType;
 use crate::acpi::XPhysicalMapping;
+use crate::hal::exception::{PageFault, Ty};
 use crate::memory::paging::ktable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::task::executor::Executor;

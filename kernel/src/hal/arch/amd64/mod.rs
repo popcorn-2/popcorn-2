@@ -1,11 +1,12 @@
 use core::arch::{asm, global_asm};
 use core::mem;
 use core::mem::offset_of;
-use log::{debug, info, warn};
+use log::warn;
 use crate::hal::{Hal, SaveState, ThreadControlBlock};
 use crate::hal::arch::amd64::idt::entry::Type;
 use crate::hal::arch::amd64::idt::handler::InterruptStackFrame;
 use crate::hal::arch::amd64::idt::Idt;
+use crate::hal::exception::{DebugTy, Exception, PageFault, Ty};
 use crate::sprintln;
 
 mod gdt;
@@ -31,14 +32,87 @@ struct IrqData {
 }
 
 extern "C" fn amd64_handler2(data: &mut IrqData) {
-	//
+	const MIN_IRQ: u8 = Amd64Hal::MIN_IRQ_NUM as u8;
+	const MAX_IRQ: u8 = Amd64Hal::MAX_IRQ_NUM as u8;
 
-	if data.num as usize > Amd64Hal::MIN_IRQ_NUM {
-		crate::hal::irq_handler(data.num as usize);
-	} else {
-		info!("IRQ: {data:#x?}");
-		if data.num != 3 { loop {} }
-	}
+	let exception_payload = match data.num as u8 {
+		0 | 16 | 19 => Exception {
+			ty: Ty::FloatingPoint,
+			at_instruction: data.rip as usize,
+		},
+		1 | 3 => Exception {
+			ty: Ty::Debug(DebugTy::Breakpoint),
+			at_instruction: data.rip as usize,
+		},
+		6 => Exception {
+			ty: Ty::IllegalInstruction,
+			at_instruction: data.rip as usize,
+		},
+		14 => {
+			let cr2: usize;
+			unsafe { asm!("mov {}, cr2", out(reg) cr2); }
+			Exception {
+				ty: Ty::PageFault(PageFault { access_addr: cr2 }),
+				at_instruction: data.rip as usize,
+			}
+		},
+		7 | 17 => Exception {
+			ty: Ty::BusFault,
+			at_instruction: data.rip as usize,
+		},
+		2 => Exception {
+			ty: Ty::Nmi,
+			at_instruction: data.rip as usize,
+		},
+		8 => Exception {
+			ty: Ty::Panic,
+			at_instruction: data.rip as usize,
+		},
+		e @ (4 | 5 | 9..= 13 | 15 | 18 | 21..=27 | 31) => {
+			let reason = match e {
+				4 => "Overflow check",
+				5 => "Bound check",
+				9 | 15 | 22..=27 | 31 => "Reserved",
+				10 => "Invalid TSS",
+				11 => "Segment not present",
+				12 => "Stack segment fault",
+				13 => "General protection fault",
+				18 => "Machine check",
+				21 => "Control protection exception",
+				_ => unreachable!(),
+			};
+			Exception {
+				ty: Ty::Generic(reason),
+				at_instruction: data.rip as usize,
+			}
+		},
+		e @ (20 | 28..=30) => {
+			let reason = match e {
+				20 => "Virtualization exception",
+				28 => "Hypervisor injection",
+				29 => "VMM communication exception",
+				30 => "Security exception",
+				_ => unreachable!(),
+			};
+			Exception {
+				ty: Ty::Unknown(reason),
+				at_instruction: data.rip as usize,
+			}
+		},
+		e@ 32..48 => {
+			warn!("Spurious PIC irq - vector {}", e - 32);
+			return;
+		},
+		MIN_IRQ..MAX_IRQ=> {
+			crate::irq_handler(data.num as usize);
+			return;
+		},
+		255 => {
+			warn!("Spurious APIC irq");
+			return;
+		},
+	};
+	crate::exception_handler(exception_payload);
 }
 
 #[naked]
@@ -541,12 +615,8 @@ unsafe impl Hal for Amd64Hal {
 		);
 	}
 
-	const MIN_IRQ_NUM: usize = 32;
-	const MAX_IRQ_NUM: usize = 256;
-
-	fn set_irq_handler(handler: extern "C" fn(usize)) {
-		todo!()
-	}
+	const MIN_IRQ_NUM: usize = 48; // 0-32 for exceptions, 32-48 for masked pic
+	const MAX_IRQ_NUM: usize = 255; // 255 for spurious apic
 }
 
 #[derive(Debug, Default)]
