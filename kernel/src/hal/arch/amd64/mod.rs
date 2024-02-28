@@ -57,7 +57,7 @@ unsafe extern "C" fn amd64_global_irq_handler() {
 		"mov rdi, rsp",
 		"add rdi, 80",
 		"call {}",
-		"pop r11",
+		"pop rax",
 		"pop r11",
 		"pop r10",
 		"pop r9",
