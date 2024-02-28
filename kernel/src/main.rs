@@ -142,7 +142,7 @@ fn exception_handler(exception: hal::exception::Exception) {
 		// Signalling exceptions
 		ty @ (Ty::FloatingPoint | Ty::IllegalInstruction | Ty::BusFault | Ty::Generic(_)) => {
 			if is_kernel_mode {
-				error!("Kernel exception occurred at {:#x}:\n{ty}", exception.at_instruction);
+				error!("Kernel exception occurred at {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
 				loop {}
 			} else {
 				todo!()
@@ -151,7 +151,7 @@ fn exception_handler(exception: hal::exception::Exception) {
 		ty @ Ty::PageFault(_) => {
 			// todo: check for CoW etc.
 			if is_kernel_mode {
-				error!("Kernel page fault occurred at {:#x}:\n{ty}", exception.at_instruction);
+				error!("Kernel page fault occurred at {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
 				loop {}
 			} else {
 				todo!()
@@ -159,11 +159,11 @@ fn exception_handler(exception: hal::exception::Exception) {
 		}
 		ty @ (Ty::Nmi | Ty::Panic) => {
 			// todo: BSOD equivalent?
-			error!("Unhandled exception occurred at {:#x}:\n{ty}", exception.at_instruction);
+			error!("Unhandled exception occurred at {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
 			loop {}
 		},
 		ty @ (Ty::Unknown(_) | Ty::Debug(_)) => {
-			warn!("Ignoring exception at {:#x}:\n{ty}", exception.at_instruction);
+			warn!("Ignoring exception at {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
 		}
 	}
 }
