@@ -119,12 +119,3 @@ fn get_and_disable_interrupts() -> usize {
 fn set_interrupts(old_state: usize) {
 	<HalTy as Hal>::set_interrupts(old_state)
 }
-
-extern "Rust" {
-	fn __popcorn_irq_handler(num: usize);
-}
-
-#[inline(always)]
-pub fn irq_handler(num: usize) {
-	unsafe { __popcorn_irq_handler(num) }
-}

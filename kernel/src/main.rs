@@ -119,8 +119,8 @@ macro_rules! into {
 
 static IRQ_HANDLES: Mutex<BTreeMap<usize, Box<dyn FnMut() + Send>>> = Mutex::new(BTreeMap::new());
 
-#[no_mangle]
-fn __popcorn_irq_handler(num: usize) {
+#[inline]
+fn irq_handler(num: usize) {
 	if let Some(f) = IRQ_HANDLES.lock().get_mut(&num) {
 		(*f)();
 	} else {
