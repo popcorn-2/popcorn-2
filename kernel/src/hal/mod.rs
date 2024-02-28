@@ -30,18 +30,15 @@ pub unsafe trait Hal {
 	fn exit(result: Result) -> !;
 	fn debug_output(data: &[u8]) -> core::result::Result<(), ()>;
 	fn early_init();
-	fn init_idt();
 	fn enable_interrupts();
 	fn get_and_disable_interrupts() -> usize;
 	fn set_interrupts(old_state: usize);
 	unsafe fn load_tls(ptr: *mut u8);
-	//fn interrupt_table() -> impl InterruptTable;
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
 	unsafe extern "C" fn switch_thread(from: &mut ThreadControlBlock, to: &ThreadControlBlock);
 
 	const MIN_IRQ_NUM: usize;
 	const MAX_IRQ_NUM: usize;
-	fn set_irq_handler(handler: extern "C" fn(usize));
 }
 
 const _: () = { if core::mem::align_of::<<HalTy as Hal>::KTableTy>() != 8 { panic!("for... reasons... KTables must be 8 byte aligned"); } };

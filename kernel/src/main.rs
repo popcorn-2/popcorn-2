@@ -129,6 +129,11 @@ fn irq_handler(num: usize) {
 }
 
 #[inline]
+fn syscall_handler() {
+
+}
+
+#[inline]
 fn exception_handler(exception: hal::exception::Exception) {
 	// todo: update this to signal userspace
 	let is_kernel_mode = true;
@@ -218,7 +223,6 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 	trace!("Handoff data:\n{handoff_data:x?}");
 
 	HalTy::early_init();
-	HalTy::init_idt();
 	HalTy::breakpoint();
 
 	let usable_memory = handoff_data.memory.map.iter().filter(|entry|

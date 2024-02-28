@@ -116,6 +116,11 @@ extern "C" fn amd64_handler2(data: &mut IrqData) {
 }
 
 #[naked]
+unsafe extern "C" fn amd64_syscall_handler() {
+	asm!("ud2", options(noreturn));
+}
+
+#[naked]
 unsafe extern "C" fn amd64_global_irq_handler() {
 	asm!(
 		"push rax",
@@ -436,49 +441,7 @@ irq_handler!(255);
 #[derive(Hal)]
 struct Amd64Hal;
 
-unsafe impl Hal for Amd64Hal {
-	type SerialOut = serial::HalWriter;
-	type KTableTy = paging2::Amd64KTable;
-	type TTableTy = paging2::Amd64TTable;
-	type SaveState = Amd64SaveState;
-
-	fn breakpoint() { unsafe { asm!("int3"); } }
-
-	fn exit(result: crate::hal::Result) -> ! {
-		qemu::debug_exit(result)
-	}
-
-	fn debug_output(data: &[u8]) -> Result<(), ()> {
-		qemu::debug_con_write(data);
-		Ok(())
-	}
-
-	fn early_init() {
-		let tss = tss::TSS.get_or_init(|| {
-			// TODO: actually load stacks
-			tss::Tss::new()
-		});
-
-		let gdt = gdt::GDT.get_or_init(|| {
-			use gdt::{Entry, EntryTy, Privilege};
-
-			let mut gdt = gdt::Gdt::new();
-			gdt.add_entry(EntryTy::KernelCode, Entry::new(Privilege::Ring0, true, true));
-			gdt.add_entry(EntryTy::KernelData, Entry::new(Privilege::Ring0, false, true));
-			gdt.add_entry(EntryTy::UserLongCode, Entry::new(Privilege::Ring3, true, true));
-			gdt.add_entry(EntryTy::UserData, Entry::new(Privilege::Ring3, false, true));
-			gdt.add_tss(tss);
-			gdt
-		});
-
-		gdt.load();
-		gdt.load_tss();
-
-		pic::init();
-
-		Self::enable_interrupts();
-	}
-
+impl Amd64Hal {
 	fn init_idt() {
 		let idt = idt::IDT.get_or_init(|| {
 			macro_rules! idt_entry {
@@ -533,6 +496,52 @@ unsafe impl Hal for Amd64Hal {
 			table
 		});
 		idt.load();
+	}
+}
+
+unsafe impl Hal for Amd64Hal {
+	type SerialOut = serial::HalWriter;
+	type KTableTy = paging2::Amd64KTable;
+	type TTableTy = paging2::Amd64TTable;
+	type SaveState = Amd64SaveState;
+
+	fn breakpoint() { unsafe { asm!("int3"); } }
+
+	fn exit(result: crate::hal::Result) -> ! {
+		qemu::debug_exit(result)
+	}
+
+	fn debug_output(data: &[u8]) -> Result<(), ()> {
+		qemu::debug_con_write(data);
+		Ok(())
+	}
+
+	fn early_init() {
+		let tss = tss::TSS.get_or_init(|| {
+			// TODO: actually load stacks
+			tss::Tss::new()
+		});
+
+		let gdt = gdt::GDT.get_or_init(|| {
+			use gdt::{Entry, EntryTy, Privilege};
+
+			let mut gdt = gdt::Gdt::new();
+			gdt.add_entry(EntryTy::KernelCode, Entry::new(Privilege::Ring0, true, true));
+			gdt.add_entry(EntryTy::KernelData, Entry::new(Privilege::Ring0, false, true));
+			gdt.add_entry(EntryTy::UserLongCode, Entry::new(Privilege::Ring3, true, true));
+			gdt.add_entry(EntryTy::UserData, Entry::new(Privilege::Ring3, false, true));
+			gdt.add_tss(tss);
+			gdt
+		});
+
+		gdt.load();
+		gdt.load_tss();
+
+		Self::init_idt();
+
+		pic::init();
+
+		Self::enable_interrupts();
 	}
 
 	fn enable_interrupts() {
