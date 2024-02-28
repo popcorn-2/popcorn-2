@@ -27,6 +27,9 @@ members = [
 	"ranged_btree_allocator",
 ]
 
+[profile.release]
+lto = "thin"
+
 [profile.release-debug]
 inherits = "release"
 debug = "full"
