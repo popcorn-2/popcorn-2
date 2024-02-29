@@ -27,3 +27,5 @@ pub mod sync;
 
 #[cfg(all(not(feature = "use_std"), feature = "full"))]
 pub mod bridge;
+
+pub mod ptr;

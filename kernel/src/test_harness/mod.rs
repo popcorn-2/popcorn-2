@@ -5,7 +5,7 @@ use crate::{panicking::do_panic, panicking, sprintln};
 use kernel_api::sync::Mutex;
 use core::panic::PanicInfo;
 use test::{ShouldPanic, TestDescAndFn, TestFn, TestName};
-use kernel_hal::Hal;
+use crate::hal::Hal;
 
 mod junit;
 mod pretty;
@@ -144,7 +144,7 @@ pub fn test_runner(tests: &[&TestDescAndFn]) -> ! {
 
 	impl minicov::CoverageWriter for DebugOut {
 		fn write(&mut self, data: &[u8]) -> core::result::Result<(), minicov::CoverageWriteError> {
-			kernel_hal::HalTy::debug_output(data).map_err(|_| minicov::CoverageWriteError)
+			crate::hal::HalTy::debug_output(data).map_err(|_| minicov::CoverageWriteError)
 		}
 	}
 
@@ -154,9 +154,9 @@ pub fn test_runner(tests: &[&TestDescAndFn]) -> ! {
     }
 
 	if success {
-		kernel_hal::HalTy::exit(kernel_hal::Result::Success)
+		crate::hal::HalTy::exit(crate::hal::Result::Success)
 	} else {
-		kernel_hal::HalTy::exit(kernel_hal::Result::Failure)
+		crate::hal::HalTy::exit(crate::hal::Result::Failure)
 	}
 }
 

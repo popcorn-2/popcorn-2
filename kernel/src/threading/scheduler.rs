@@ -5,7 +5,7 @@ use core::fmt::{Debug, Formatter};
 use core::mem::{MaybeUninit, swap};
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
-use kernel_hal::{HalTy, Hal, ThreadControlBlock, ThreadState};
+use crate::hal::{HalTy, Hal, ThreadControlBlock, ThreadState};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use log::debug;
 
@@ -33,8 +33,9 @@ impl<T: ?Sized> IrqCell<T> {
 	}
 
 	pub unsafe fn unlock(&self) {
-		self.state.set(None);
 		debug!("IrqCell unlocked");
+		let old_state = self.state.take();
+		HalTy::set_interrupts(old_state.unwrap());
 	}
 }
 
@@ -66,9 +67,7 @@ impl<T: ?Sized> DerefMut for IrqGuard<'_, T> {
 
 impl<T: ?Sized> Drop for IrqGuard<'_, T> {
 	fn drop(&mut self) {
-		debug!("IrqCell unlocked");
-		let old_state = self.cell.state.take();
-		HalTy::set_interrupts(old_state.unwrap());
+		unsafe { self.cell.unlock(); }
 	}
 }
 

@@ -503,15 +503,18 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "acpi",
+ "bit_field",
  "bitflags 2.4.2",
  "bitmap_allocator",
  "crossbeam-queue",
  "derive_more",
  "kernel_api",
  "kernel_default_heap",
- "kernel_hal",
  "log",
+ "macros",
  "minicov",
+ "num_enum 0.7.2",
+ "paste",
  "ranged_btree_allocator",
  "test",
  "unwinding",
@@ -535,16 +538,6 @@ version = "0.1.0"
 dependencies = [
  "kernel_api",
  "log",
-]
-
-[[package]]
-name = "kernel_hal"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.4.2",
- "kernel_api",
- "log",
- "macros",
 ]
 
 [[package]]
@@ -1124,8 +1117,7 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 [[package]]
 name = "unwinding"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37a19a21a537f635c16c7576f22d0f2f7d63353c1337ad4ce0d8001c7952a25b"
+source = "git+https://github.com/nbdd0121/unwinding.git?rev=d7cd46e#d7cd46e009ed1dbc762dbaaf4402f57973b300bb"
 dependencies = [
  "gimli",
 ]

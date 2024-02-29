@@ -139,7 +139,7 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
             "-Z", "export-executable-symbols=on",
             "-C", "relocation-model=static",
             "-C", "panic=unwind",
-            "-C", "link-args=-Tkernel_hal/src/arch/amd64/linker.ld",
+            "-C", "link-args=-Tkernel/src/hal/arch/amd64/linker.ld",
             env=kernel_build_env
         )
 
@@ -206,62 +206,3 @@ match args.subcommand:
             exit(0)
         else:
             exit(code)
-
-'''
-copied from original build system for checking all args are correct when finished
-
-[profile.dev]
-panic = 'abort'
-rustflags = ["-C", "symbol-mangling-version=v0"]
-
-[profile.release]
-panic = 'abort'
-rustflags = ["-C", "symbol-mangling-version=v0"]
-
-[profile.dev.package.popfs]
-rustflags = [
-	"-Z", "pre-link-args=/subsystem:efi_boot_service_driver"
-]
-
-[profile.release.package.popfs]
-rustflags = [
-	"-Z", "pre-link-args=/subsystem:efi_boot_service_driver"
-]
-
-[profile.dev.package.kernel]
-rustflags = [
-	"-C", "panic=unwind",
-	"-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
-	"-C", "link-args=-export-dynamic",
-	"-Z", "export-executable-symbols=on",
-	"-C", "relocation-model=static",
-	"-C", "force-frame-pointers=y",
-	"-C", "force-unwind-tables=y"
-]
-
-[profile.release.package.kernel]
-rustflags = [
-	"-C", "panic=unwind",
-	"-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
-	"-C", "link-args=-export-dynamic",
-	"-Z", "export-executable-symbols=on",
-	"-C", "relocation-model=static",
-	"-C", "force-frame-pointers=y",
-	"-C", "force-unwind-tables=y"
-]
-
-[profile.test.package.kernel]
-rustflags = [
-	"-C", "panic=unwind",
-	"-C", "link-args=-Tkernel/src/arch/amd64/linker.ld",
-	"-C", "link-args=-export-dynamic",
-	"-Z", "export-executable-symbols=on",
-	"-C", "relocation-model=static",
-	"-C", "force-frame-pointers=y",
-	"-C", "force-unwind-tables=y",
-	"--test"
-]
-
-RUSTFLAGS="-Cinstrument-coverage -Zno-profiler-runtime" cargo rustc --profile=test --message-format=json -p kernel --target x86_64-unknown-popcorn.json -Zbuild-std=compiler_builtins,core,alloc -Zbuild-std-features=compiler-builtins-mem -- -C link-args=-export-dynamic -Z export-executable-symbols=on -C relocation-model=static -C symbol-mangling-version=v0 -C panic=unwind -C link-args=-Tkernel/src/arch/amd64/linker.ld
- qemu-system-x86_64 -drive if=pflash,format=raw,readonly=on,file=OVMF_CODE.fd -drive if=pflash,format=raw,file=OVMF_VARS.fd -drive format=raw,file=target/debug/popcorn2.iso --no-reboot -serial stdio -device VGA,edid=on,xres=1280,yres=800 -accel hvf "-device" "isa-debug-exit,iobase=0xf4,iosize=0x04" -debugcon file:coverage.profraw
-'''

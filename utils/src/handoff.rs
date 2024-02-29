@@ -1,7 +1,8 @@
 use alloc::vec::Vec;
-use core::fmt::{Formatter, Pointer};
+use core::fmt::{Debug, Formatter, Pointer};
 use core::ptr::NonNull;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
+use kernel_api::ptr::Unique;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -15,14 +16,27 @@ pub struct Data {
 	pub rsdp: PhysicalAddress
 }
 
-#[derive(Debug)]
 #[repr(C)]
 pub struct Framebuffer {
-	pub buffer: *mut u8,
+	pub buffer: Unique<u8>,
 	pub stride: usize,
 	pub width: usize,
 	pub height: usize,
 	pub color_format: ColorMask
+}
+
+impl Debug for Framebuffer {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		f.debug_struct("Framebuffer")
+				.field_with("buffer", |f| {
+					write!(f, "{:p}", self.buffer)
+				})
+				.field("stride", &self.stride)
+				.field("width", &self.width)
+				.field("height", &self.height)
+				.field("color_format", &self.color_format)
+				.finish()
+	}
 }
 
 #[derive(Debug)]

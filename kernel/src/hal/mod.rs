@@ -1,40 +1,17 @@
-#![no_std]
-
-#![feature(type_alias_impl_trait)]
-#![feature(abi_x86_interrupt)]
-#![feature(generic_const_exprs)]
-#![feature(offset_of)]
-#![feature(asm_const)]
-#![feature(const_mut_refs)]
-#![feature(min_specialization)]
-#![feature(pointer_is_aligned)]
-#![feature(naked_functions)]
-
-#![feature(kernel_sync_once)]
-#![feature(kernel_physical_page_offset)]
-#![feature(kernel_memory_addr_access)]
-#![feature(kernel_internals)]
-#![feature(kernel_mmap)]
-#![feature(kernel_virtual_memory)]
-
-//#![warn(missing_docs)]
-
-extern crate alloc;
-
 pub mod arch;
-
 pub mod paging;
-
 pub mod paging2;
+pub mod exception;
 
 use alloc::borrow::Cow;
+use core::arch::asm;
 use core::fmt::Debug;
 use kernel_api::memory::mapping;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::highmem;
 use kernel_api::memory::r#virtual::Global;
 pub(crate) use macros::Hal;
-use crate::paging2::{KTable, TTable, TTableTy};
+use paging2::{KTable, TTable, TTableTy};
 use core::num::NonZeroUsize;
 
 pub enum Result { Success, Failure }
@@ -53,14 +30,15 @@ pub unsafe trait Hal {
 	fn exit(result: Result) -> !;
 	fn debug_output(data: &[u8]) -> core::result::Result<(), ()>;
 	fn early_init();
-	fn init_idt();
 	fn enable_interrupts();
 	fn get_and_disable_interrupts() -> usize;
 	fn set_interrupts(old_state: usize);
 	unsafe fn load_tls(ptr: *mut u8);
-	//fn interrupt_table() -> impl InterruptTable;
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
 	unsafe extern "C" fn switch_thread(from: &mut ThreadControlBlock, to: &ThreadControlBlock);
+
+	const MIN_IRQ_NUM: usize;
+	const MAX_IRQ_NUM: usize;
 }
 
 const _: () = { if core::mem::align_of::<<HalTy as Hal>::KTableTy>() != 8 { panic!("for... reasons... KTables must be 8 byte aligned"); } };
@@ -84,8 +62,8 @@ macro_rules! sprintln {
 #[macro_export]
 macro_rules! sprint {
 	($($arg:tt)*) => {{
-		use $crate::FormatWriter;
-		<$crate::HalTy as $crate::Hal>::SerialOut::print(format_args!($($arg)*))
+		use $crate::hal::FormatWriter;
+		<$crate::hal::HalTy as $crate::hal::Hal>::SerialOut::print(format_args!($($arg)*))
 	}}
 }
 
@@ -111,7 +89,7 @@ impl ThreadControlBlock {
 			kernel_stack: new_stack,
 			state: ThreadState::Ready,
 		};
-		let save_state = <HalTy as Hal>::SaveState::new(&mut new_thread, startup, main);
+		let save_state = SaveState::new(&mut new_thread, startup, main);
 		new_thread.save_state = save_state;
 
 		new_thread
@@ -122,4 +100,19 @@ impl ThreadControlBlock {
 pub enum ThreadState {
 	Ready,
 	Running
+}
+
+#[export_name = "__popcorn_enable_irq"]
+fn enable_interrupts() {
+	<HalTy as Hal>::enable_interrupts()
+}
+
+#[export_name = "__popcorn_disable_irq"]
+fn get_and_disable_interrupts() -> usize {
+	<HalTy as Hal>::get_and_disable_interrupts()
+}
+
+#[export_name = "__popcorn_set_irq"]
+fn set_interrupts(old_state: usize) {
+	<HalTy as Hal>::set_interrupts(old_state)
 }

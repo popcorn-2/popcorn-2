@@ -16,7 +16,7 @@ pub fn catch_unwind<R, F: FnOnce() -> R + core::panic::UnwindSafe>(f: F) -> Resu
 	res
 }
 
-fn get_symbol_name(ip: usize) -> &'static str {
+pub fn get_symbol_name(ip: usize) -> &'static str {
 	struct SymbolMapIterator {
 		index: usize,
 		str: &'static [u8]

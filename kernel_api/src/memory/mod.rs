@@ -115,6 +115,7 @@ impl<const ALIGN: usize> PhysicalAddress<ALIGN> {
         a.align_down()
     }
 
+    /// Returns the [`PhysicalAddress`] less than or equal to `self` with the given runtime alignment
     #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
     pub const fn align_down_runtime(self, new_alignment: usize) -> PhysicalAddress<1> {
         PhysicalAddress {
@@ -122,6 +123,7 @@ impl<const ALIGN: usize> PhysicalAddress<ALIGN> {
         }
     }
 
+    /// Returns the [`PhysicalAddress`] greater than or equal to `self` with the given runtime alignment
     #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
     pub const fn align_up_runtime(self, new_alignment: usize) -> PhysicalAddress<1> {
         let a: PhysicalAddress = PhysicalAddress {
@@ -140,6 +142,7 @@ impl Frame {
         }
     }
 
+    /// Returns the zero frame
     #[unstable(feature = "kernel_frame_zero", issue = "none")]
     pub const fn zero() -> Frame {
         Frame::new(PhysicalAddress::new(0))
@@ -152,6 +155,7 @@ impl Frame {
         Self { base }
     }
 
+    /// Attempts to subtract `rhs` number of pages, returning `None` if overflow would occur
     #[stable(feature = "kernel_core_api", since = "0.1.0")]
     #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
     pub const fn checked_sub(&self, rhs: usize) -> Option<Self> {
@@ -232,6 +236,7 @@ impl<const ALIGN: usize> VirtualAddress<ALIGN> {
         a.align_down()
     }
 
+    /// Returns the [`VirtualAddress`] less than or equal to `self` with the given runtime alignment
     #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
     pub const fn align_down_runtime(self, new_alignment: usize) -> VirtualAddress<1> {
         VirtualAddress {
@@ -239,6 +244,7 @@ impl<const ALIGN: usize> VirtualAddress<ALIGN> {
         }
     }
 
+    /// Returns the [`VirtualAddress`] greater than or equal to `self` with the given runtime alignment
     #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
     pub const fn align_up_runtime(self, new_alignment: usize) -> VirtualAddress<1> {
         let a: VirtualAddress = VirtualAddress {

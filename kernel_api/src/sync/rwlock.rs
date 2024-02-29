@@ -2,15 +2,23 @@ use core::fmt::Formatter;
 use core::mem;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+/// A reader-writer lock
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 pub type RwLock<T> = lock_api::RwLock<RwCount, T>;
+
+/// RAII structure used to release the shared read access of a lock when dropped.
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 pub type RwReadGuard<'a, T> = lock_api::RwLockReadGuard<'a, RwCount, T>;
+
+/// RAII structure used to release upgradable read access of a lock when dropped.
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 pub type RwUpgradableReadGuard<'a, T> = lock_api::RwLockUpgradableReadGuard<'a, RwCount, T>;
+
+/// RAII structure used to release the exclusive write access of a lock when dropped.
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 pub type RwWriteGuard<'a, T> = lock_api::RwLockWriteGuard<'a, RwCount, T>;
 
+#[doc(hidden)]
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 pub struct RwCount(AtomicUsize);
 

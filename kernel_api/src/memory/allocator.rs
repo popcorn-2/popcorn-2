@@ -24,9 +24,15 @@ impl From<AllocError> for ZeroAllocError {
     fn from(_: AllocError) -> Self { Self::AllocError }
 }
 
+/// Configuration for creating a new allocator
 #[unstable(feature = "kernel_allocation_new", issue = "5")]
 pub struct Config<'a> {
+    /// The lowest and highest frames that can be allocated
+    /// 
+    /// These should be equal to the minimum and maximum frames in (`regions`)[Self::regions]
     pub allocation_range: Range<Frame>,
+    
+    /// The regions of memory that are valid to allocate from
     pub regions: &'a mut dyn Iterator<Item = Range<Frame>>
 }
 

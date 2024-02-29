@@ -40,31 +40,22 @@ pub trait TTable: KTable + Sized {
 	fn new(ktable: &Self::KTableTy, allocator: &'static dyn BackingAllocator) -> Result<Self, AllocError>;
 }
 
-trait HackyExportTrick: KTable {
-	fn translate_page(this: &Self, page: Page) -> Option<Frame>;
-	fn translate_address(this: &Self, addr: VirtualAddress) -> Option<PhysicalAddress>;
-	fn map_page(this: &mut Self, page: Page, frame: Frame) -> Result<(), MapPageError>;
-	fn unmap_page(this: &mut Self, page: Page) -> Result<(), ()>;
+#[export_name = "__popcorn_paging_ktable_translate_page"]
+fn translate_page(this: &<HalTy as Hal>::KTableTy, page: Page) -> Option<Frame> {
+	<<HalTy as Hal>::KTableTy as KTable>::translate_page(this, page)
 }
 
-impl HackyExportTrick for <HalTy as Hal>::KTableTy {
-	#[export_name = "__popcorn_paging_ktable_translate_page"]
-	fn translate_page(this: &Self, page: Page) -> Option<Frame> {
-		<Self as KTable>::translate_page(this, page)
-	}
+#[export_name = "__popcorn_paging_ktable_translate_address"]
+fn translate_address(this: &<HalTy as Hal>::KTableTy, addr: VirtualAddress) -> Option<PhysicalAddress> {
+	<<HalTy as Hal>::KTableTy as KTable>::translate_address(this, addr)
+}
 
-	#[export_name = "__popcorn_paging_ktable_translate_address"]
-	fn translate_address(this: &Self, addr: VirtualAddress) -> Option<PhysicalAddress> {
-		<Self as KTable>::translate_address(this, addr)
-	}
+#[export_name = "__popcorn_paging_ktable_map_page"]
+fn map_page(this: &mut <HalTy as Hal>::KTableTy, page: Page, frame: Frame) -> Result<(), MapPageError> {
+	<<HalTy as Hal>::KTableTy as KTable>::map_page(this, page, frame)
+}
 
-	#[export_name = "__popcorn_paging_ktable_map_page"]
-	fn map_page(this: &mut Self, page: Page, frame: Frame) -> Result<(), MapPageError> {
-		<Self as KTable>::map_page(this, page, frame)
-	}
-
-	#[export_name = "__popcorn_paging_ktable_unmap_page"]
-	fn unmap_page(this: &mut Self, page: Page) -> Result<(), ()> {
-		<Self as KTable>::unmap_page(this, page)
-	}
+#[export_name = "__popcorn_paging_ktable_unmap_page"]
+fn unmap_page(this: &mut <HalTy as Hal>::KTableTy, page: Page) -> Result<(), ()> {
+	<<HalTy as Hal>::KTableTy as KTable>::unmap_page(this, page)
 }

@@ -6,9 +6,9 @@ use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocErro
 use kernel_api::memory::allocator::{BackingAllocator};
 use kernel_api::sync::RwLock;
 
-use kernel_hal::paging::{Table, PageIndices, levels::Global, Entry, TableDebug};
-use kernel_hal::paging2::{KTable, KTableTy};
-use kernel_hal::paging::levels::ParentLevel;
+use crate::hal::paging::{Table, PageIndices, levels::Global, Entry, TableDebug};
+use crate::hal::paging2::{KTable, KTableTy};
+use crate::hal::paging::levels::ParentLevel;
 use crate::sync::late_init::LateInit;
 
 static KERNEL_PAGE_TABLE: LateInit<RwLock<KTableTy>> = LateInit::new();
@@ -24,7 +24,7 @@ pub fn ktable() -> impl DerefMut<Target = KTableTy> {
 
 #[cfg(test)]
 mod tests {
-	use kernel_hal::paging2::{TTable, TTableTy};
+	use crate::hal::paging2::{TTable, TTableTy};
 	use crate::memory::physical::highmem;
 	use super::*;
 

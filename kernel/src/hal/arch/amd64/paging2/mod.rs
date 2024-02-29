@@ -5,9 +5,9 @@ use kernel_api::memory::allocator::{BackingAllocator};
 use kernel_api::memory::{Frame, Page, PhysicalAddress, AllocError};
 use kernel_api::memory::physical::highmem;
 use table::{Table, PDPT, PML4, PageIndices};
-use crate::arch::amd64::paging::Amd64Entry;
-use crate::paging2::{KTable, TTable};
-use crate::paging::Entry;
+use crate::hal::arch::amd64::paging::Amd64Entry;
+use crate::hal::paging2::{KTable, TTable};
+use crate::hal::paging::Entry;
 
 mod table;
 

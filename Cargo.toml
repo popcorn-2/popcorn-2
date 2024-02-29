@@ -24,8 +24,11 @@ members = [
 	"kernel_default_heap",
 	"bitmap_allocator",
 	"test_harness",
-	"kernel_hal", "ranged_btree_allocator",
+	"ranged_btree_allocator",
 ]
+
+[profile.release]
+lto = "thin"
 
 [profile.release-debug]
 inherits = "release"

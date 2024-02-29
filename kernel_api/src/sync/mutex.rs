@@ -1,6 +1,6 @@
 use core::arch::asm;
 use core::convert::Into;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
 /// A mutual exclusion primitive useful for protecting shared data
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
@@ -15,27 +15,23 @@ pub type MutexGuard<'a, T> = lock_api::MutexGuard<'a, RawSpinlock, T>;
 pub type SpinlockGuard<'a, T> = lock_api::MutexGuard<'a, RawSpinlock, T>;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[repr(u8)]
 enum State {
-    Unlocked = 0,
-    LockedReenableIrq = 1,
-    LockedNoIrq = 2
+    Unlocked,
+    Locked,
 }
 
 impl State {
     const fn const_into_u8(self) -> u8 {
         match self {
             State::Unlocked => 0,
-            State::LockedReenableIrq => 1,
-            State::LockedNoIrq => 2
+            State::Locked => 1,
         }
     }
 
     const fn const_from_u8(value: u8) -> Result<Self, ()> {
         match value {
             0 => Ok(State::Unlocked),
-            1 => Ok(State::LockedReenableIrq),
-            2 => Ok(State::LockedNoIrq),
+            1 => Ok(State::Locked),
             _ => Err(())
         }
     }
@@ -58,52 +54,57 @@ impl TryFrom<u8> for State {
 
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 pub struct RawSpinlock {
-    state: AtomicU8
+    state: AtomicU8,
+    irq_state: AtomicUsize
 }
 
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 unsafe impl lock_api::RawMutex for RawSpinlock {
     const INIT: Self = Self {
-        state: AtomicU8::new(State::Unlocked.const_into_u8())
+        state: AtomicU8::new(State::Unlocked.const_into_u8()),
+        irq_state: AtomicUsize::new(0),
     };
 
     type GuardMarker = lock_api::GuardNoSend; // Interrupts are only disabled on the locking core so sending guard
 
     fn lock(&self) {
-        let irqs = unsafe { crate::bridge::hal::__popcorn_disable_irq() };
+        let irq_state = unsafe { crate::bridge::hal::__popcorn_disable_irq() };
 
         while let Err(_) = self.state.compare_exchange_weak(
             State::Unlocked.into(),
-            if irqs { State::LockedReenableIrq.into() } else { State::LockedNoIrq.into() },
+            State::Locked.into(),
             Ordering::Acquire,
             Ordering::Relaxed
         ) {
             core::hint::spin_loop();
         }
+
+        self.irq_state.store(irq_state, Ordering::Relaxed);
     }
 
     fn try_lock(&self) -> bool {
-        let irqs = unsafe { crate::bridge::hal::__popcorn_disable_irq() };
+        let irq_state = unsafe { crate::bridge::hal::__popcorn_disable_irq() };
         let success = self.state.compare_exchange(
             State::Unlocked.into(),
-            if irqs { State::LockedReenableIrq.into() } else { State::LockedNoIrq.into() },
+            State::Locked.into(),
             Ordering::Acquire,
             Ordering::Relaxed
         ).is_ok();
 
-        if !success && irqs { unsafe { crate::bridge::hal::__popcorn_enable_irq() } }
+        if !success { unsafe { crate::bridge::hal::__popcorn_set_irq(irq_state) } }
+        else { self.irq_state.store(irq_state, Ordering::Relaxed) }
 
         success
     }
 
     unsafe fn unlock(&self) {
+        let old_irq_state = self.irq_state.load(Ordering::Relaxed);
         let old_state = self.state.swap(State::Unlocked.into(), Ordering::Release);
         let old_state = State::try_from(old_state).expect("Mutex in undefined state");
 
         match old_state {
             State::Unlocked => unreachable!("Mutex was unlocked while unlocked"),
-            State::LockedReenableIrq => unsafe { crate::bridge::hal::__popcorn_enable_irq() },
-            State::LockedNoIrq => {}
+            State::Locked => unsafe { crate::bridge::hal::__popcorn_set_irq(old_irq_state) },
         }
     }
 }

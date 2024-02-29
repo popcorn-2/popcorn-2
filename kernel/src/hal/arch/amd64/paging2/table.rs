@@ -1,8 +1,8 @@
 use core::marker::PhantomData;
 use kernel_api::memory::allocator::BackingAllocator;
 use kernel_api::memory::{AllocError, Frame, Page};
-use crate::arch::amd64::paging::Amd64Entry;
-use crate::paging::Entry;
+use crate::hal::arch::amd64::paging::Amd64Entry;
+use crate::hal::paging::Entry;
 
 pub(super) trait Level {
 	const MASK: usize;
