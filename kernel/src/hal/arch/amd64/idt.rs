@@ -138,6 +138,7 @@ pub mod entry {
 
 	impl Entry<unsafe extern "C" fn()> {
 		pub fn new_ptr(f: unsafe extern "C" fn(), ist_idx: Option<NonZeroU8>, dpl: u8, ty: Type) -> Self {
+			if let Some(ist) = ist_idx { assert!(ist.get() <= 7, "Only 7 IST stacks"); }
 			let addr = f as usize;
 			Self {
 				pointer_low: addr as u16,
