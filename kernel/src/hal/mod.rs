@@ -2,6 +2,7 @@ pub mod arch;
 pub mod paging;
 pub mod paging2;
 pub mod exception;
+pub mod acpi;
 
 use alloc::borrow::Cow;
 use core::arch::asm;

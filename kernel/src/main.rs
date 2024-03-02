@@ -89,7 +89,6 @@ mod logging;
 mod bridge;
 mod task;
 mod threading;
-mod acpi;
 mod bmp;
 mod hal;
 
@@ -209,7 +208,7 @@ use kernel_api::ptr::Unique;
 use kernel_api::sync::Mutex;
 use crate::hal::paging2::{construct_tables, TTable, TTableTy};
 use utils::handoff::MemoryType;
-use crate::acpi::XPhysicalMapping;
+use crate::hal::acpi::XPhysicalMapping;
 use crate::hal::exception::{PageFault, Ty};
 use crate::memory::paging::ktable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
@@ -315,23 +314,9 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 	}
 
 	{
-		struct NullAllocator;
-
-		unsafe impl BackingAllocator for NullAllocator {
-			fn allocate_contiguous(&self, _: usize) -> Result<Frame, AllocError> { unimplemented!() }
-			unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZeroUsize) {}
-
-			fn allocate_at(&self, _: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
-				match location {
-					SpecificLocation::Aligned(_) => unimplemented!(),
-					SpecificLocation::At(f) => Ok(f),
-					SpecificLocation::Below { .. } => unimplemented!(),
-				}
-			}
+		unsafe {
+			hal::acpi::init_tables(handoff_data.rsdp.addr);
 		}
-
-		let tables = unsafe { AcpiTables::from_rsdp(acpi::Handler::new(&NullAllocator), handoff_data.rsdp.addr) }
-				.expect("ACPI tables invalid");
 
 		let update_line = if let Some(ref fb) = handoff_data.framebuffer {
 			let size = fb.stride * fb.height;
@@ -343,8 +328,8 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 			}
 
 			// If extracted from BGRT, draw OEM logo
-			if let Ok(bgrt) = tables.find_table::<::acpi::bgrt::Bgrt>() {
-				let bitmap = bmp::from_bgrt(&bgrt, acpi::Handler::new(&NullAllocator));
+			if let Ok(bgrt) = hal::acpi::tables().find_table::<::acpi::bgrt::Bgrt>() {
+				let bitmap = bmp::from_bgrt(&bgrt, hal::acpi::Handler::new(&hal::acpi::Allocator));
 				if let Some(bitmap) = bitmap {
 					let width = bitmap.width as usize;
 
@@ -407,7 +392,7 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 			Some(update_line)
 		} else { None };
 
-		if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(&tables) {
+		if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(hal::acpi::tables()) {
 			#[repr(C)]
 			#[derive(Debug)]
 			struct HpetHeader {
@@ -437,26 +422,26 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 				timers: [HpetTimer]
 			}
 
-			let hpet_map = unsafe { acpi::Handler::new(&NullAllocator).map_region::<HpetHeader>(hpet.base_address, mem::size_of::<HpetHeader>(), ()) };
+			let hpet_map = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_region::<HpetHeader>(hpet.base_address, mem::size_of::<HpetHeader>(), ()) };
 			let hpet_timer_count = ((hpet_map.capabilities >> 8) & 0b11111) + 1;
 			let hpet_size = mem::size_of::<HpetHeader>() + 0x20*(hpet_timer_count as usize);
 			drop(hpet_map);
-			let hpet_map = unsafe { acpi::Handler::new(&NullAllocator).map_region::<Hpet>(hpet.base_address, hpet_size, hpet_timer_count as usize) };
+			let hpet_map = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_region::<Hpet>(hpet.base_address, hpet_size, hpet_timer_count as usize) };
 			debug!("{:#x?}", hpet_map.deref());
 		}
 
-		if let Ok(madt) = tables.find_table::<::acpi::madt::Madt>() {
+		if let Ok(madt) = hal::acpi::tables().find_table::<::acpi::madt::Madt>() {
 			let mut apic_addr = madt.local_apic_address as u64;
 
 			for entry in madt.entries() {
 				match entry {
 					MadtEntry::IoApic(ioapic) => {
-						let addr = ioapic.io_apic_address;
+						/*let addr = ioapic.io_apic_address;
 						let ioapic = acpi::ioapic::Ioapic {
-							mapping: unsafe { acpi::Handler::new(&NullAllocator).map_physical_region(addr as usize, 0x20) },
+							mapping: unsafe { hal::acpi::Handler::new(&NullAllocator).map_physical_region(addr as usize, 0x20) },
 							select_register: RefCell::new(())
 						};
-						debug!("found ioapic: {ioapic:?}");
+						debug!("found ioapic: {ioapic:?}");*/
 					}
 					MadtEntry::LocalApicAddressOverride(addr) => {
 						apic_addr = addr.local_apic_address;
@@ -464,7 +449,7 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 					_ => {}
 				}
 			}
-			let mut apic = unsafe { acpi::Handler::new(&NullAllocator).map_region::<Apic>(apic_addr as usize, mem::size_of::<Apic>(), ()) };
+			let mut apic = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_region::<Apic>(apic_addr as usize, mem::size_of::<Apic>(), ()) };
 
 			info!("LAPIC located at {apic_addr:#x}");
 
@@ -546,7 +531,7 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 		}
 	}
 
-	let tls_size = handoff_data.tls.end() - handoff_data.tls.start() + core::mem::size_of::<*mut u8>();
+	let tls_size = handoff_data.tls.end() - handoff_data.tls.start() + mem::size_of::<*mut u8>();
 	// Is this always correctly aligned?
 	#[warn(deprecated)]
 	let tls = OldMapping::new(tls_size.div_ceil(4096))
