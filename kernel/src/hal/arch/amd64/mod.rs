@@ -735,7 +735,6 @@ unsafe impl Hal for Amd64Hal {
 
 	fn early_init() {
 		let tss = tss::TSS.get_or_init(|| {
-			// TODO: actually load stacks
 			tss::Tss::new()
 		});
 

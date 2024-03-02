@@ -33,6 +33,7 @@
 #![feature(asm_const)]
 #![feature(const_mut_refs)]
 #![feature(pointer_is_aligned)]
+#![feature(sync_unsafe_cell)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
