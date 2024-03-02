@@ -73,7 +73,9 @@ pub mod handler {
 }
 
 pub mod entry {
+	use core::fmt::{Formatter, LowerHex, UpperHex};
 	use core::marker::PhantomData;
+	use core::mem;
 	use core::num::NonZeroU8;
 	use crate::hal::arch::amd64::idt::handler::Handler;
 
@@ -166,6 +168,18 @@ pub mod entry {
 				_reserved: 0,
 				_phantom: PhantomData
 			}
+		}
+	}
+
+	impl<F> LowerHex for Entry<F> {
+		fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+			<u128 as LowerHex>::fmt(&unsafe { mem::transmute_copy::<_, u128>(self) }, f)
+		}
+	}
+
+	impl<F> UpperHex for Entry<F> {
+		fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+			<u128 as UpperHex>::fmt(&unsafe { mem::transmute_copy::<_, u128>(self) }, f)
 		}
 	}
 }
