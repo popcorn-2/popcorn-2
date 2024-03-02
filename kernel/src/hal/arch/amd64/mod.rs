@@ -1,6 +1,7 @@
 use core::arch::{asm, global_asm};
 use core::mem;
 use core::mem::offset_of;
+use core::num::NonZeroU8;
 use log::warn;
 use crate::hal::{Hal, SaveState, ThreadControlBlock};
 use crate::hal::arch::amd64::idt::entry::Type;
@@ -461,7 +462,7 @@ impl Amd64Hal {
 			idt_entry!(table, 5);
 			idt_entry!(table, 6);
 			idt_entry!(table, 7);
-			idt_entry!(table, 8);
+			table[8] = idt::entry::Entry::new_ptr(amd64_irq_handler_8, Some(NonZeroU8::new(1).unwrap()), 0, Type::InterruptGate);
 			idt_entry!(table, 9);
 			idt_entry!(table, 10);
 			idt_entry!(table, 11);
