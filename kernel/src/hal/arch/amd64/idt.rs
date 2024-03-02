@@ -73,7 +73,9 @@ pub mod handler {
 }
 
 pub mod entry {
+	use core::fmt::{Formatter, LowerHex, UpperHex};
 	use core::marker::PhantomData;
+	use core::mem;
 	use core::num::NonZeroU8;
 	use crate::hal::arch::amd64::idt::handler::Handler;
 
@@ -138,6 +140,7 @@ pub mod entry {
 
 	impl Entry<unsafe extern "C" fn()> {
 		pub fn new_ptr(f: unsafe extern "C" fn(), ist_idx: Option<NonZeroU8>, dpl: u8, ty: Type) -> Self {
+			if let Some(ist) = ist_idx { assert!(ist.get() <= 7, "Only 7 IST stacks"); }
 			let addr = f as usize;
 			Self {
 				pointer_low: addr as u16,
@@ -165,6 +168,18 @@ pub mod entry {
 				_reserved: 0,
 				_phantom: PhantomData
 			}
+		}
+	}
+
+	impl<F> LowerHex for Entry<F> {
+		fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+			<u128 as LowerHex>::fmt(&unsafe { mem::transmute_copy::<_, u128>(self) }, f)
+		}
+	}
+
+	impl<F> UpperHex for Entry<F> {
+		fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+			<u128 as UpperHex>::fmt(&unsafe { mem::transmute_copy::<_, u128>(self) }, f)
 		}
 	}
 }
