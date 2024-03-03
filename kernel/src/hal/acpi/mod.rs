@@ -1,17 +1,55 @@
-pub mod ioapic;
-
 use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
 use core::ops::{Deref, DerefMut, Div};
 use core::ptr::{from_raw_parts, from_raw_parts_mut, NonNull, Pointee};
-use acpi::{AcpiHandler, PhysicalMapping};
+use acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
 use log::debug;
 use kernel_api::memory::mapping::{Config, Location, Mapping};
-use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
-use kernel_api::memory::allocator::BackingAllocator;
+use kernel_api::memory::{AllocError, Frame, Page, PhysicalAddress, VirtualAddress};
+use kernel_api::memory::allocator::{BackingAllocator, SpecificLocation};
 use kernel_api::memory::physical::OwnedFrames;
 use kernel_api::memory::r#virtual::{Global, OwnedPages};
+use kernel_api::sync::OnceLock;
+use crate::hal;
+
+static TABLES: OnceLock<AcpiTables<Handler<'static>>> = OnceLock::new();
+
+#[track_caller]
+pub fn tables() -> &'static AcpiTables<Handler<'static>> {
+	TABLES.get().expect("ACPI tables not yet parsed")
+}
+
+pub unsafe fn init_tables(rsdp_addr: usize) {
+	TABLES.get_or_init(|| {
+		// SAFETY:
+		unsafe { AcpiTables::from_rsdp(Handler::new(&Allocator), rsdp_addr) }
+				.expect("Invalid ACPI table")
+	});
+}
+
+pub use alloc::NullAllocator as Allocator;
+
+mod alloc {
+	use core::num::NonZeroUsize;
+	use kernel_api::memory::allocator::{BackingAllocator, SpecificLocation};
+	use kernel_api::memory::{AllocError, Frame};
+
+	pub struct NullAllocator;
+
+	unsafe impl BackingAllocator for NullAllocator {
+		fn allocate_contiguous(&self, _: usize) -> Result<Frame, AllocError> { unimplemented!() }
+		unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZeroUsize) {}
+
+		fn allocate_at(&self, _: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
+			match location {
+				SpecificLocation::Aligned(_) => unimplemented!(),
+				SpecificLocation::At(f) => Ok(f),
+				SpecificLocation::Below { .. } => unimplemented!(),
+			}
+		}
+	}
+}
 
 #[derive(Copy, Clone)]
 pub struct Handler<'allocator> {

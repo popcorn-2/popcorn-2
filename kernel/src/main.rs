@@ -34,6 +34,7 @@
 #![feature(const_mut_refs)]
 #![feature(pointer_is_aligned)]
 #![feature(sync_unsafe_cell)]
+#![feature(arbitrary_self_types)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -75,6 +76,7 @@ use core::{future, mem};
 use core::cmp::{max, min};
 use core::num::NonZeroUsize;
 use core::task::{Poll, Waker};
+use core::time::Duration;
 use ::acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
 use ::acpi::madt::MadtEntry;
 use kernel_api::memory::{allocator::BackingAllocator};
@@ -89,7 +91,6 @@ mod logging;
 mod bridge;
 mod task;
 mod threading;
-mod acpi;
 mod bmp;
 mod hal;
 
@@ -118,7 +119,8 @@ macro_rules! into {
     ($stuff:expr) => {($stuff).try_into().unwrap()};
 }
 
-static IRQ_HANDLES: Mutex<BTreeMap<usize, Box<dyn FnMut() + Send>>> = Mutex::new(BTreeMap::new());
+#[thread_local]
+static IRQ_HANDLES: Mutex<BTreeMap<usize, Box<dyn FnMut() /* + Send ???*/>>> = Mutex::new(BTreeMap::new());
 
 #[inline]
 fn irq_handler(num: usize) {
@@ -209,7 +211,7 @@ use kernel_api::ptr::Unique;
 use kernel_api::sync::Mutex;
 use crate::hal::paging2::{construct_tables, TTable, TTableTy};
 use utils::handoff::MemoryType;
-use crate::acpi::XPhysicalMapping;
+use crate::hal::acpi::XPhysicalMapping;
 use crate::hal::exception::{PageFault, Ty};
 use crate::memory::paging::ktable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
@@ -314,100 +316,103 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 		*memory::r#virtual::GLOBAL_VIRTUAL_ALLOCATOR.write() = Box::leak(Box::new(btree_alloc));
 	}
 
-	{
-		struct NullAllocator;
+	unsafe {
+		hal::acpi::init_tables(handoff_data.rsdp.addr);
+	}
 
-		unsafe impl BackingAllocator for NullAllocator {
-			fn allocate_contiguous(&self, _: usize) -> Result<Frame, AllocError> { unimplemented!() }
-			unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZeroUsize) {}
+	let (update_line, picos_per_tick) = if let Some(ref fb) = handoff_data.framebuffer {
+		let size = fb.stride * fb.height;
+		let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.as_ptr().cast::<u32>(), size) };
 
-			fn allocate_at(&self, _: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
-				match location {
-					SpecificLocation::Aligned(_) => unimplemented!(),
-					SpecificLocation::At(f) => Ok(f),
-					SpecificLocation::Below { .. } => unimplemented!(),
+		// Clear to true black to match background of BGRT logo
+		for pixel in fb_data.iter_mut() {
+			*pixel = 0;
+		}
+
+		// If extracted from BGRT, draw OEM logo
+		if let Ok(bgrt) = hal::acpi::tables().find_table::<::acpi::bgrt::Bgrt>() {
+			let bitmap = bmp::from_bgrt(&bgrt, hal::acpi::Handler::new(&hal::acpi::Allocator));
+			if let Some(bitmap) = bitmap {
+				let width = bitmap.width as usize;
+
+				let (x_init, y) = bgrt.image_offset();
+				let x_init = x_init as usize;
+				let mut y = y as usize;
+				let mut x = x_init;
+
+				for pixel in bitmap {
+					fb_data[x + y*fb.stride] = pixel;
+					x += 1;
+					if x - x_init >= width { x = x_init; y += 1; }
 				}
 			}
 		}
 
-		let tables = unsafe { AcpiTables::from_rsdp(acpi::Handler::new(&NullAllocator), handoff_data.rsdp.addr) }
-				.expect("ACPI tables invalid");
+		// Draw progress bar outline
+		const PROGRESS_BAR_COLOR_BG: u32 = 0x303030;
+		const PROGRESS_BAR_COLOR_FG: u32 = 0xababab;
 
-		let update_line = if let Some(ref fb) = handoff_data.framebuffer {
-			let size = fb.stride * fb.height;
-			let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.as_ptr().cast::<u32>(), size) };
+		let mut draw_hline = |startx: usize, endx: usize, y: usize, c| {
+			for x in startx..endx {
+				fb_data[x + y*fb.stride] = c;
+			}
+		};
 
-			// Clear to true black to match background of BGRT logo
-			for pixel in fb_data.iter_mut() {
-				*pixel = 0;
+		let progress_bar_height = ((fb.height as f32) * 0.005) as usize;
+		let progress_bar_width = ((fb.width as f32) * 0.60) as isize;
+		let progress_bar_start_x = ((fb.width as f32) * 0.20) as isize;
+		let progress_bar_start_y = ((fb.height as f32) * 0.65) as usize;
+		let mut x_offset = -(progress_bar_width/3);
+		let mut direction = true;
+
+		const ONE_WAY_TIME: Duration = Duration::from_secs(1);
+		let picos_per_tick = (ONE_WAY_TIME.as_nanos() * 1000) / u128::try_from(progress_bar_width).unwrap();
+		debug!("{picos_per_tick}");
+
+		let mut update_line = move || {
+			let x_start = max(
+				progress_bar_start_x,
+				progress_bar_start_x + x_offset
+			);
+			let x_end = min(
+				progress_bar_start_x + progress_bar_width,
+				progress_bar_start_x + x_offset + (progress_bar_width/3)
+			);
+
+			for y in progress_bar_start_y..progress_bar_start_y+progress_bar_height {
+				draw_hline(progress_bar_start_x as usize, x_start as usize, y, PROGRESS_BAR_COLOR_BG);
+				draw_hline(x_start as usize, x_end as usize, y, PROGRESS_BAR_COLOR_FG);
+				draw_hline(x_end as usize, (progress_bar_start_x+progress_bar_width) as usize, y, PROGRESS_BAR_COLOR_BG);
 			}
 
-			// If extracted from BGRT, draw OEM logo
-			if let Ok(bgrt) = tables.find_table::<::acpi::bgrt::Bgrt>() {
-				let bitmap = bmp::from_bgrt(&bgrt, acpi::Handler::new(&NullAllocator));
-				if let Some(bitmap) = bitmap {
-					let width = bitmap.width as usize;
-
-					let (x_init, y) = bgrt.image_offset();
-					let x_init = x_init as usize;
-					let mut y = y as usize;
-					let mut x = x_init;
-
-					for pixel in bitmap {
-						fb_data[x + y*fb.stride] = pixel;
-						x += 1;
-						if x - x_init >= width { x = x_init; y += 1; }
-					}
-				}
+			if direction {
+				x_offset += 1;
+				if x_offset >= progress_bar_width { direction = false; }
+			} else {
+				x_offset -= 1;
+				if x_offset <= -(progress_bar_width/3) { direction = true; }
 			}
+		};
 
-			// Draw progress bar outline
-			const PROGRESS_BAR_COLOR_BG: u32 = 0x303030;
-			const PROGRESS_BAR_COLOR_FG: u32 = 0xababab;
+		update_line();
+		(Some(update_line), Some(picos_per_tick))
+	} else { (None, None) };
 
-			let mut draw_hline = |startx: usize, endx: usize, y: usize, c| {
-				for x in startx..endx {
-					fb_data[x + y*fb.stride] = c;
-				}
-			};
+	let tls_size = handoff_data.tls.end() - handoff_data.tls.start() + mem::size_of::<*mut u8>();
+	// Is this always correctly aligned?
+	#[warn(deprecated)]
+			let tls = OldMapping::new(tls_size.div_ceil(4096))
+			.expect("Unable to allocate TLS area");
+	let (tls, _) = tls.into_raw_parts();
+	unsafe {
+		core::ptr::copy_nonoverlapping(handoff_data.tls.start().as_ptr(), tls.as_ptr(), tls_size - core::mem::size_of::<*mut u8>());
+		let tls_self_ptr = tls.as_ptr().byte_add(tls_size - core::mem::size_of::<*mut u8>());
+		tls_self_ptr.cast::<*mut u8>().write(tls_self_ptr);
+		HalTy::load_tls(tls_self_ptr);
+	}
 
-			let progress_bar_height = ((fb.height as f32) * 0.005) as usize;
-			let progress_bar_width = ((fb.width as f32) * 0.60) as isize;
-			let progress_bar_start_x = ((fb.width as f32) * 0.20) as isize;
-			let progress_bar_start_y = ((fb.height as f32) * 0.65) as usize;
-			let mut x_offset = -(progress_bar_width/3);
-			let mut direction = true;
-
-			let mut update_line = move || {
-				let x_start = max(
-					progress_bar_start_x,
-					progress_bar_start_x + x_offset
-				);
-				let x_end = min(
-					progress_bar_start_x + progress_bar_width,
-					progress_bar_start_x + x_offset + (progress_bar_width/3)
-				);
-
-				for y in progress_bar_start_y..progress_bar_start_y+progress_bar_height {
-					draw_hline(progress_bar_start_x as usize, x_start as usize, y, PROGRESS_BAR_COLOR_BG);
-					draw_hline(x_start as usize, x_end as usize, y, PROGRESS_BAR_COLOR_FG);
-					draw_hline(x_end as usize, (progress_bar_start_x+progress_bar_width) as usize, y, PROGRESS_BAR_COLOR_BG);
-				}
-
-				if direction {
-					x_offset += 1;
-					if x_offset >= progress_bar_width { direction = false; }
-				} else {
-					x_offset -= 1;
-					if x_offset <= -(progress_bar_width/3) { direction = true; }
-				}
-			};
-
-			update_line();
-			Some(update_line)
-		} else { None };
-
-		if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(&tables) {
+	{
+		if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(hal::acpi::tables()) {
 			#[repr(C)]
 			#[derive(Debug)]
 			struct HpetHeader {
@@ -437,130 +442,40 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 				timers: [HpetTimer]
 			}
 
-			let hpet_map = unsafe { acpi::Handler::new(&NullAllocator).map_region::<HpetHeader>(hpet.base_address, mem::size_of::<HpetHeader>(), ()) };
+			let hpet_map = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_region::<HpetHeader>(hpet.base_address, mem::size_of::<HpetHeader>(), ()) };
 			let hpet_timer_count = ((hpet_map.capabilities >> 8) & 0b11111) + 1;
 			let hpet_size = mem::size_of::<HpetHeader>() + 0x20*(hpet_timer_count as usize);
 			drop(hpet_map);
-			let hpet_map = unsafe { acpi::Handler::new(&NullAllocator).map_region::<Hpet>(hpet.base_address, hpet_size, hpet_timer_count as usize) };
+			let hpet_map = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_region::<Hpet>(hpet.base_address, hpet_size, hpet_timer_count as usize) };
 			debug!("{:#x?}", hpet_map.deref());
 		}
 
-		if let Ok(madt) = tables.find_table::<::acpi::madt::Madt>() {
-			let mut apic_addr = madt.local_apic_address as u64;
+		<HalTy as Hal>::post_acpi_init();
 
-			for entry in madt.entries() {
-				match entry {
-					MadtEntry::IoApic(ioapic) => {
-						let addr = ioapic.io_apic_address;
-						let ioapic = acpi::ioapic::Ioapic {
-							mapping: unsafe { acpi::Handler::new(&NullAllocator).map_physical_region(addr as usize, 0x20) },
-							select_register: RefCell::new(())
-						};
-						debug!("found ioapic: {ioapic:?}");
-					}
-					MadtEntry::LocalApicAddressOverride(addr) => {
-						apic_addr = addr.local_apic_address;
-					}
-					_ => {}
-				}
-			}
-			let mut apic = unsafe { acpi::Handler::new(&NullAllocator).map_region::<Apic>(apic_addr as usize, mem::size_of::<Apic>(), ()) };
+		if let Some(mut update_line) = update_line {
+			use crate::hal::timing::{Timer, Eoi};
 
-			info!("LAPIC located at {apic_addr:#x}");
+			let mut timer = <HalTy as Hal>::LocalTimer::get();
+			let eoi = timer.eoi_handle();
 
-			#[derive(Debug)]
-			#[repr(C)]
-			struct ApicRegister(u32, u32, u32, u32);
+			let tick_func = move || {
+				update_line();
+				eoi.send();
+			};
+			IRQ_HANDLES.lock().insert(48, Box::new(tick_func));
 
-			#[derive(Debug)]
-			#[repr(C)]
-			struct Apic {
-				_res0: [ApicRegister; 2],
-				id: ApicRegister,
-				version: ApicRegister,
-				_res1: [ApicRegister; 4],
-				task_priority: ApicRegister,
-				arbitration_priority: ApicRegister,
-				processor_priority: ApicRegister,
-				eoi: ApicRegister,
-				remote_read: ApicRegister,
-				logical_destination: ApicRegister,
-				destination_format: ApicRegister,
-				spurious_vector: ApicRegister,
-				_for_later: [ApicRegister; 34],
-				timer_lvt: ApicRegister,
-				thermal_sensor_lvt: ApicRegister,
-				perf_monitor_lvt: ApicRegister,
-				lint0_lvt: ApicRegister,
-				lint1_lvt: ApicRegister,
-				error_lvt: ApicRegister,
-				timer_initial_count: ApicRegister,
-				timer_current_count: ApicRegister,
-				_res2: [ApicRegister; 4],
-				timer_divide_config: ApicRegister,
-			}
-
-			debug!("apic: {:#x?}", apic.deref());
-
-			unsafe {
-				let val = {
-					let low: u32;
-					let high: u32;
-
-					asm!("rdmsr", in("ecx") 0x1B, out("rax") low, out("rdx") high);
-					(high as u64) << 32 | (low as u64)
-				};
-				debug!("current apic base {val:#x}");
-				let new = val | 0x800;
-				let new = (new as u32, (new >> 32) as u32);
-				asm!("wrmsr", in("ecx") 0x1B, in("rax") new.0, in("rdx") new.1);
-
-				let val = addr_of_mut!(apic.spurious_vector.0).read_volatile();
-				debug!("current apic spv {val:#x}");
-				const SPURIOUS_VECTOR: u32 = 0xff;
-				let val = (val & !0xFF) | SPURIOUS_VECTOR | 0x100;
-				addr_of_mut!(apic.spurious_vector.0).write_volatile(val);
-
-				let lapic_timer_base_freq = core::arch::x86_64::__cpuid_count(15, 0).ecx as usize;
-				if lapic_timer_base_freq == 0 { panic!("no core frequency in cpuid"); }
-				debug!("base frequency of lapic timer: {lapic_timer_base_freq}MHz");
-
-				if let Some(mut update_line) = update_line {
-					let eoi_addr = Unique::new(addr_of_mut!(apic.eoi.0));
-					let tick_func = move || {
-						update_line();
-
-						eoi_addr.as_ptr().write_volatile(0);
-					};
-
-					IRQ_HANDLES.lock().insert(48, Box::new(tick_func));
-
-					addr_of_mut!(apic.timer_divide_config.0).write_volatile(0b1010); // div 128
-					addr_of_mut!(apic.timer_lvt.0).write_volatile(0b10_0000_0000_0011_0000); // unmasked, periodic, vector 48
-					let ticks_to_one_ms = lapic_timer_base_freq * 1_000_000 / 1_000 / 128;
-					addr_of_mut!(apic.timer_initial_count.0).write_volatile(ticks_to_one_ms.try_into().unwrap());
-				}
-			}
-
-			loop {}
+			let time_period = timer.get_time_period_picos().unwrap() * 4;
+			timer.set_irq_number(48).unwrap();
+			timer.set_divisor(4).unwrap();
+			debug!("{time_period:?} {} {}", picos_per_tick.unwrap(), picos_per_tick.unwrap() / u128::from(time_period));
+			timer.start_periodic(picos_per_tick.unwrap() / u128::from(time_period)).unwrap();
 		}
-	}
-
-	let tls_size = handoff_data.tls.end() - handoff_data.tls.start() + core::mem::size_of::<*mut u8>();
-	// Is this always correctly aligned?
-	#[warn(deprecated)]
-	let tls = OldMapping::new(tls_size.div_ceil(4096))
-			.expect("Unable to allocate TLS area");
-	let (tls, _) = tls.into_raw_parts();
-	unsafe {
-		core::ptr::copy_nonoverlapping(handoff_data.tls.start().as_ptr(), tls.as_ptr(), tls_size - core::mem::size_of::<*mut u8>());
-		let tls_self_ptr = tls.as_ptr().byte_add(tls_size - core::mem::size_of::<*mut u8>());
-		tls_self_ptr.cast::<*mut u8>().write(tls_self_ptr);
-		HalTy::load_tls(tls_self_ptr);
 	}
 
 	let x = get_foo();
 	warn!("TLS value is {x}");
+
+	loop {}
 
 	let init_thread = unsafe { threading::init(&handoff_data.memory.stack, ttable) };
 	debug!("{init_thread:x?}");

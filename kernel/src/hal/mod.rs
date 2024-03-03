@@ -2,6 +2,8 @@ pub mod arch;
 pub mod paging;
 pub mod paging2;
 pub mod exception;
+pub mod acpi;
+pub mod timing;
 
 use alloc::borrow::Cow;
 use core::arch::asm;
@@ -25,11 +27,13 @@ pub unsafe trait Hal {
 	type KTableTy: KTable;
 	type TTableTy: TTable<KTableTy = Self::KTableTy>;
 	type SaveState: SaveState;
+	type LocalTimer: timing::Timer;
 
 	fn breakpoint();
 	fn exit(result: Result) -> !;
 	fn debug_output(data: &[u8]) -> core::result::Result<(), ()>;
 	fn early_init();
+	fn post_acpi_init();
 	fn enable_interrupts();
 	fn get_and_disable_interrupts() -> usize;
 	fn set_interrupts(old_state: usize);

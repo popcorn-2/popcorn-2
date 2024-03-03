@@ -722,6 +722,7 @@ unsafe impl Hal for Amd64Hal {
 	type KTableTy = paging2::Amd64KTable;
 	type TTableTy = paging2::Amd64TTable;
 	type SaveState = Amd64SaveState;
+	type LocalTimer = super::apic::LapicTimer;
 
 	fn breakpoint() { unsafe { asm!("int3"); } }
 
@@ -759,6 +760,10 @@ unsafe impl Hal for Amd64Hal {
 		pic::init();
 
 		Self::enable_interrupts();
+	}
+
+	fn post_acpi_init() {
+		super::apic::init(0xff);
 	}
 
 	fn enable_interrupts() {
