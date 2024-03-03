@@ -13,6 +13,7 @@ use bit_field::BitField;
 use crate::hal;
 
 mod register;
+mod timer;
 
 use register::{Register, Allow, Deny};
 
@@ -31,7 +32,7 @@ pub struct Apic {
 	destination_format: Register<Allow, Allow>,
 	spurious_vector: Register<Allow, Allow>,
 	_for_later: [Register; 34],
-	timer_lvt: Register<Allow, Allow>,
+	timer_lvt: Register<Allow, Allow, timer::Lvt>,
 	thermal_sensor_lvt: Register<Allow, Allow>,
 	perf_monitor_lvt: Register<Allow, Allow>,
 	lint0_lvt: Register<Allow, Allow>,
