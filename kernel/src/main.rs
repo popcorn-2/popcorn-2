@@ -258,12 +258,9 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	trace!("Handoff data:\n{handoff_data:x?}");
 
 	HalTy::early_init();
-	HalTy::breakpoint();
 
 	let usable_memory = handoff_data.memory.map.iter().filter(|entry|
-		entry.ty == MemoryType::Free
-			|| entry.ty == MemoryType::BootloaderCode
-			//|| entry.ty == MemoryType::BootloaderData
+		entry.ty == MemoryType::Free || entry.ty == MemoryType::BootloaderCode
 	);
 
 	// Split allocator system is used when a significant portion of memory is above the 4GiB boundary
@@ -281,8 +278,6 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	} else { false };
 
 	info!("Split allocator: {}", if split_allocators { "enabled" } else { "disabled" });
-
-	panicking::stack_trace();
 
 	{
 		use kernel_api::memory::PhysicalAddress;
