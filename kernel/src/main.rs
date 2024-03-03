@@ -34,6 +34,7 @@
 #![feature(const_mut_refs)]
 #![feature(pointer_is_aligned)]
 #![feature(sync_unsafe_cell)]
+#![feature(arbitrary_self_types)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
