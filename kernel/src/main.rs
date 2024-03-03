@@ -313,85 +313,98 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 		*memory::r#virtual::GLOBAL_VIRTUAL_ALLOCATOR.write() = Box::leak(Box::new(btree_alloc));
 	}
 
-	{
-		unsafe {
-			hal::acpi::init_tables(handoff_data.rsdp.addr);
+	unsafe {
+		hal::acpi::init_tables(handoff_data.rsdp.addr);
+	}
+
+	let update_line = if let Some(ref fb) = handoff_data.framebuffer {
+		let size = fb.stride * fb.height;
+		let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.as_ptr().cast::<u32>(), size) };
+
+		// Clear to true black to match background of BGRT logo
+		for pixel in fb_data.iter_mut() {
+			*pixel = 0;
 		}
 
-		let update_line = if let Some(ref fb) = handoff_data.framebuffer {
-			let size = fb.stride * fb.height;
-			let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.as_ptr().cast::<u32>(), size) };
+		// If extracted from BGRT, draw OEM logo
+		if let Ok(bgrt) = hal::acpi::tables().find_table::<::acpi::bgrt::Bgrt>() {
+			let bitmap = bmp::from_bgrt(&bgrt, hal::acpi::Handler::new(&hal::acpi::Allocator));
+			if let Some(bitmap) = bitmap {
+				let width = bitmap.width as usize;
 
-			// Clear to true black to match background of BGRT logo
-			for pixel in fb_data.iter_mut() {
-				*pixel = 0;
-			}
+				let (x_init, y) = bgrt.image_offset();
+				let x_init = x_init as usize;
+				let mut y = y as usize;
+				let mut x = x_init;
 
-			// If extracted from BGRT, draw OEM logo
-			if let Ok(bgrt) = hal::acpi::tables().find_table::<::acpi::bgrt::Bgrt>() {
-				let bitmap = bmp::from_bgrt(&bgrt, hal::acpi::Handler::new(&hal::acpi::Allocator));
-				if let Some(bitmap) = bitmap {
-					let width = bitmap.width as usize;
-
-					let (x_init, y) = bgrt.image_offset();
-					let x_init = x_init as usize;
-					let mut y = y as usize;
-					let mut x = x_init;
-
-					for pixel in bitmap {
-						fb_data[x + y*fb.stride] = pixel;
-						x += 1;
-						if x - x_init >= width { x = x_init; y += 1; }
-					}
+				for pixel in bitmap {
+					fb_data[x + y*fb.stride] = pixel;
+					x += 1;
+					if x - x_init >= width { x = x_init; y += 1; }
 				}
 			}
+		}
 
-			// Draw progress bar outline
-			const PROGRESS_BAR_COLOR_BG: u32 = 0x303030;
-			const PROGRESS_BAR_COLOR_FG: u32 = 0xababab;
+		// Draw progress bar outline
+		const PROGRESS_BAR_COLOR_BG: u32 = 0x303030;
+		const PROGRESS_BAR_COLOR_FG: u32 = 0xababab;
 
-			let mut draw_hline = |startx: usize, endx: usize, y: usize, c| {
-				for x in startx..endx {
-					fb_data[x + y*fb.stride] = c;
-				}
-			};
+		let mut draw_hline = |startx: usize, endx: usize, y: usize, c| {
+			for x in startx..endx {
+				fb_data[x + y*fb.stride] = c;
+			}
+		};
 
-			let progress_bar_height = ((fb.height as f32) * 0.005) as usize;
-			let progress_bar_width = ((fb.width as f32) * 0.60) as isize;
-			let progress_bar_start_x = ((fb.width as f32) * 0.20) as isize;
-			let progress_bar_start_y = ((fb.height as f32) * 0.65) as usize;
-			let mut x_offset = -(progress_bar_width/3);
-			let mut direction = true;
+		let progress_bar_height = ((fb.height as f32) * 0.005) as usize;
+		let progress_bar_width = ((fb.width as f32) * 0.60) as isize;
+		let progress_bar_start_x = ((fb.width as f32) * 0.20) as isize;
+		let progress_bar_start_y = ((fb.height as f32) * 0.65) as usize;
+		let mut x_offset = -(progress_bar_width/3);
+		let mut direction = true;
 
-			let mut update_line = move || {
-				let x_start = max(
-					progress_bar_start_x,
-					progress_bar_start_x + x_offset
-				);
-				let x_end = min(
-					progress_bar_start_x + progress_bar_width,
-					progress_bar_start_x + x_offset + (progress_bar_width/3)
-				);
+		let mut update_line = move || {
+			let x_start = max(
+				progress_bar_start_x,
+				progress_bar_start_x + x_offset
+			);
+			let x_end = min(
+				progress_bar_start_x + progress_bar_width,
+				progress_bar_start_x + x_offset + (progress_bar_width/3)
+			);
 
-				for y in progress_bar_start_y..progress_bar_start_y+progress_bar_height {
-					draw_hline(progress_bar_start_x as usize, x_start as usize, y, PROGRESS_BAR_COLOR_BG);
-					draw_hline(x_start as usize, x_end as usize, y, PROGRESS_BAR_COLOR_FG);
-					draw_hline(x_end as usize, (progress_bar_start_x+progress_bar_width) as usize, y, PROGRESS_BAR_COLOR_BG);
-				}
+			for y in progress_bar_start_y..progress_bar_start_y+progress_bar_height {
+				draw_hline(progress_bar_start_x as usize, x_start as usize, y, PROGRESS_BAR_COLOR_BG);
+				draw_hline(x_start as usize, x_end as usize, y, PROGRESS_BAR_COLOR_FG);
+				draw_hline(x_end as usize, (progress_bar_start_x+progress_bar_width) as usize, y, PROGRESS_BAR_COLOR_BG);
+			}
 
-				if direction {
-					x_offset += 1;
-					if x_offset >= progress_bar_width { direction = false; }
-				} else {
-					x_offset -= 1;
-					if x_offset <= -(progress_bar_width/3) { direction = true; }
-				}
-			};
+			if direction {
+				x_offset += 1;
+				if x_offset >= progress_bar_width { direction = false; }
+			} else {
+				x_offset -= 1;
+				if x_offset <= -(progress_bar_width/3) { direction = true; }
+			}
+		};
 
-			update_line();
-			Some(update_line)
-		} else { None };
+		update_line();
+		Some(update_line)
+	} else { None };
 
+	let tls_size = handoff_data.tls.end() - handoff_data.tls.start() + mem::size_of::<*mut u8>();
+	// Is this always correctly aligned?
+	#[warn(deprecated)]
+			let tls = OldMapping::new(tls_size.div_ceil(4096))
+			.expect("Unable to allocate TLS area");
+	let (tls, _) = tls.into_raw_parts();
+	unsafe {
+		core::ptr::copy_nonoverlapping(handoff_data.tls.start().as_ptr(), tls.as_ptr(), tls_size - core::mem::size_of::<*mut u8>());
+		let tls_self_ptr = tls.as_ptr().byte_add(tls_size - core::mem::size_of::<*mut u8>());
+		tls_self_ptr.cast::<*mut u8>().write(tls_self_ptr);
+		HalTy::load_tls(tls_self_ptr);
+	}
+
+	{
 		if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(hal::acpi::tables()) {
 			#[repr(C)]
 			#[derive(Debug)]
@@ -531,21 +544,10 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 		}
 	}
 
-	let tls_size = handoff_data.tls.end() - handoff_data.tls.start() + mem::size_of::<*mut u8>();
-	// Is this always correctly aligned?
-	#[warn(deprecated)]
-	let tls = OldMapping::new(tls_size.div_ceil(4096))
-			.expect("Unable to allocate TLS area");
-	let (tls, _) = tls.into_raw_parts();
-	unsafe {
-		core::ptr::copy_nonoverlapping(handoff_data.tls.start().as_ptr(), tls.as_ptr(), tls_size - core::mem::size_of::<*mut u8>());
-		let tls_self_ptr = tls.as_ptr().byte_add(tls_size - core::mem::size_of::<*mut u8>());
-		tls_self_ptr.cast::<*mut u8>().write(tls_self_ptr);
-		HalTy::load_tls(tls_self_ptr);
-	}
-
 	let x = get_foo();
 	warn!("TLS value is {x}");
+
+	loop {}
 
 	let init_thread = unsafe { threading::init(&handoff_data.memory.stack, ttable) };
 	debug!("{init_thread:x?}");
