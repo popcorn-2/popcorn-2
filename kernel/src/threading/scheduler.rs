@@ -33,7 +33,6 @@ impl<T: ?Sized> IrqCell<T> {
 	}
 
 	pub unsafe fn unlock(&self) {
-		debug!("IrqCell unlocked");
 		let old_state = self.state.take();
 		HalTy::set_interrupts(old_state.unwrap());
 	}
