@@ -76,6 +76,7 @@ use core::{future, mem};
 use core::cmp::{max, min};
 use core::num::NonZeroUsize;
 use core::task::{Poll, Waker};
+use core::time::Duration;
 use ::acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
 use ::acpi::madt::MadtEntry;
 use kernel_api::memory::{allocator::BackingAllocator};
@@ -118,7 +119,8 @@ macro_rules! into {
     ($stuff:expr) => {($stuff).try_into().unwrap()};
 }
 
-static IRQ_HANDLES: Mutex<BTreeMap<usize, Box<dyn FnMut() + Send>>> = Mutex::new(BTreeMap::new());
+#[thread_local]
+static IRQ_HANDLES: Mutex<BTreeMap<usize, Box<dyn FnMut() /* + Send ???*/>>> = Mutex::new(BTreeMap::new());
 
 #[inline]
 fn irq_handler(num: usize) {
@@ -318,7 +320,7 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 		hal::acpi::init_tables(handoff_data.rsdp.addr);
 	}
 
-	let update_line = if let Some(ref fb) = handoff_data.framebuffer {
+	let (update_line, picos_per_tick) = if let Some(ref fb) = handoff_data.framebuffer {
 		let size = fb.stride * fb.height;
 		let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.as_ptr().cast::<u32>(), size) };
 
@@ -363,6 +365,10 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 		let mut x_offset = -(progress_bar_width/3);
 		let mut direction = true;
 
+		const ONE_WAY_TIME: Duration = Duration::from_secs(1);
+		let picos_per_tick = (ONE_WAY_TIME.as_nanos() * 1000) / u128::try_from(progress_bar_width).unwrap();
+		debug!("{picos_per_tick}");
+
 		let mut update_line = move || {
 			let x_start = max(
 				progress_bar_start_x,
@@ -389,8 +395,8 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 		};
 
 		update_line();
-		Some(update_line)
-	} else { None };
+		(Some(update_line), Some(picos_per_tick))
+	} else { (None, None) };
 
 	let tls_size = handoff_data.tls.end() - handoff_data.tls.start() + mem::size_of::<*mut u8>();
 	// Is this always correctly aligned?
@@ -444,104 +450,25 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 			debug!("{:#x?}", hpet_map.deref());
 		}
 
-		if let Ok(madt) = hal::acpi::tables().find_table::<::acpi::madt::Madt>() {
-			let mut apic_addr = madt.local_apic_address as u64;
+		<HalTy as Hal>::post_acpi_init();
 
-			for entry in madt.entries() {
-				match entry {
-					MadtEntry::IoApic(ioapic) => {
-						/*let addr = ioapic.io_apic_address;
-						let ioapic = acpi::ioapic::Ioapic {
-							mapping: unsafe { hal::acpi::Handler::new(&NullAllocator).map_physical_region(addr as usize, 0x20) },
-							select_register: RefCell::new(())
-						};
-						debug!("found ioapic: {ioapic:?}");*/
-					}
-					MadtEntry::LocalApicAddressOverride(addr) => {
-						apic_addr = addr.local_apic_address;
-					}
-					_ => {}
-				}
-			}
-			let mut apic = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_region::<Apic>(apic_addr as usize, mem::size_of::<Apic>(), ()) };
+		if let Some(mut update_line) = update_line {
+			use crate::hal::timing::{Timer, Eoi};
 
-			info!("LAPIC located at {apic_addr:#x}");
+			let mut timer = <HalTy as Hal>::LocalTimer::get();
+			let eoi = timer.eoi_handle();
 
-			#[derive(Debug)]
-			#[repr(C)]
-			struct ApicRegister(u32, u32, u32, u32);
+			let tick_func = move || {
+				update_line();
+				eoi.send();
+			};
+			IRQ_HANDLES.lock().insert(48, Box::new(tick_func));
 
-			#[derive(Debug)]
-			#[repr(C)]
-			struct Apic {
-				_res0: [ApicRegister; 2],
-				id: ApicRegister,
-				version: ApicRegister,
-				_res1: [ApicRegister; 4],
-				task_priority: ApicRegister,
-				arbitration_priority: ApicRegister,
-				processor_priority: ApicRegister,
-				eoi: ApicRegister,
-				remote_read: ApicRegister,
-				logical_destination: ApicRegister,
-				destination_format: ApicRegister,
-				spurious_vector: ApicRegister,
-				_for_later: [ApicRegister; 34],
-				timer_lvt: ApicRegister,
-				thermal_sensor_lvt: ApicRegister,
-				perf_monitor_lvt: ApicRegister,
-				lint0_lvt: ApicRegister,
-				lint1_lvt: ApicRegister,
-				error_lvt: ApicRegister,
-				timer_initial_count: ApicRegister,
-				timer_current_count: ApicRegister,
-				_res2: [ApicRegister; 4],
-				timer_divide_config: ApicRegister,
-			}
-
-			debug!("apic: {:#x?}", apic.deref());
-
-			unsafe {
-				let val = {
-					let low: u32;
-					let high: u32;
-
-					asm!("rdmsr", in("ecx") 0x1B, out("rax") low, out("rdx") high);
-					(high as u64) << 32 | (low as u64)
-				};
-				debug!("current apic base {val:#x}");
-				let new = val | 0x800;
-				let new = (new as u32, (new >> 32) as u32);
-				asm!("wrmsr", in("ecx") 0x1B, in("rax") new.0, in("rdx") new.1);
-
-				let val = addr_of_mut!(apic.spurious_vector.0).read_volatile();
-				debug!("current apic spv {val:#x}");
-				const SPURIOUS_VECTOR: u32 = 0xff;
-				let val = (val & !0xFF) | SPURIOUS_VECTOR | 0x100;
-				addr_of_mut!(apic.spurious_vector.0).write_volatile(val);
-
-				let lapic_timer_base_freq = core::arch::x86_64::__cpuid_count(15, 0).ecx as usize;
-				if lapic_timer_base_freq == 0 { panic!("no core frequency in cpuid"); }
-				debug!("base frequency of lapic timer: {lapic_timer_base_freq}MHz");
-
-				if let Some(mut update_line) = update_line {
-					let eoi_addr = Unique::new(addr_of_mut!(apic.eoi.0));
-					let tick_func = move || {
-						update_line();
-
-						eoi_addr.as_ptr().write_volatile(0);
-					};
-
-					IRQ_HANDLES.lock().insert(48, Box::new(tick_func));
-
-					addr_of_mut!(apic.timer_divide_config.0).write_volatile(0b1010); // div 128
-					addr_of_mut!(apic.timer_lvt.0).write_volatile(0b10_0000_0000_0011_0000); // unmasked, periodic, vector 48
-					let ticks_to_one_ms = lapic_timer_base_freq * 1_000_000 / 1_000 / 128;
-					addr_of_mut!(apic.timer_initial_count.0).write_volatile(ticks_to_one_ms.try_into().unwrap());
-				}
-			}
-
-			loop {}
+			let time_period = timer.get_time_period_picos().unwrap() * 4;
+			timer.set_irq_number(48).unwrap();
+			timer.set_divisor(4).unwrap();
+			debug!("{time_period:?} {} {}", picos_per_tick.unwrap(), picos_per_tick.unwrap() / u128::from(time_period));
+			timer.start_periodic(picos_per_tick.unwrap() / u128::from(time_period)).unwrap();
 		}
 	}
 
