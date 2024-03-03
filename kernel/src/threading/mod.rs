@@ -10,7 +10,10 @@ use scheduler::Tid;
 
 pub mod scheduler;
 
-pub unsafe fn init(stack: &handoff::Stack, ttable: TTableTy) -> Tid {
+pub unsafe fn init(handoff_data: crate::HandoffWrapper) -> Tid {
+	let stack = handoff_data.memory.stack;
+	let ttable = handoff_data.to_empty_ttable();
+
 	// fixme: is highmem always correct?
 	let stack_phys_len = stack.top_virt - stack.bottom_virt - 1;
 	let stack_frames = OwnedFrames::from_raw_parts(

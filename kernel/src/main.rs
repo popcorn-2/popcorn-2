@@ -83,6 +83,7 @@ use kernel_api::memory::{allocator::BackingAllocator};
 #[warn(deprecated)]
 use kernel_api::memory::mapping::OldMapping;
 use hal::{HalTy, Hal, ThreadControlBlock, ThreadState, SaveState};
+use handoff_protection::HandoffWrapper;
 
 mod sync;
 mod memory;
@@ -171,12 +172,43 @@ fn exception_handler(exception: hal::exception::Exception) {
 	}
 }
 
+mod handoff_protection {
+	use core::fmt::{Debug, Formatter};
+	use core::ops::Deref;
+	use derive_more::Constructor;
+	use crate::hal::{Hal, HalTy};
+
+	#[derive(Constructor)]
+	pub struct HandoffWrapper(&'static utils::handoff::Data, <HalTy as Hal>::TTableTy);
+
+	impl HandoffWrapper {
+		pub fn to_empty_ttable(self) -> <HalTy as Hal>::TTableTy {
+			// todo!("empty the ttable");
+			self.1
+		}
+	}
+
+	impl Deref for HandoffWrapper {
+		type Target = utils::handoff::Data;
+
+		fn deref(&self) -> &Self::Target {
+			self.0
+		}
+	}
+
+	impl Debug for HandoffWrapper {
+		fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+			self.0.fmt(f)
+		}
+	}
+}
+
 #[export_name = "_start"]
 extern "sysv64" fn kstart(handoff_data: &'static utils::handoff::Data) -> ! {
 	sprintln!("Hello world!");
 
 	let ttable = unsafe {
-		use memory::paging::{init_page_table};
+		use memory::paging::init_page_table;
 
 		let (ktable, ttable) = construct_tables();
 
@@ -184,7 +216,7 @@ extern "sysv64" fn kstart(handoff_data: &'static utils::handoff::Data) -> ! {
 		ttable
 	};
 
-	#[cfg(not(test))] kmain(handoff_data, ttable);
+	#[cfg(not(test))] kmain(HandoffWrapper::new(handoff_data, ttable));
 	#[cfg(test)] {
 		let mut spaces = handoff_data.memory.map.iter().filter(|entry|
 				entry.ty == MemoryType::Free
@@ -217,7 +249,7 @@ use crate::memory::paging::ktable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::task::executor::Executor;
 
-fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> ! {
+fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let _ = logging::init();
 
 	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| &*ptr.as_ptr().byte_add(0xffff_8000_0000_0000)) };
@@ -322,6 +354,7 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 
 	let (update_line, picos_per_tick) = if let Some(ref fb) = handoff_data.framebuffer {
 		let size = fb.stride * fb.height;
+		let stride = fb.stride;
 		let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.as_ptr().cast::<u32>(), size) };
 
 		// Clear to true black to match background of BGRT logo
@@ -352,9 +385,9 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 		const PROGRESS_BAR_COLOR_BG: u32 = 0x303030;
 		const PROGRESS_BAR_COLOR_FG: u32 = 0xababab;
 
-		let mut draw_hline = |startx: usize, endx: usize, y: usize, c| {
+		let mut draw_hline = move |startx: usize, endx: usize, y: usize, c| {
 			for x in startx..endx {
-				fb_data[x + y*fb.stride] = c;
+				fb_data[x + y*stride] = c;
 			}
 		};
 
@@ -475,9 +508,7 @@ fn kmain(mut handoff_data: &'static utils::handoff::Data, ttable: TTableTy) -> !
 	let x = get_foo();
 	warn!("TLS value is {x}");
 
-	loop {}
-
-	let init_thread = unsafe { threading::init(&handoff_data.memory.stack, ttable) };
+	let init_thread = unsafe { threading::init(handoff_data) };
 	debug!("{init_thread:x?}");
 
 	fn foo() -> ! {
