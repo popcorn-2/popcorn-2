@@ -103,7 +103,8 @@ impl ThreadControlBlock {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ThreadState {
 	Ready,
-	Running
+	Running,
+	Blocked,
 }
 
 #[export_name = "__popcorn_enable_irq"]
