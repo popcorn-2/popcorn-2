@@ -43,3 +43,7 @@ pub unsafe fn init(handoff_data: crate::HandoffWrapper) -> Tid {
 pub fn thread_yield() {
 	scheduler::SCHEDULER.lock().schedule();
 }
+
+pub fn thread_block(reason: ThreadState) {
+	scheduler::SCHEDULER.lock().block(reason);
+}

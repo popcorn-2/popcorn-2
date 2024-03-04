@@ -135,14 +135,17 @@ impl Scheduler {
 	pub fn schedule(&mut self) {
 		if let Some(new_tid) = self.queue.pop_front() {
 			let old_tid = self.current_tid;
-			self.queue.push_back(old_tid);
 			self.current_tid = new_tid;
 
 			let [old_tcb, new_tcb] = self.tasks.get_many_mut([&old_tid, &new_tid]).expect("Can't switch to same task");
 			let old_tcb = old_tcb.expect("Cannot have been running a task that doesn't exist");
 			let new_tcb = new_tcb.expect("Next task in queue has already exited");
 
-			old_tcb.state = ThreadState::Ready;
+			if old_tcb.state == ThreadState::Running {
+				old_tcb.state = ThreadState::Ready;
+				self.queue.push_back(old_tid);
+			}
+
 			new_tcb.state = ThreadState::Running;
 
 			unsafe {
@@ -155,6 +158,12 @@ impl Scheduler {
 
 			panic!("can't yet idle");
 		}
+	}
+
+	pub fn block(&mut self, state: ThreadState) {
+		let current_tcb = self.tasks.get_mut(&self.current_tid).expect("Cannot have been running a task that doesn't exist");
+		current_tcb.state = state;
+		self.schedule();
 	}
 }
 
