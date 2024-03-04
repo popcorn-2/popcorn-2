@@ -29,3 +29,6 @@ pub mod sync;
 pub mod bridge;
 
 pub mod ptr;
+
+#[cfg(all(not(feature = "use_std"), feature = "full"))]
+pub mod time;

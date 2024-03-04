@@ -82,3 +82,9 @@ pub mod memory {
 		pub static GLOBAL_DMA: GlobalAllocator;
 	}
 }
+
+pub mod time {
+	extern "Rust" {
+		pub fn __popcorn_nanoseconds_since_boot() -> u128;
+	}
+}
