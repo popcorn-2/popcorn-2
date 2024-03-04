@@ -48,6 +48,7 @@
 #![feature(kernel_physical_allocator_non_contiguous)]
 #![feature(kernel_physical_allocator_location)]
 #![feature(kernel_ptr)]
+#![feature(kernel_time)]
 
 #![no_std]
 #![no_main]
@@ -94,6 +95,7 @@ mod task;
 mod threading;
 mod bmp;
 mod hal;
+mod timing;
 mod projection;
 mod mmio;
 
