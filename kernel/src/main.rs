@@ -94,6 +94,7 @@ mod task;
 mod threading;
 mod bmp;
 mod hal;
+mod projection;
 
 #[cfg(test)]
 pub mod test_harness;
