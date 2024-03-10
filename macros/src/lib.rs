@@ -2,7 +2,7 @@
 
 use proc_macro::{Span, TokenStream};
 use std::str::FromStr;
-use syn::{Data, DeriveInput, parse_macro_input};
+use syn::{Data, DeriveInput, parse_macro_input, Visibility};
 use syn::__private::ToTokens;
 use syn::spanned::Spanned;
 
@@ -25,12 +25,16 @@ pub fn derive_fields(item: TokenStream) -> TokenStream {
 
 	for (i, field) in s.fields.iter().enumerate() {
 		output += &format!(r#"
-			struct {0}_{1};
+			pub struct {0}_{1};
+
+			impl {0} {{
+				{2} type {1} = {0}_{1};
+			}}
 
 			unsafe impl Field for {0}_{1} {{
 				type Base = {0};
 				type Inner =
-		"#, item.ident, field.ident.as_ref().map(|x| x.to_string()).unwrap_or_else(|| i.to_string()));
+		"#, item.ident, field.ident.as_ref().map(|x| x.to_string()).unwrap_or_else(|| i.to_string()), match &item.vis { Visibility::Public(_) => "pub", _ => "" });
 		let tokens = TokenStream::from(field.ty.to_token_stream());
 		output += &tokens.to_string();
 		output += &format!(r#"
