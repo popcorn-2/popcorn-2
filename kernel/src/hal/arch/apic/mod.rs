@@ -19,6 +19,7 @@ use crate::threading::scheduler::IrqCell;
 use crate::projection::Project;
 
 mod timer;
+mod ioapic;
 
 macro_rules! apic_register_ty {
     () => {u32};
