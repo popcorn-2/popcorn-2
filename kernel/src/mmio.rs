@@ -5,6 +5,14 @@ pub struct MmioBox<T> {
 	ptr: *mut T
 }
 
+impl<T> Clone for MmioBox<T> {
+	fn clone(&self) -> Self {
+		*self
+	}
+}
+
+impl<T> Copy for MmioBox<T> {}
+
 impl<T> MmioBox<T> {
 	pub unsafe fn new(ptr: *mut T) -> Self {
 		Self { ptr }
@@ -22,26 +30,14 @@ impl<T: Copy> MmioBox<T> {
 	}
 }
 
-impl<T> ProjectSuper<T> for &MmioBox<T> {
-	type Projected<'a, A: 'a> = &'a MmioBox<A>;
+impl<T> ProjectSuper<T> for MmioBox<T> {
+	type Projected<'a, A: 'a> = MmioBox<A>;
 }
 
-impl<T> Project<T> for &MmioBox<T> {
-	fn project<'a, F: Field<Base = T>>(self) -> &'a MmioBox<F::Inner> where Self: 'a {
+impl<T> Project<T> for MmioBox<T> {
+	fn project<'a, F: Field<Base = T>>(self) -> MmioBox<F::Inner> where Self: 'a {
 		unsafe {
-			&*self.ptr.byte_add(F::OFFSET).cast()
-		}
-	}
-}
-
-impl<T> ProjectSuper<T> for &mut MmioBox<T> {
-	type Projected<'a, A: 'a> = &'a mut MmioBox<A>;
-}
-
-impl<T> Project<T> for &mut MmioBox<T> {
-	fn project<'a, F: Field<Base = T>>(self) -> &'a mut MmioBox<F::Inner> where Self: 'a {
-		unsafe {
-			&mut *self.ptr.byte_add(F::OFFSET).cast()
+			MmioBox::new(self.ptr.byte_add(F::OFFSET).cast())
 		}
 	}
 }
