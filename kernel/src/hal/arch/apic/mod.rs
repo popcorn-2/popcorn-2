@@ -10,45 +10,106 @@ use acpi::{AcpiHandler, PhysicalMapping};
 use log::{debug, info};
 use crate::hal::timing::{Eoi, Timer};
 use bit_field::BitField;
+use macros::Fields;
 use crate::hal;
+use timer::TimerMode;
+use crate::mmio::MmioBox;
+use crate::threading::scheduler::IrqCell;
+use crate::projection::Project;
 
-mod register;
 mod timer;
 
-use register::{Register, Allow, Deny};
-use timer::TimerMode;
-use crate::threading::scheduler::IrqCell;
-
-#[repr(C)]
-pub struct Apic {
-	_res0: [Register; 2],
-	id: Register<Allow, Allow>,
-	version: Register<Allow, Deny>,
-	_res1: [Register; 4],
-	task_priority: Register<Allow, Allow>,
-	arbitration_priority: Register<Allow, Deny>,
-	processor_priority: Register<Allow, Deny>,
-	eoi: Register<Deny, Allow>,
-	remote_read: Register<Allow, Deny>,
-	logical_destination: Register<Allow, Allow>,
-	destination_format: Register<Allow, Allow>,
-	spurious_vector: Register<Allow, Allow>,
-	_for_later: [Register; 34],
-	timer_lvt: Register<Allow, Allow, timer::Lvt>,
-	thermal_sensor_lvt: Register<Allow, Allow>,
-	perf_monitor_lvt: Register<Allow, Allow>,
-	lint0_lvt: Register<Allow, Allow>,
-	lint1_lvt: Register<Allow, Allow>,
-	error_lvt: Register<Allow, Allow>,
-	timer_initial_count: Register<Allow, Allow>,
-	timer_current_count: Register<Allow, Deny>,
-	_res2: [Register; 4],
-	timer_divide_config: Register<Allow, Allow>,
+macro_rules! apic_register_ty {
+    () => {u32};
+	($field_ty:path) => {$field_ty}
 }
 
-impl Apic {
-	pub unsafe fn eoi(self: *mut Self) {
-		unsafe { addr_of_mut!((*self).eoi).write_register(0) }
+macro_rules! apic_registers {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident { $($field_vis:vis $field:ident $(: $field_ty:path)?),* $(,)? }) => {
+	    paste::paste! {
+		    $(#[$attr])* $vis struct $name {
+			    $(
+			        $field_vis $field: apic_register_ty!($($field_ty)?),
+			        [<_pad_ $field>]: [u32; 3],
+			    )*
+		    }
+		}
+    };
+}
+
+apic_registers! {
+	#[derive(Fields)]
+	#[repr(C)]
+	pub struct Apic {
+		_res0,
+		_res1,
+		id,
+		version,
+		_res2,
+		_res3,
+		_res4,
+		_res5,
+		task_priority,
+		arbitration_priority,
+		processor_priority,
+		eoi,
+		remote_read,
+		logical_destination,
+		destination_format,
+		spurious_vector,
+		_res6,
+		_res7,
+		_res8,
+		_res9,
+		_res10,
+		_res11,
+		_res12,
+		_res13,
+		_res14,
+		_res15,
+		_res16,
+		_res17,
+		_res18,
+		_res19,
+		_res20,
+		_res21,
+		_res22,
+		_res23,
+		_res24,
+		_res25,
+		_res26,
+		_res27,
+		_res28,
+		_res29,
+		_res30,
+		_res31,
+		_res32,
+		_res33,
+		_res34,
+		_res35,
+		_res36,
+		_res37,
+		_res38,
+		_res39,
+		timer_lvt: timer::Lvt,
+		thermal_sensor_lvt,
+		perf_monitor_lvt,
+		lint0_lvt,
+		lint1_lvt,
+		error_lvt,
+		timer_initial_count,
+		timer_current_count,
+		_res40,
+		_res41,
+		_res42,
+		_res43,
+		timer_divide_config,
+	}
+}
+
+impl MmioBox<Apic> {
+	pub unsafe fn eoi(&mut self) {
+		self.project::<Apic::eoi>().write(0);
 	}
 }
 
@@ -74,11 +135,13 @@ impl Timer for LapicTimer {
 
 	fn set_irq_number(&mut self, irq: usize) -> Result<(), ()> {
 		let borrow = self.lock();
-		unsafe {
-			let val = addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_lvt).read_register()
-					.with_vector(irq.try_into().expect("Invalid vector"));
-			addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_lvt).write_register(val);
-		}
+		let apic = unsafe { MmioBox::new(borrow.virtual_start().as_ptr()) };
+
+		let mut lvt = apic.project::<Apic::timer_lvt>();
+		let val = lvt.read()
+				.with_vector(irq.try_into().expect("Invalid vector"));
+		lvt.write(val);
+
 		Ok(())
 	}
 
@@ -88,33 +151,45 @@ impl Timer for LapicTimer {
 		};
 
 		let borrow = self.lock();
-		let (start, end, hpet_period) = unsafe {
-			let hpet = hal::acpi::Handler::new(&hal::acpi::Allocator).map_physical_region::<super::hpet::Header>(hpet.base_address, mem::size_of::<super::hpet::Header>());
+		let apic = unsafe { MmioBox::new(borrow.virtual_start().as_ptr()) };
 
-			let old_val = addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_lvt).read_register();
+		let (start, end, hpet_period) = {
+			use super::hpet::Header as Hpet;
+
+			let hpet = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_physical_region::<Hpet>(hpet.base_address, mem::size_of::<super::hpet::Header>()) };
+			let hpet = unsafe { MmioBox::new(hpet.virtual_start().as_ptr()) };
+
+			let mut timer_lvt = apic.project::<Apic::timer_lvt>();
+			let mut timer_divide_register = apic.project::<Apic::timer_divide_config>();
+			let mut timer_initial_count = apic.project::<Apic::timer_initial_count>();
+			let timer_current_count = apic.project::<Apic::timer_current_count>();
+
+			let old_val = timer_lvt.read();
 			let val = old_val
 			        .with_mode(TimerMode::OneShot)
 					.with_mask(true);
-			addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_lvt).write_register(val);
+			timer_lvt.write(val);
 
-			let old_divide = addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_divide_config).read_register();
-			addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_divide_config).write_register(0); // div by 2
+			let old_divide = timer_divide_register.read();
+			timer_divide_register.write(0); // div by 2
 
-			let hpet_config_old = addr_of_mut!((*hpet.virtual_start().as_ptr()).configuration).read_volatile();
-			addr_of_mut!((*hpet.virtual_start().as_ptr()).configuration).write_volatile(hpet_config_old | 1);
+			let mut hpet_config_register = hpet.project::<Hpet::configuration>();
+			let hpet_config_old = hpet_config_register.read();
+			hpet_config_register.write( hpet_config_old | 1);
 
-			let hpet_start_count = addr_of_mut!((*hpet.virtual_start().as_ptr()).counter).read_volatile();
+			let hpet_counter = hpet.project::<Hpet::counter>();
+			let hpet_start_count = hpet_counter.read();
 
-			addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_initial_count).write_register(1_000_000);
-			while addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_current_count).read_register() != 0 {}
+			timer_initial_count.write(1_000_000);
+			while timer_current_count.read() != 0 {}
 
-			let hpet_end_count = addr_of_mut!((*hpet.virtual_start().as_ptr()).counter).read_volatile();
-			addr_of_mut!((*hpet.virtual_start().as_ptr()).configuration).write_volatile(hpet_config_old);
+			let hpet_end_count = hpet_counter.read();
 
-			addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_lvt).write_register(old_val);
-			addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_divide_config).write_register(old_divide);
+			hpet_config_register.write(hpet_config_old);
+			timer_lvt.write(old_val);
+			timer_divide_register.write(old_divide);
 
-			let hpet_capabilities = addr_of_mut!((*hpet.virtual_start().as_ptr()).capabilities).read_volatile()
+			let hpet_capabilities = hpet.project::<Hpet::capabilities>().read()
 					.get_bits(32..=63);
 
 			(hpet_start_count, hpet_end_count, hpet_capabilities)
@@ -143,41 +218,41 @@ impl Timer for LapicTimer {
 		};
 
 		let borrow = self.lock();
-		unsafe {
-			addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_divide_config).write_register(val);
-		}
+		let apic = unsafe { MmioBox::new(borrow.virtual_start().as_ptr()) };
+		apic.project::<Apic::timer_divide_config>().write(val);
 		Ok(())
 	}
 
 	fn set_oneshot_time(&mut self, ticks: u128) -> Result<(), <u32 as TryFrom<u128>>::Error> {
 		let borrow = self.lock();
-		unsafe {
-			let val = addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_lvt).read_register()
-			                                            .with_mode(TimerMode::OneShot)
-			                                            .with_mask(false);
-			addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_lvt).write_register(val);
-			addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_initial_count).write_register(ticks.try_into()?);
-		}
+		let apic = unsafe { MmioBox::new(borrow.virtual_start().as_ptr()) };
+
+		let val = apic.project::<Apic::timer_lvt>().read()
+		                                            .with_mode(TimerMode::OneShot)
+		                                            .with_mask(false);
+		apic.project::<Apic::timer_lvt>().write(val);
+		apic.project::<Apic::timer_initial_count>().write(ticks.try_into()?);
+
 		Ok(())
 	}
 
 	fn start_periodic(&mut self, ticks: u128) -> Result<(), <u32 as TryFrom<u128>>::Error> {
 		let borrow = self.lock();
-		unsafe {
-			let val = addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_lvt).read_register()
-																				.with_mode(TimerMode::Periodic)
-																				.with_mask(false);
-			addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_lvt).write_register(val);
-			addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_initial_count).write_register(ticks.try_into()?);
-		}
+		let apic = unsafe { MmioBox::new(borrow.virtual_start().as_ptr()) };
+
+		let val = apic.project::<Apic::timer_lvt>().read()
+		                     .with_mode(TimerMode::Periodic)
+		                     .with_mask(false);
+		apic.project::<Apic::timer_lvt>().write(val);
+		apic.project::<Apic::timer_initial_count>().write(ticks.try_into()?);
+
 		Ok(())
 	}
 
 	fn stop_periodic(&mut self) {
 		let borrow = self.lock();
-		unsafe {
-			addr_of_mut!((*borrow.virtual_start().as_ptr()).timer_initial_count).write_register(0);
-		}
+		let apic = unsafe { MmioBox::new(borrow.virtual_start().as_ptr()) };
+		apic.project::<Apic::timer_initial_count>().write(0);
 	}
 
 	fn eoi_handle(&mut self) -> EoiHandle {
@@ -190,7 +265,7 @@ pub struct EoiHandle(LapicTimer);
 
 impl Eoi for EoiHandle {
 	fn send(self) {
-		unsafe { self.0.lock().virtual_start().as_ptr().eoi(); }
+		unsafe { MmioBox::new(self.0.lock().virtual_start().as_ptr()).eoi(); }
 	}
 }
 
@@ -211,6 +286,7 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 	}
 
 	let apic = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_physical_region::<Apic>(apic_addr as usize, mem::size_of::<Apic>()) };
+	let apic_boxed = unsafe { MmioBox::new(apic.virtual_start().as_ptr()) };
 
 	info!("LAPIC located at {apic_addr:#x}");
 
@@ -226,17 +302,22 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 		let new = val | 0x800;
 		let new = (new as u32, (new >> 32) as u32);
 		asm!("wrmsr", in("ecx") 0x1B, in("rax") new.0, in("rdx") new.1);
+	}
 
-		let val = addr_of_mut!((*apic.virtual_start().as_ptr()).spurious_vector).read_register();
-		debug!("current apic spv {val:#x}");
+	{
+		debug!("{apic_boxed:p}");
+		let mut spurious_vector_register = apic_boxed.project::<Apic::spurious_vector>();
+		let val = spurious_vector_register.read();
+		debug!("current apic spv {:#x}", val);
 
 		let val = (val & !0xFF) | u32::from(spurious_vector) | 0x100;
-		addr_of_mut!((*apic.virtual_start().as_ptr()).spurious_vector).write_register(val);
-
-		let val = addr_of_mut!((*apic.virtual_start().as_ptr()).timer_lvt).read_register()
-				.with_mask(false);
-		addr_of_mut!((*apic.virtual_start().as_ptr()).timer_lvt).write_register(val);
+		spurious_vector_register.write(val);
 	}
+
+	let mut timer_lvt = apic_boxed.project::<Apic::timer_lvt>();
+	let val = timer_lvt.read()
+		.with_mask(false);
+	timer_lvt.write(val);
 
 	LAPIC.0.get_or_init(|| IrqCell::new(apic));
 }
