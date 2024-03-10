@@ -10,6 +10,7 @@ use acpi::{AcpiHandler, PhysicalMapping};
 use log::{debug, info};
 use crate::hal::timing::{Eoi, Timer};
 use bit_field::BitField;
+use kernel_api::sync::OnceLock;
 use macros::Fields;
 use crate::hal;
 use timer::TimerMode;
@@ -120,7 +121,7 @@ static LAPIC: Lapic = Lapic(OnceCell::new(), UnsafeCell::new(()));
 
 pub type LapicTimer = &'static IrqCell<PhysicalMapping<hal::acpi::Handler<'static>, Apic>>;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum SupportError {
 	NoLeaf(u32),
 	NoFreq
@@ -146,58 +147,62 @@ impl Timer for LapicTimer {
 	}
 
 	fn get_time_period_picos(&self) -> Result<u64, SupportError> {
-		let Ok(hpet) = acpi::hpet::HpetInfo::new(hal::acpi::tables()) else {
-			return Err(SupportError::NoFreq);
-		};
+		static CACHED_TIME: OnceLock<Result<u64, SupportError>> = OnceLock::new();
 
-		let borrow = self.lock();
-		let apic = unsafe { MmioCell::new(borrow.virtual_start().as_ptr()) };
+		*CACHED_TIME.get_or_init(|| {
+			let Ok(hpet) = acpi::hpet::HpetInfo::new(hal::acpi::tables()) else {
+				return Err(SupportError::NoFreq);
+			};
 
-		let (start, end, hpet_period) = {
-			use super::hpet::Header as Hpet;
+			let borrow = self.lock();
+			let apic = unsafe { MmioCell::new(borrow.virtual_start().as_ptr()) };
 
-			let hpet = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_physical_region::<Hpet>(hpet.base_address, mem::size_of::<super::hpet::Header>()) };
-			let hpet = unsafe { MmioCell::new(hpet.virtual_start().as_ptr()) };
+			let (start, end, hpet_period) = {
+				use super::hpet::Header as Hpet;
 
-			let mut timer_lvt = apic.project::<Apic::timer_lvt>();
-			let mut timer_divide_register = apic.project::<Apic::timer_divide_config>();
-			let mut timer_initial_count = apic.project::<Apic::timer_initial_count>();
-			let timer_current_count = apic.project::<Apic::timer_current_count>();
+				let hpet = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_physical_region::<Hpet>(hpet.base_address, mem::size_of::<super::hpet::Header>()) };
+				let hpet = unsafe { MmioCell::new(hpet.virtual_start().as_ptr()) };
 
-			let old_val = timer_lvt.read();
-			let val = old_val
-			        .with_mode(TimerMode::OneShot)
-					.with_mask(true);
-			timer_lvt.write(val);
+				let mut timer_lvt = apic.project::<Apic::timer_lvt>();
+				let mut timer_divide_register = apic.project::<Apic::timer_divide_config>();
+				let mut timer_initial_count = apic.project::<Apic::timer_initial_count>();
+				let timer_current_count = apic.project::<Apic::timer_current_count>();
 
-			let old_divide = timer_divide_register.read();
-			timer_divide_register.write(0); // div by 2
+				let old_val = timer_lvt.read();
+				let val = old_val
+						.with_mode(TimerMode::OneShot)
+						.with_mask(true);
+				timer_lvt.write(val);
 
-			let mut hpet_config_register = hpet.project::<Hpet::configuration>();
-			let hpet_config_old = hpet_config_register.read();
-			hpet_config_register.write( hpet_config_old | 1);
+				let old_divide = timer_divide_register.read();
+				timer_divide_register.write(0); // div by 2
 
-			let hpet_counter = hpet.project::<Hpet::counter>();
-			let hpet_start_count = hpet_counter.read();
+				let mut hpet_config_register = hpet.project::<Hpet::configuration>();
+				let hpet_config_old = hpet_config_register.read();
+				hpet_config_register.write(hpet_config_old | 1);
 
-			timer_initial_count.write(1_000_000);
-			while timer_current_count.read() != 0 {}
+				let hpet_counter = hpet.project::<Hpet::counter>();
+				let hpet_start_count = hpet_counter.read();
 
-			let hpet_end_count = hpet_counter.read();
+				timer_initial_count.write(1_000_000);
+				while timer_current_count.read() != 0 {}
 
-			hpet_config_register.write(hpet_config_old);
-			timer_lvt.write(old_val);
-			timer_divide_register.write(old_divide);
+				let hpet_end_count = hpet_counter.read();
 
-			let hpet_capabilities = hpet.project::<Hpet::capabilities>().read()
-					.get_bits(32..=63);
+				hpet_config_register.write(hpet_config_old);
+				timer_lvt.write(old_val);
+				timer_divide_register.write(old_divide);
 
-			(hpet_start_count, hpet_end_count, hpet_capabilities)
-		};
+				let hpet_capabilities = hpet.project::<Hpet::capabilities>().read()
+				                            .get_bits(32..=63);
 
-		let period_femptoseconds = (end - start) * hpet_period / 2_000_000;
+				(hpet_start_count, hpet_end_count, hpet_capabilities)
+			};
 
-		Ok(period_femptoseconds / 1000)
+			let period_femptoseconds = (end - start) * hpet_period / 2_000_000;
+
+			Ok(period_femptoseconds / 1000)
+		})
 	}
 
 	fn get_divisors(&self) -> impl IntoIterator<Item=u64> {
