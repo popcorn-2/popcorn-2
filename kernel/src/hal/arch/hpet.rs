@@ -1,5 +1,7 @@
+use macros::Fields;
+
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Fields)]
 pub struct Header {
 	pub(super) capabilities: u64,
 	_res0: u64,
