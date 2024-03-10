@@ -13,7 +13,7 @@ use bit_field::BitField;
 use macros::Fields;
 use crate::hal;
 use timer::TimerMode;
-use crate::mmio::MmioBox;
+use crate::mmio::MmioCell;
 use crate::threading::scheduler::IrqCell;
 use crate::projection::Project;
 
@@ -107,7 +107,7 @@ apic_registers! {
 	}
 }
 
-impl MmioBox<Apic> {
+impl MmioCell<Apic> {
 	pub unsafe fn eoi(&mut self) {
 		self.project::<Apic::eoi>().write(0);
 	}
@@ -135,7 +135,7 @@ impl Timer for LapicTimer {
 
 	fn set_irq_number(&mut self, irq: usize) -> Result<(), ()> {
 		let borrow = self.lock();
-		let apic = unsafe { MmioBox::new(borrow.virtual_start().as_ptr()) };
+		let apic = unsafe { MmioCell::new(borrow.virtual_start().as_ptr()) };
 
 		let mut lvt = apic.project::<Apic::timer_lvt>();
 		let val = lvt.read()
@@ -151,13 +151,13 @@ impl Timer for LapicTimer {
 		};
 
 		let borrow = self.lock();
-		let apic = unsafe { MmioBox::new(borrow.virtual_start().as_ptr()) };
+		let apic = unsafe { MmioCell::new(borrow.virtual_start().as_ptr()) };
 
 		let (start, end, hpet_period) = {
 			use super::hpet::Header as Hpet;
 
 			let hpet = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_physical_region::<Hpet>(hpet.base_address, mem::size_of::<super::hpet::Header>()) };
-			let hpet = unsafe { MmioBox::new(hpet.virtual_start().as_ptr()) };
+			let hpet = unsafe { MmioCell::new(hpet.virtual_start().as_ptr()) };
 
 			let mut timer_lvt = apic.project::<Apic::timer_lvt>();
 			let mut timer_divide_register = apic.project::<Apic::timer_divide_config>();
@@ -218,14 +218,14 @@ impl Timer for LapicTimer {
 		};
 
 		let borrow = self.lock();
-		let apic = unsafe { MmioBox::new(borrow.virtual_start().as_ptr()) };
+		let apic = unsafe { MmioCell::new(borrow.virtual_start().as_ptr()) };
 		apic.project::<Apic::timer_divide_config>().write(val);
 		Ok(())
 	}
 
 	fn set_oneshot_time(&mut self, ticks: u128) -> Result<(), <u32 as TryFrom<u128>>::Error> {
 		let borrow = self.lock();
-		let apic = unsafe { MmioBox::new(borrow.virtual_start().as_ptr()) };
+		let apic = unsafe { MmioCell::new(borrow.virtual_start().as_ptr()) };
 
 		let val = apic.project::<Apic::timer_lvt>().read()
 		                                            .with_mode(TimerMode::OneShot)
@@ -238,7 +238,7 @@ impl Timer for LapicTimer {
 
 	fn start_periodic(&mut self, ticks: u128) -> Result<(), <u32 as TryFrom<u128>>::Error> {
 		let borrow = self.lock();
-		let apic = unsafe { MmioBox::new(borrow.virtual_start().as_ptr()) };
+		let apic = unsafe { MmioCell::new(borrow.virtual_start().as_ptr()) };
 
 		let val = apic.project::<Apic::timer_lvt>().read()
 		                     .with_mode(TimerMode::Periodic)
@@ -251,7 +251,7 @@ impl Timer for LapicTimer {
 
 	fn stop_periodic(&mut self) {
 		let borrow = self.lock();
-		let apic = unsafe { MmioBox::new(borrow.virtual_start().as_ptr()) };
+		let apic = unsafe { MmioCell::new(borrow.virtual_start().as_ptr()) };
 		apic.project::<Apic::timer_initial_count>().write(0);
 	}
 
@@ -265,7 +265,7 @@ pub struct EoiHandle(LapicTimer);
 
 impl Eoi for EoiHandle {
 	fn send(self) {
-		unsafe { MmioBox::new(self.0.lock().virtual_start().as_ptr()).eoi(); }
+		unsafe { MmioCell::new(self.0.lock().virtual_start().as_ptr()).eoi(); }
 	}
 }
 
@@ -286,7 +286,7 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 	}
 
 	let apic = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_physical_region::<Apic>(apic_addr as usize, mem::size_of::<Apic>()) };
-	let apic_boxed = unsafe { MmioBox::new(apic.virtual_start().as_ptr()) };
+	let apic_boxed = unsafe { MmioCell::new(apic.virtual_start().as_ptr()) };
 
 	info!("LAPIC located at {apic_addr:#x}");
 
