@@ -1,3 +1,4 @@
+use core::fmt::{Formatter, Pointer};
 use crate::projection::{Field, Project, ProjectSuper};
 
 #[repr(transparent)]
@@ -12,6 +13,12 @@ impl<T> Clone for MmioBox<T> {
 }
 
 impl<T> Copy for MmioBox<T> {}
+
+impl<T> Pointer for MmioBox<T> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		self.ptr.fmt(f)
+	}
+}
 
 impl<T> MmioBox<T> {
 	pub unsafe fn new(ptr: *mut T) -> Self {
