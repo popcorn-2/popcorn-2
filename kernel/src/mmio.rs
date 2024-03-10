@@ -1,6 +1,7 @@
 use core::fmt::{Formatter, Pointer};
 use crate::projection::{Field, Project, ProjectSuper};
 
+// Based on `mmio::VolBox`
 #[repr(transparent)]
 pub struct MmioCell<T> {
 	ptr: *mut T
