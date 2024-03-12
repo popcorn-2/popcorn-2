@@ -1,8 +1,9 @@
 use core::arch::{asm, global_asm};
 use core::mem;
-use core::mem::offset_of;
+use core::mem::{MaybeUninit, offset_of};
 use core::num::NonZeroU8;
 use log::warn;
+use crate::hal::ArgTuple;
 use crate::hal::{Hal, SaveState, ThreadControlBlock};
 use crate::hal::arch::amd64::idt::entry::Type;
 use crate::hal::arch::amd64::idt::handler::InterruptStackFrame;
@@ -850,31 +851,49 @@ unsafe impl Hal for Amd64Hal {
 	const MAX_IRQ_NUM: usize = 255; // 255 for spurious apic
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Amd64SaveState {
-	pub rbx: usize,
-	pub rsp: usize,
-	pub rbp: usize,
-	pub r12: usize,
-	pub r13: usize,
-	pub r14: usize,
-	pub r15: usize
+	pub rbx: MaybeUninit<usize>,
+	pub rsp: MaybeUninit<usize>,
+	pub rbp: MaybeUninit<usize>,
+	pub r12: MaybeUninit<usize>,
+	pub r13: MaybeUninit<usize>,
+	pub r14: MaybeUninit<usize>,
+	pub r15: MaybeUninit<usize>
+}
+
+impl Default for Amd64SaveState {
+	fn default() -> Self {
+		Self {
+			rbx: MaybeUninit::zeroed(),
+			rsp: MaybeUninit::zeroed(),
+			rbp: MaybeUninit::zeroed(),
+			r12: MaybeUninit::zeroed(),
+			r13: MaybeUninit::zeroed(),
+			r14: MaybeUninit::zeroed(),
+			r15: MaybeUninit::zeroed(),
+		}
+	}
 }
 
 impl SaveState for Amd64SaveState {
-	fn new(tcb: &mut ThreadControlBlock, init: fn(), main: fn() -> !) -> Self {
+	fn new<Args: ArgTuple>(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: [MaybeUninit<usize>; 4]) -> Self {
 		let stack = &mut tcb.kernel_stack;
 		let stack_start = unsafe {
 			let stack_top = stack.virtual_end().start().as_ptr().cast::<usize>();
 			stack_top.sub(1).write(0xdeadbeef);
 			stack_top.sub(2).write(0);
 			stack_top.sub(3).write(main as usize);
-			stack_top.sub(4).write(init as usize);
-			stack_top.sub(4)
+			stack_top.sub(4).cast::<MaybeUninit<_>>().write(args[3]);
+			stack_top.sub(5).cast::<MaybeUninit<_>>().write(args[2]);
+			stack_top.sub(6).cast::<MaybeUninit<_>>().write(args[1]);
+			stack_top.sub(7).cast::<MaybeUninit<_>>().write(args[0]);
+			stack_top.sub(8).write(init as usize);
+			stack_top.sub(8)
 		};
 
 		Self {
-			rsp: stack_start as usize,
+			rsp: MaybeUninit::new(stack_start as usize),
 			.. Self::default()
 		}
 	}

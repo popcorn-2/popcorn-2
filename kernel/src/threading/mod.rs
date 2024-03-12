@@ -1,4 +1,5 @@
 use alloc::borrow::Cow;
+use core::arch::asm;
 use core::num::NonZeroUsize;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
@@ -46,4 +47,23 @@ pub fn thread_yield() {
 
 pub fn thread_block(reason: ThreadState) {
 	scheduler::SCHEDULER.lock().block(reason);
+}
+
+#[naked]
+pub unsafe extern "C" fn thread_startup() {
+	extern "C" fn thread_startup_inner() {
+		unsafe {
+			scheduler::SCHEDULER.unlock();
+		}
+	}
+
+	asm!("push 0", // align stack
+	"call {}",
+	"pop rdi",
+	"pop rdi",
+	"pop rsi",
+	"pop rdx",
+	"pop rcx",
+	"ret",
+	sym thread_startup_inner, options(noreturn));
 }

@@ -8,6 +8,7 @@ pub mod timing;
 use alloc::borrow::Cow;
 use core::arch::asm;
 use core::fmt::Debug;
+use core::mem::MaybeUninit;
 use kernel_api::memory::mapping;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::highmem;
@@ -19,7 +20,7 @@ use core::num::NonZeroUsize;
 pub enum Result { Success, Failure }
 
 pub trait SaveState: Debug + Default {
-	fn new(tcb: &mut ThreadControlBlock, init: fn(), main: fn() -> !) -> Self;
+	fn new<Args: ArgTuple>(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: [MaybeUninit<usize>; 4]) -> Self;
 }
 
 pub unsafe trait Hal {
@@ -71,6 +72,40 @@ macro_rules! sprint {
 	}}
 }
 
+trait ArgTuple {
+	fn as_array(self) -> [MaybeUninit<usize>; 4];
+}
+
+impl ArgTuple for () {
+	fn as_array(self) -> [MaybeUninit<usize>; 4] {
+		[MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()]
+	}
+}
+
+impl ArgTuple for (usize,) {
+	fn as_array(self) -> [MaybeUninit<usize>; 4] {
+		[MaybeUninit::new(self.0), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()]
+	}
+}
+
+impl ArgTuple for (usize,usize) {
+	fn as_array(self) -> [MaybeUninit<usize>; 4] {
+		[MaybeUninit::new(self.0), MaybeUninit::new(self.1), MaybeUninit::uninit(), MaybeUninit::uninit()]
+	}
+}
+
+impl ArgTuple for (usize,usize,usize) {
+	fn as_array(self) -> [MaybeUninit<usize>; 4] {
+		[MaybeUninit::new(self.0), MaybeUninit::new(self.1), MaybeUninit::new(self.2), MaybeUninit::uninit()]
+	}
+}
+
+impl ArgTuple for (usize,usize,usize,usize) {
+	fn as_array(self) -> [MaybeUninit<usize>; 4] {
+		[MaybeUninit::new(self.0), MaybeUninit::new(self.1), MaybeUninit::new(self.2), MaybeUninit::new(self.3)]
+	}
+}
+
 #[derive(Debug)]
 pub struct ThreadControlBlock {
 	pub ttable: TTableTy,
@@ -81,7 +116,7 @@ pub struct ThreadControlBlock {
 }
 
 impl ThreadControlBlock {
-	pub fn new(name: Cow<'static, str>, ttable: TTableTy, startup: fn(), main: fn() -> !) -> Self {
+	pub fn new<Args: ArgTuple>(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: Args) -> Self {
 		let new_stack = Stack::new(
 			mapping::Config::<Global>::new(NonZeroUsize::new(8).unwrap())
 		).unwrap();
@@ -93,7 +128,7 @@ impl ThreadControlBlock {
 			kernel_stack: new_stack,
 			state: ThreadState::Ready,
 		};
-		let save_state = SaveState::new(&mut new_thread, startup, main);
+		let save_state = SaveState::new(&mut new_thread, startup, main, args.as_array());
 		new_thread.save_state = save_state;
 
 		new_thread

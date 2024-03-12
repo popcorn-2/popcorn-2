@@ -351,7 +351,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		hal::acpi::init_tables(handoff_data.rsdp.addr);
 	}
 
-	let (update_line, picos_per_tick) = if let Some(ref fb) = handoff_data.framebuffer {
+	let (mut update_line, picos_per_tick) = if let Some(ref fb) = handoff_data.framebuffer {
 		let size = fb.stride * fb.height;
 		let stride = fb.stride;
 		let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.as_ptr().cast::<u32>(), size) };
@@ -483,24 +483,33 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		}
 
 		<HalTy as Hal>::post_acpi_init();
+		let update_line = update_line.as_mut().map(|f| f as &mut dyn FnMut());
 
 		if let Some(mut update_line) = update_line {
 			use crate::hal::timing::{Timer, Eoi};
 
-			let mut timer = <HalTy as Hal>::LocalTimer::get();
-			let eoi = timer.eoi_handle();
+			extern "C" fn animation_task((data, meta): (usize, usize)) -> ! {
+				let update_line = unsafe { &mut *core::ptr::from_raw_parts_mut::<dyn FnMut()>(data as *mut (), mem::transmute(meta)) };
+				loop {
+					update_line();
+					todo!(); //threading::sleep(Duration::from_nanos(1302083));
+				}
+			}
 
-			let tick_func = move || {
-				update_line();
-				eoi.send();
-			};
-			IRQ_HANDLES.lock().insert(48, Box::new(tick_func));
+			let update_line_parts = (update_line as *mut dyn FnMut()).to_raw_parts();
 
-			let time_period = timer.get_time_period_picos().unwrap() * 4;
-			timer.set_irq_number(48).unwrap();
-			timer.set_divisor(4).unwrap();
-			debug!("{time_period:?} {} {}", picos_per_tick.unwrap(), picos_per_tick.unwrap() / u128::from(time_period));
-			timer.start_periodic(picos_per_tick.unwrap() / u128::from(time_period)).unwrap();
+			{
+				let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
+				let task = ThreadControlBlock::new(
+					Cow::Borrowed("Boot animation"),
+					ttable,
+					threading::thread_startup,
+					animation_task,
+					(update_line_parts.0 as _, unsafe { mem::transmute(update_line_parts.1) })
+				);
+				let mut guard = threading::scheduler::SCHEDULER.lock();
+				guard.add_task(task);
+			}
 		}
 	}
 
@@ -509,32 +518,6 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 	let init_thread = unsafe { threading::init(handoff_data) };
 	debug!("{init_thread:x?}");
-
-	fn foo() -> ! {
-		sprintln!("hello from foo!");
-
-		threading::thread_yield();
-
-		unreachable!()
-	}
-
-	fn bar() {
-		unsafe {
-			threading::scheduler::SCHEDULER.unlock();
-		}
-	}
-
-	{
-		let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
-		let task = ThreadControlBlock::new(
-			Cow::Borrowed("hellooo"),
-			ttable,
-			bar,
-			foo,
-		);
-		let mut guard = threading::scheduler::SCHEDULER.lock();
-		guard.add_task(task);
-	}
 
 	threading::thread_yield();
 
