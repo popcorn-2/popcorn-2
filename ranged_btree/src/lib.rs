@@ -1,7 +1,9 @@
 #![feature(map_try_insert)]
+#![feature(impl_trait_in_assoc_type)]
 #![no_std]
 
 extern crate alloc;
+
 use alloc::collections::BTreeMap;
 use core::cmp::Ordering;
 use core::ops::Range;
@@ -16,6 +18,22 @@ impl<K, V> RangedBTreeMap<K, V> {
         Self {
             inner: BTreeMap::new()
         }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item=(&Range<K>, &V)> {
+        self.inner.iter()
+            .map(|(k, v)| match k {
+                KeyType::Range(r) => (r, v),
+                KeyType::Point(_) => unreachable!(),
+            })
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item=(&Range<K>, &mut V)> {
+        self.inner.iter_mut()
+            .map(|(k, v)| match k {
+                KeyType::Range(r) => (r, v),
+                KeyType::Point(_) => unreachable!(),
+            })
     }
 }
 
@@ -55,6 +73,37 @@ impl<K, V> RangedBTreeMap<K, V> where K: Ord {
 
     pub fn remove(&mut self, point: K) -> Option<V> {
         self.inner.remove(&KeyType::Point(point))
+    }
+}
+
+impl<K, V> IntoIterator for RangedBTreeMap<K, V> {
+    type Item = (Range<K>, V);
+    type IntoIter = impl Iterator<Item=(Range<K>, V)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
+                .map(|(k, v)| match k {
+                    KeyType::Range(r) => (r, v),
+                    KeyType::Point(_) => unreachable!(),
+                })
+    }
+}
+
+impl<'a, K, V> IntoIterator for &'a RangedBTreeMap<K, V> {
+    type Item = (&'a Range<K>, &'a V);
+    type IntoIter = impl Iterator<Item=(&'a Range<K>, &'a V)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, K, V> IntoIterator for &'a mut RangedBTreeMap<K, V> {
+    type Item = (&'a Range<K>, &'a mut V);
+    type IntoIter = impl Iterator<Item=(&'a Range<K>, &'a mut V)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
     }
 }
 
