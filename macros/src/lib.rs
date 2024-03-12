@@ -25,7 +25,7 @@ pub fn derive_fields(item: TokenStream) -> TokenStream {
 
 	for (i, field) in s.fields.iter().enumerate() {
 		output += &format!(r#"
-			pub struct {0}_{1};
+			{2} struct {0}_{1};
 
 			impl {0} {{
 				{2} type {1} = {0}_{1};
@@ -34,7 +34,16 @@ pub fn derive_fields(item: TokenStream) -> TokenStream {
 			unsafe impl Field for {0}_{1} {{
 				type Base = {0};
 				type Inner =
-		"#, item.ident, field.ident.as_ref().map(|x| x.to_string()).unwrap_or_else(|| i.to_string()), match &item.vis { Visibility::Public(_) => "pub", _ => "" });
+		"#,
+			item.ident,
+			field.ident.as_ref().map(|x| x.to_string()).unwrap_or_else(|| i.to_string()),
+			match &item.vis {
+				Visibility::Public(_) => "pub".to_string(),
+				Visibility::Restricted(vis) => format!("pub({} {})", vis.in_token.map(|_| "in").unwrap_or_default(), vis.path.to_token_stream().to_string()),
+				_ => "".to_string()
+			}
+		);
+
 		let tokens = TokenStream::from(field.ty.to_token_stream());
 		output += &tokens.to_string();
 		output += &format!(r#"
