@@ -14,6 +14,7 @@ use kernel_api::sync::OnceLock;
 use macros::Fields;
 use crate::hal;
 use timer::TimerMode;
+use crate::hal::arch::apic::ioapic::Ioapics;
 use crate::mmio::MmioCell;
 use crate::threading::scheduler::IrqCell;
 use crate::projection::Project;
@@ -281,15 +282,25 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 	};
 
 	let mut apic_addr = madt.local_apic_address as u64;
+	let mut ioapics = Ioapics::new();
 
 	for entry in madt.entries() {
 		match entry {
 			MadtEntry::LocalApicAddressOverride(addr) => {
 				apic_addr = addr.local_apic_address;
 			}
+			MadtEntry::IoApic(ioapic) => {
+				let gsi = ioapic.global_system_interrupt_base as usize;
+				let addr = ioapic.io_apic_address;
+				let ioapic = unsafe { ioapic::Ioapic::new(addr as usize, hal::acpi::Handler::new(&hal::acpi::Allocator)) };
+				debug!("Found I/O APIC with GSIs {} -> {} at {:#x}", gsi, gsi + ioapic.size(), addr);
+				ioapics.push(gsi, ioapic);
+			}
 			_ => {}
 		}
 	}
+
+	debug!("I/O APICs: {:?}", ioapics);
 
 	let apic = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_physical_region::<Apic>(apic_addr as usize, mem::size_of::<Apic>()) };
 	let apic_boxed = unsafe { MmioCell::new(apic.virtual_start().as_ptr()) };
