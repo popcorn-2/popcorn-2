@@ -515,6 +515,7 @@ dependencies = [
  "minicov",
  "num_enum 0.7.2",
  "paste",
+ "ranged_btree",
  "ranged_btree_allocator",
  "test",
  "unwinding",
