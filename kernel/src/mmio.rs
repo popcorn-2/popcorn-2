@@ -3,25 +3,25 @@ use crate::projection::{Field, Project, ProjectSuper};
 
 // Based on `mmio::VolBox`
 #[repr(transparent)]
-pub struct MmioCell<T> {
+pub struct MmioCell<T: ?Sized> {
 	ptr: *mut T
 }
 
-impl<T> Clone for MmioCell<T> {
+impl<T: ?Sized> Clone for MmioCell<T> {
 	fn clone(&self) -> Self {
 		*self
 	}
 }
 
-impl<T> Copy for MmioCell<T> {}
+impl<T: ?Sized> Copy for MmioCell<T> {}
 
-impl<T> Pointer for MmioCell<T> {
+impl<T: ?Sized> Pointer for MmioCell<T> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		self.ptr.fmt(f)
 	}
 }
 
-impl<T> MmioCell<T> {
+impl<T: ?Sized> MmioCell<T> {
 	pub unsafe fn new(ptr: *mut T) -> Self {
 		Self { ptr }
 	}

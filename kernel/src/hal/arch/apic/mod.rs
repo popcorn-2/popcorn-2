@@ -181,7 +181,7 @@ impl Timer for LapicTimer {
 
 				let mut hpet_config_register = hpet.project::<Hpet::configuration>();
 				let hpet_config_old = hpet_config_register.read();
-				hpet_config_register.write(hpet_config_old | 1);
+				hpet_config_register.write(hpet_config_old.set_enabled(true));
 
 				let hpet_counter = hpet.project::<Hpet::counter>();
 				let hpet_start_count = hpet_counter.read();
@@ -195,15 +195,14 @@ impl Timer for LapicTimer {
 				timer_lvt.write(old_val);
 				timer_divide_register.write(old_divide);
 
-				let hpet_capabilities = hpet.project::<Hpet::capabilities>().read()
-				                            .get_bits(32..=63);
+				let hpet_capabilities = hpet.project::<Hpet::capabilities>().read().period_femtoseconds();
 
 				(hpet_start_count, hpet_end_count, hpet_capabilities)
 			};
 
-			let period_femptoseconds = (end - start) * hpet_period / 2_000_000;
+			let period_femtoseconds = (end - start) * hpet_period / 2_000_000;
 
-			Ok(period_femptoseconds / 1000)
+			Ok(period_femtoseconds / 1000)
 		})
 	}
 

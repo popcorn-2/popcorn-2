@@ -2,7 +2,7 @@ use core::mem;
 use core::ptr::addr_of;
 use acpi::AcpiHandler;
 use acpi::bgrt::Bgrt;
-use crate::hal::acpi::{Handler, XPhysicalMapping};
+use crate::hal::acpi::{Handler, XPhysicalMapping, AcpiHandlerExt};
 
 #[repr(C, packed)]
 struct BmpHeader {

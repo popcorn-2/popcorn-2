@@ -71,8 +71,8 @@ impl<'a> Handler<'a> {
 	}
 }
 
-impl Handler<'_> {
-	pub unsafe fn map_region<T: ?Sized>(&self, physical_address: usize, size: usize, meta: <T as Pointee>::Metadata) -> XPhysicalMapping<Self, T> {
+impl AcpiHandlerExt for Handler<'_> {
+	unsafe fn map_region<T: ?Sized>(&self, physical_address: usize, size: usize, meta: <T as Pointee>::Metadata) -> XPhysicalMapping<Self, T> {
 		debug!("physical_address = {physical_address:#x}, size = {size:#x}");
 		// todo: clean up types here
 		let lower_addr =  PhysicalAddress::<1>::new(physical_address).align_down();
@@ -105,7 +105,7 @@ impl Handler<'_> {
 #[derive(Debug)]
 pub struct XPhysicalMapping<A: AcpiHandler, T: ?Sized> {
 	physical_start: usize,
-	virtual_start: NonNull<T>,
+	pub(crate) virtual_start: NonNull<T>,
 	region_length: usize, // Can be equal or larger than size_of::<T>()
 	mapped_length: usize, // Differs from `region_length` if padding is added for alignment
 	handler: A,
@@ -123,6 +123,10 @@ impl<A: AcpiHandler, T: ?Sized> DerefMut for XPhysicalMapping<A, T> {
 	fn deref_mut(&mut self) -> &mut Self::Target {
 		unsafe { self.virtual_start.as_mut() }
 	}
+}
+
+pub trait AcpiHandlerExt: AcpiHandler {
+	unsafe fn map_region<T: ?Sized>(&self, physical_address: usize, size: usize, meta: <T as Pointee>::Metadata) -> XPhysicalMapping<Self, T>;
 }
 
 impl<A: AcpiHandler, T: ?Sized> Drop for XPhysicalMapping<A, T> {
