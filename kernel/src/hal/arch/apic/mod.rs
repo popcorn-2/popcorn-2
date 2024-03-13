@@ -7,14 +7,14 @@ use core::ptr::addr_of_mut;
 use core::time::Duration;
 use acpi::madt::MadtEntry;
 use acpi::{AcpiHandler, PhysicalMapping};
-use log::{debug, info};
+use log::{debug, info, warn};
 use crate::hal::timing::{Eoi, Timer};
 use bit_field::BitField;
 use kernel_api::sync::OnceLock;
 use macros::Fields;
 use crate::hal;
 use timer::TimerMode;
-use crate::hal::arch::apic::ioapic::Ioapics;
+use crate::hal::arch::apic::ioapic::{ActiveLevel, Ioapics, LegacyMap, TriggerMode};
 use crate::mmio::MmioCell;
 use crate::threading::scheduler::IrqCell;
 use crate::projection::Project;
@@ -283,6 +283,7 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 
 	let mut apic_addr = madt.local_apic_address as u64;
 	let mut ioapics = Ioapics::new();
+	let mut legacy_gsi_mapping = LegacyMap::pc_default();
 
 	for entry in madt.entries() {
 		match entry {
@@ -296,11 +297,34 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 				debug!("Found I/O APIC with GSIs {} -> {} at {:#x}", gsi, gsi + ioapic.size(), addr);
 				ioapics.push(gsi, ioapic);
 			}
+			MadtEntry::InterruptSourceOverride(iso) => {
+				if iso.bus != 0 { warn!("Unknown interrupt bus: {iso:?}"); }
+				else {
+					let level = if iso.flags & 2 == 0 { ActiveLevel::High } else { ActiveLevel::Low };
+					let mode = if iso.flags & 8 == 0 { TriggerMode::Edge } else { TriggerMode::Level };
+					let entry = (iso.global_system_interrupt, mode, level);
+
+					match iso.irq {
+						0 => legacy_gsi_mapping.pit = entry,
+						1 => legacy_gsi_mapping.ps2_keyboard = entry,
+						3 => legacy_gsi_mapping.com2 = entry,
+						4 => legacy_gsi_mapping.com1 = entry,
+						5 => legacy_gsi_mapping.lpt2 = entry,
+						6 => legacy_gsi_mapping.floppy = entry,
+						8 => legacy_gsi_mapping.rtc = entry,
+						12 => legacy_gsi_mapping.ps2_mouse = entry,
+						14 => legacy_gsi_mapping.ata_primary = entry,
+						15 => legacy_gsi_mapping.ata_secondary = entry,
+						irq => warn!("Unused GSI override: {irq}={entry:?}"),
+					}
+				}
+			}
 			_ => {}
 		}
 	}
 
 	debug!("I/O APICs: {:?}", ioapics);
+	debug!("Legacy mapping: {:?}", legacy_gsi_mapping);
 
 	let apic = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_physical_region::<Apic>(apic_addr as usize, mem::size_of::<Apic>()) };
 	let apic_boxed = unsafe { MmioCell::new(apic.virtual_start().as_ptr()) };

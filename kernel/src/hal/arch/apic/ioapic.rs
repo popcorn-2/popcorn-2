@@ -119,3 +119,49 @@ pub struct RedirectionEntry<'ioapic, H: AcpiHandler> {
 	ioapic: &'ioapic mut Ioapic<H>,
 	num: u32,
 }
+
+#[derive(Debug, Copy, Clone)]
+pub enum TriggerMode {
+	Level,
+	Edge
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum ActiveLevel {
+	High,
+	Low,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct LegacyMap {
+	pub pit: (u32, TriggerMode, ActiveLevel),
+	pub ps2_keyboard: (u32, TriggerMode, ActiveLevel),
+	pub com2: (u32, TriggerMode, ActiveLevel),
+	pub com1: (u32, TriggerMode, ActiveLevel),
+	pub lpt2: (u32, TriggerMode, ActiveLevel),
+	pub floppy: (u32, TriggerMode, ActiveLevel),
+	pub rtc: (u32, TriggerMode, ActiveLevel),
+	pub ps2_mouse: (u32, TriggerMode, ActiveLevel),
+	pub ata_primary: (u32, TriggerMode, ActiveLevel),
+	pub ata_secondary: (u32, TriggerMode, ActiveLevel),
+}
+
+impl LegacyMap {
+	pub const fn pc_default() -> Self {
+		use TriggerMode::Edge;
+		use ActiveLevel::High;
+		
+		Self {
+			pit: (0, Edge, High),
+			ps2_keyboard: (1, Edge, High),
+			com2: (3, Edge, High),
+			com1: (4, Edge, High),
+			lpt2: (5, Edge, High),
+			floppy: (6, Edge, High),
+			rtc: (8, Edge, High),
+			ps2_mouse: (12, Edge, High),
+			ata_primary: (14, Edge, High),
+			ata_secondary: (15, Edge, High),
+		}
+	}
+}

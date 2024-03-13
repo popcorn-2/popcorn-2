@@ -26,6 +26,7 @@ paste = "1.0.14"
 num_enum = { version = "0.7.2", default-features = false }
 macros = { path = "../macros" }
 ranged_btree = { path = "../ranged_btree" }
+minicov = { version = "0.3", optional = true }
 
 [dev-dependencies]
 minicov = "0.3"
