@@ -98,6 +98,7 @@ mod hal;
 mod timing;
 mod projection;
 mod mmio;
+mod interrupts;
 
 #[cfg(test)]
 pub mod test_harness;
