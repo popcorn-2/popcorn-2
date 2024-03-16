@@ -57,10 +57,10 @@ pub unsafe extern "C" fn thread_startup() {
 		}
 	}
 
-	asm!("push 0", // align stack
+	asm!(
+	"pop rbp", // aligns to 16 bytes
 	"call {}",
-	"pop rdi",
-	"pop rdi",
+	"pop rdi", // pop args off stack
 	"pop rsi",
 	"pop rdx",
 	"pop rcx",

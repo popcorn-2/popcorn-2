@@ -882,12 +882,12 @@ impl SaveState for Amd64SaveState {
 		let stack_start = unsafe {
 			let stack_top = stack.virtual_end().start().as_ptr().cast::<usize>();
 			stack_top.sub(1).write(0xdeadbeef);
-			stack_top.sub(2).write(0);
-			stack_top.sub(3).write(main as usize);
-			stack_top.sub(4).cast::<MaybeUninit<_>>().write(args[3]);
-			stack_top.sub(5).cast::<MaybeUninit<_>>().write(args[2]);
-			stack_top.sub(6).cast::<MaybeUninit<_>>().write(args[1]);
-			stack_top.sub(7).cast::<MaybeUninit<_>>().write(args[0]);
+			stack_top.sub(2).write(main as usize);
+			stack_top.sub(3).cast::<MaybeUninit<_>>().write(args[3]);
+			stack_top.sub(4).cast::<MaybeUninit<_>>().write(args[2]);
+			stack_top.sub(5).cast::<MaybeUninit<_>>().write(args[1]);
+			stack_top.sub(6).cast::<MaybeUninit<_>>().write(args[0]);
+			stack_top.sub(7).write(0);
 			stack_top.sub(8).write(init as usize);
 			stack_top.sub(8)
 		};
