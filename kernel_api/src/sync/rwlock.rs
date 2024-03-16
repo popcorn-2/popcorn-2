@@ -46,7 +46,7 @@ impl core::fmt::Debug for RwCount {
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 unsafe impl lock_api::RawRwLock for RwCount {
     const INIT: Self = Self(AtomicUsize::new(0));
-    type GuardMarker = lock_api::GuardSend;
+    type GuardMarker = lock_api::GuardSend; // Doesn't (yet) touch interrupts so safe to send to other core
 
     fn lock_shared(&self) {
         while !self.try_lock_shared() {

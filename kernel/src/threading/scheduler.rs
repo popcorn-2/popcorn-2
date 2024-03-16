@@ -2,6 +2,7 @@ use alloc::collections::{BTreeMap, VecDeque};
 use core::borrow::Borrow;
 use core::cell::{Cell, UnsafeCell};
 use core::fmt::{Debug, Formatter};
+use core::marker::PhantomData;
 use core::mem::{MaybeUninit, swap};
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
@@ -29,7 +30,7 @@ impl<T: ?Sized> IrqCell<T> {
 		if self.state.get().is_some() { panic!("IrqCell cannot be borrowed multiple times"); }
 
 		self.state.set(Some(HalTy::get_and_disable_interrupts()));
-		IrqGuard { cell: self }
+		IrqGuard { cell: self, _phantom_not_send: PhantomData }
 	}
 
 	pub unsafe fn unlock(&self) {
@@ -39,7 +40,8 @@ impl<T: ?Sized> IrqCell<T> {
 }
 
 pub struct IrqGuard<'cell, T: ?Sized> {
-	cell: &'cell IrqCell<T>
+	cell: &'cell IrqCell<T>,
+	_phantom_not_send: PhantomData<*mut u8>, // Dropping guard on other core would cause interrupts to be enabled in the wrong place
 }
 
 impl<T: Debug> Debug for IrqGuard<'_, T> {

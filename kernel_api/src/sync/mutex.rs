@@ -65,7 +65,7 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
         irq_state: AtomicUsize::new(0),
     };
 
-    type GuardMarker = lock_api::GuardNoSend; // Interrupts are only disabled on the locking core so sending guard
+    type GuardMarker = lock_api::GuardNoSend; // Dropping guard on other core would cause interrupts to be enabled in the wrong place
 
     fn lock(&self) {
         let irq_state = unsafe { crate::bridge::hal::__popcorn_disable_irq() };
