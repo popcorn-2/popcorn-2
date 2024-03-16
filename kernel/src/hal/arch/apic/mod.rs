@@ -10,7 +10,7 @@ use acpi::{AcpiHandler, PhysicalMapping};
 use log::{debug, info, warn};
 use crate::hal::timing::{Eoi, Timer};
 use bit_field::BitField;
-use kernel_api::sync::OnceLock;
+use kernel_api::sync::{OnceLock, Syncify};
 use macros::Fields;
 use crate::hal;
 use timer::TimerMode;
@@ -116,10 +116,9 @@ impl MmioCell<Apic> {
 	}
 }
 
-struct Lapic(OnceCell<IrqCell<PhysicalMapping<hal::acpi::Handler<'static>, Apic>>>, UnsafeCell<()>);
+struct Lapic(OnceLock<Syncify<IrqCell<PhysicalMapping<hal::acpi::Handler<'static>, Apic>>>>);
 
-#[thread_local]
-static LAPIC: Lapic = Lapic(OnceCell::new(), UnsafeCell::new(()));
+static LAPIC: Lapic = Lapic(OnceLock::new());
 
 pub type LapicTimer = &'static IrqCell<PhysicalMapping<hal::acpi::Handler<'static>, Apic>>;
 
@@ -359,5 +358,5 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 		.with_mask(false);
 	timer_lvt.write(val);
 
-	LAPIC.0.get_or_init(|| IrqCell::new(apic));
+	LAPIC.0.get_or_init(|| unsafe { Syncify::new(IrqCell::new(apic)) });
 }

@@ -100,8 +100,8 @@ pub struct OnceLock<T> {
     once: Once
 }
 
-unsafe impl<T> Send for OnceLock<T> {}
-unsafe impl<T> Sync for OnceLock<T> {}
+unsafe impl<T: Send> Send for OnceLock<T> {}
+unsafe impl<T: Send + Sync> Sync for OnceLock<T> {}
 
 impl<T> OnceLock<T> {
     pub const fn new() -> Self {

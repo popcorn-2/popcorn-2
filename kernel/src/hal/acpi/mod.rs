@@ -10,10 +10,10 @@ use kernel_api::memory::{AllocError, Frame, Page, PhysicalAddress, VirtualAddres
 use kernel_api::memory::allocator::{BackingAllocator, SpecificLocation};
 use kernel_api::memory::physical::OwnedFrames;
 use kernel_api::memory::r#virtual::{Global, OwnedPages};
-use kernel_api::sync::OnceLock;
+use kernel_api::sync::{OnceLock, Syncify};
 use crate::hal;
 
-static TABLES: OnceLock<AcpiTables<Handler<'static>>> = OnceLock::new();
+static TABLES: OnceLock<Syncify<AcpiTables<Handler<'static>>>> = OnceLock::new();
 
 #[track_caller]
 pub fn tables() -> &'static AcpiTables<Handler<'static>> {
@@ -22,9 +22,9 @@ pub fn tables() -> &'static AcpiTables<Handler<'static>> {
 
 pub unsafe fn init_tables(rsdp_addr: usize) {
 	TABLES.get_or_init(|| {
-		// SAFETY:
-		unsafe { AcpiTables::from_rsdp(Handler::new(&Allocator), rsdp_addr) }
-				.expect("Invalid ACPI table")
+		let tables = unsafe { AcpiTables::from_rsdp(Handler::new(&Allocator), rsdp_addr) }
+				.expect("Invalid ACPI table");
+		unsafe { Syncify::new(tables) }
 	});
 }
 
