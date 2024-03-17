@@ -84,17 +84,8 @@ pub mod memory {
 }
 
 pub mod time {
-	use core::sync::atomic::{AtomicU64, Ordering};
-
 	extern "Rust" {
 		#[link_name = "__popcorn_system_time"]
-		static SYSTEM_TIME_NS: AtomicU64;
-	}
-
-	#[inline]
-	pub fn system_time() -> u128 {
-		unsafe {
-			SYSTEM_TIME_NS.load(Ordering::Relaxed).into()
-		}
+		pub fn system_time() -> u128;
 	}
 }

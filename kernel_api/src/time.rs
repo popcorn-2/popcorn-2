@@ -10,7 +10,7 @@ pub struct Instant {
 
 impl Instant {
 	pub fn now() -> Self {
-		let nanos = crate::bridge::time::system_time();
+		let nanos = unsafe { crate::bridge::time::system_time() };
 		Self {
 			nanos
 		}
