@@ -92,8 +92,8 @@ apic_registers! {
 		_res35,
 		_res36,
 		_res37,
-		_res38,
-		_res39,
+		icr_low,
+		icr_high,
 		timer_lvt: timer::Lvt,
 		thermal_sensor_lvt,
 		perf_monitor_lvt,
@@ -360,4 +360,17 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 	apic_boxed.project::<Apic::timer_initial_count>().write(0);
 
 	LAPIC.0.get_or_init(|| unsafe { Syncify::new(IrqCell::new(apic)) });
+}
+
+pub fn send_self_ipi(vector: usize) {
+	assert!(48 <= vector && vector < 256, "Invalid IPI vector");
+	let vector = vector as u32;
+	
+	let lapic = LAPIC.0.get().expect("APIC not initialised");
+	let lapic = lapic.lock();
+	let lapic = unsafe { MmioCell::new(lapic.virtual_start().as_ptr()) };
+	let mut icr = lapic.project::<Apic::icr_low>();
+	while icr.read() & (1 << 12) != 0 { core::hint::spin_loop(); } // wait for any previous pending IPIs to send
+	icr.write(vector | (1 << 14) | (0b01 << 18));
+	while icr.read() & (1 << 12) != 0 { core::hint::spin_loop(); } // wait to send
 }
