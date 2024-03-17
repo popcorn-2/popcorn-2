@@ -357,6 +357,7 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 	let val = timer_lvt.read()
 		.with_mask(false);
 	timer_lvt.write(val);
+	apic_boxed.project::<Apic::timer_initial_count>().write(0);
 
 	LAPIC.0.get_or_init(|| unsafe { Syncify::new(IrqCell::new(apic)) });
 }
