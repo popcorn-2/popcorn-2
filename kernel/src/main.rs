@@ -49,6 +49,8 @@
 #![feature(kernel_physical_allocator_location)]
 #![feature(kernel_ptr)]
 #![feature(kernel_time)]
+#![feature(slice_ptr_len)]
+#![feature(slice_ptr_get)]
 
 #![no_std]
 #![no_main]
@@ -123,18 +125,6 @@ macro_rules! u64 {
 #[macro_export]
 macro_rules! into {
     ($stuff:expr) => {($stuff).try_into().unwrap()};
-}
-
-#[thread_local]
-static IRQ_HANDLES: Mutex<BTreeMap<usize, Box<dyn FnMut() /* + Send ???*/>>> = Mutex::new(BTreeMap::new());
-
-#[inline]
-fn irq_handler(num: usize) {
-	if let Some(f) = IRQ_HANDLES.lock().get_mut(&num) {
-		(*f)();
-	} else {
-		warn!("Unhandled IRQ num {num}");
-	}
 }
 
 #[inline]
@@ -246,6 +236,7 @@ use kernel_api::memory::physical::highmem;
 use kernel_api::memory::r#virtual::Global;
 use kernel_api::ptr::Unique;
 use kernel_api::sync::Mutex;
+use kernel_api::time::Instant;
 use crate::hal::paging2::{construct_tables, TTable, TTableTy};
 use utils::handoff::MemoryType;
 use crate::hal::acpi::XPhysicalMapping;
@@ -444,46 +435,19 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		HalTy::load_tls(tls_self_ptr);
 	}
 
+	let x = get_foo();
+	warn!("TLS value is {x}");
+
+	if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(hal::acpi::tables()) {
+		unsafe { hal::arch::hpet::Hpet::init(hpet, hal::acpi::Handler::new(&hal::acpi::Allocator)); }
+	}
+
+	<HalTy as Hal>::post_acpi_init();
+
+	let init_thread = unsafe { threading::init(handoff_data) };
+	debug!("{init_thread:x?}");
+
 	{
-		if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(hal::acpi::tables()) {
-			#[repr(C)]
-			#[derive(Debug)]
-			struct HpetHeader {
-				capabilities: u64,
-				_res0: u64,
-				configuration: u64,
-				_res1: u64,
-				status: u64,
-				_res2: [u64; 25],
-				counter: u64,
-				_res3: u64,
-			}
-
-			#[repr(C)]
-			#[derive(Debug)]
-			struct HpetTimer {
-				capabilities: u64,
-				comparator: u64,
-				fsb_route: u64,
-				_res: u64,
-			}
-
-			#[repr(C)]
-			#[derive(Debug)]
-			struct Hpet {
-				header: HpetHeader,
-				timers: [HpetTimer]
-			}
-
-			let hpet_map = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_region::<HpetHeader>(hpet.base_address, mem::size_of::<HpetHeader>(), ()) };
-			let hpet_timer_count = ((hpet_map.capabilities >> 8) & 0b11111) + 1;
-			let hpet_size = mem::size_of::<HpetHeader>() + 0x20*(hpet_timer_count as usize);
-			drop(hpet_map);
-			let hpet_map = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_region::<Hpet>(hpet.base_address, hpet_size, hpet_timer_count as usize) };
-			debug!("{:#x?}", hpet_map.deref());
-		}
-
-		<HalTy as Hal>::post_acpi_init();
 		let update_line = update_line.as_mut().map(|f| f as &mut dyn FnMut());
 
 		if let Some(mut update_line) = update_line {
@@ -491,9 +455,11 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 			extern "C" fn animation_task((data, meta): (usize, usize)) -> ! {
 				let update_line = unsafe { &mut *core::ptr::from_raw_parts_mut::<dyn FnMut()>(data as *mut (), mem::transmute(meta)) };
+				let mut next_time = Instant::now();
 				loop {
+					next_time += Duration::from_nanos(1302083);
 					update_line();
-					todo!(); //threading::sleep(Duration::from_nanos(1302083));
+					threading::sleep_until(next_time);
 				}
 			}
 
@@ -514,15 +480,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		}
 	}
 
-	let x = get_foo();
-	warn!("TLS value is {x}");
-
-	let init_thread = unsafe { threading::init(handoff_data) };
-	debug!("{init_thread:x?}");
-
-	threading::thread_yield();
-
-	loop {}
+	loop { threading::thread_yield(); }
 
 	let mut executor = Executor::new();
 	static mut WAKER: Option<Waker> = None;

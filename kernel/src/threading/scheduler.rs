@@ -8,7 +8,8 @@ use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use crate::hal::{HalTy, Hal, ThreadControlBlock, ThreadState};
 use core::sync::atomic::{AtomicUsize, Ordering};
-use log::debug;
+use log::{debug, warn};
+use crate::threading::SleepingTid;
 
 #[thread_local]
 pub static SCHEDULER: IrqCell<Scheduler> = IrqCell::new(Scheduler::new());
@@ -86,7 +87,8 @@ impl Tid {
 pub struct Scheduler {
 	pub(super) tasks: BTreeMap<Tid, ThreadControlBlock>,
 	pub(super) queue: VecDeque<Tid>,
-	pub(super) current_tid: Tid
+	pub(super) current_tid: Tid,
+	pub(super) sleep_queue: VecDeque<SleepingTid>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -123,7 +125,8 @@ impl Scheduler {
 		Self {
 			tasks: BTreeMap::new(),
 			queue: VecDeque::new(),
-			current_tid: Tid(0)
+			current_tid: Tid(0),
+			sleep_queue: VecDeque::new(),
 		}
 	}
 
@@ -131,10 +134,12 @@ impl Scheduler {
 		let tid = Tid::new();
 		self.tasks.insert(tid, tcb);
 		self.queue.push_back(tid);
+		super::defer_schedule();
 		tid
 	}
 
 	pub fn schedule(&mut self) {
+		debug!("task schedule");
 		if let Some(new_tid) = self.queue.pop_front() {
 			let old_tid = self.current_tid;
 			self.current_tid = new_tid;
@@ -154,6 +159,8 @@ impl Scheduler {
 				HalTy::switch_thread(old_tcb, new_tcb);
 			}
 		} else {
+			debug!("no other tasks to run");
+
 			let current_tcb = self.tasks.get(&self.current_tid).expect("Cannot have been running a task that doesn't exist");
 
 			if current_tcb.state == ThreadState::Running { return; }
@@ -165,7 +172,20 @@ impl Scheduler {
 	pub fn block(&mut self, state: ThreadState) {
 		let current_tcb = self.tasks.get_mut(&self.current_tid).expect("Cannot have been running a task that doesn't exist");
 		current_tcb.state = state;
-		self.schedule();
+		super::defer_schedule();
+	}
+
+	pub fn unblock(&mut self, tid: Tid) {
+		if let Some(tcb) = self.tasks.get_mut(&tid) {
+			tcb.state = ThreadState::Ready;
+			self.queue.push_back(tid);
+			super::defer_schedule();
+		} else { warn!("Attempted to unblock dead {tid:?}"); }
+	}
+
+	pub fn add_to_sleep_queue(&mut self, task: SleepingTid) {
+		self.sleep_queue.push_back(task);
+		self.sleep_queue.make_contiguous().sort_unstable();
 	}
 }
 
