@@ -25,7 +25,7 @@ pub trait SaveState: Debug + Default {
 
 pub unsafe trait Hal {
 	type SerialOut: FormatWriter;
-	type KTableTy: KTable;
+	type KTableTy: KTable + Send + Sync;
 	type TTableTy: TTable<KTableTy = Self::KTableTy>;
 	type SaveState: SaveState;
 	type LocalTimer: timing::Timer;
