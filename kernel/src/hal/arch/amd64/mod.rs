@@ -768,7 +768,7 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	fn enable_interrupts() {
-		unsafe { asm!("sti", options(preserves_flags, nomem)); }
+		unsafe { asm!("sti", options(preserves_flags)); }
 	}
 
 	fn get_and_disable_interrupts() -> usize {
@@ -778,7 +778,7 @@ unsafe impl Hal for Amd64Hal {
 			pushf
 			pop {}
 			cli
-		", out(reg) flags, options(preserves_flags, nomem))
+		", out(reg) flags, options(preserves_flags))
 		}
 
 		flags & 0x0200
@@ -786,7 +786,7 @@ unsafe impl Hal for Amd64Hal {
 
 	fn set_interrupts(old_state: usize) {
 		if old_state != 0 {
-			unsafe { asm!("sti", options(preserves_flags, nomem)); }
+			unsafe { asm!("sti", options(preserves_flags)); }
 		}
 	}
 
