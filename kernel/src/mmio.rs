@@ -25,6 +25,8 @@ impl<T: ?Sized> MmioCell<T> {
 	pub unsafe fn new(ptr: *mut T) -> Self {
 		Self { ptr }
 	}
+	
+	pub fn as_ptr(self) -> *mut T { self.ptr }
 }
 
 impl<T: Copy> MmioCell<T> {
