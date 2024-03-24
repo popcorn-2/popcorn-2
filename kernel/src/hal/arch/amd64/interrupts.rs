@@ -305,13 +305,11 @@ unsafe extern "C" fn amd64_global_irq_handler() {
 	"push r9",
 	"push r10",
 	"push r11",
-	"push 0", // alignment
 	// TODO: `swapgs`
 	"mov rdi, rsp",
-	"add rdi, 80",
+	"add rdi, 72",
 	"sti",
 	"call {}",
-	"pop rax",
 	"pop r11",
 	"pop r10",
 	"pop r9",
