@@ -32,7 +32,6 @@
 #![feature(type_alias_impl_trait)]
 #![feature(asm_const)]
 #![feature(const_mut_refs)]
-#![feature(pointer_is_aligned)]
 #![feature(sync_unsafe_cell)]
 #![feature(arbitrary_self_types)]
 

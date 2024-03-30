@@ -1,6 +1,4 @@
 #![no_std]
-#![feature(pointer_is_aligned)]
-#![feature(pointer_byte_offsets)]
 #![feature(never_type)]
 
 extern crate alloc;

@@ -1,7 +1,6 @@
 #![feature(ptr_metadata)]
 #![feature(try_blocks)]
 #![feature(let_chains)]
-#![feature(pointer_is_aligned)]
 #![feature(new_uninit)]
 #![feature(split_array)]
 #![feature(slice_ptr_len)]
