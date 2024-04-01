@@ -1,10 +1,9 @@
 #![cfg_attr(not(test), no_std)]
 #![feature(generic_const_exprs)]
 #![feature(slice_ptr_get)]
-#![feature(pointer_byte_offsets)]
 #![feature(strict_provenance)]
 #![feature(new_uninit)]
-#![feature(pointer_is_aligned)]
+#![feature(pointer_is_aligned_to)]
 
 extern crate alloc;
 
@@ -25,7 +24,7 @@ pub trait Cacheable: Default {
 
 pub struct SlabAllocator<'vmm, T: Cacheable> {
     virtual_allocator: &'vmm dyn VirtualMemoryAllocator,
-    slabs: linked_list::LinkedList<SlabMetadata>
+    slabs: linked_list::LinkedList<SlabMetadata>,
     _phantom: PhantomData<T>
 }
 

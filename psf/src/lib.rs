@@ -1,6 +1,4 @@
-#![feature(pointer_byte_offsets)]
-#![feature(result_option_inspect)]
-#![feature(pointer_is_aligned)]
+#![feature(pointer_is_aligned_to)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use core::fmt;
