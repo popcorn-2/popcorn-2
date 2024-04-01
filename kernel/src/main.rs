@@ -87,6 +87,7 @@ use kernel_api::memory::{allocator::BackingAllocator};
 use kernel_api::memory::mapping::OldMapping;
 use hal::{HalTy, Hal, ThreadControlBlock, ThreadState, SaveState};
 use handoff_protection::HandoffWrapper;
+use hal::exception::DebugTy;
 
 mod sync;
 mod memory;
