@@ -1,4 +1,4 @@
-use core::arch::asm;
+use core::arch::{asm, global_asm};
 use core::num::NonZeroU8;
 use core::ops::{Index, IndexMut};
 use log::{info, warn};
@@ -202,6 +202,7 @@ struct IrqData {
 	ss: u64
 }
 
+#[no_mangle]
 extern "C" fn amd64_handler2(data: &mut IrqData) {
 	use crate::hal::Hal;
 	
@@ -293,40 +294,9 @@ unsafe extern "C" fn amd64_syscall_handler() {
 	asm!("ud2", options(noreturn));
 }
 
-#[naked]
-unsafe extern "C" fn amd64_global_irq_handler() {
-	asm!(
-	"push rax",
-	"push rdi",
-	"push rsi",
-	"push rdx",
-	"push rcx",
-	"push r8",
-	"push r9",
-	"push r10",
-	"push r11",
-	// TODO: `swapgs`
-	"mov rdi, rsp",
-	"add rdi, 72",
-	"sti",
-	"call {}",
-	"pop r11",
-	"pop r10",
-	"pop r9",
-	"pop r8",
-	"pop rcx",
-	"pop rdx",
-	"pop rsi",
-	"pop rdi",
-	"pop rax",
-	"add rsp, 16",
-	"iretq",
-	sym amd64_handler2, options(noreturn));
-}
+global_asm!(include_str!("interrupts.asm"), options(raw));
 
 mod handlers {
-	use super::amd64_global_irq_handler;
-	
 	macro_rules! irq_handler {
 	    ($num:literal error) => {
 		    ::paste::paste! {
@@ -335,7 +305,7 @@ mod handlers {
 		        pub(super) unsafe extern "C" fn [<amd64_irq_handler_ $num>]() {
 					::core::arch::asm!(
 						concat!("push ", stringify!($num)),
-						"jmp {}", sym amd64_global_irq_handler,
+						"jmp amd64_global_irq_handler",
 					options(noreturn));
 			    }
 		    }
@@ -349,7 +319,7 @@ mod handlers {
 					::core::arch::asm!(
 						"push 0",
 						concat!("push ", stringify!($num)),
-						"jmp {}", sym amd64_global_irq_handler,
+						"jmp amd64_global_irq_handler",
 					options(noreturn));
 			    }
 		    }
