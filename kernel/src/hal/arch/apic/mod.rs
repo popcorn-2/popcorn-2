@@ -168,6 +168,9 @@ impl Timer for LapicTimer {
 				let mut timer_divide_register = apic.project::<Apic::timer_divide_config>();
 				let mut timer_initial_count = apic.project::<Apic::timer_initial_count>();
 				let timer_current_count = apic.project::<Apic::timer_current_count>();
+				
+				let old_current_count = timer_current_count.read();
+				let old_initial_count = timer_initial_count.read();
 
 				let old_val = timer_lvt.read();
 				let val = old_val
@@ -191,6 +194,13 @@ impl Timer for LapicTimer {
 				let hpet_end_count = hpet_counter.read();
 
 				hpet_config_register.write(hpet_config_old);
+				
+				if old_val.mode() == TimerMode::Periodic {
+					timer_initial_count.write(old_initial_count);
+				} else {
+					timer_initial_count.write(old_current_count);
+				}
+				
 				timer_lvt.write(old_val);
 				timer_divide_register.write(old_divide);
 
