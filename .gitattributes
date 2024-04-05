@@ -1,0 +1,4 @@
+fonts/*.c linguist-generated
+fonts/*.h linguist-generated
+graphics/*.c linguist-generated
+graphics/*.h linguist-generated
