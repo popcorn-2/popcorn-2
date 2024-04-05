@@ -81,6 +81,10 @@ SECTIONS {
     {
         *(.eh_frame .eh_frame.*)
     } :rodata
+    .gcc_except_table :
+    {
+        *(.gcc_except_table .gcc_except_table.*)
+    } :rodata
 
 	. = ALIGN(4K);
     .text :
