@@ -37,7 +37,7 @@ impl Debug for Lvt {
 	}
 }
 
-#[derive(IntoPrimitive, TryFromPrimitive, Debug)]
+#[derive(IntoPrimitive, TryFromPrimitive, Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u32)]
 pub enum TimerMode {
 	OneShot = 0,
