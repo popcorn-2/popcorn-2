@@ -16,12 +16,12 @@ bitflags! {
 	}
 
 	struct LineStatusFlags: u8 {
-		const DATA_READ_READY = 1<<0;
+		const INPUT_BUFFER_FULL = 1<<0;
 		const OVERRUN_ERROR = 1<<1;
 		const PARITY_ERROR = 1<<2;
 		const FRAMING_ERROR = 1<<3;
 		const BREAK_ERROR = 1<<4;
-		const DATA_WRITE_READY = 1<<5;
+		const OUTPUT_BUFFER_EMPTY = 1<<5;
 	}
 }
 
@@ -88,18 +88,19 @@ impl SerialPort {
 			self.irq_enable.write(IrqEnableFlags::empty().into());
 			self.line_control.write(0x03);   // 8 bits, no parity, one stop bit
 			self.fifo_control.write(0xC7);   // Enable FIFO, clear them, with 14-byte threshold
+			self.modem_control.write(0x0b);
 		}
 	}
 
 	/// Perform a test of the serial port by enabling loopback mode and checking received data
 	fn self_test(&mut self) -> Result<(), Error> {
 		unsafe {
-			self.modem_control.write(0x1E);   // Set to loopback mode
+			self.modem_control.write(0x13);   // Set to loopback mode
 
-			self.data.write(0xAE);   // Write to port
-			if self.data.read() != 0xAE { return Err(Error::LoopbackFail); }
+			self.send(0xAE);   // Write to port
+			if self.receive() != 0xAE { return Err(Error::LoopbackFail); }
 
-			self.modem_control.write(0x0F);   // Turn off loopback, enable IRQs
+			self.modem_control.write(0x0b);   // Turn off loopback, enable IRQs
 		}
 		Ok(())
 	}
@@ -113,7 +114,23 @@ impl SerialPort {
 	/// Blocks until transmit buffer is empty
 	pub fn wait_transmit_empty(&self) {
 		unsafe {
-			while !LineStatusFlags::from(self.line_status.read()).contains(LineStatusFlags::DATA_WRITE_READY) {}
+			while !LineStatusFlags::from(self.line_status.read()).contains(LineStatusFlags::OUTPUT_BUFFER_EMPTY) {
+				core::hint::spin_loop();
+			}
+		}
+	}
+
+	pub fn receive(&mut self) -> u8 {
+		self.wait_receive_full();
+		unsafe { self.data.read() }
+	}
+
+	/// Blocks until receive buffer is full
+	pub fn wait_receive_full(&self) {
+		unsafe {
+			while !LineStatusFlags::from(self.line_status.read()).contains(LineStatusFlags::INPUT_BUFFER_FULL) {
+				core::hint::spin_loop();
+			}
 		}
 	}
 }
