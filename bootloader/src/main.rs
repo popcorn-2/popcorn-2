@@ -651,8 +651,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             Page(fb_start.addr.try_into().unwrap()),
             Frame(framebuffer_addr.try_into().unwrap()),
             page_count.try_into().unwrap(),
-            || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()),
-            TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE | TableEntryFlags::MMIO
+	        || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()),
+	        TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE | TableEntryFlags::MMIO,
         ).ok()?;
 
         let color_format = match mode_info.pixel_format() {
@@ -682,7 +682,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             panic!("Failed to allocate enough memory to load popcorn2");
         };
 
-        page_table.try_map_range::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()))
+        page_table.try_map_range_with::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE,)
                          .unwrap();
 
         handoff::Stack {
@@ -732,20 +732,28 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
             let virt_addr = addr + PAGE_MAP_OFFSET;
             assert!(addr < PAGE_MAP_OFFSET_LEN, "Too much physical memory");
-            page_table.try_map_page::<(), _>(Page(virt_addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()))
+            page_table.try_map_page_with::<(), _>(Page(virt_addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE,)
         }).unwrap();
     }
 
     for mem in memory_map.entries().filter(|mem|
             mem.ty == MemoryType::LOADER_DATA ||
-                    mem.ty == MemoryType::LOADER_CODE ||
                     (mem.phys_start..mem.phys_start + mem.page_count * 4096).contains(&stack_ptr)
     ) {
         debug!("{:x?} ({:#x} -> {:#x}) - {:?}", mem.ty, mem.phys_start, mem.phys_start + mem.page_count * 4096, mem.att);
 
         // UEFI memory sections are always aligned by firmware
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
-            page_table.try_map_page::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()))
+            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE,)
+        }).unwrap();
+    }
+
+    for mem in memory_map.entries().filter(|mem| mem.ty == MemoryType::LOADER_CODE) {
+        debug!("{:x?} ({:#x} -> {:#x}) - {:?}", mem.ty, mem.phys_start, mem.phys_start + mem.page_count * 4096, mem.att);
+
+        // UEFI memory sections are always aligned by firmware
+        (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
+            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::WRITABLE,)
         }).unwrap();
     }
 
@@ -842,6 +850,26 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     };
 
     let _ = system_table.exit_boot_services();
+
+    unsafe {
+        // Enable write-protect bit
+        asm!(
+            "mov {0:r}, cr0",
+            "or {0:r}, 0x10000",
+            "mov cr0, {0:r}",
+            out(reg) _
+        );
+        // Enable NX enable and syscall/sysret bits
+        asm!(
+            "rdmsr",
+            "or eax, 0x801",
+            "wrmsr",
+            in("ecx") 0xC0000080u32,
+            out("eax") _,
+            out("edx") _
+        );
+    }
+
     page_table.switch();
 
     //type KernelStart = ffi_abi!(type fn(&handoff::Data) -> !);

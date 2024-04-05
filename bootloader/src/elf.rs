@@ -12,7 +12,7 @@ use elf::header::program::{ProgramHeaderEntry64, SegmentFlags, SegmentType};
 use elf::symbol_table::SymbolMap;
 use kernel_api::memory::{PhysicalAddress, VirtualAddress};
 
-use crate::paging::{Frame, Page, PageTable};
+use crate::paging::{Frame, Page, PageTable, TableEntryFlags};
 
 pub fn load_module(from: impl AsRef<Path>) -> Result<(),()> {
 	todo!()
@@ -90,12 +90,17 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 		      }
 		      
 		      assert_le!(segment.alignment, 4096, "Not designed for >1 page alignment");
+		      
+		      let mut flags = TableEntryFlags::empty();
+		      if segment_meta.segment_flags.contains(SegmentFlags::Writeable) { flags |= TableEntryFlags::WRITABLE; }
+		      if !segment_meta.segment_flags.contains(SegmentFlags::Executable) { flags |= TableEntryFlags::NO_EXECUTE; }
 
-		      page_table.try_map_range(
+		      page_table.try_map_range_with(
 			      Page(segment.virtual_addr.addr.try_into().unwrap()),
 			      Frame(segment.physical_addr.addr.try_into().unwrap()),
 			      segment.page_count.try_into().unwrap(),
-			      || allocator(1, AllocateType::AnyPages)
+			      || allocator(1, AllocateType::AnyPages),
+			      flags,
 		      ).unwrap();
 
 		      Ok(())
