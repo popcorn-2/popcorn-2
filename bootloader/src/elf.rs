@@ -51,7 +51,8 @@ fn load_segment<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(kerne
 	Ok(LoadedSegment {
 		physical_addr: PhysicalAddress::new(allocation.try_into().expect("Todo")),
 		virtual_addr: VirtualAddress::new(segment.vaddr.try_into().expect("Virtual address could not fit in machine width???")),
-		page_count
+		page_count,
+		alignment: segment.alignment.try_into().unwrap(),
 	})
 }
 
