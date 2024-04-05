@@ -5,7 +5,7 @@ use core::cell::{Cell, UnsafeCell};
 use core::cmp::min;
 use core::fmt::{Debug, Formatter};
 use core::marker::PhantomData;
-use core::mem::{MaybeUninit, swap};
+use core::mem::{ManuallyDrop, MaybeUninit, swap};
 use core::num::NonZeroU128;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
@@ -53,6 +53,13 @@ impl<T: ?Sized> IrqCell<T> {
 pub struct IrqGuard<'cell, T: ?Sized> {
 	cell: &'cell IrqCell<T>,
 	_phantom_not_send: PhantomData<*mut u8>, // Dropping guard on other core would cause interrupts to be enabled in the wrong place
+}
+
+impl<T: ?Sized> IrqGuard<'_, T> {
+	fn unlock_no_interrupts(this: IrqGuard<T>) {
+		let this = ManuallyDrop::new(this);
+		this.cell.state.take();
+	}
 }
 
 impl<T: Debug> Debug for IrqGuard<'_, T> {
@@ -262,6 +269,7 @@ impl Scheduler {
 			// FIXME: only true with LAPIC
 			eoi_handle.send(); // safe to send this now since interrupts are disabled by scheduler lock
 			guard.schedule();
+			IrqGuard::unlock_no_interrupts(guard);
 		};
 
 		assert!(crate::interrupts::insert_handler(0x40, timer_irq).is_none());
