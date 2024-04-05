@@ -16,12 +16,12 @@ bitflags! {
 	}
 
 	struct LineStatusFlags: u8 {
-		const DATA_READ_READY = 1<<0;
+		const INPUT_BUFFER_FULL = 1<<0;
 		const OVERRUN_ERROR = 1<<1;
 		const PARITY_ERROR = 1<<2;
 		const FRAMING_ERROR = 1<<3;
 		const BREAK_ERROR = 1<<4;
-		const DATA_WRITE_READY = 1<<5;
+		const OUTPUT_BUFFER_EMPTY = 1<<5;
 	}
 }
 
@@ -113,7 +113,9 @@ impl SerialPort {
 	/// Blocks until transmit buffer is empty
 	pub fn wait_transmit_empty(&self) {
 		unsafe {
-			while !LineStatusFlags::from(self.line_status.read()).contains(LineStatusFlags::DATA_WRITE_READY) {}
+			while !LineStatusFlags::from(self.line_status.read()).contains(LineStatusFlags::OUTPUT_BUFFER_EMPTY) {
+				core::hint::spin_loop();
+			}
 		}
 	}
 }
