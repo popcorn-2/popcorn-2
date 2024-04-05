@@ -21,7 +21,8 @@ pub fn load_module(from: impl AsRef<Path>) -> Result<(),()> {
 struct LoadedSegment {
 	physical_addr: PhysicalAddress,
 	virtual_addr: VirtualAddress,
-	page_count: usize
+	page_count: usize,
+	alignment: usize,
 }
 
 fn load_segment<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(kernel: &File, segment: &ProgramHeaderEntry64, mut allocator: F) -> Result<LoadedSegment, ()> {
