@@ -118,6 +118,20 @@ impl SerialPort {
 			}
 		}
 	}
+
+	pub fn receive(&mut self) -> u8 {
+		self.wait_receive_full();
+		unsafe { self.data.read() }
+	}
+
+	/// Blocks until receive buffer is full
+	pub fn wait_receive_full(&self) {
+		unsafe {
+			while !LineStatusFlags::from(self.line_status.read()).contains(LineStatusFlags::INPUT_BUFFER_FULL) {
+				core::hint::spin_loop();
+			}
+		}
+	}
 }
 
 impl Write for SerialPort {
