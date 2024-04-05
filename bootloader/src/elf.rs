@@ -2,6 +2,7 @@ use core::ffi::CStr;
 use core::fmt::Debug;
 use core::ops::Range;
 use core::ptr;
+use more_asserts::assert_le;
 
 use uefi::fs::Path;
 use uefi::table::boot::{AllocateType, PAGE_SIZE};
