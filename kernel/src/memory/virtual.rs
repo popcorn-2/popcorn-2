@@ -48,12 +48,15 @@ impl VirtualAllocator for Bootstrap {
 			debug!("`at` end doesn't match");
 			return Err(AllocError);
 		}
-		if current_end > VMEM_BOOTSTRAP_END.0 {
+		
+		let new_end = unsafe { current_end.byte_add(len * 4096) };
+		if new_end >= VMEM_BOOTSTRAP_END.0 {
 			debug!("exhausted vmem_bootstrap region");
 			return Err(AllocError);
 		}
 
-		match self.start.compare_exchange(current_end, unsafe { current_end.byte_add(len * 4096) }, Ordering::Relaxed, Ordering::Relaxed) {
+		// This should never be contested since bootstrap only runs on one core, so fine to not do a cmpxchg loop
+		match self.start.compare_exchange(current_end, new_end, Ordering::Relaxed, Ordering::Relaxed) {
 			Ok(_) => Ok(at),
 			Err(_) => Err(AllocError)
 		}
