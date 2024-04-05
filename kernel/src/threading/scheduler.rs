@@ -269,6 +269,7 @@ impl Scheduler {
 			// FIXME: only true with LAPIC
 			eoi_handle.send(); // safe to send this now since interrupts are disabled by scheduler lock
 			guard.schedule();
+			IrqGuard::unlock_no_interrupts(guard);
 		};
 
 		assert!(crate::interrupts::insert_handler(0x40, timer_irq).is_none());
