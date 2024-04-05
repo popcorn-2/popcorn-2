@@ -2,6 +2,7 @@ use core::ffi::CStr;
 use core::fmt::Debug;
 use core::ops::Range;
 use core::ptr;
+use more_asserts::assert_le;
 
 use uefi::fs::Path;
 use uefi::table::boot::{AllocateType, PAGE_SIZE};
@@ -20,7 +21,8 @@ pub fn load_module(from: impl AsRef<Path>) -> Result<(),()> {
 struct LoadedSegment {
 	physical_addr: PhysicalAddress,
 	virtual_addr: VirtualAddress,
-	page_count: usize
+	page_count: usize,
+	alignment: usize,
 }
 
 fn load_segment<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(kernel: &File, segment: &ProgramHeaderEntry64, mut allocator: F) -> Result<LoadedSegment, ()> {
@@ -51,7 +53,8 @@ fn load_segment<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(kerne
 	Ok(LoadedSegment {
 		physical_addr: PhysicalAddress::new(allocation.try_into().expect("Todo")),
 		virtual_addr: VirtualAddress::new(segment.vaddr.try_into().expect("Virtual address could not fit in machine width???")),
-		page_count
+		page_count,
+		alignment: segment.alignment.try_into().unwrap(),
 	})
 }
 
@@ -59,7 +62,7 @@ pub struct KernelLoadInfo<'a> {
 	pub kernel: File<'a>,
 	pub page_table: PageTable,
 	pub address_range: Range<VirtualAddress>,
-	pub tls: Range<VirtualAddress>
+	pub tls: (Range<VirtualAddress>, usize),
 }
 
 pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(from: &mut [u8], mut allocator: F) -> Result<KernelLoadInfo<'_>, ()> {
@@ -70,6 +73,7 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 	let mut kernel_first_page = VirtualAddress::new(usize::MAX);
 	let mut tls_start = Option::<VirtualAddress>::None;
 	let mut tls_end = Option::<VirtualAddress>::None;
+	let mut tls_align = Option::<usize>::None;
 
 	kernel.segments().filter(|segment| segment.segment_type == SegmentType::LOAD || segment.segment_type == SegmentType::TLS)
 	      .try_for_each(|segment_meta| {
@@ -82,7 +86,10 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 		      if segment_meta.segment_type == SegmentType::TLS {
 			      tls_start = Some(segment.virtual_addr);
 			      tls_end = Some(segment.virtual_addr + usize::try_from(segment_meta.memory_size).unwrap());
+			      tls_align = Some(segment.alignment);
 		      }
+		      
+		      assert_le!(segment.alignment, 4096, "Not designed for >1 page alignment");
 
 		      page_table.try_map_range(
 			      Page(segment.virtual_addr.addr.try_into().unwrap()),
@@ -98,7 +105,7 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 		kernel,
 		page_table,
 		address_range: kernel_first_page..kernel_last_page,
-		tls: tls_start.map(|start| start..tls_end.unwrap()).unwrap_or(VirtualAddress::new(0)..VirtualAddress::new(0))
+		tls: (tls_start.map(|start| start..tls_end.unwrap()).unwrap_or(VirtualAddress::new(0)..VirtualAddress::new(0)), tls_align.unwrap_or(0))
 	})
 }
 

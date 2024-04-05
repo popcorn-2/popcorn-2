@@ -435,21 +435,36 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		(Some(update_line), Some(picos_per_tick))
 	} else { (None, None) };
 
-	let tls_size = handoff_data.tls.end() - handoff_data.tls.start() + mem::size_of::<*mut u8>();
+	let tls_data_size = handoff_data.tls.0.end() - handoff_data.tls.0.start();
+	let tls_data_aligned_size = {
+		let align = handoff_data.tls.1;
+		assert!(align.is_power_of_two(), "TLS alignment must be a power of 2");
+		let mask = align - 1;
+		let tls_aligned_data_size =
+				if (tls_data_size & mask) == 0 { tls_data_size }
+				else {
+					(tls_data_size | mask) + 1
+				};
+		tls_aligned_data_size
+	};
+	let tls_size = tls_data_aligned_size + mem::size_of::<*mut u8>();
 	// Is this always correctly aligned?
 	#[warn(deprecated)]
 			let tls = OldMapping::new(tls_size.div_ceil(4096))
 			.expect("Unable to allocate TLS area");
 	let (tls, _) = tls.into_raw_parts();
+	debug!("TLS starts at {tls:x?}");
+	debug!("TLS size is {tls_data_size:#x};{tls_size:#x}");
 	unsafe {
-		core::ptr::copy_nonoverlapping(handoff_data.tls.start().as_ptr(), tls.as_ptr(), tls_size - core::mem::size_of::<*mut u8>());
-		let tls_self_ptr = tls.as_ptr().byte_add(tls_size - core::mem::size_of::<*mut u8>());
+		core::ptr::copy_nonoverlapping(handoff_data.tls.0.start().as_ptr(), tls.as_ptr(), tls_data_size);
+		let tls_self_ptr = tls.as_ptr().byte_add(tls_size - mem::size_of::<*mut u8>());
+		info!("Placing pointer to self at {tls_self_ptr:p}");
 		tls_self_ptr.cast::<*mut u8>().write(tls_self_ptr);
 		HalTy::load_tls(tls_self_ptr);
 	}
 
 	let x = get_foo();
-	warn!("TLS value is {x}");
+	assert_eq!(x, 6, "TLS value should be 6");
 
 	if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(hal::acpi::tables()) {
 		unsafe { hal::arch::hpet::Hpet::init(hpet, hal::acpi::Handler::new(&hal::acpi::Allocator)); }
