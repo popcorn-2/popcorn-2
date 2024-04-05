@@ -138,7 +138,7 @@ SECTIONS {
 
 	. = ALIGN(4K);
 	PROVIDE(__popcorn_vmem_bootstrap_start = .);
-	. += 1M;
+	. += 8M;
 	PROVIDE(__popcorn_vmem_bootstrap_end = .);
 
 	/DISCARD/ : {
