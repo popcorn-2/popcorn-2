@@ -12,7 +12,7 @@ pub struct Data {
 	pub modules: Modules,
 	pub log: Logging,
 	pub test: Testing,
-	pub tls: Range<VirtualAddress>,
+	pub tls: (Range<VirtualAddress>, usize),
 	pub rsdp: PhysicalAddress
 }
 

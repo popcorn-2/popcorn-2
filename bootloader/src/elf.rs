@@ -62,7 +62,7 @@ pub struct KernelLoadInfo<'a> {
 	pub kernel: File<'a>,
 	pub page_table: PageTable,
 	pub address_range: Range<VirtualAddress>,
-	pub tls: Range<VirtualAddress>
+	pub tls: (Range<VirtualAddress>, usize),
 }
 
 pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(from: &mut [u8], mut allocator: F) -> Result<KernelLoadInfo<'_>, ()> {
@@ -105,7 +105,7 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 		kernel,
 		page_table,
 		address_range: kernel_first_page..kernel_last_page,
-		tls: tls_start.map(|start| start..tls_end.unwrap()).unwrap_or(VirtualAddress::new(0)..VirtualAddress::new(0))
+		tls: (tls_start.map(|start| start..tls_end.unwrap()).unwrap_or(VirtualAddress::new(0)..VirtualAddress::new(0)), tls_align.unwrap_or(0))
 	})
 }
 

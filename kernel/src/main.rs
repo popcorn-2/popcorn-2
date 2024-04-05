@@ -435,7 +435,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		(Some(update_line), Some(picos_per_tick))
 	} else { (None, None) };
 
-	let tls_size = handoff_data.tls.end() - handoff_data.tls.start() + mem::size_of::<*mut u8>();
+	let tls_size = handoff_data.tls.0.end() - handoff_data.tls.0.start();
 	// Is this always correctly aligned?
 	#[warn(deprecated)]
 			let tls = OldMapping::new(tls_size.div_ceil(4096))
