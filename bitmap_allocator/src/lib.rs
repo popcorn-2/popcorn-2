@@ -71,7 +71,7 @@ impl BitmapAllocator {
     }
 
     fn new(first_frame: Frame, frame_count: usize) -> Self {
-        let bitmap_length = frame_count / BITS_PER_BITMAP_UNIT;
+        let bitmap_length = frame_count.div_ceil(BITS_PER_BITMAP_UNIT);
         let bitmap = Vec::into_boxed_slice(vec![0; bitmap_length]);
 
         Self {
