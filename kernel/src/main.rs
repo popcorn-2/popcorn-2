@@ -442,8 +442,8 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 			.expect("Unable to allocate TLS area");
 	let (tls, _) = tls.into_raw_parts();
 	unsafe {
-		core::ptr::copy_nonoverlapping(handoff_data.tls.start().as_ptr(), tls.as_ptr(), tls_size - core::mem::size_of::<*mut u8>());
-		let tls_self_ptr = tls.as_ptr().byte_add(tls_size - core::mem::size_of::<*mut u8>());
+		core::ptr::copy_nonoverlapping(handoff_data.tls.0.start().as_ptr(), tls.as_ptr(), tls_size);
+		let tls_self_ptr = tls.as_ptr().byte_add(tls_size - mem::size_of::<*mut u8>());
 		tls_self_ptr.cast::<*mut u8>().write(tls_self_ptr);
 		HalTy::load_tls(tls_self_ptr);
 	}
