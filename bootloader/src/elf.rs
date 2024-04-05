@@ -71,6 +71,7 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 	let mut kernel_first_page = VirtualAddress::new(usize::MAX);
 	let mut tls_start = Option::<VirtualAddress>::None;
 	let mut tls_end = Option::<VirtualAddress>::None;
+	let mut tls_align = Option::<usize>::None;
 
 	kernel.segments().filter(|segment| segment.segment_type == SegmentType::LOAD || segment.segment_type == SegmentType::TLS)
 	      .try_for_each(|segment_meta| {
@@ -83,6 +84,7 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 		      if segment_meta.segment_type == SegmentType::TLS {
 			      tls_start = Some(segment.virtual_addr);
 			      tls_end = Some(segment.virtual_addr + usize::try_from(segment_meta.memory_size).unwrap());
+			      tls_align = Some(segment.alignment);
 		      }
 
 		      page_table.try_map_range(
