@@ -47,7 +47,7 @@ struct BitmapAllocator {
 
 impl BitmapAllocator {
     fn last_frame(&self) -> Frame {
-        self.first_frame + (self.bitmap.len() * mem::size_of::<usize>())
+        self.first_frame + (self.bitmap.len() * BITS_PER_BITMAP_UNIT)
     }
 
     fn set_frame(&mut self, frame: Frame, state: FrameState) -> Result<(), OutOfRangeError> {
@@ -71,7 +71,7 @@ impl BitmapAllocator {
     }
 
     fn new(first_frame: Frame, frame_count: usize) -> Self {
-        let bitmap_length = frame_count / mem::size_of::<usize>();
+        let bitmap_length = frame_count / BITS_PER_BITMAP_UNIT;
         let bitmap = Vec::into_boxed_slice(vec![0; bitmap_length]);
 
         Self {
@@ -84,8 +84,8 @@ impl BitmapAllocator {
         assert!(frame >= self.first_frame);
 
         let number_in_bitmap = frame - self.first_frame;
-        let bitmap_index = number_in_bitmap / mem::size_of::<usize>();
-        let bit_index = number_in_bitmap % mem::size_of::<usize>();
+        let bitmap_index = number_in_bitmap / BITS_PER_BITMAP_UNIT;
+        let bit_index = number_in_bitmap % BITS_PER_BITMAP_UNIT;
 
         (bitmap_index, bit_index)
     }
@@ -93,9 +93,9 @@ impl BitmapAllocator {
     fn allocate_one(&mut self) -> Result<Frame, AllocError> {
         for (i, entry) in self.bitmap.iter_mut().enumerate() {
             let first_set_bit = usize::try_from(entry.trailing_zeros()).unwrap();
-            if first_set_bit != (mem::size_of::<usize>() * 8) {
+            if first_set_bit != BITS_PER_BITMAP_UNIT {
                 *entry &= !(1usize << first_set_bit);
-                let bits_to_start = i * mem::size_of::<usize>();
+                let bits_to_start = i * BITS_PER_BITMAP_UNIT;
                 let start = self.first_frame + bits_to_start + first_set_bit;
                 return Ok(start);
             }
@@ -108,7 +108,7 @@ impl BitmapAllocator {
         assert!(frame_count > 1);
 
         // Cannot allocate bigger than number of bits in usize since can't check across boundaries
-        if frame_count > mem::size_of::<usize>() { alloc_err!("Too many pages for allocate_multiple_fast"); }
+        if frame_count > BITS_PER_BITMAP_UNIT { alloc_err!("Too many pages for allocate_multiple_fast"); }
 
         // Create a mask of `frame_count` contiguous bits
         let mask = (2 << (frame_count - 1)) - 1;
@@ -133,12 +133,12 @@ impl BitmapAllocator {
              If enough frames were free, then the masked result should be equal to the mask, and we can allocate
              If not, we repeat with a larger slide
              */
-            for slide in first_set_bit..(mem::size_of::<usize>() - frame_count) {
+            for slide in first_set_bit..(BITS_PER_BITMAP_UNIT - frame_count) {
                 let shifted = *entry >> slide;
                 let masked = shifted & mask;
                 if masked == mask {
                     *entry &= !(mask << slide);
-                    let bits_to_start = i * mem::size_of::<usize>();
+                    let bits_to_start = i * BITS_PER_BITMAP_UNIT;
                     let start = self.first_frame + bits_to_start + slide;
                     return Ok(start);
                 }
@@ -159,7 +159,7 @@ impl BitmapAllocator {
         let mut found = false;
 
         'outer: for (word_idx, entry) in self.bitmap.iter_mut().enumerate() {
-            for bit_idx in 0..mem::size_of::<usize>() {
+            for bit_idx in 0..BITS_PER_BITMAP_UNIT {
                 let free = ((*entry >> bit_idx) & 1) == 1;
                 if free {
                     if found_contiguous_frames == 0 {
@@ -181,7 +181,7 @@ impl BitmapAllocator {
         if !found { alloc_err!("No free memory"); }
         else {
             let contiguous_frames_start = contiguous_frames_start.expect("unreachable");
-            let start = self.first_frame + (contiguous_frames_start.0 * mem::size_of::<usize>()) + contiguous_frames_start.1;
+            let start = self.first_frame + (contiguous_frames_start.0 * BITS_PER_BITMAP_UNIT) + contiguous_frames_start.1;
 
             for frame in start..(start + frame_count) {
                 self.set_frame(frame, FrameState::Allocated)
