@@ -256,7 +256,7 @@ unsafe impl SizedBackingAllocator for Wrapped {
         for free_region in config.regions {
             for frame in free_region {
                 allocator.set_frame(frame, FrameState::Free)
-                         .unwrap();
+                        .unwrap_or_else(|_| warn!("Ignoring free frame at {frame:x?} due to bitmap padding"));
             }
         }
 
