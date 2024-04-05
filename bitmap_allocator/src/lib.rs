@@ -17,6 +17,8 @@ use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, Si
 use kernel_api::sync::Mutex;
 use log::{debug, warn};
 
+const BITS_PER_BITMAP_UNIT: usize = mem::size_of::<usize>() * 8;
+
 macro_rules! alloc_err {
     ($reason:literal) => {
         debug!(concat!("BitmapAllocator: ", $reason));
