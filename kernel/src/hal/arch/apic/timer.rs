@@ -1,3 +1,4 @@
+use core::fmt::{Debug, Formatter};
 use bit_field::BitField;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
@@ -20,6 +21,19 @@ impl Lvt {
 	
 	pub fn mode(&self) -> TimerMode {
 		TimerMode::try_from(self.0.get_bits(17..=18)).unwrap()
+	}
+}
+
+impl Debug for Lvt {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		let mode = self.mode();
+		let mask = self.0.get_bit(16);
+		let vector = self.0.get_bits(0..8);
+		f.debug_struct("Lvt")
+				.field("mode", &mode)
+				.field("masked", &mask)
+				.field("vector", &vector)
+				.finish()
 	}
 }
 
