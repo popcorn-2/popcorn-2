@@ -86,6 +86,8 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 			      tls_end = Some(segment.virtual_addr + usize::try_from(segment_meta.memory_size).unwrap());
 			      tls_align = Some(segment.alignment);
 		      }
+		      
+		      assert_le!(segment.alignment, 4096, "Not designed for >1 page alignment");
 
 		      page_table.try_map_range(
 			      Page(segment.virtual_addr.addr.try_into().unwrap()),
