@@ -842,6 +842,19 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     };
 
     let _ = system_table.exit_boot_services();
+
+    unsafe {
+        // Enable NX enable and syscall/sysret bits
+        asm!(
+            "rdmsr",
+            "or eax, 0x801",
+            "wrmsr",
+            in("ecx") 0xC0000080u32,
+            out("eax") _,
+            out("edx") _
+        );
+    }
+
     page_table.switch();
 
     //type KernelStart = ffi_abi!(type fn(&handoff::Data) -> !);
