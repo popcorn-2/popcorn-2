@@ -9,7 +9,7 @@ PHDRS {
     dynamic PT_DYNAMIC ;
     gnu_eh_frame 0x6474E550 FLAGS(0x4) ;
     lazy PT_LOAD FLAGS(0x20006) ;
-    tls PT_TLS FLAGS(0x6) ;
+    tls PT_TLS FLAGS(0x406) ;
 }
 
 SECTIONS {
