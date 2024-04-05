@@ -873,16 +873,11 @@ fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Op
     // FIXME: this doesn't check which disk is being used so it'll happily load popcorn from any random disk
 
     let mut root_partition_handle: Option<Handle> = None;
-    if let Ok(partition_handles) = services.locate_handle_buffer(SearchType::ByProtocol(&PartitionInfo::GUID)) {
+    if let Ok(partition_handles) = services.locate_handle_buffer(SearchType::ByProtocol(&const { Guid::parse_or_panic("8A6CC16C-D110-46F1-813F-0382046342C8") })) {
         for partition_handle in partition_handles.iter() {
-            let partition_info = services.open_protocol_exclusive::<PartitionInfo>(*partition_handle).unwrap();
-            match partition_info.gpt_partition_entry() {
-                Some(gpt_entry) if {
-                    let guid = gpt_entry.partition_type_guid.0;
-                    guid == const { Guid::parse_or_panic("8A6CC16C-D110-46F1-813F-0382046342C8") }
-                } => root_partition_handle = Some(*partition_handle),
-                _ => continue
-            }
+            // todo: which one to load if multiple
+            root_partition_handle = Some(*partition_handle);
+            break;
         }
     }
 
