@@ -1,5 +1,5 @@
 use bit_field::BitField;
-use num_enum::IntoPrimitive;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 #[repr(C)]
@@ -17,12 +17,17 @@ impl Lvt {
 	pub fn with_vector(mut self, vector: u8) -> Self {
 		Self(*self.0.set_bits(0..8, vector.into()))
 	}
+	
+	pub fn mode(&self) -> TimerMode {
+		TimerMode::try_from(self.0.get_bits(17..=18)).unwrap()
+	}
 }
 
-#[derive(IntoPrimitive)]
+#[derive(IntoPrimitive, TryFromPrimitive, Debug)]
 #[repr(u32)]
 pub enum TimerMode {
 	OneShot = 0,
 	Periodic = 1,
-	Tsc = 2
+	Tsc = 2,
+	Reserved = 3,
 }
