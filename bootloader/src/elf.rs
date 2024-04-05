@@ -99,7 +99,6 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 			      Page(segment.virtual_addr.addr.try_into().unwrap()),
 			      Frame(segment.physical_addr.addr.try_into().unwrap()),
 			      segment.page_count.try_into().unwrap(),
-			      || allocator(1, AllocateType::AnyPages)
 			      || allocator(1, AllocateType::AnyPages),
 			      flags,
 		      ).unwrap();
