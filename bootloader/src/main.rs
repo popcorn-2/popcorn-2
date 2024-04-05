@@ -852,6 +852,13 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let _ = system_table.exit_boot_services();
 
     unsafe {
+        // Enable write-protect bit
+        asm!(
+            "mov {0:r}, cr0",
+            "or {0:r}, 0x10000",
+            "mov cr0, {0:r}",
+            out(reg) _
+        );
         // Enable NX enable and syscall/sysret bits
         asm!(
             "rdmsr",
