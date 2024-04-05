@@ -543,7 +543,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
      */
 
     // FIXME: This shouldn't just be KERNEL_CODE
-    let kernel = elf::load_kernel(&mut kernel, |count, ty| services.allocate_pages(ty, memory_types::KERNEL_CODE, count))
+    let kernel = elf::load_kernel(&mut kernel, |count, ty| services.allocate_pages(ty, MemoryType::LOADER_DATA, count))
             .expect("Unable to load kernel");
     let elf::KernelLoadInfo { kernel, mut page_table, address_range, tls: kernel_tls } = kernel;
     let mut address_range = {
@@ -651,7 +651,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             Page(fb_start.addr.try_into().unwrap()),
             Frame(framebuffer_addr.try_into().unwrap()),
             page_count.try_into().unwrap(),
-            || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()),
+            || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()),
             TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE | TableEntryFlags::MMIO
         ).ok()?;
 
@@ -678,11 +678,11 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         const STACK_PAGE_COUNT: usize = 32;
         address_range.start = VirtualAddress::align_down(address_range.start - (STACK_PAGE_COUNT + 1)*4096); // `+ 1` for guard page
 
-        let Ok(allocation) = services.allocate_pages(AllocateType::AnyPages, memory_types::KERNEL_STACK, STACK_PAGE_COUNT) else {
+        let Ok(allocation) = services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, STACK_PAGE_COUNT) else {
             panic!("Failed to allocate enough memory to load popcorn2");
         };
 
-        page_table.try_map_range::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()))
+        page_table.try_map_range::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()))
                          .unwrap();
 
         handoff::Stack {
@@ -720,12 +720,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             mem.ty == MemoryType::PERSISTENT_MEMORY ||
             mem.ty == MemoryType::LOADER_CODE ||
             mem.ty == MemoryType::LOADER_DATA ||
-            mem.ty == memory_types::KERNEL_CODE ||
-            mem.ty == memory_types::PAGE_TABLE ||
-            mem.ty == memory_types::MODULE_CODE ||
             mem.ty == MemoryType::ACPI_NON_VOLATILE ||
             mem.ty == MemoryType::ACPI_RECLAIM ||
-            mem.ty == memory_types::KERNEL_STACK ||
             mem.ty == MemoryType::RUNTIME_SERVICES_CODE ||
             mem.ty == MemoryType::RUNTIME_SERVICES_DATA ||
             mem.ty == MemoryType::CONVENTIONAL
@@ -736,7 +732,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
             let virt_addr = addr + PAGE_MAP_OFFSET;
             assert!(addr < PAGE_MAP_OFFSET_LEN, "Too much physical memory");
-            page_table.try_map_page::<(), _>(Page(virt_addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()))
+            page_table.try_map_page::<(), _>(Page(virt_addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()))
         }).unwrap();
     }
 
@@ -749,7 +745,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         // UEFI memory sections are always aligned by firmware
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
-            page_table.try_map_page::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, memory_types::PAGE_TABLE, 1).map_err(|_| ()))
+            page_table.try_map_page::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()))
         }).unwrap();
     }
 
@@ -765,12 +761,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
                 MemoryType::PERSISTENT_MEMORY => Free,
                 MemoryType::LOADER_CODE => BootloaderCode,
                 MemoryType::LOADER_DATA => BootloaderData,
-                memory_types::KERNEL_CODE => KernelCode,
-                memory_types::PAGE_TABLE => KernelPageTable,
-                memory_types::MODULE_CODE => ModuleCode,
                 MemoryType::ACPI_NON_VOLATILE => AcpiPreserve,
                 MemoryType::ACPI_RECLAIM => AcpiReclaim,
-                memory_types::KERNEL_STACK => KernelStack,
                 MemoryType::RUNTIME_SERVICES_CODE => RuntimeCode,
                 MemoryType::RUNTIME_SERVICES_DATA => RuntimeData,
                 _ => Reserved
@@ -935,16 +927,7 @@ fn panic_handler(info: &PanicInfo) -> ! {
 | EfiUnacceptedMemoryType    | ???                                                              |
  */
 
-mod memory_types {
-	use uefi::table::boot::MemoryType;
 
-	pub const KERNEL_CODE: MemoryType = MemoryType::custom(0x8000_0000);
-    pub const MODULE_CODE: MemoryType = MemoryType::custom(0x8000_0001);
-    pub const PAGE_TABLE: MemoryType = MemoryType::custom(0x8000_0002);
-    pub const MEMORY_ALLOCATOR_DATA: MemoryType = MemoryType::custom(0x8000_0003);
-    pub const KERNEL_STACK: MemoryType = MemoryType::custom(0x8000_0004);
-    pub const FRAMEBUFFER: MemoryType = MemoryType::custom(0x8000_0005);
-}
 
 #[derive(Display)]
 enum ModuleLoadError {
