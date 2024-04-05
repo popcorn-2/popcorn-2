@@ -1,6 +1,7 @@
 use core::arch::asm;
 use core::arch::x86_64::{__cpuid, CpuidResult};
 use core::num::NonZeroU128;
+use bit_field::BitField;
 use log::debug;
 use kernel_api::sync::OnceLock;
 
@@ -40,6 +41,72 @@ pub(crate) fn system_time() -> u128 {
 				}
 			}
 		}
+
+		let intel_msr = || {
+			let cpu_brand_name = unsafe { __cpuid(0) };
+			
+			if !(cpu_brand_name.ebx == u32::from_le_bytes(*b"Genu")
+					&& cpu_brand_name.edx == u32::from_le_bytes(*b"ineI")
+					&& cpu_brand_name.ecx == u32::from_le_bytes(*b"ntel")) {
+				return None;
+			}
+
+			debug!("[TSC] fallback on Intel MSR");
+
+			let (family, model) = {
+				let ver_info = unsafe { __cpuid(1) }.eax;
+				let family = ver_info.get_bits(8..=11);
+				let extended_family = ver_info.get_bits(20..=27);
+				let model = ver_info.get_bits(4..=7);
+				let extended_model = ver_info.get_bits(16..=19);
+
+				let model = if family == 6 || family == 15 {
+					model + (extended_model << 4)
+				} else { model };
+
+				let family = if family == 15 { family + extended_family } else { family };
+
+				(family, model)
+			};
+
+			debug!("detected (family, model) = ({family:X}h, {model:X}h)");
+
+			let scaler_to_khz = match (family, model) {
+				// Nehalem
+				(0x06, 0x1A) |
+				(0x06, 0x1E) |
+				(0x06, 0x1F) |
+				(0x06, 0x2E) => 133_330,
+				// Sandy bridge
+				(0x06, 0x2A) |
+				(0x06, 0x2D) |
+				// Ivy Bridge
+				(0x06, 0x3A) |
+				// Ivy Bridge-E
+				(0x06, 0x3E) |
+				// Xeon Phi
+				(0x06, 0x57) |
+				(0x06, 0x85) |
+				// Haswell
+				(0x06, 0x3C) |
+				(0x06, 0x45) |
+				(0x06, 0x46) => 100_000,
+				_ => return None,
+			};
+
+			let platform_info = unsafe {
+				let (low, high): (u32, u32);
+				asm!("rdmsr", in("ecx") 0xCE, out("eax") low, out("edx") high);
+				u128::from(low) | u128::from(high) << 32
+			};
+
+			let freq_khz = platform_info.get_bits(8..=15) * scaler_to_khz;
+
+			debug!("[TSC] MSR enumerated: {freq_khz}kHz");
+			Some((1000000, freq_khz.try_into().unwrap()))
+		};
+
+		let multiplier = multiplier.or_else(intel_msr);
 		
 		debug!("multiplier is {multiplier:?}");
 
