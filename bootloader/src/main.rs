@@ -321,14 +321,11 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     };
 
     let mut button_group = Group::new();
-    let mut boot_start_events = Vec::new();
 
     for i in 0..5 {
-        let event = unsafe { services.create_event(EventType::empty(), Tpl::APPLICATION, None, None) }.unwrap();
-        boot_start_events.push(unsafe { event.unsafe_clone() });
-
+        
         let mut btn = Button::new_with_callback(Some(flex_box.as_mut()), move || {
-            services.signal_event(&event).unwrap();
+            
         });
         btn.inline_style(Part::Main, State::DEFAULT)
                 .set_width(lvgl2::misc::pct(98));
@@ -487,8 +484,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     };
 
     let mut keyboard_driver = encoder::Driver::new_buttons(keyboard_update);
-    let mut keyboard2 = lvgl2::input::Input::new(&mut keyboard_driver);
-    keyboard2.set_group(button_group);
+    //let mut keyboard2 = lvgl2::input::Input::new(&mut keyboard_driver);
+    //keyboard2.set_group(button_group);
 
     services.set_watchdog_timer(0, 0x10000, None).unwrap();
 
@@ -504,28 +501,6 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     if let Ok(image) = services.open_protocol_exclusive::<LoadedImage>(image_handle) {
         debug!("Loaded at base addr {:p}", image.info().0);
-    }
-
-    const AUTOBOOT_DELAY_TIME: Duration = Duration::from_secs(1);
-
-    let autoboot_event = unsafe { services.create_event(EventType::TIMER, Tpl::APPLICATION, None, None) }.unwrap();
-    services.set_timer(&autoboot_event, TimerTrigger::Relative((AUTOBOOT_DELAY_TIME.as_millis() * 10).try_into().unwrap())).unwrap();
-
-    let autoboot_event_num = boot_start_events.len();
-    boot_start_events.push(autoboot_event);
-
-    loop {
-        let event_num = services.wait_for_event(&mut boot_start_events).unwrap();
-        if event_num == 5 {
-            info!("autoboot delay up");
-        } else {
-            info!("button {event_num} pressed");
-        }
-
-        match event_num {
-            0 | 5 => break,
-            _ => todo!("Buttons")
-        }
     }
 
     let (mut kernel, symbol_map) = locate_kernel(&image_handle, &services);
@@ -810,7 +785,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     drop(button_reboot);
     drop(button_off);
     drop(pointer);
-    drop(keyboard2);
+    //drop(keyboard2);
     drop(pointer_driver);
     drop(keyboard_driver);
     drop(gop);
