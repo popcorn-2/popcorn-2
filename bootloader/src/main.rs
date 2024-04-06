@@ -484,8 +484,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     };
 
     let mut keyboard_driver = encoder::Driver::new_buttons(keyboard_update);
-    let mut keyboard2 = lvgl2::input::Input::new(&mut keyboard_driver);
-    keyboard2.set_group(button_group);
+    //let mut keyboard2 = lvgl2::input::Input::new(&mut keyboard_driver);
+    //keyboard2.set_group(button_group);
 
     services.set_watchdog_timer(0, 0x10000, None).unwrap();
 
@@ -785,7 +785,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     drop(button_reboot);
     drop(button_off);
     drop(pointer);
-    drop(keyboard2);
+    //drop(keyboard2);
     drop(pointer_driver);
     drop(keyboard_driver);
     drop(gop);
