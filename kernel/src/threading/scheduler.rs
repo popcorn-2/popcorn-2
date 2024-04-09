@@ -112,7 +112,7 @@ pub struct Scheduler {
 #[derive(Debug)]
 pub struct EventQueue {
 	events: VecDeque<SchedulerEvent>,
-	yield_event: Option<(Instant, Tid)>,
+	#[cfg(feature = "preemptive")] yield_event: Option<(Instant, Tid)>,
 }
 
 impl EventQueue {
@@ -174,7 +174,7 @@ impl Scheduler {
 			current_tid: Tid(0),
 			event_queue: EventQueue {
 				events: VecDeque::new(),
-				yield_event: None,
+				#[cfg(feature = "preemptive")] yield_event: None,
 			},
 			cleanup_queue: VecDeque::new(),
 		}
@@ -218,6 +218,7 @@ impl Scheduler {
 			}
 		}
 
+		#[cfg(feature = "preemptive")]
 		if let Some(yield_event) = self.event_queue.yield_event {
 			match ticks_to_event(yield_event.0) {
 				None => {
@@ -287,6 +288,7 @@ impl Scheduler {
 	}
 
 	pub fn schedule(&mut self) {
+		#[cfg(feature = "preemptive")]
 		let quantum = |_tid| {
 			Duration::from_millis(50) // TODO: make this dynamic based on priority?
 		};
@@ -296,10 +298,12 @@ impl Scheduler {
 			let old_tid = self.current_tid;
 			self.current_tid = new_tid;
 
-			self.event_queue.yield_event = Some((
-				Instant::now() + quantum(new_tid),
-				new_tid
-			));
+			#[cfg(feature = "preemptive")] {
+				self.event_queue.yield_event = Some((
+					Instant::now() + quantum(new_tid),
+					new_tid
+				));
+			}
 			self.wake_and_reset_timer();
 
 			let [old_tcb, new_tcb] = self.tasks.get_many_mut([&old_tid, &new_tid]).expect("Can't switch to same task");
@@ -324,7 +328,7 @@ impl Scheduler {
 
 			if current_tcb.state == ThreadState::Running {
 				// No other tasks can get added to the run queue without an interrupt occuring so don't need to manually preempt
-				self.event_queue.yield_event.take();
+				#[cfg(feature = "preemptive")] self.event_queue.yield_event.take();
 				self.wake_and_reset_timer();
 
 				return;
@@ -341,8 +345,8 @@ impl Scheduler {
 		debug!("blocking {:?}", self.current_tid);
 
 		// Remove the yield event for this task to not spuriously cut short a different task
-		self.event_queue.yield_event.take();
 		debug!("timer reset - block");
+		#[cfg(feature = "preemptive")] self.event_queue.yield_event.take();
 		self.wake_and_reset_timer();
 
 		super::defer_schedule();
