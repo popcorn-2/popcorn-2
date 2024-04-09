@@ -182,14 +182,14 @@ impl Scheduler {
 	
 	pub fn queue_for_deletion(&mut self) {
 		let tid = self.current_tid();
-		debug!("delete {tid:?}");
+		#[cfg(feature = "log.scheduler")] debug!("delete {tid:?}");
 		self.cleanup_queue.push_back(tid);
 		self.unblock(Tid(1));
 		self.block(ThreadState::AwaitingDeletion);
 	}
 
 	fn wake_and_reset_timer(&mut self) {
-		debug!("event queue: {:#?}", self.event_queue);
+		#[cfg(feature = "log.scheduler")] debug!("event queue: {:#?}", self.event_queue);
 
 		let mut local_timer = <HalTy as Hal>::LocalTimer::get();
 		let tick_period = local_timer.get_time_period_picos().unwrap() * 4;
@@ -208,6 +208,7 @@ impl Scheduler {
 			let Some(event) = self.event_queue.events.get(0) else { break; };
 			match ticks_to_event(event.time) {
 				None => {
+					#[cfg(feature = "log.scheduler")] debug!("event {event:?} in past - handling now");
 					let event = self.event_queue.events.pop_front().expect("Already peeked at this event");
 					self.handle_event(event);
 				},
@@ -222,6 +223,7 @@ impl Scheduler {
 		if let Some(yield_event) = self.event_queue.yield_event {
 			match ticks_to_event(yield_event.0) {
 				None => {
+					#[cfg(feature = "log.scheduler")]  debug!("{:?} yield in past - handling now", yield_event.1);
 					self.event_queue.yield_event.take().expect("Already peeked at this event");
 					super::defer_schedule();
 				},
@@ -232,7 +234,7 @@ impl Scheduler {
 		}
 
 		if let Some(ticks) = timer_ticks {
-			debug!("setting oneshot timer for {ticks} ticks");
+			#[cfg(feature = "log.scheduler")] debug!("setting oneshot timer for {ticks} ticks");
 			local_timer.set_oneshot_time(ticks.get()).unwrap();
 		}
 	}
@@ -293,7 +295,7 @@ impl Scheduler {
 			Duration::from_millis(50) // TODO: make this dynamic based on priority?
 		};
 
-		debug!("task schedule");
+		#[cfg(feature = "log.scheduler")] debug!("task schedule");
 		if let Some(new_tid) = self.run_queue.pop_front() {
 			let old_tid = self.current_tid;
 			self.current_tid = new_tid;
@@ -316,12 +318,13 @@ impl Scheduler {
 			}
 
 			new_tcb.state = ThreadState::Running;
+			#[cfg(feature = "log.scheduler")] debug!("[scheduler] switch {old_tid:?} -> {new_tid:?}");
 
 			unsafe {
 				HalTy::switch_thread(old_tcb, new_tcb);
 			}
 		} else {
-			debug!("no other tasks to run");
+			#[cfg(feature = "log.scheduler")] debug!("no other tasks to run");
 
 			let current_tid = self.current_tid;
 			let current_tcb = self.tasks.get(&current_tid).expect("Cannot have been running a task that doesn't exist");
@@ -342,18 +345,18 @@ impl Scheduler {
 		let current_tcb = self.tasks.get_mut(&self.current_tid).expect("Cannot have been running a task that doesn't exist");
 		current_tcb.state = state;
 
-		debug!("blocking {:?}", self.current_tid);
+		#[cfg(feature = "log.scheduler")] debug!("blocking {:?}", self.current_tid);
 
 		// Remove the yield event for this task to not spuriously cut short a different task
-		debug!("timer reset - block");
 		#[cfg(feature = "preemptive")] self.event_queue.yield_event.take();
+		#[cfg(feature = "log.scheduler")] debug!("timer reset - block");
 		self.wake_and_reset_timer();
 
 		super::defer_schedule();
 	}
 
 	pub fn unblock(&mut self, tid: Tid) {
-		debug!("unblocking {:?}", tid);
+		#[cfg(feature = "log.scheduler")] debug!("unblocking {:?}", tid);
 		if let Some(tcb) = self.tasks.get_mut(&tid) {
 			tcb.state = ThreadState::Ready;
 			self.run_queue.push_back(tid);
@@ -362,7 +365,7 @@ impl Scheduler {
 	}
 
 	fn handle_event(&mut self, event: SchedulerEvent) {
-		debug!("scheduler event: {event:?}");
+		#[cfg(feature = "log.scheduler")] debug!("scheduler event: {event:?}");
 
 		match event.action {
 			EventTy::Unblock => self.unblock(event.tid),
