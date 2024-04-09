@@ -4,6 +4,8 @@ use core::cell::OnceCell;
 use log::{debug, warn};
 use kernel_api::sync::{Mutex, MutexGuard};
 
+pub mod vm;
+
 pub macro irq_handler {
 	(
 	    $($vis:vis fn $name:ident() {
