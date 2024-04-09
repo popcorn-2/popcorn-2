@@ -35,3 +35,5 @@ test = { path = "../test_harness" }
 [features]
 default = []
 junit_test_out = []
+preemptive = []
+"log.scheduler" = []
