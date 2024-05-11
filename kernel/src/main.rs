@@ -71,7 +71,7 @@ use core::cell::{RefCell, UnsafeCell};
 use core::fmt::Write;
 use core::ops::Deref;
 use core::panic::PanicInfo;
-use core::ptr::{addr_of_mut, slice_from_raw_parts_mut};
+use core::ptr::{addr_of, addr_of_mut, slice_from_raw_parts_mut};
 use log::{debug, error, info, trace, warn};
 use kernel_api::memory::{AllocError, mapping, Page, PhysicalAddress, VirtualAddress};
 use core::{future, mem};
@@ -133,20 +133,25 @@ fn syscall_handler() {
 }
 
 #[inline]
-fn exception_handler(exception: hal::exception::Exception) {
+fn exception_handler(exception: &mut hal::exception::Exception) {
 	// todo: update this to signal userspace
 	let is_kernel_mode = true;
 	
-	fn backtrace() {
+	let backtrace = || {
+		sprintln!("---");
+		sprintln!("{:#x?}", exception.registers);
+		sprintln!("---");
 		panicking::stack_trace();
 		sprintln!("---");
-	}
+	};
 
-	match exception.ty {
+	let at = exception.registers.ip();
+
+	match &exception.ty {
 		// Signalling exceptions
 		ty @ (Ty::FloatingPoint | Ty::IllegalInstruction | Ty::BusFault | Ty::Generic(_)) => {
 			if is_kernel_mode {
-				error!("Kernel exception occurred at {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
+				error!("Kernel exception occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_name(at));
 				backtrace();
 				loop {}
 			} else {
@@ -156,8 +161,35 @@ fn exception_handler(exception: hal::exception::Exception) {
 		ty @ Ty::PageFault(_) => {
 			// todo: check for CoW etc.
 			if is_kernel_mode {
-				error!("Kernel page fault occurred at {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
+				error!("Kernel page fault occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_name(at));
 				backtrace();
+
+				extern "C" {
+					static __popcorn_deref_handlers_check_start: u64;
+					static __popcorn_deref_handlers_handle_start: u64;
+					static __popcorn_deref_handlers_end: u64;
+				}
+
+				let checkpoints = unsafe {
+					core::slice::from_raw_parts(
+						addr_of!(__popcorn_deref_handlers_check_start),
+						addr_of!(__popcorn_deref_handlers_handle_start).offset_from(addr_of!(__popcorn_deref_handlers_check_start)) as usize
+					)
+				};
+				
+				if let Some(idx) = checkpoints.iter().map(|x| *x as usize).position(|x| x == at) {
+					let jumppoints = unsafe {
+						core::slice::from_raw_parts(
+							addr_of!(__popcorn_deref_handlers_handle_start),
+							addr_of!(__popcorn_deref_handlers_end).offset_from(addr_of!(__popcorn_deref_handlers_handle_start)) as usize
+						)
+					};
+					let jump = jumppoints.iter().map(|x| *x as usize).nth(idx).expect("Malformed deref jumptable");
+					debug!("Checked access - jumping to {jump:#x}");
+					exception.registers.set_ip(jump);
+					return;
+				}
+
 				loop {}
 			} else {
 				todo!()
@@ -165,16 +197,16 @@ fn exception_handler(exception: hal::exception::Exception) {
 		}
 		ty @ (Ty::Nmi | Ty::Panic) => {
 			// todo: BSOD equivalent?
-			error!("Unhandled exception occurred at {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
+			error!("Unhandled exception occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_name(at));
 			if is_kernel_mode { backtrace(); }
 			loop {}
 		},
 		ty @ Ty::Debug(DebugTy::Breakpoint) => {
-			warn!("Breakpoint: {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
+			warn!("Breakpoint: {:#x} - {}:\n{ty}", at, panicking::get_symbol_name(at));
 			if is_kernel_mode { backtrace(); }
 		},
 		ty @ Ty::Unknown(_) => {
-			warn!("Ignoring exception at {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
+			warn!("Ignoring exception at {:#x} - {}:\n{ty}", at, panicking::get_symbol_name(at));
 			if is_kernel_mode { backtrace(); }
 		},
 	}

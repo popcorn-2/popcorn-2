@@ -1,12 +1,18 @@
-use core::fmt::{Display, Formatter};
+use core::fmt::{Debug, Display, Formatter};
 use derive_more::Display;
 
-pub struct Exception {
+pub struct Exception<'a> {
 	pub ty: Ty,
-	pub at_instruction: usize,
+	pub registers: &'a mut dyn ExceptionRegisters
 }
 
-#[derive(Display, Debug, Eq, PartialEq)]
+pub trait ExceptionRegisters: Debug {
+	fn ip(&self) -> usize;
+	fn set_ip(&mut self, val: usize);
+	fn set_return_reg(&mut self, val: usize);
+}
+
+#[derive(Display, Debug)]
 pub enum Ty {
 	#[display(fmt = "Floating point exception")]
 	FloatingPoint,
@@ -28,6 +34,25 @@ pub enum Ty {
 	Unknown(&'static str),
 }
 
+impl PartialEq for Ty {
+	fn eq(&self, other: &Self) -> bool {
+		match (&self, other) {
+			(&Ty::FloatingPoint, &Ty::FloatingPoint) => true,
+			(&Ty::Debug(a), &Ty::Debug(ref b)) => a == b,
+			(&Ty::IllegalInstruction, &Ty::IllegalInstruction) => true,
+			(&Ty::PageFault(a), &Ty::PageFault(ref b)) => a == b,
+			(&Ty::BusFault, &Ty::BusFault) => true,
+			(&Ty::Nmi, &Ty::Nmi) => true,
+			(&Ty::Panic, &Ty::Panic) => true,
+			(&Ty::Generic(_), &Ty::Generic(_)) => true,
+			(&Ty::Unknown(_), &Ty::Unknown(_)) => true,
+			_ => false,
+		}
+	}
+}
+
+impl Eq for Ty {}
+
 #[derive(Display, Debug, Eq, PartialEq)]
 pub enum DebugTy {
 	#[display(fmt = "Breakpoint hit")]
@@ -36,11 +61,12 @@ pub enum DebugTy {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct PageFault {
-	pub access_addr: usize
+	pub access_addr: usize,
+	pub meta: usize,
 }
 
 impl Display for PageFault {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		write!(f, "Attempted to access address {:#x}", self.access_addr)
+		write!(f, "Attempted to access address {:#x}: {:#b}", self.access_addr, self.meta)
 	}
 }
