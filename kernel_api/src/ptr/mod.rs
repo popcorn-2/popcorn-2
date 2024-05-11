@@ -1,8 +1,15 @@
 #![unstable(feature = "kernel_ptr", issue = "none")]
 
+use alloc::boxed::Box;
 use core::fmt;
 use core::marker::PhantomData;
+use core::mem::MaybeUninit;
 use core::ptr::NonNull;
+
+#[cfg(feature = "full")]
+mod user_ptr;
+#[cfg(feature = "full")]
+pub use user_ptr::*;
 
 pub struct Unique<T: ?Sized> {
 	pointer: NonNull<T>,
@@ -80,3 +87,9 @@ impl<T: ?Sized> fmt::Pointer for Unique<T> {
 		fmt::Pointer::fmt(&self.as_ptr(), f)
 	}
 }
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[path = "x86_64.rs"]
+#[cfg(feature = "full")]
+#[unstable(feature = "kernel_internals", issue = "none")]
+pub mod impls;
