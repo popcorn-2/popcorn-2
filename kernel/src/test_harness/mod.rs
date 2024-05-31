@@ -175,28 +175,33 @@ type FORMATTER = pretty::Pretty;
 
 #[cfg_attr(test, global_allocator)]
 static ALLOCATOR: ExceptionAllocator = ExceptionAllocator(Mutex::new(ExceptionAllocatorInner {
-	buffer: [0; 20],
-	used: false,
+	buffer: [0; 2048],
+	used: 0,
 }));
 
 struct ExceptionAllocator(Mutex<ExceptionAllocatorInner>);
 
 struct ExceptionAllocatorInner {
-	buffer: [u64; 20],
-	used: bool
+	buffer: [u64; 2048],
+	used: usize
 }
 
 unsafe impl GlobalAlloc for ExceptionAllocator {
 	unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
 		let mut this = self.0.lock();
-		if this.used || layout.size() > (this.buffer.len() * 8) || layout.align() > 8 { core::ptr::null_mut() }
+		if layout.align() > 8 { todo!() };
+		if this.used + layout.size().div_ceil(8) > 2048 { core::ptr::null_mut() }
 		else {
-			this.used = true;
-			this.buffer.as_mut_ptr().cast()
+			let ret = this.buffer.as_mut_ptr().add(this.used);
+			this.used += layout.size().div_ceil(8);
+			ret.cast()
 		}
 	}
 
-	unsafe fn dealloc(&self, _: *mut u8, _: Layout) {
-		self.0.lock().used = false;
+	unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+		let mut this = self.0.lock();
+		if (ptr.cast::<u64>() as usize) + layout.size().div_ceil(8) == this.used {
+			this.used -= layout.size().div_ceil(8);
+		}
 	}
 }
