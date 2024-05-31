@@ -59,7 +59,8 @@ impl Heap for SyncHeap {
         if end > max_addr {
             debug!("Increment heap end");
             let increment = isize::try_from(end - max_addr).map_err(|_| AllocError)?;
-            let increment = increment.div_ceil(4096);
+            // FIXME: HACK            
+            let increment = increment.div_ceil(4096)*10;
             let new_len = guard.mapping.len() + increment.unsigned_abs();
             debug!("Trying to remap");
             guard.mapping.resize_in_place(new_len)?;
