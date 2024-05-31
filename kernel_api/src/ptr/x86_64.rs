@@ -266,16 +266,16 @@ pub unsafe fn checked_memcpy(src: *const MaybeUninit<u8>, dest: *mut MaybeUninit
 			".quad 1f",
 			".popsection",
 			"1:",
-			"rep movsb [{}], [{}]",
+			"rep movsb [rdi], [rsi]",
 			"mov {}, 1",
 			".pushsection .popcorn.deref_handlers.handle",
 			".quad 1f",
 			".popsection",
 			"1:",
 			// todo: "clac",
-			in(reg) dest,
-			in(reg) src,
 			inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
+			in("rdi") dest,
+			in("rsi") src,
 			inout("rcx") count => _,
 			options(nostack, preserves_flags, readonly)
 		);
