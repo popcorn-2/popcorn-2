@@ -603,7 +603,6 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	}
 
 	loop {
-		unsafe { asm!("hlt"); }
 		threading::thread_yield();
 	}
 
