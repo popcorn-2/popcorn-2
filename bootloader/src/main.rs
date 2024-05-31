@@ -28,14 +28,14 @@ use core::{fmt, mem};
 use core::arch::asm;
 use core::fmt::Write;
 use core::panic::PanicInfo;
-use core::ptr::NonNull;
+use core::ptr::{NonNull, slice_from_raw_parts};
 use core::time::Duration;
 
 use bitflags::Flags;
 use derive_more::Display;
 use log::{debug, error, info, trace, warn};
 use more_asserts::assert_lt;
-use uefi::{Char16, Event, Guid};
+use uefi::{Char16, CStr16, Event, Guid};
 use uefi::data_types::{Align, Identify};
 use uefi::fs::{FileSystem, Path};
 use uefi::prelude::*;
@@ -49,6 +49,7 @@ use uefi::proto::media::partition::PartitionInfo;
 use uefi::table::boot::{AllocateType, EventType, MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams, PAGE_SIZE, SearchType, TimerTrigger, Tpl};
 use uefi::table::cfg;
 use uefi::table::runtime::ResetType;
+use uefi_services::system_table;
 
 use kernel_api::memory::{PhysicalAddress, VirtualAddress, Frame as KFrame, Page as KPage};
 use kernel_api::ptr::Unique;
@@ -612,22 +613,16 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         }
     }*/
 
-    services.close_event(timer_event).unwrap();
-    drop(ui);
-
     // map framebuffer
     let framebuffer_info: Option<handoff::Framebuffer> = try {
         use uefi::proto::console::gop::PixelBitmask;
 
-        let mode_info = gop.current_mode_info();
-        let mut framebuffer_info = gop.frame_buffer();
-        let (width, height) = mode_info.resolution();
-
-        let page_count = (framebuffer_info.size() + PAGE_SIZE - 1) / PAGE_SIZE;
+        let mode_info = ui.fb.2;
+        let page_count = (ui.fb.1 + PAGE_SIZE - 1) / PAGE_SIZE;
         address_range.start = (address_range.start - page_count * PAGE_SIZE).align_down();
         let fb_start = address_range.start;
 
-        let framebuffer_addr = framebuffer_info.as_mut_ptr() as usize;
+        let framebuffer_addr = ui.fb.0 as usize;
 
         page_table.try_map_range_with::<(), _>(
             Page(fb_start.addr.try_into().unwrap()),
@@ -789,6 +784,10 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let kernel_entry = kernel.entrypoint();
     debug!("Handover to kernel with entrypoint at {:#x}", kernel_entry);
 
+
+    services.close_event(timer_event).unwrap();
+    drop(ui);
+
     drop(button_reboot);
     drop(button_off);
     drop(pointer);
@@ -913,6 +912,63 @@ fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Op
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
     error!("{}", info);
+
+    #[derive(Debug)]
+    struct Counter { count: usize };
+    impl Write for Counter {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            self.count += s.len();
+            Ok(())
+        }
+    }
+
+    let mut c = Counter { count: 1 };
+    write!(c, "{info}");
+    debug!("{c:?}");
+
+    let tab = unsafe { system_table().as_mut() };
+
+    write!(tab.stderr(), "{}", info);
+
+    if let Ok(raw_buffer) = tab.boot_services().allocate_pool(MemoryType::BOOT_SERVICES_DATA, c.count * 2) {
+        struct Writer {
+            start: *mut u16,
+            idx: usize,
+            max: usize,
+        }
+        impl Write for Writer {
+            fn write_str(&mut self, s: &str) -> fmt::Result {
+                for c in s.chars() {
+                    if c.is_ascii() {
+                        if self.idx >= self.max { return Err(fmt::Error); }
+                        unsafe { self.start.add(self.idx).write(c as u16); }
+	                    self.idx += 1;
+                    }
+                }
+
+                Ok(())
+            }
+        }
+
+        let mut w = Writer {
+            start: raw_buffer.cast(),
+            idx: 0,
+            max: c.count - 1
+        };
+        write!(&mut w, "{info}");
+        unsafe { w.start.add(w.idx).write(0); }
+
+        let buffer = unsafe { &*slice_from_raw_parts(w.start, w.idx + 1) };
+        debug!("exit buffer: {buffer:?}");
+        if let Ok(buffer) = CStr16::from_u16_with_nul(buffer) {
+            debug!("exit buffer: {buffer:?}");
+            tab.boot_services().stall(10_000_000);
+            unsafe { tab.boot_services().exit(tab.boot_services().image_handle(), Status::ABORTED, c.count, buffer.as_ptr().cast_mut()); }
+        }
+    } else {
+        warn!("exit message buffer not allocated");
+    }
+
     loop {}
 }
 
