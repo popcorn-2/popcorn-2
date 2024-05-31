@@ -27,6 +27,7 @@ num_enum = { version = "0.7.2", default-features = false }
 macros = { path = "../macros" }
 ranged_btree = { path = "../ranged_btree" }
 minicov = { version = "0.3", optional = true }
+hashbrown = { version = "0.14.5" }
 enum_dispatch = "0.3.13"
 
 [dev-dependencies]

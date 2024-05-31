@@ -20,7 +20,6 @@
 #![feature(inherent_associated_types)]
 #![feature(generic_const_exprs)]
 #![feature(pointer_like_trait)]
-#![feature(exclusive_range_pattern)]
 #![feature(int_roundings)]
 #![feature(thread_local)]
 #![feature(noop_waker)]
@@ -34,6 +33,16 @@
 #![feature(const_mut_refs)]
 #![feature(sync_unsafe_cell)]
 #![feature(arbitrary_self_types)]
+#![feature(pattern)]
+#![feature(slice_ptr_len)]
+#![feature(slice_ptr_get)]
+#![feature(map_try_insert)]
+#![feature(coroutines)]
+#![feature(coroutine_trait)]
+#![feature(str_from_raw_parts)]
+#![feature(build_hasher_default_const_new)]
+#![feature(pattern_types)]
+#![feature(core_pattern_type)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -48,8 +57,6 @@
 #![feature(kernel_physical_allocator_location)]
 #![feature(kernel_ptr)]
 #![feature(kernel_time)]
-#![feature(slice_ptr_len)]
-#![feature(slice_ptr_get)]
 
 #![no_std]
 #![no_main]
@@ -74,7 +81,7 @@ use core::panic::PanicInfo;
 use core::ptr::{addr_of, addr_of_mut, slice_from_raw_parts_mut};
 use log::{debug, error, info, trace, warn};
 use kernel_api::memory::{AllocError, mapping, Page, PhysicalAddress, VirtualAddress};
-use core::{future, mem};
+use core::{future, mem, ptr};
 use core::cmp::{max, min};
 use core::num::NonZeroUsize;
 use core::task::{Poll, Waker};
@@ -101,6 +108,7 @@ mod timing;
 mod projection;
 mod mmio;
 mod interrupts;
+mod ipc;
 
 #[cfg(test)]
 pub mod test_harness;
@@ -125,6 +133,11 @@ macro_rules! u64 {
 #[macro_export]
 macro_rules! into {
     ($stuff:expr) => {($stuff).try_into().unwrap()};
+}
+
+#[macro_export]
+macro_rules! yeet {
+    ($e:expr) => {return Err($e);};
 }
 
 #[inline]
@@ -538,6 +551,55 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 				guard.add_task(task);
 			}
 		}
+	}
+
+	/*{
+		let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
+		let task = ThreadControlBlock::new(
+			Cow::Borrowed("PS/2 driver"),
+			ttable,
+			threading::thread_startup,
+			drivers::i8042::main,
+			()
+		);
+		let mut guard = threading::scheduler::SCHEDULER.lock();
+		guard.add_task(task);
+	}*/
+
+	{
+		const CORE_SOCKET_OPEN: u128 = 0;
+
+		let shim = |a: &str| {
+			let a = a.as_bytes();
+			debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, a.as_ptr() as _, a.len(), 0, 0));
+		};
+		shim("hello world!");
+		shim("hello.foo.world.:/byee/eee");
+		shim(".:/byee/eee");
+		shim(":/byee/");
+		shim(":byee/");
+		debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, ptr::null::<u8>() as _, 10, 0, 0));
+		debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, 0xdeadbeef, 10, 0, 0));
+		shim(":core.input.mouse@");
+		{
+			extern "C" fn f(_: ()) -> ! {
+				let a = "core.input.mouse@:mouse".as_bytes();
+				debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, a.as_ptr() as _, a.len(), 0, 0));
+				threading::exit(0)
+			}
+			let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
+			let task = ThreadControlBlock::new(
+				Cow::Borrowed("foo"),
+				ttable,
+				threading::thread_startup,
+				f,
+				()
+			);
+			let mut guard = threading::scheduler::SCHEDULER.lock();
+			guard.add_task(task);
+		}
+		threading::thread_yield();
+		debug!("{:#?}", &*ipc::server::servers());
 	}
 
 	loop {
