@@ -54,6 +54,14 @@ pub fn block(reason: ThreadState) {
 	scheduler::SCHEDULER.lock().block(reason);
 }
 
+pub fn current_thread() -> Tid {
+	scheduler::SCHEDULER.lock().current_tid()
+}
+
+pub fn unblock(tid: Tid) {
+	scheduler::SCHEDULER.lock().unblock(tid);
+}
+
 #[derive(Debug, Copy, Clone)]
 struct SchedulerEvent {
 	time: Instant,
