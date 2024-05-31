@@ -49,7 +49,7 @@ macro_rules! user_ptr_impl_sized {
 		    self.0.offset_from(origin.0)
 	    }*/
 
-	    pub unsafe fn read(self) -> Result<T, PointerError> {
+	    pub fn read(self) -> Result<T, PointerError> {
 		    match ::core::mem::size_of::<T>() {
 			    1 => unsafe {
 				    impls::checked_read_1(self.0.cast())
@@ -75,15 +75,15 @@ macro_rules! user_ptr_impl_sized {
 		    }.ok_or(PointerError::InvalidAddress)
 	    }
 
-	    pub unsafe fn read_unaligned(self) -> Result<T, PointerError> {
+	    pub fn read_unaligned(self) -> Result<T, PointerError> {
 		    todo!()
 	    }
 
-	    pub unsafe fn copy_to_nonoverlapping(self, dest: *mut T, count: usize) -> Result<(), PointerError> {
+	    pub fn copy_to_nonoverlapping(self, dest: *mut T, count: usize) -> Result<(), PointerError> {
 		    impls::checked_memcpy(self.0.cast(), dest.cast(), ::core::mem::size_of::<T>() * count).ok_or(PointerError::InvalidAddress)
 	    }
 
-	    pub unsafe fn copy_to_user(self, dest: User<*mut T>, count: usize) -> Result<(), PointerError> {
+	    pub fn copy_to_user(self, dest: User<*mut T>, count: usize) -> Result<(), PointerError> {
 		    todo!()
 	    }
     };
@@ -94,9 +94,7 @@ macro_rules! user_ptr_impl_slice {
 	    pub unsafe fn read_to_buffer(self) -> Result<Box<[T]>, PointerError> {
 		    let len = self.0.len();
 		    let mut buf = Box::new_uninit_slice(len);
-		    let byte_count = core::mem::size_of::<T>() * len;
-		    let byte_ptr = self.cast::<MaybeUninit<u8>>();
-		    byte_ptr.copy_to_nonoverlapping(buf.as_mut_ptr().cast(), byte_count)
+		    self.cast::<T>().copy_to_nonoverlapping(buf.as_mut_ptr().cast(), len)
 		        .map(|_| buf.assume_init())
 	    }
 	    
@@ -133,7 +131,7 @@ impl<T> User<*const T> {
 impl<T> User<*mut T> {
 	user_ptr_impl_sized!(mut);
 
-	pub unsafe fn write(self, val: T) -> Result<(), PointerError> {
+	pub fn write(self, val: T) -> Result<(), PointerError> {
 		match ::core::mem::size_of::<T>() {
 			1 => unsafe {
 				impls::checked_write_1(self.0.cast(), (&val as *const T).cast::<MaybeUninit<u8>>().read())
@@ -157,11 +155,11 @@ impl<T> User<*mut T> {
 		todo!()
 	}
 
-	pub unsafe fn copy_from_nonoverlapping(self, src: *const T, count: usize) -> Result<(), PointerError> {
+	pub fn copy_from_nonoverlapping(self, src: *const T, count: usize) -> Result<(), PointerError> {
 		impls::checked_memcpy( src.cast(), self.0.cast(),::core::mem::size_of::<T>() * count).ok_or(PointerError::InvalidAddress)
 	}
 
-	pub unsafe fn copy_from_user(self, src: User<*const T>, count: usize) -> Result<(), PointerError> {
+	pub fn copy_from_user(self, src: User<*const T>, count: usize) -> Result<(), PointerError> {
 		src.copy_to_user(self, count)
 	}
 }

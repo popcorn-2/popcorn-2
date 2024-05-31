@@ -4,7 +4,7 @@ use core::mem::MaybeUninit;
 
 #[no_mangle]
 #[inline]
-pub unsafe fn checked_read_1(ptr: *const MaybeUninit<u8>) -> Option<MaybeUninit<u8>> {
+pub fn checked_read_1(ptr: *const MaybeUninit<u8>) -> Option<MaybeUninit<u8>> {
 	let r: MaybeUninit<_>;
 	let success: usize;
 	unsafe {
@@ -12,14 +12,14 @@ pub unsafe fn checked_read_1(ptr: *const MaybeUninit<u8>) -> Option<MaybeUninit<
 			// todo: "stac",
 			"2: mov {}, [{}]",
 			"   mov {}, 1",
-			"3: ",
 			// todo: "clac",
 			".pushsection .popcorn.deref_handlers.check",
 			".quad 2b",
 			".popsection",
 			".pushsection .popcorn.deref_handlers.handle",
-			".quad 3b",
+			".quad 3f",
 			".popsection",
+			"3: ",
 			inout(reg_byte) MaybeUninit::<u8>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
 			in(reg) ptr,
 			inout(reg) 0usize => success,
@@ -35,7 +35,7 @@ pub unsafe fn checked_read_1(ptr: *const MaybeUninit<u8>) -> Option<MaybeUninit<
 }
 
 #[inline]
-pub unsafe fn checked_read_2(ptr: *const MaybeUninit<u16>) -> Option<MaybeUninit<u16>> {
+pub fn checked_read_2(ptr: *const MaybeUninit<u16>) -> Option<MaybeUninit<u16>> {
 	let r: MaybeUninit<_>;
 	let success: usize;
 	unsafe {
@@ -67,7 +67,7 @@ pub unsafe fn checked_read_2(ptr: *const MaybeUninit<u16>) -> Option<MaybeUninit
 }
 
 #[inline]
-pub unsafe fn checked_read_4(ptr: *const MaybeUninit<u32>) -> Option<MaybeUninit<u32>> {
+pub fn checked_read_4(ptr: *const MaybeUninit<u32>) -> Option<MaybeUninit<u32>> {
 	let r: MaybeUninit<_>;
 	let success: usize;
 	unsafe {
@@ -100,7 +100,7 @@ pub unsafe fn checked_read_4(ptr: *const MaybeUninit<u32>) -> Option<MaybeUninit
 
 #[cfg(target_arch = "x86_64")]
 #[inline]
-pub unsafe fn checked_read_8(ptr: *const MaybeUninit<u64>) -> Option<MaybeUninit<u64>> {
+pub fn checked_read_8(ptr: *const MaybeUninit<u64>) -> Option<MaybeUninit<u64>> {
 	let r: MaybeUninit<_>;
 	let success: usize;
 	unsafe {
@@ -132,7 +132,7 @@ pub unsafe fn checked_read_8(ptr: *const MaybeUninit<u64>) -> Option<MaybeUninit
 }
 
 #[inline]
-pub unsafe fn checked_write_1(ptr: *mut MaybeUninit<u8>, val: MaybeUninit<u8>) -> Option<()> {
+pub fn checked_write_1(ptr: *mut MaybeUninit<u8>, val: MaybeUninit<u8>) -> Option<()> {
 	let success: usize;
 	unsafe {
 		asm!(
@@ -163,7 +163,7 @@ pub unsafe fn checked_write_1(ptr: *mut MaybeUninit<u8>, val: MaybeUninit<u8>) -
 }
 
 #[inline]
-pub unsafe fn checked_write_2(ptr: *mut MaybeUninit<u16>, val: MaybeUninit<u16>) -> Option<()> {
+pub fn checked_write_2(ptr: *mut MaybeUninit<u16>, val: MaybeUninit<u16>) -> Option<()> {
 	let success: usize;
 	unsafe {
 		asm!(
@@ -194,7 +194,7 @@ pub unsafe fn checked_write_2(ptr: *mut MaybeUninit<u16>, val: MaybeUninit<u16>)
 }
 
 #[inline]
-pub unsafe fn checked_write_4(ptr: *mut MaybeUninit<u32>, val: MaybeUninit<u32>) -> Option<()> {
+pub fn checked_write_4(ptr: *mut MaybeUninit<u32>, val: MaybeUninit<u32>) -> Option<()> {
 	let success: usize;
 	unsafe {
 		asm!(
@@ -226,7 +226,7 @@ pub unsafe fn checked_write_4(ptr: *mut MaybeUninit<u32>, val: MaybeUninit<u32>)
 
 #[cfg(target_arch = "x86_64")]
 #[inline]
-pub unsafe fn checked_write_8(ptr: *mut MaybeUninit<u64>, val: MaybeUninit<u64>) -> Option<()> {
+pub fn checked_write_8(ptr: *mut MaybeUninit<u64>, val: MaybeUninit<u64>) -> Option<()> {
 	let success: usize;
 	unsafe {
 		asm!(
@@ -257,7 +257,7 @@ pub unsafe fn checked_write_8(ptr: *mut MaybeUninit<u64>, val: MaybeUninit<u64>)
 }
 
 #[inline]
-pub unsafe fn checked_memcpy(src: *const MaybeUninit<u8>, dest: *mut MaybeUninit<u8>, count: usize) -> Option<()> {
+pub fn checked_memcpy(src: *const MaybeUninit<u8>, dest: *mut MaybeUninit<u8>, count: usize) -> Option<()> {
 	let success: usize;
 	unsafe {
 		asm!(
