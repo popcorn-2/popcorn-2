@@ -1,8 +1,11 @@
+use alloc::string::String;
+use core::ffi::CStr;
 use core::fmt::Write;
 use core::mem;
 use core::ptr::NonNull;
 
 use log::{Level, Log, Metadata, Record, SetLoggerError};
+use lvgl2::misc::Color;
 
 use crate::framebuffer::FontStyle;
 
@@ -60,6 +63,8 @@ impl Log for Logger {
 			}
 
 			if let Some(mut ui) = self.ui {
+				if record.level() > Level::Debug { return; }
+
 				let ui = ui.as_mut();
 				let prefix = match record.level() {
 					Level::Error => { ui.set_color(colors::ERROR); "E" },
@@ -83,4 +88,36 @@ mod colors {
 	pub const WARN: Color = (0xf5, 0xcc, 0x14);
 	pub const INFO: Color = (0xa8, 0x14, 0xe3);
 	pub const DEBUG: Color = (0xee, 0xee, 0xee);
+}
+
+pub struct LvglLogger {
+	pub label: lvgl2::object::label::Label,
+	pub current_color: Color,
+	pub buffer: String,
+}
+
+impl Write for LvglLogger {
+	fn write_str(&mut self, s: &str) -> core::fmt::Result {
+		for c in s.chars() {
+			if c == '\n' {
+				self.buffer.push('\0');
+				let c_buf = CStr::from_bytes_until_nul(self.buffer.as_bytes()).unwrap();
+				self.label.set_text(c_buf);
+				self.buffer.clear();
+				let _ = self.buffer.write_fmt(format_args!("#{:02}{:02}{:02}", self.current_color.r(), self.current_color.g(), self.current_color.b()));
+			} else { self.buffer.push(c); }
+		}
+
+		Ok(())
+	}
+}
+
+impl FormatWrite for LvglLogger {
+	fn set_color(&mut self, color: (u8, u8, u8)) {
+		self.current_color = Color::from_rgb(color.0, color.1, color.2);
+	}
+
+	fn set_font_style(&mut self, style: FontStyle) {
+
+	}
 }
