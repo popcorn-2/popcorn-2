@@ -43,6 +43,8 @@ bitflags! {
 			const ADDRESS = 0x000f_ffff_ffff_f000;
 			const AVL_LOW = 0b111 << 9;
 			const AVL_HIGH = 0x7ff0_0000_0000_0000;
+			const PWT = 1<<3;
+			const PCD = 1<<4;
 		}
 	}
 
@@ -77,7 +79,8 @@ impl Entry for Amd64Entry {
 		let high = (reason & 0x7ff8) << (52 - 3);
 		let split_reason = low | high;
 		let masked_addr = u64::try_from(frame.start().addr).unwrap() & Self::ADDRESS.0;
-		self.0 = masked_addr | Self::PRESENT.0 | Self::WRITABLE.0 | split_reason;
+		// FIXME: HACK
+		self.0 = masked_addr | Self::PRESENT.0 | Self::WRITABLE.0 | split_reason | Self::PWT.0 | Self::PCD.0;
 
 		Ok(())
 	}
