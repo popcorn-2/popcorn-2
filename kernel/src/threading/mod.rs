@@ -103,13 +103,13 @@ fn pinned_sleep(time_of_wake: Instant) {
 }
 
 pub fn sleep(duration: Duration) {
-	if duration <= Duration::from_secs(1) {
+	// fixme: if duration <= Duration::from_secs(1) {
 		// Core pinned sleep
 		pinned_sleep(Instant::now() + duration);
-	} else {
-		todo!();
-		push_to_global_sleep_queue(Instant::now() + duration);
-	}
+	//} else {
+	//	todo!();
+	//	push_to_global_sleep_queue(Instant::now() + duration);
+	//}
 }
 
 pub fn sleep_until(wake_time: Instant) {
