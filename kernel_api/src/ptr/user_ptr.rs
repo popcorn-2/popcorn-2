@@ -21,7 +21,7 @@ macro_rules! user_ptr_impl_unsized {
 		    User(self.0.cast())
 	    }
 
-	    pub unsafe fn byte_offset(self, count: isize) -> Self {
+	    /*pub unsafe fn byte_offset(self, count: isize) -> Self {
 		    User(self.0.byte_offset(count))
 	    }
 
@@ -31,13 +31,13 @@ macro_rules! user_ptr_impl_unsized {
 		
 	    pub unsafe fn byte_offset_from(self, origin: Self) -> isize {
 		    self.0.byte_offset_from(origin.0)
-	    }
+	    }*/
 	};
 }
 
 macro_rules! user_ptr_impl_sized {
     ($ty: ident) => {
-	    pub unsafe fn offset(self, count: isize) -> Self {
+	    /*pub unsafe fn offset(self, count: isize) -> Self {
 		    User(self.0.offset(count))
 	    }
 
@@ -47,7 +47,7 @@ macro_rules! user_ptr_impl_sized {
 
 	    pub unsafe fn offset_from(self, origin: Self) -> isize {
 		    self.0.offset_from(origin.0)
-	    }
+	    }*/
 
 	    pub unsafe fn read(self) -> Result<T, PointerError> {
 		    match ::core::mem::size_of::<T>() {
