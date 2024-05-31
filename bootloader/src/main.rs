@@ -69,6 +69,7 @@ use utils::handoff::{ColorMask, MemoryMapEntry, Range};
 
 use crate::config::Config;
 use crate::framebuffer::Gui;
+use crate::logging::LvglLogger;
 use crate::paging::{Frame, Page, TableEntryFlags};
 
 mod framebuffer;
@@ -284,8 +285,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         i16::try_from(height).unwrap() * 16 / 10
     };
 
-    style.set_size(menu_width, lvgl2::misc::pct(95));
-    style.set_align(lvgl2::object::style::Align::Center);
+    style.set_size(menu_width, lvgl2::misc::pct(90));
+    style.set_align(lvgl2::object::style::Align::TopMid);
 
     let mut label = Label::new(Some(flex_box.as_mut()));
     label.set_text(c"popcorn");
@@ -322,7 +323,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let mut button_group = Group::new();
 
-    for i in 0..5 {
+    for i in 0..1 {
         
         let mut btn = Button::new_with_callback(Some(flex_box.as_mut()), move || {
             
@@ -412,10 +413,16 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     style.set_text_color(Color::from_rgb(255, 255, 255));
     style.set_border_width(2);
     style.set_width(lvgl2::misc::pct(80));
-    style.set_height(256);
+    style.set_height(512);
     style.set_bg_opa(Opacity::OPA_COVER);
     log.set_recolor(true);
     log.set_text(c"Hello world!\n#ff0000 ERROR#: This is a test");
+    let mut logger = LvglLogger {
+        label: log,
+        current_color: Color::from_rgb(255, 255, 255),
+        buffer: Default::default(),
+    };
+    unsafe { logging::add_ui(&mut logger); }
 
     let mut cursor = Image::new(Some(screen));
     {
