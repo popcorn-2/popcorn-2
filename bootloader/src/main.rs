@@ -630,6 +630,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             page_count.try_into().unwrap(),
 	        || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()),
 	        TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE | TableEntryFlags::MMIO,
+	        paging_reasons::FB,
         ).ok()?;
 
         let color_format = match mode_info.pixel_format() {
@@ -659,7 +660,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             panic!("Failed to allocate enough memory to load popcorn2");
         };
 
-        page_table.try_map_range_with::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE,)
+        page_table.try_map_range_with::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, paging_reasons::KERNEL_STACK)
                          .unwrap();
 
         handoff::Stack {
@@ -709,7 +710,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
             let virt_addr = addr + PAGE_MAP_OFFSET;
             assert!(addr < PAGE_MAP_OFFSET_LEN, "Too much physical memory");
-            page_table.try_map_page_with::<(), _>(Page(virt_addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE,)
+            page_table.try_map_page_with::<(), _>(Page(virt_addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, paging_reasons::MEM_MAP)
         }).unwrap();
     }
 
@@ -721,7 +722,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         // UEFI memory sections are always aligned by firmware
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
-            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE,)
+            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, paging_reasons::LOADER)
         }).unwrap();
     }
 
@@ -730,7 +731,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         // UEFI memory sections are always aligned by firmware
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
-            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::WRITABLE,)
+            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::WRITABLE, paging_reasons::LOADER)
         }).unwrap();
     }
 
@@ -993,7 +994,27 @@ fn panic_handler(info: &PanicInfo) -> ! {
 | EfiUnacceptedMemoryType    | ???                                                              |
  */
 
+mod paging_reasons {
+	use elf::header::program::{SegmentFlags, SegmentType};
 
+	pub const FB: u16 = 1;
+	pub const KERNEL_DATA: u16 = 2;
+	pub const KERNEL_CODE: u16 = 3;
+	pub const KERNEL_TLS: u16 = 4;
+	pub const KERNEL_OTHER: u16 = 5;
+	pub const KERNEL_STACK: u16 = 6;
+	pub const MEM_MAP: u16 = 7;
+	pub const LOADER: u16 = 8;
+
+	pub fn kernel_seg_to_reason(ty: SegmentType, flags: SegmentFlags) -> u16 {
+		match ty {
+			SegmentType::LOAD if flags.contains(SegmentFlags::Executable) => KERNEL_CODE,
+			SegmentType::LOAD => KERNEL_DATA,
+			SegmentType::TLS => KERNEL_TLS,
+			_ => KERNEL_OTHER,
+		}
+	}
+}
 
 #[derive(Display)]
 enum ModuleLoadError {
