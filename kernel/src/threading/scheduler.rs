@@ -358,9 +358,11 @@ impl Scheduler {
 	pub fn unblock(&mut self, tid: Tid) {
 		#[cfg(feature = "log.scheduler")] debug!("unblocking {:?}", tid);
 		if let Some(tcb) = self.tasks.get_mut(&tid) {
-			tcb.state = ThreadState::Ready;
-			self.run_queue.push_back(tid);
-			super::defer_schedule();
+			if tcb.state != ThreadState::Ready && tcb.state != ThreadState::Running {
+				tcb.state = ThreadState::Ready;
+				self.run_queue.push_back(tid);
+				super::defer_schedule();
+			}
 		} else { warn!("Attempted to unblock dead {tid:?}"); }
 	}
 
