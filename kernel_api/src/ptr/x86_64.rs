@@ -277,7 +277,7 @@ pub unsafe fn checked_memcpy(src: *const MaybeUninit<u8>, dest: *mut MaybeUninit
 			in("rdi") dest,
 			in("rsi") src,
 			inout("rcx") count => _,
-			options(nostack, preserves_flags, readonly)
+			options(nostack)
 		);
 	}
 
