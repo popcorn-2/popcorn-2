@@ -157,9 +157,7 @@ impl<Level: ParentTableLevel> Table<Level> {
 	pub fn try_get_or_create_child_table<E, F: FnOnce() -> Result<u64, E>>(&mut self, index: usize, allocate: F) -> Result<&'static mut Table<Level::Child>, E> {
 		self.get_child_table_mut(index).map_or_else(|| {
 			debug!("New page table Level {}, index {}", Level::Child::VALUE, index);
-			if Level::Child::VALUE == 3 {
-				warn!("L3 table did not exist already - if this is not in lower half, this is a bug");
-			}
+			debug_assert!(Level::Child::VALUE != 3 || index < 256, "L3 table did not exist already - if this is not in lower half, this is a bug");
 			let table_ptr = allocate()? as *mut MaybeUninit<Table<_>>;
 			assert!(table_ptr.is_aligned() && !table_ptr.is_null());
 			let table = unsafe { &mut *table_ptr };
