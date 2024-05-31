@@ -241,6 +241,8 @@ impl ExceptionRegisters for Amd64RegisterDump<'_> {
 
 #[no_mangle]
 extern "C" fn amd64_handler2(data: &mut IrqData) {
+	#[cfg(feature = "log.scheduler")] debug!("[amd64] vector {:#x}", data.num);
+	
 	use crate::hal::Hal;
 	
 	const MIN_IRQ: u8 = Amd64Hal::MIN_IRQ_NUM as u8;
