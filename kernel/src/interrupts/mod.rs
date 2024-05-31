@@ -67,8 +67,8 @@ pub fn global_irq_handler(vector: usize) {
 	MutexGuard::unlock_no_interrupts(guard);
 }
 
-pub fn insert_handler(vector: usize, f: impl FnMut() + 'static) -> Option<()> {
-	IRQ_HANDLES.lock().insert(vector, Box::new(f)).map(|_| ())
+pub fn insert_handler(vector: usize, f: impl FnMut() + 'static) -> Result<(), ()> {
+	IRQ_HANDLES.lock().try_insert(vector, Box::new(f)).map(|_| ()).map_err(|_| ())
 }
 
 pub fn set_defer_irq(f: impl Fn() + 'static) {

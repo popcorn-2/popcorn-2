@@ -275,7 +275,7 @@ impl Scheduler {
 			IrqGuard::unlock_no_interrupts(guard);
 		};
 
-		assert!(crate::interrupts::insert_handler(0x40, timer_irq).is_none());
+		assert!(crate::interrupts::insert_handler(0x40, timer_irq).is_ok());
 		crate::interrupts::set_defer_irq(scheduler_defer_irq);
 	}
 
