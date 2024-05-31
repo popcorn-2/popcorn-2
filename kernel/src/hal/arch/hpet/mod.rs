@@ -8,6 +8,7 @@ use crate::mmio::MmioCell;
 use crate::projection::Project;
 use bit_field::BitField;
 use log::debug;
+use kernel::hal::acpi::PagingReason;
 
 mod timer;
 
@@ -133,6 +134,18 @@ impl Debug for MmioCell<HpetInner> {
 pub struct Hpet<H: AcpiHandlerExt> {
 	cell: MmioCell<HpetInner>,
 	map: XPhysicalMapping<H, HpetInner>,
+}
+
+impl PagingReason for Header {
+	fn reason() -> u16 {
+		crate::paging_codes::HPET_HEADER
+	}
+}
+
+impl PagingReason for HpetInner {
+	fn reason() -> u16 {
+		crate::paging_codes::HPET_FULL
+	}
 }
 
 impl<H: AcpiHandlerExt> Hpet<H> {

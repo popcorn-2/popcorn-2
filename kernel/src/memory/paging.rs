@@ -50,6 +50,7 @@ mod tests {
 		table.map_page(
 			Page::new(VirtualAddress::new(0xcafebabe000)),
 			Frame::new(PhysicalAddress::new(0x347e40000)),
+			0
 		).expect("Page not yet mapped");
 		assert_eq!(
 			table.translate_page(Page::new(VirtualAddress::new(0xcafebabe000))),
@@ -63,10 +64,12 @@ mod tests {
 		table.map_page(
 			Page::new(VirtualAddress::new(0xcafebabe000)),
 			Frame::new(PhysicalAddress::new(0x347e40000)),
+			0
 		).expect("Page not yet mapped");
 		table.map_page(
 			Page::new(VirtualAddress::new(0xcafebabe000)),
 			Frame::new(PhysicalAddress::new(0xcafebabe000)),
+			0
 		).expect_err("Page already mapped");
 	}
 
@@ -76,6 +79,7 @@ mod tests {
 		table.map_page(
 			Page::new(VirtualAddress::new(0xcafebabe000)),
 			Frame::new(PhysicalAddress::new(0x347e40000)),
+			0
 		).expect("Page not yet mapped");
 		assert_eq!(
 			table.translate_address(VirtualAddress::new(0xcafebabe123)),

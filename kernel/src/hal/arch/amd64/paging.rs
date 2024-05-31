@@ -40,7 +40,9 @@ bitflags! {
 		impl Amd64Entry: u64 {
 			const PRESENT = 1<<0;
 			const WRITABLE = 1<<1;
-			const ADDRESS = 0x0fff_ffff_ffff_f000;
+			const ADDRESS = 0x000f_ffff_ffff_f000;
+			const AVL_LOW = 0b111 << 9;
+			const AVL_HIGH = 0x7ff0_0000_0000_0000;
 		}
 	}
 
@@ -63,12 +65,19 @@ impl Entry for Amd64Entry {
 		Some(Frame::new(PhysicalAddress::new(addr.try_into().unwrap())))
 	}
 
-	fn point_to_frame(&mut self, frame: Frame) -> Result<(), ()> {
-		if self.is_present() { return Err(()); }
+	fn point_to_frame(&mut self, frame: Frame, reason: u16) -> Result<(), u16> {
+		if self.is_present() {
+			let low = (*self & Self::AVL_LOW).bits() >> 9;
+			let high = (*self & Self::AVL_HIGH).bits() >> (52 - 3);
+			return Err(u16::try_from(low | high).unwrap());
+		}
 
-		let empty_entry = self.0 & !Self::ADDRESS.0;
+		let reason = u64::from(reason);
+		let low = (reason & 7) << 9;
+		let high = (reason & 0x7ff8) << (52 - 3);
+		let split_reason = low | high;
 		let masked_addr = u64::try_from(frame.start().addr).unwrap() & Self::ADDRESS.0;
-		self.0 = empty_entry | masked_addr | Self::PRESENT.0 | Self::WRITABLE.0;
+		self.0 = masked_addr | Self::PRESENT.0 | Self::WRITABLE.0 | split_reason;
 
 		Ok(())
 	}

@@ -118,7 +118,8 @@ pub struct ThreadControlBlock {
 impl ThreadControlBlock {
 	pub fn new<Args: ArgTuple>(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: Args) -> Self {
 		let new_stack = Stack::new(
-			mapping::Config::<Global>::new(NonZeroUsize::new(8).unwrap())
+			mapping::Config::<Global>::new(NonZeroUsize::new(32).unwrap()),
+			crate::paging_codes::THREAD_KERNEL_STACK,
 		).unwrap();
 
 		let mut new_thread = ThreadControlBlock {

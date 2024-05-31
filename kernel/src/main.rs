@@ -709,6 +709,22 @@ mod allocator {
 	static ALLOCATOR: HookAllocator = HookAllocator;
 }
 
+mod paging_codes {
+	pub const BGRT_BMP_HEADER: u16 = 10;
+	pub const IOAPIC_REGISTERS: u16 = 11;
+	pub const APIC_REGISTERS: u16 = 12;
+	pub const HPET_HEADER: u16 = 13;
+	pub const HPET_FULL: u16 = 14;
+	pub const PHYSMAP_OTHER: u16 = 15;
+	pub const ACPI_SDT_HEADER: u16 = 16;
+	pub const ACPI_RSDP: u16 = 17;
+	pub const ACPI_HPET: u16 = 18;
+	pub const ACPI_FADT: u16 = 19;
+	pub const ACPI_BGRT: u16 = 20;
+	pub const BYTE_ARRAY: u16 = 21;
+	pub const THREAD_KERNEL_STACK: u16 = 22;
+}
+
 #[cfg(test)]
 mod tests {
 	#[test]
