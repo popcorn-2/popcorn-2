@@ -97,7 +97,7 @@ fn pinned_sleep(time_of_wake: Instant) {
 		time: time_of_wake,
 		action: EventTy::Unblock
 	};
-	debug!("sleeping tid {:?}", sleep_event.tid);
+	#[cfg(feature = "log.scheduler")] debug!("sleeping tid {:?}", sleep_event.tid);
 	guard.event_queue.add(sleep_event);
 	guard.block(ThreadState::Sleeping);
 }
@@ -117,9 +117,9 @@ pub fn sleep_until(wake_time: Instant) {
 	pinned_sleep(wake_time);
 }
 
-pub fn exit() -> ! {
+pub fn exit(exit_code: i8) -> ! {
 	let mut guard = scheduler::SCHEDULER.lock();
-	guard.queue_for_deletion();
+	guard.queue_for_deletion(exit_code);
 	drop(guard); // drop guard before end of scope to ensure deferred schedule goes through
 	unreachable!("Returned to deleted task")
 }

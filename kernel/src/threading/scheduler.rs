@@ -12,7 +12,7 @@ use core::ptr::NonNull;
 use crate::hal::{HalTy, Hal, ThreadControlBlock, ThreadState};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
-use log::{debug, warn};
+use log::{debug, error, warn};
 use kernel_api::memory::physical::highmem;
 use kernel_api::time::Instant;
 use crate::hal::paging2::{TTable, TTableTy};
@@ -180,9 +180,12 @@ impl Scheduler {
 		}
 	}
 	
-	pub fn queue_for_deletion(&mut self) {
+	pub fn queue_for_deletion(&mut self, exit_code: i8) {
 		let tid = self.current_tid();
 		#[cfg(feature = "log.scheduler")] debug!("delete {tid:?}");
+		if exit_code != 0 && let Some(tcb) = self.tasks.get(&tid) {
+			error!("Task `{}` exited with status code {exit_code}", tcb.name);
+		}
 		self.cleanup_queue.push_back(tid);
 		self.unblock(Tid(1));
 		self.block(ThreadState::AwaitingDeletion);
