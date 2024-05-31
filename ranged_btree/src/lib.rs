@@ -14,7 +14,7 @@ pub struct RangedBTreeMap<K, V> {
 }
 
 impl<K, V> RangedBTreeMap<K, V> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             inner: BTreeMap::new()
         }
