@@ -20,7 +20,6 @@
 #![feature(inherent_associated_types)]
 #![feature(generic_const_exprs)]
 #![feature(pointer_like_trait)]
-#![feature(exclusive_range_pattern)]
 #![feature(int_roundings)]
 #![feature(thread_local)]
 #![feature(noop_waker)]
@@ -34,6 +33,16 @@
 #![feature(const_mut_refs)]
 #![feature(sync_unsafe_cell)]
 #![feature(arbitrary_self_types)]
+#![feature(pattern)]
+#![feature(slice_ptr_len)]
+#![feature(slice_ptr_get)]
+#![feature(map_try_insert)]
+#![feature(coroutines)]
+#![feature(coroutine_trait)]
+#![feature(str_from_raw_parts)]
+#![feature(build_hasher_default_const_new)]
+#![feature(pattern_types)]
+#![feature(core_pattern_type)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -48,8 +57,6 @@
 #![feature(kernel_physical_allocator_location)]
 #![feature(kernel_ptr)]
 #![feature(kernel_time)]
-#![feature(slice_ptr_len)]
-#![feature(slice_ptr_get)]
 
 #![no_std]
 #![no_main]
@@ -71,10 +78,10 @@ use core::cell::{RefCell, UnsafeCell};
 use core::fmt::Write;
 use core::ops::Deref;
 use core::panic::PanicInfo;
-use core::ptr::{addr_of_mut, slice_from_raw_parts_mut};
+use core::ptr::{addr_of, addr_of_mut, slice_from_raw_parts_mut};
 use log::{debug, error, info, trace, warn};
 use kernel_api::memory::{AllocError, mapping, Page, PhysicalAddress, VirtualAddress};
-use core::{future, mem};
+use core::{future, mem, ptr};
 use core::cmp::{max, min};
 use core::num::NonZeroUsize;
 use core::task::{Poll, Waker};
@@ -101,6 +108,7 @@ mod timing;
 mod projection;
 mod mmio;
 mod interrupts;
+mod ipc;
 
 #[cfg(test)]
 pub mod test_harness;
@@ -127,26 +135,36 @@ macro_rules! into {
     ($stuff:expr) => {($stuff).try_into().unwrap()};
 }
 
+#[macro_export]
+macro_rules! yeet {
+    ($e:expr) => {return Err($e);};
+}
+
 #[inline]
 fn syscall_handler() {
 
 }
 
 #[inline]
-fn exception_handler(exception: hal::exception::Exception) {
+fn exception_handler(exception: &mut hal::exception::Exception) {
 	// todo: update this to signal userspace
 	let is_kernel_mode = true;
 	
-	fn backtrace() {
+	let backtrace = || {
+		sprintln!("---");
+		sprintln!("{:#x?}", exception.registers);
+		sprintln!("---");
 		panicking::stack_trace();
 		sprintln!("---");
-	}
+	};
 
-	match exception.ty {
+	let at = exception.registers.ip();
+
+	match &exception.ty {
 		// Signalling exceptions
 		ty @ (Ty::FloatingPoint | Ty::IllegalInstruction | Ty::BusFault | Ty::Generic(_)) => {
 			if is_kernel_mode {
-				error!("Kernel exception occurred at {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
+				error!("Kernel exception occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_name(at));
 				backtrace();
 				loop {}
 			} else {
@@ -156,8 +174,35 @@ fn exception_handler(exception: hal::exception::Exception) {
 		ty @ Ty::PageFault(_) => {
 			// todo: check for CoW etc.
 			if is_kernel_mode {
-				error!("Kernel page fault occurred at {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
+				error!("Kernel page fault occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_name(at));
 				backtrace();
+
+				extern "C" {
+					static __popcorn_deref_handlers_check_start: u64;
+					static __popcorn_deref_handlers_handle_start: u64;
+					static __popcorn_deref_handlers_end: u64;
+				}
+
+				let checkpoints = unsafe {
+					core::slice::from_raw_parts(
+						addr_of!(__popcorn_deref_handlers_check_start),
+						addr_of!(__popcorn_deref_handlers_handle_start).offset_from(addr_of!(__popcorn_deref_handlers_check_start)) as usize
+					)
+				};
+				
+				if let Some(idx) = checkpoints.iter().map(|x| *x as usize).position(|x| x == at) {
+					let jumppoints = unsafe {
+						core::slice::from_raw_parts(
+							addr_of!(__popcorn_deref_handlers_handle_start),
+							addr_of!(__popcorn_deref_handlers_end).offset_from(addr_of!(__popcorn_deref_handlers_handle_start)) as usize
+						)
+					};
+					let jump = jumppoints.iter().map(|x| *x as usize).nth(idx).expect("Malformed deref jumptable");
+					debug!("Checked access - jumping to {jump:#x}");
+					exception.registers.set_ip(jump);
+					return;
+				}
+
 				loop {}
 			} else {
 				todo!()
@@ -165,16 +210,16 @@ fn exception_handler(exception: hal::exception::Exception) {
 		}
 		ty @ (Ty::Nmi | Ty::Panic) => {
 			// todo: BSOD equivalent?
-			error!("Unhandled exception occurred at {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
+			error!("Unhandled exception occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_name(at));
 			if is_kernel_mode { backtrace(); }
 			loop {}
 		},
 		ty @ Ty::Debug(DebugTy::Breakpoint) => {
-			warn!("Breakpoint: {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
+			warn!("Breakpoint: {:#x} - {}:\n{ty}", at, panicking::get_symbol_name(at));
 			if is_kernel_mode { backtrace(); }
 		},
 		ty @ Ty::Unknown(_) => {
-			warn!("Ignoring exception at {:#x} - {}:\n{ty}", exception.at_instruction, panicking::get_symbol_name(exception.at_instruction));
+			warn!("Ignoring exception at {:#x} - {}:\n{ty}", at, panicking::get_symbol_name(at));
 			if is_kernel_mode { backtrace(); }
 		},
 	}
@@ -506,6 +551,55 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 				guard.add_task(task);
 			}
 		}
+	}
+
+	/*{
+		let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
+		let task = ThreadControlBlock::new(
+			Cow::Borrowed("PS/2 driver"),
+			ttable,
+			threading::thread_startup,
+			drivers::i8042::main,
+			()
+		);
+		let mut guard = threading::scheduler::SCHEDULER.lock();
+		guard.add_task(task);
+	}*/
+
+	{
+		const CORE_SOCKET_OPEN: u128 = 0;
+
+		let shim = |a: &str| {
+			let a = a.as_bytes();
+			debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, a.as_ptr() as _, a.len(), 0, 0));
+		};
+		shim("hello world!");
+		shim("hello.foo.world.:/byee/eee");
+		shim(".:/byee/eee");
+		shim(":/byee/");
+		shim(":byee/");
+		debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, ptr::null::<u8>() as _, 10, 0, 0));
+		debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, 0xdeadbeef, 10, 0, 0));
+		shim(":core.input.mouse@");
+		{
+			extern "C" fn f(_: ()) -> ! {
+				let a = "core.input.mouse@:mouse".as_bytes();
+				debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, a.as_ptr() as _, a.len(), 0, 0));
+				threading::exit(0)
+			}
+			let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
+			let task = ThreadControlBlock::new(
+				Cow::Borrowed("foo"),
+				ttable,
+				threading::thread_startup,
+				f,
+				()
+			);
+			let mut guard = threading::scheduler::SCHEDULER.lock();
+			guard.add_task(task);
+		}
+		threading::thread_yield();
+		debug!("{:#?}", &*ipc::server::servers());
 	}
 
 	loop {

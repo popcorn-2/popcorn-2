@@ -34,7 +34,6 @@ amd64_global_irq_handler:
     .cfi_offset r11, -128
     # TODO: `swapgs`
     mov rdi, rsp
-    add rdi, 72
     sti
     call amd64_handler2
     pop r11

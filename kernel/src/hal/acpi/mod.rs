@@ -91,7 +91,7 @@ impl AcpiHandlerExt for Handler<'_> {
 		let (first_page, virt_len, _) = pages.into_raw_parts();
 		assert_eq!(phys_len, virt_len);
 
-		let start = unsafe { NonNull::new_unchecked(from_raw_parts_mut(first_page.as_ptr().add(offset).cast(), meta)) };
+		let start = unsafe { NonNull::new_unchecked(from_raw_parts_mut(first_page.as_ptr().add(offset), meta)) };
 		XPhysicalMapping {
 			physical_start: first_frame.start().addr + offset,
 			virtual_start: start,

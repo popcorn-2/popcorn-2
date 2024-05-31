@@ -1,7 +1,7 @@
 use core::arch::{asm, global_asm};
 use core::num::NonZeroU8;
 use core::ops::{Index, IndexMut};
-use log::{info, warn};
+use log::{debug, info, warn};
 
 pub mod handler {
 	use bitflags::bitflags;
@@ -134,7 +134,7 @@ use entry::Entry;
 use kernel_api::sync::OnceLock;
 use crate::hal::arch::amd64::Amd64Hal;
 use crate::hal::arch::amd64::interrupts::entry::Type;
-use crate::hal::exception::{DebugTy, Exception, PageFault, Ty};
+use crate::hal::exception::{DebugTy, Exception, ExceptionRegisters, PageFault, Ty};
 
 #[repr(C, align(16))]
 pub struct Idt {
@@ -193,6 +193,15 @@ pub static IDT: OnceLock<Idt> = OnceLock::new();
 #[derive(Debug)]
 #[repr(C)]
 struct IrqData {
+	r11: u64,
+	r10: u64,
+	r9: u64,
+	r8: u64,
+	rcx: u64,
+	rdx: u64,
+	rsi: u64,
+	rdi: u64,
+	rax: u64,
 	num: u64,
 	error: u64,
 	rip: u64,
@@ -202,45 +211,97 @@ struct IrqData {
 	ss: u64
 }
 
+#[derive(Debug)]
+pub struct Amd64RegisterDump<'a> {
+	stack_frame: &'a mut IrqData,
+	rbx: u64,
+	rbp: u64,
+	r12: u64,
+	r13: u64,
+	r14: u64,
+	r15: u64,
+	fs: u64,
+	gs: u64,
+	gs_kernel: u64,
+}
+
+impl ExceptionRegisters for Amd64RegisterDump<'_> {
+	fn ip(&self) -> usize {
+		self.stack_frame.rip as usize
+	}
+
+	fn set_ip(&mut self, val: usize) {
+		self.stack_frame.rip = val as u64;
+	}
+	
+	fn set_return_reg(&mut self, val: usize) {
+		self.stack_frame.rax = val as u64;
+	}
+}
+
 #[no_mangle]
 extern "C" fn amd64_handler2(data: &mut IrqData) {
+	#[cfg(feature = "log.scheduler")] debug!("[amd64] vector {:#x}", data.num);
+	
 	use crate::hal::Hal;
 	
 	const MIN_IRQ: u8 = Amd64Hal::MIN_IRQ_NUM as u8;
 	const MAX_IRQ: u8 = Amd64Hal::MAX_IRQ_NUM as u8;
+	
+	#[allow(non_contiguous_range_endpoints)]
+	if let MIN_IRQ..MAX_IRQ = data.num as u8 {
+		crate::interrupts::global_irq_handler(data.num as usize);
+		return;
+	}
+	
+	let (fs_low, fs_high): (u32, u32);
+	unsafe { asm!("rdmsr", out("edx") fs_high, out("eax") fs_low, in("ecx") 0xc0000100u32); }
 
-	let exception_payload = match data.num as u8 {
+	let mut reg_dump = Amd64RegisterDump {
+		stack_frame: data,
+		rbx: u64::MAX,
+		rbp: u64::MAX,
+		r12: u64::MAX,
+		r13: u64::MAX,
+		r14: u64::MAX,
+		r15: u64::MAX,
+		fs: u64::from(fs_high) << 32 | u64::from(fs_low),
+		gs: u64::MAX,
+		gs_kernel: u64::MAX,
+	};
+	
+	let mut exception_payload = match reg_dump.stack_frame.num as u8 {
 		0 | 16 | 19 => Exception {
 			ty: Ty::FloatingPoint,
-			at_instruction: data.rip as usize,
+			registers: &mut reg_dump,
 		},
 		1 | 3 => Exception {
 			ty: Ty::Debug(DebugTy::Breakpoint),
-			at_instruction: data.rip as usize,
+			registers: &mut reg_dump,
 		},
 		6 => Exception {
 			ty: Ty::IllegalInstruction,
-			at_instruction: data.rip as usize,
+			registers: &mut reg_dump,
 		},
 		14 => {
 			let cr2: usize;
 			unsafe { asm!("mov {}, cr2", out(reg) cr2); }
 			Exception {
-				ty: Ty::PageFault(PageFault { access_addr: cr2 }),
-				at_instruction: data.rip as usize,
+				ty: Ty::PageFault(PageFault { access_addr: cr2, meta: reg_dump.stack_frame.error.try_into().unwrap() }),
+				registers: &mut reg_dump,
 			}
 		},
 		7 | 17 => Exception {
 			ty: Ty::BusFault,
-			at_instruction: data.rip as usize,
+			registers: &mut reg_dump,
 		},
 		2 => Exception {
 			ty: Ty::Nmi,
-			at_instruction: data.rip as usize,
+			registers: &mut reg_dump,
 		},
 		8 => Exception {
 			ty: Ty::Panic,
-			at_instruction: data.rip as usize,
+			registers: &mut reg_dump,
 		},
 		e @ (4 | 5 | 9..= 13 | 15 | 18 | 21..=27 | 31) => {
 			let reason = match e {
@@ -257,7 +318,7 @@ extern "C" fn amd64_handler2(data: &mut IrqData) {
 			};
 			Exception {
 				ty: Ty::Generic(reason),
-				at_instruction: data.rip as usize,
+				registers: &mut reg_dump,
 			}
 		},
 		e @ (20 | 28..=30) => {
@@ -270,23 +331,20 @@ extern "C" fn amd64_handler2(data: &mut IrqData) {
 			};
 			Exception {
 				ty: Ty::Unknown(reason),
-				at_instruction: data.rip as usize,
+				registers: &mut reg_dump,
 			}
 		},
 		e @ 32..48 => {
 			warn!("Spurious PIC irq - vector {}", e - 32);
 			return;
 		},
-		MIN_IRQ..MAX_IRQ=> {
-			crate::interrupts::global_irq_handler(data.num as usize);
-			return;
-		},
+		MIN_IRQ..MAX_IRQ => unreachable!(),
 		255 => {
 			warn!("Spurious APIC irq");
 			return;
 		},
 	};
-	crate::exception_handler(exception_payload);
+	crate::exception_handler(&mut exception_payload);
 }
 
 #[naked]

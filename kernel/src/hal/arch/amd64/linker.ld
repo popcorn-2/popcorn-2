@@ -68,6 +68,13 @@ SECTIONS {
 	.rodata :
 	{
 		*(.rodata .rodata.*)
+
+		. = ALIGN(8);
+		PROVIDE(__popcorn_deref_handlers_check_start = .);
+		*(.popcorn.deref_handlers.check .popcorn.deref_handlers.check.*)
+		PROVIDE(__popcorn_deref_handlers_handle_start = .);
+		*(.popcorn.deref_handlers.handle .popcorn.deref_handlers.handle.*)
+		PROVIDE(__popcorn_deref_handlers_end = .);
 	}
 
     .eh_frame_hdr :
