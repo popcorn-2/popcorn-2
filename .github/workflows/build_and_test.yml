@@ -14,6 +14,10 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        logging: ["", "log.scheduler"]
+        preemptive: ["", "preemptive"]
     steps:
       - name: 'Check out'
         uses: actions/checkout@v4
@@ -26,7 +30,7 @@ jobs:
           CC: clang
           CXX: C++
         run: |
-          ./pop.py build --arch x86_64 -v ${{ github.ref == 'refs/heads/trunk' && '--release' || '' }}
+          ./pop.py build --arch x86_64 -v ${{ github.ref == 'refs/heads/trunk' && '--release' || '' }} --kernel-features="${{ matrix.logging }} ${{ matrix.preemptive }}"
       - name: 'Archive live ISO'
         if: success() && github.ref == 'refs/heads/trunk'
         uses: actions/upload-artifact@v3

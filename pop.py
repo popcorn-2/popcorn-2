@@ -18,6 +18,7 @@ parser.add_argument("-j", "--jobs", action="store", type=int)
 parser.add_argument("--release", action="store_true")
 parser.add_argument("--accel", choices=["none", "kvm", "hvf"], default="none")
 parser.add_argument("--symbol-map", action="store_true")
+parser.add_argument("--kernel-features", default="")
 
 args, subcommand_parse = parser.parse_known_args()
 
@@ -133,6 +134,7 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
             "-p", "kernel",
             "--target", "x86_64-unknown-popcorn.json",
             "-Zbuild-std=compiler_builtins,core,alloc", "-Zbuild-std-features=compiler-builtins-mem,core/debug_refcell",
+            f"--features=\"{args.kernel_features}\"",
             *kernel_cargo_flags,
             "--",
             "-C", "link-args=-export-dynamic",
