@@ -1,3 +1,5 @@
+#[allow(unused_imports)] use crate::prelude::*;
+
 use core::ops::DerefMut;
 use kernel_api::sync::RwLock;
 

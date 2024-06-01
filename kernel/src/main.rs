@@ -69,6 +69,7 @@ extern crate unwinding;
 
 extern crate self as kernel;
 
+#[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use core::alloc::Layout;

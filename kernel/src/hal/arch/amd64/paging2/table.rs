@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::marker::PhantomData;
 use kernel_api::memory::allocator::BackingAllocator;
 use kernel_api::memory::{AllocError, Frame, Page};

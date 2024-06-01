@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
 use core::arch::asm;
 use core::cmp::Ordering;

@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use log::{Record, Level, Metadata, SetLoggerError};
 use crate::{sprint, sprintln};
 

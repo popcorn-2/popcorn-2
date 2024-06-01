@@ -1,3 +1,5 @@
+#[allow(unused_imports)] use crate::prelude::*;
+
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Debug)]
 // Invariant: max value is 0xFFFFFFFF-FFFFFFFF-FFFF-FFFF
 pub struct ProtocolId(u128);

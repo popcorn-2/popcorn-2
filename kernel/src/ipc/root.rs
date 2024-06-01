@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use alloc::boxed::Box;
 use core::sync::atomic::{AtomicU16, Ordering};
 use hashbrown::HashMap;

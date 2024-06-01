@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::fmt::{Debug, Formatter};

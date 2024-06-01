@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::ptr::addr_of;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use log::debug;

@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::arch::{asm, global_asm};
 use core::mem;
 use core::mem::{MaybeUninit, offset_of};

@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::alloc::{GlobalAlloc, Layout};
 use core::fmt;
 use core::fmt::Write;

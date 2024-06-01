@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::mem;
 use core::ptr::addr_of;
 use acpi::AcpiHandler;

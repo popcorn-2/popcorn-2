@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;

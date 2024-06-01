@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
 use core::arch::x86_64::{__cpuid, CpuidResult};
 use core::num::NonZeroU128;

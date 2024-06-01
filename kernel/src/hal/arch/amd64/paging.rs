@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{Debug, Formatter};
 use bitflags::{bitflags, Flags};
 use kernel_api::memory::{Frame, PhysicalAddress};

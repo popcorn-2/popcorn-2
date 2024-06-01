@@ -1,3 +1,5 @@
+#[allow(unused_imports)] use crate::prelude::*;
+
 pub mod server;
 mod handle;
 mod protocol;

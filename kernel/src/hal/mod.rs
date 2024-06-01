@@ -5,6 +5,7 @@ pub mod exception;
 pub mod acpi;
 pub mod timing;
 
+#[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
 use core::arch::asm;
 use core::fmt::Debug;
