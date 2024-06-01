@@ -129,16 +129,18 @@ pub struct RedirectionEntry<'ioapic, H: AcpiHandler> {
 	num: u32,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, TryFromPrimitive, IntoPrimitive)]
+#[repr(u32)]
 pub enum TriggerMode {
-	Level,
-	Edge
+	Level = 1,
+	Edge = 0,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, TryFromPrimitive, IntoPrimitive)]
+#[repr(u32)]
 pub enum ActiveLevel {
-	High,
-	Low,
+	High = 0,
+	Low = 1,
 }
 
 #[derive(Debug, Copy, Clone)]
