@@ -1,14 +1,14 @@
 #![feature(proc_macro_diagnostic)]
 #![feature(let_chains)]
 
-use proc_macro::{Diagnostic, Level, TokenStream};
-use quote::{quote, ToTokens};
+use proc_macro::TokenStream;
+use quote::quote;
 use syn::{ItemStruct, Path, parse_macro_input};
 
 #[proc_macro_attribute]
 pub fn module_export(attr: TokenStream, item: TokenStream) -> TokenStream {
-	let mut item = parse_macro_input!(item as ItemStruct);
-	let mut export_trait = parse_macro_input!(attr as Path);
+	let item = parse_macro_input!(item as ItemStruct);
+	let mut _export_trait = parse_macro_input!(attr as Path);
 
 	TokenStream::from(quote!{
 		#item

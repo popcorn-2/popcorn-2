@@ -3,15 +3,13 @@ use core::arch::asm;
 use core::cmp::Ordering;
 use core::num::NonZeroUsize;
 use core::time::Duration;
-use log::{debug, warn};
+#[cfg(feature = "log.scheduler")] use log::debug;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
 use kernel_api::memory::r#virtual::{Global, OwnedPages};
 use kernel_api::time::Instant;
-use crate::hal::{Hal, HalTy, ThreadControlBlock, ThreadState};
+use crate::hal::{ThreadControlBlock, ThreadState};
 use scheduler::Tid;
-use crate::hal::timing::{Timer, Eoi};
-use crate::interrupts::irq_handler;
 
 pub mod scheduler;
 

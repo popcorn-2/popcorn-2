@@ -71,27 +71,19 @@ extern crate self as kernel;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
-use core::alloc::{Allocator, GlobalAlloc, Layout};
-use core::arch::asm;
-use core::cell::{RefCell, UnsafeCell};
-use core::fmt::Write;
-use core::ops::Deref;
+use core::alloc::Layout;
+use core::cell::UnsafeCell;
 use core::panic::PanicInfo;
-use core::ptr::{addr_of, addr_of_mut, slice_from_raw_parts_mut};
+use core::ptr::{addr_of, slice_from_raw_parts_mut};
 use log::{debug, error, info, trace, warn};
-use kernel_api::memory::{AllocError, mapping, Page, PhysicalAddress, VirtualAddress};
+use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
 use core::{future, mem, ptr};
 use core::cmp::{max, min};
-use core::num::NonZeroUsize;
 use core::task::{Poll, Waker};
 use core::time::Duration;
-use ::acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
-use ::acpi::madt::MadtEntry;
-use kernel_api::memory::{allocator::BackingAllocator};
 #[warn(deprecated)]
 use kernel_api::memory::mapping::OldMapping;
-use hal::{HalTy, Hal, ThreadControlBlock, ThreadState, SaveState};
+use hal::{HalTy, Hal, ThreadControlBlock, SaveState};
 use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
 

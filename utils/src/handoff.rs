@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use core::fmt::{Debug, Formatter, Pointer};
+use core::fmt::{Debug, Formatter};
 use core::ptr::NonNull;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::ptr::Unique;
@@ -113,8 +113,8 @@ pub struct Modules {
 
 }
 
-impl core::fmt::Debug for Modules {
-	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+impl Debug for Modules {
+	fn fmt(&self, _f: &mut Formatter<'_>) -> core::fmt::Result {
 		// <(*const ()) as core::fmt::Pointer>::fmt(&{self.phys_allocator_start as *const ()}, f)
 		Ok(())
 	}
@@ -131,9 +131,9 @@ pub struct Testing {
 	pub module_func: extern "sysv64" fn()
 }
 
-impl core::fmt::Debug for Testing {
+impl Debug for Testing {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		<(*const ()) as core::fmt::Pointer>::fmt(&{self.module_func as *const ()}, f)
+		<*const () as core::fmt::Pointer>::fmt(&{self.module_func as *const ()}, f)
 	}
 }
 

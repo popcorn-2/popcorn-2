@@ -1,14 +1,7 @@
-use core::cell::RefCell;
-use core::fmt::{Debug, Formatter};
-use core::ops::{Deref, DerefMut};
-use core::ptr::NonNull;
-use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
-use kernel_api::memory::allocator::{BackingAllocator};
+use core::ops::DerefMut;
 use kernel_api::sync::RwLock;
 
-use crate::hal::paging::{Table, PageIndices, levels::Global, Entry, TableDebug};
-use crate::hal::paging2::{KTable, KTableTy};
-use crate::hal::paging::levels::ParentLevel;
+use crate::hal::paging2::KTableTy;
 use crate::sync::late_init::LateInit;
 
 static KERNEL_PAGE_TABLE: LateInit<RwLock<KTableTy>> = LateInit::new();
