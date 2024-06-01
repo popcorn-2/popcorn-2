@@ -47,6 +47,7 @@
 #![feature(kernel_ptr)]
 #![feature(kernel_time)]
 #![feature(kernel_feature_detect)]
+#![feature(kernel_irq_cell)]
 
 #![no_std]
 #![no_main]

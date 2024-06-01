@@ -14,6 +14,7 @@ use crate::hal::{self, ThreadControlBlock, ThreadState};
 use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(feature = "preemptive")] use core::time::Duration;
 use kernel_api::memory::physical::highmem;
+use kernel_api::sync::{IrqCell, IrqGuard};
 use kernel_api::time::Instant;
 use crate::hal::paging2::TTable;
 use crate::hal::timing::{Timer, Eoi};
@@ -23,80 +24,6 @@ use crate::threading::{EventTy, SchedulerEvent};
 
 #[thread_local]
 pub static SCHEDULER: IrqCell<Scheduler> = IrqCell::new(Scheduler::new());
-
-pub struct IrqCell<T: ?Sized> {
-	state: Cell<Option<usize>>,
-	data: UnsafeCell<T>
-}
-
-impl<T> IrqCell<T> {
-	pub const fn new(val: T) -> Self {
-		Self { state: Cell::new(None), data: UnsafeCell::new(val) }
-	}
-}
-
-impl<T: ?Sized> IrqCell<T> {
-	#[track_caller]
-	pub fn lock(&self) -> IrqGuard<'_, T> {
-		// Unsafety: is this actually needed?
-		if self.state.get().is_some() { panic!("IrqCell cannot be borrowed multiple times"); }
-
-		self.state.set(Some(hal::get_and_disable_interrupts()));
-		IrqGuard { cell: self, _phantom_not_send: PhantomData }
-	}
-
-	pub unsafe fn make_guard_unchecked(&self) -> IrqGuard<'_, T> {
-		// Unsafety: is this actually needed?
-		//debug_assert!(self.state.get().is_some(), "Created IrqGuard for unlocked IrqCell");
-
-		IrqGuard { cell: self, _phantom_not_send: PhantomData }
-	}
-
-	pub unsafe fn unlock(&self) {
-		let old_state = self.state.take();
-		hal::set_interrupts(old_state.unwrap());
-	}
-}
-
-pub struct IrqGuard<'cell, T: ?Sized> {
-	cell: &'cell IrqCell<T>,
-	_phantom_not_send: PhantomData<*mut u8>, // Dropping guard on other core would cause interrupts to be enabled in the wrong place
-}
-
-impl<T: ?Sized> IrqGuard<'_, T> {
-	fn unlock_no_interrupts(this: IrqGuard<T>) {
-		let this = ManuallyDrop::new(this);
-		this.cell.state.take();
-	}
-}
-
-impl<T: Debug> Debug for IrqGuard<'_, T> {
-	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("IrqGuard")
-				.field("cell", &**self)
-				.finish()
-	}
-}
-
-impl<T: ?Sized> Deref for IrqGuard<'_, T> {
-	type Target = T;
-
-	fn deref(&self) -> &T {
-		unsafe { &*self.cell.data.get() }
-	}
-}
-
-impl<T: ?Sized> DerefMut for IrqGuard<'_, T> {
-	fn deref_mut(&mut self) -> &mut T {
-		unsafe { &mut *self.cell.data.get() }
-	}
-}
-
-impl<T: ?Sized> Drop for IrqGuard<'_, T> {
-	fn drop(&mut self) {
-		unsafe { self.cell.unlock(); }
-	}
-}
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Tid(pub(super) usize);

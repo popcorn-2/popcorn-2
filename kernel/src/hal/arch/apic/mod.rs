@@ -13,7 +13,7 @@ use crate::hal;
 use timer::TimerMode;
 use crate::hal::arch::apic::ioapic::{ActiveLevel, Ioapics, LegacyMap, TriggerMode};
 use crate::mmio::MmioCell;
-use crate::threading::scheduler::IrqCell;
+use kernel_api::sync::IrqCell;
 use crate::projection::Project;
 
 mod timer;
