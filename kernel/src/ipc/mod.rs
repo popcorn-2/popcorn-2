@@ -10,12 +10,10 @@ use utils::better_cow::Cow;
 use kernel_api::ptr::slice_from_raw_parts;
 use core::str::pattern::{Pattern, Searcher};
 use hashbrown::HashMap;
-use log::{error, info};
 use kernel_api::ptr::User;
 use kernel_api::sync::RwLock;
 use crate::ipc::handle::Handle;
 use crate::ipc::protocol::Method;
-use crate::yeet;
 use server::Server as _;
 
 static METHODS: RwLock<HashMap<u128, Method>> = RwLock::new(HashMap::with_hasher(hashbrown::hash_map::DefaultHashBuilder::new()));

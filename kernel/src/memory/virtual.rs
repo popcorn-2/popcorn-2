@@ -1,7 +1,6 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::ptr::addr_of;
 use core::sync::atomic::{AtomicPtr, Ordering};
-use log::debug;
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
 use kernel_api::memory::r#virtual::VirtualAllocator;
 use kernel_api::sync::RwLock;

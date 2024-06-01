@@ -8,7 +8,6 @@ use core::ptr::addr_of_mut;
 use core::time::Duration;
 use acpi::madt::MadtEntry;
 use acpi::{AcpiHandler, PhysicalMapping};
-use log::{debug, info, warn};
 use crate::hal::timing::{Eoi, Timer};
 use bit_field::BitField;
 use kernel_api::sync::{OnceLock, Syncify};

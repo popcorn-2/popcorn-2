@@ -8,7 +8,6 @@ use crate::hal::acpi::{AcpiHandlerExt, Handler, XPhysicalMapping};
 use crate::mmio::MmioCell;
 use crate::projection::Project;
 use bit_field::BitField;
-use log::debug;
 use kernel::hal::acpi::PagingReason;
 
 mod timer;

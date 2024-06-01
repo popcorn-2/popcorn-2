@@ -1,7 +1,6 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::Arguments;
 use test::TestName;
-use crate::{sprint, sprintln};
 use super::Formatter;
 
 pub struct JUnit;

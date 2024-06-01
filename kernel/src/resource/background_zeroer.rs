@@ -1,7 +1,5 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::sync::Arc;
-use alloc::vec;
-use alloc::vec::Vec;
 use core::num::NonZeroUsize;
 use
 use kernel_api::memory::allocator::{BackingAllocator, AllocError, ZeroAllocError, AllocatorConfig};

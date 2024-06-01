@@ -4,7 +4,6 @@ use core::arch::asm;
 use core::cmp::Ordering;
 use core::num::NonZeroUsize;
 use core::time::Duration;
-#[cfg(feature = "log.scheduler")] use log::debug;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
 use kernel_api::memory::r#virtual::{Global, OwnedPages};

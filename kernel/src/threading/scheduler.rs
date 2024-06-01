@@ -13,8 +13,6 @@ use core::ptr::NonNull;
 use crate::hal::{HalTy, Hal, ThreadControlBlock, ThreadState};
 use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(feature = "preemptive")] use core::time::Duration;
-#[cfg(feature = "log.scheduler")] use log::debug;
-use log::{error, warn};
 use kernel_api::memory::physical::highmem;
 use kernel_api::time::Instant;
 use crate::hal::paging2::{TTable, TTableTy};

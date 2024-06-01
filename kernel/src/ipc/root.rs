@@ -1,5 +1,4 @@
 #[allow(unused_imports)] use crate::prelude::*;
-use alloc::boxed::Box;
 use core::sync::atomic::{AtomicU16, Ordering};
 use hashbrown::HashMap;
 use kernel_api::sync::Mutex;
@@ -7,7 +6,6 @@ use utils::better_cow::Cow;
 use crate::ipc::{Error, server};
 use crate::ipc::server::{Server, ServerId};
 use crate::ipc::userspace::UserspaceServer;
-use crate::yeet;
 
 #[derive(Debug)]
 pub struct RootServer {

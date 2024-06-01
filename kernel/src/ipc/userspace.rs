@@ -1,7 +1,5 @@
 #[allow(unused_imports)] use crate::prelude::*;
-use alloc::boxed::Box;
 use crossbeam_queue::SegQueue;
-use log::debug;
 use utils::better_cow::Cow;
 use crate::hal::ThreadState;
 use crate::ipc::Error;

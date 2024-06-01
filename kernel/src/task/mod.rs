@@ -1,5 +1,4 @@
 #[allow(unused_imports)] use crate::prelude::*;
-use alloc::boxed::Box;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};

@@ -1,8 +1,6 @@
 #[allow(unused_imports)] use crate::prelude::*;
-use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use core::cell::OnceCell;
-use log::{debug, warn};
 use kernel_api::sync::{Mutex, MutexGuard};
 
 pub mod vm;
