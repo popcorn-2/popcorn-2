@@ -26,8 +26,10 @@ enum DeliveryMode {
 	Fixed = 0,
 	LowestPriority = 1,
 	Smi = 2,
+	Reserved3 = 3,
 	Nmi = 4,
 	Init = 5,
+	Reserved6 = 6,
 	ExtInt = 7
 }
 
