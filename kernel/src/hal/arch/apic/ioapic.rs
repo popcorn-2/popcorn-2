@@ -45,7 +45,7 @@ pub struct Ioapics<H: AcpiHandler> {
 }
 
 impl<H: AcpiHandler> Ioapics<H> {
-	pub fn new() -> Self {
+	pub const fn new() -> Self {
 		Self {
 			ioapics: RangedBTreeMap::new(),
 		}
