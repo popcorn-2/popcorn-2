@@ -4,7 +4,7 @@
 
 #![stable(feature = "kernel_core_api", since = "0.1.0")]
 
-use core::ops::Deref;
+use core::ops::{Deref, DerefMut};
 #[cfg(not(feature = "use_std"))]
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 pub use mutex::{Mutex, MutexGuard, MutexGuardExt};
@@ -57,4 +57,13 @@ impl<T> Deref for Syncify<T> {
 }
 
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
+impl<T> DerefMut for Syncify<T> {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		&mut self.0
+	}
+}
+
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
 unsafe impl<T> Sync for Syncify<T> {}
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
+unsafe impl<T> Send for Syncify<T> {}
