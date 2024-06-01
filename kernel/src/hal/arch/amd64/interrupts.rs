@@ -23,7 +23,7 @@ pub mod handler {
 	#[repr(u32)]
 	pub enum ControlFlowError {
 		NearReturn = 1,
-		FarRet_IRet = 2,
+		FarRet = 2,
 		InvalidShadowStackRestore = 3,
 		InvalidShadowStackBusy = 4,
 	}

@@ -55,6 +55,7 @@
 #![no_main]
 
 #![deny(deprecated)]
+#![allow(refining_impl_trait)]
 
 extern crate alloc;
 #[cfg(panic = "unwind")]
@@ -75,21 +76,16 @@ use core::task::{Poll, Waker};
 use core::time::Duration;
 #[warn(deprecated)]
 use kernel_api::memory::mapping::OldMapping;
-use hal::{HalTy, Hal, ThreadControlBlock, SaveState};
+use hal::{HalTy, Hal, ThreadControlBlock};
 use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
 use kernel_api::memory::{Frame};
-use kernel_api::memory::allocator::{Config, SizedBackingAllocator, SpecificLocation};
-use kernel_api::memory::mapping::Stack;
+use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
 use kernel_api::memory::physical::highmem;
-use kernel_api::memory::r#virtual::Global;
-use kernel_api::ptr::Unique;
-use kernel_api::sync::Mutex;
 use kernel_api::time::Instant;
 use crate::hal::paging2::{construct_tables, TTable, TTableTy};
 use utils::handoff::MemoryType;
-use crate::hal::acpi::XPhysicalMapping;
-use crate::hal::exception::{PageFault, Ty};
+use crate::hal::exception::Ty;
 use crate::memory::paging::ktable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::task::executor::Executor;
@@ -353,8 +349,6 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		memory::physical::init_dmamem(allocator);
 
 		let btree_alloc = {
-			use core::iter::Iterator;
-
 			const PAGE_MAP_OFFSET: usize = 0xffff_8000_0000_0000;
 			const PAGE_MAP_OFFSET_LEN: usize = 2usize.pow(46);
 
@@ -485,7 +479,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	debug!("TLS starts at {tls:x?}");
 	debug!("TLS size is {tls_data_size:#x};{tls_size:#x}");
 	unsafe {
-		core::ptr::copy_nonoverlapping(handoff_data.tls.0.start().as_ptr(), tls.as_ptr(), tls_data_size);
+		ptr::copy_nonoverlapping(handoff_data.tls.0.start().as_ptr(), tls.as_ptr(), tls_data_size);
 		let tls_self_ptr = tls.as_ptr().byte_add(tls_size - mem::size_of::<*mut u8>());
 		info!("Placing pointer to self at {tls_self_ptr:p}");
 		tls_self_ptr.cast::<*mut u8>().write(tls_self_ptr);
@@ -507,11 +501,9 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	{
 		let update_line = update_line.as_mut().map(|f| f as &mut dyn FnMut());
 
-		if let Some(mut update_line) = update_line {
-			use crate::hal::timing::{Timer, Eoi};
-
+		if let Some(update_line) = update_line {
 			extern "C" fn animation_task((data, meta): (usize, usize)) -> ! {
-				let update_line = unsafe { &mut *core::ptr::from_raw_parts_mut::<dyn FnMut()>(data as *mut (), mem::transmute(meta)) };
+				let update_line = unsafe { &mut *ptr::from_raw_parts_mut::<dyn FnMut()>(data as *mut (), mem::transmute(meta)) };
 				let mut next_time = Instant::now();
 				loop {
 					next_time += Duration::from_nanos(1302083);
@@ -666,8 +658,7 @@ mod allocator {
 	use core::alloc::{GlobalAlloc, Layout};
 	use core::ptr;
 	use core::ptr::NonNull;
-	use log::{debug, trace};
-	use kernel_api::memory::{AllocError, heap::Heap};
+	use log::debug;
 
 	struct HookAllocator;
 

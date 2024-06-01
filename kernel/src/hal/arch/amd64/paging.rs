@@ -6,29 +6,29 @@ use crate::hal::paging::{Entry, Level};
 use crate::hal::paging::levels::{Global, Upper, Middle, Lower};
 
 impl Level for Global {
-	const MASK: usize = 0o777_000_000_000_0000;
+	#[allow(clippy::unusual_byte_groupings)] const MASK: usize = 0o777_000_000_000_0000;
 	const SHIFT: usize = 12 + 9*3;
 	type Entry = Amd64Entry;
 	const ENTRY_COUNT: usize = 512;
 }
 
 impl Level for Upper {
-	const MASK: usize = 0o777_000_000__0000;
+	#[allow(clippy::unusual_byte_groupings)] const MASK: usize = 0o777_000_000__0000;
 	const SHIFT: usize = 12 + 9*2;
 	type Entry = Amd64Entry;
 	const ENTRY_COUNT: usize = 512;
 }
 
 impl Level for Middle {
-	const MASK: usize = 0o777_000_0000;
-	const SHIFT: usize = 12 + 9*1;
+	#[allow(clippy::unusual_byte_groupings)] const MASK: usize = 0o777_000_0000;
+	const SHIFT: usize = 12 + 9;
 	type Entry = Amd64Entry;
 	const ENTRY_COUNT: usize = 512;
 }
 
 impl Level for Lower {
-	const MASK: usize = 0o777_0000;
-	const SHIFT: usize = 12 + 9*0;
+	#[allow(clippy::unusual_byte_groupings)] const MASK: usize = 0o777_0000;
+	const SHIFT: usize = 12;
 	type Entry = Amd64Entry;
 	const ENTRY_COUNT: usize = 512;
 }

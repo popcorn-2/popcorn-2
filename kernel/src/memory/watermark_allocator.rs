@@ -1,7 +1,7 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::num::NonZeroUsize;
 use core::ops::Range;
-use kernel_api::memory::allocator::{AllocateNonContiguousRet, AllocationMeta, BackingAllocator, Config, Location, SizedBackingAllocator, SpecificLocation};
+use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, SpecificLocation};
 use kernel_api::memory::{Frame, PhysicalAddress, AllocError};
 use kernel_api::sync::Mutex;
 
@@ -12,7 +12,7 @@ impl<'mem_map> WatermarkAllocator<'mem_map> {
 		Self(Mutex::new(Inner::new(free_regions)))
 	}
 
-	pub fn drain_into(mut self, into: &mut dyn BackingAllocator) where Self: Sized {
+	pub fn drain_into(self, into: &mut dyn BackingAllocator) where Self: Sized {
 		let inner = self.0.into_inner();
 		into.push(AllocationMeta::new(inner.prev_frame..inner.top));
 	}
@@ -33,7 +33,7 @@ unsafe impl BackingAllocator for WatermarkAllocator<'_> {
 		trace!("WatermarkAllocator ignoring request to deallocate");
 	}
 
-	fn allocate_at(&self, frame_count: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
+	fn allocate_at(&self, _frame_count: usize, _location: SpecificLocation) -> Result<Frame, AllocError> {
 		unimplemented!()
 	}
 }

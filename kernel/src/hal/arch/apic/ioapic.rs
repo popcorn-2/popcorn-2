@@ -1,7 +1,6 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{Debug, Formatter};
 use core::mem;
-use core::mem::offset_of;
 use acpi::{AcpiHandler, PhysicalMapping};
 use ranged_btree::RangedBTreeMap;
 use bit_field::BitField;

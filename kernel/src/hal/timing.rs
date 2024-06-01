@@ -1,5 +1,5 @@
 #[allow(unused_imports)] use crate::prelude::*;
-use core::fmt::{Debug, Display};
+use core::fmt::Debug;
 
 pub trait Timer {
 	fn get() -> Self;

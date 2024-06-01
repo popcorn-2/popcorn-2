@@ -2,16 +2,15 @@
 use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
-use core::ops::{Deref, DerefMut, Div};
-use core::ptr::{from_raw_parts, from_raw_parts_mut, NonNull, Pointee};
+use core::ops::{Deref, DerefMut};
+use core::ptr::{from_raw_parts_mut, NonNull, Pointee};
 use acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
 use kernel_api::memory::mapping::{Config, Location, Mapping};
-use kernel_api::memory::{AllocError, Frame, Page, PhysicalAddress, VirtualAddress};
-use kernel_api::memory::allocator::{BackingAllocator, SpecificLocation};
+use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
+use kernel_api::memory::allocator::BackingAllocator;
 use kernel_api::memory::physical::OwnedFrames;
 use kernel_api::memory::r#virtual::{Global, OwnedPages};
 use kernel_api::sync::{OnceLock, Syncify};
-use crate::hal;
 
 static TABLES: OnceLock<Syncify<AcpiTables<Handler<'static>>>> = OnceLock::new();
 
@@ -204,22 +203,20 @@ impl AcpiHandler for Handler<'_> {
 	}
 
 	fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
-		unsafe {
-			let first_frame = {
-				let start = PhysicalAddress::<1>::new(region.physical_start());
-				Frame::new(start.align_down())
-			};
-			let len = NonZeroUsize::new(region.mapped_length() / 4096).unwrap();
-			let first_page = {
-				let start = VirtualAddress::<1>::from(region.virtual_start().as_ptr());
-				Page::new(start.align_down())
-			};
+		let first_frame = {
+			let start = PhysicalAddress::<1>::new(region.physical_start());
+			Frame::new(start.align_down())
+		};
+		let len = NonZeroUsize::new(region.mapped_length() / 4096).unwrap();
+		let first_page = {
+			let start = VirtualAddress::<1>::from(region.virtual_start().as_ptr());
+			Page::new(start.align_down())
+		};
 
-			unsafe {
-				let frames = OwnedFrames::from_raw_parts(first_frame, len, region.handler().allocator);
-				let pages = OwnedPages::from_raw_parts(first_page, len, Global);
-				let _mapping = Mapping::from_raw_parts(frames, pages);
-			}
+		unsafe {
+			let frames = OwnedFrames::from_raw_parts(first_frame, len, region.handler().allocator);
+			let pages = OwnedPages::from_raw_parts(first_page, len, Global);
+			let _mapping = Mapping::from_raw_parts(frames, pages);
 		}
 	}
 }

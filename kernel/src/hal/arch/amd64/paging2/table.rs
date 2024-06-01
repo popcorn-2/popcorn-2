@@ -27,26 +27,26 @@ pub(super) enum PD {}
 pub(super) enum PT {}
 
 impl Level for PML4 {
-	const MASK: usize = 0o777_000_000_000_0000;
+	#[allow(clippy::unusual_byte_groupings)] const MASK: usize = 0o777_000_000_000_0000;
 	const SHIFT: usize = 12 + 9*3;
 }
 
 
 impl Level for PDPT {
-	const MASK: usize = 0o777_000_000_0000;
+	#[allow(clippy::unusual_byte_groupings)] const MASK: usize = 0o777_000_000_0000;
 	const SHIFT: usize = 12 + 9*2;
 }
 
 
 impl Level for PD {
-	const MASK: usize = 0o777_000_0000;
-	const SHIFT: usize = 12 + 9*1;
+	#[allow(clippy::unusual_byte_groupings)] const MASK: usize = 0o777_000_0000;
+	const SHIFT: usize = 12 + 9;
 }
 
 
 impl Level for PT {
-	const MASK: usize = 0o777_0000;
-	const SHIFT: usize = 12 + 9*0;
+	#[allow(clippy::unusual_byte_groupings)] const MASK: usize = 0o777_0000;
+	const SHIFT: usize = 12;
 }
 
 impl ParentLevel for PML4 {

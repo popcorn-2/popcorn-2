@@ -1,15 +1,10 @@
 #[allow(unused_imports)] use crate::prelude::*;
-use core::arch::{asm, global_asm};
-use core::mem;
+use core::arch::asm;
 use core::mem::{MaybeUninit, offset_of};
 use core::num::NonZeroU8;
 use crate::hal::ArgTuple;
 use crate::hal::{Hal, SaveState, ThreadControlBlock};
-use crate::hal::arch::amd64::interrupts::entry::Type;
 use crate::hal::arch::amd64::interrupts::handler::InterruptStackFrame;
-use crate::hal::arch::amd64::interrupts::Idt;
-use crate::hal::exception::{DebugTy, Exception, PageFault, Ty};
-use crate::sprintln;
 
 mod gdt;
 mod tss;
@@ -100,9 +95,8 @@ unsafe impl Hal for Amd64Hal {
 		let tls_self_ptr_high = ((ptr as usize) >> 32) as u32;
 		unsafe {
 			asm!(
-				"mov ecx, 0xc0000100", // ecx = FSBase MSR
 				"wrmsr",
-				in("edx") tls_self_ptr_high, in("eax") tls_self_ptr_low, out("ecx") _
+				in("edx") tls_self_ptr_high, in("eax") tls_self_ptr_low, in("ecx") 0xc0000100u32 // FSBase MSR
 			);
 		}
 	}
