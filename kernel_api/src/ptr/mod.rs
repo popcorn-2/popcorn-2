@@ -1,9 +1,7 @@
 #![unstable(feature = "kernel_ptr", issue = "none")]
 
-use alloc::boxed::Box;
 use core::fmt;
 use core::marker::PhantomData;
-use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
 #[cfg(feature = "full")]

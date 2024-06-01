@@ -6,7 +6,7 @@ use core::ptr;
 use auto_impl::auto_impl;
 use log::debug;
 use crate::memory::Page;
-use crate::sync::{OnceLock, RwLock};
+use crate::sync::RwLock;
 use super::AllocError;
 
 #[auto_impl(&, Box, Arc)]

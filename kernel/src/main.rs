@@ -52,7 +52,6 @@
 #![feature(kernel_virtual_memory)]
 #![feature(kernel_mmap)]
 #![feature(kernel_internals)]
-#![feature(kernel_physical_allocator_v2)]
 #![feature(kernel_physical_allocator_non_contiguous)]
 #![feature(kernel_physical_allocator_location)]
 #![feature(kernel_ptr)]

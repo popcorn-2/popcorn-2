@@ -83,7 +83,7 @@ macro_rules! user_ptr_impl_sized {
 		    impls::checked_memcpy(self.0.cast(), dest.cast(), ::core::mem::size_of::<T>() * count).ok_or(PointerError::InvalidAddress)
 	    }
 
-	    pub fn copy_to_user(self, dest: User<*mut T>, count: usize) -> Result<(), PointerError> {
+	    pub fn copy_to_user(self, _dest: User<*mut T>, _count: usize) -> Result<(), PointerError> {
 		    todo!()
 	    }
     };
@@ -151,7 +151,7 @@ impl<T> User<*mut T> {
 		}.ok_or(PointerError::InvalidAddress)
 	}
 
-	pub unsafe fn write_unaligned(self, val: T) -> Result<(), PointerError> {
+	pub unsafe fn write_unaligned(self, _val: T) -> Result<(), PointerError> {
 		todo!()
 	}
 

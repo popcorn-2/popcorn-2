@@ -1,4 +1,4 @@
-use core::arch::asm;
+use core::cell::Cell;
 use core::convert::Into;
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
