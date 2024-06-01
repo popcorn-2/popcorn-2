@@ -175,7 +175,7 @@ dependencies = [
  "bitflags 2.4.2",
  "derive_more",
  "elf",
- "hashbrown 0.14.3",
+ "hashbrown 0.14.5",
  "kernel_api",
  "log",
  "lvgl-sys",
@@ -344,9 +344,21 @@ dependencies = [
  "bitflags 2.4.2",
  "debug_stub_derive",
  "derive_more",
- "hashbrown 0.14.3",
+ "hashbrown 0.14.5",
  "log",
  "num_enum 0.6.1",
+]
+
+[[package]]
+name = "enum_dispatch"
+version = "0.3.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa18ce2bc66555b3218614519ac839ddb759a7d6720732f979ef8d13be147ecd"
+dependencies = [
+ "once_cell",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.48",
 ]
 
 [[package]]
@@ -429,9 +441,9 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.14.3"
+version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "290f1a1d9242c78d09ce40a5e87e7554ee637af1351968159f4952f028f75604"
+checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 dependencies = [
  "ahash 0.8.7",
  "allocator-api2",
@@ -468,7 +480,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "824b2ae422412366ba479e8111fd301f7b5faece8149317bb81925979a53f520"
 dependencies = [
  "equivalent",
- "hashbrown 0.14.3",
+ "hashbrown 0.14.5",
 ]
 
 [[package]]
@@ -508,6 +520,8 @@ dependencies = [
  "bitmap_allocator",
  "crossbeam-queue",
  "derive_more",
+ "enum_dispatch",
+ "hashbrown 0.14.5",
  "kernel_api",
  "kernel_default_heap",
  "log",
@@ -590,9 +604,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.20"
+version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
+checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 
 [[package]]
 name = "lvgl-sys"
@@ -1121,6 +1135,7 @@ version = "0.2.1"
 source = "git+https://github.com/nbdd0121/unwinding.git?rev=d7cd46e#d7cd46e009ed1dbc762dbaaf4402f57973b300bb"
 dependencies = [
  "gimli",
+ "log",
 ]
 
 [[package]]
