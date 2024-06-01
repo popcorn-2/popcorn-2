@@ -332,7 +332,32 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 	}
 
 	debug!("I/O APICs: {:?}", ioapics);
-	debug!("Legacy mapping: {:?}", legacy_gsi_mapping);
+
+	{
+		macro_rules! ioapic_legacy_setup {
+            ($ioapics:ident.$entry:ident) => {
+	            let entry_meta = ioapics.legacy_map(). $entry;
+				if let Some(mut redirection_entry) = $ioapics .redirection_entry(entry_meta.0) {
+					redirection_entry.update(|entry| {
+						entry.trigger_mode = entry_meta.1;
+						entry.polarity = entry_meta.2;
+						entry.mask = true;
+					});
+				}
+            };
+		}
+		
+		ioapic_legacy_setup!(ioapics.pit);
+		ioapic_legacy_setup!(ioapics.ps2_keyboard);
+		ioapic_legacy_setup!(ioapics.com2);
+		ioapic_legacy_setup!(ioapics.com1);
+		ioapic_legacy_setup!(ioapics.lpt2);
+		ioapic_legacy_setup!(ioapics.floppy);
+		ioapic_legacy_setup!(ioapics.rtc);
+		ioapic_legacy_setup!(ioapics.ps2_mouse);
+		ioapic_legacy_setup!(ioapics.ata_primary);
+		ioapic_legacy_setup!(ioapics.ata_secondary);
+	}
 
 	let apic = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_physical_region::<Apic>(apic_addr as usize, mem::size_of::<Apic>()) };
 	let apic_boxed = unsafe { MmioCell::new(apic.virtual_start().as_ptr()) };
