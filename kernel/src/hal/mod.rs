@@ -7,12 +7,10 @@ pub mod timing;
 
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
-use core::arch::asm;
 use core::fmt::Debug;
 use core::mem::MaybeUninit;
 use kernel_api::memory::mapping;
 use kernel_api::memory::mapping::Stack;
-use kernel_api::memory::physical::highmem;
 use kernel_api::memory::r#virtual::Global;
 pub(crate) use macros::Hal;
 use paging2::{KTable, TTable, TTableTy};
@@ -47,7 +45,7 @@ pub unsafe trait Hal {
 	const MAX_IRQ_NUM: usize;
 }
 
-const _: () = { if core::mem::align_of::<<HalTy as Hal>::KTableTy>() != 8 { panic!("for... reasons... KTables must be 8 byte aligned"); } };
+const _: () = if core::mem::align_of::<<HalTy as Hal>::KTableTy>() != 8 { panic!("for... reasons... KTables must be 8 byte aligned"); };
 
 pub trait FormatWriter {
 	fn print(fmt: core::fmt::Arguments);

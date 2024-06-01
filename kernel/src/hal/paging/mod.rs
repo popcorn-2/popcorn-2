@@ -1,5 +1,5 @@
 #[allow(unused_imports)] use crate::prelude::*;
-use core::fmt::{Debug, Formatter};
+use core::fmt::Formatter;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use kernel_api::memory::allocator::{BackingAllocator};

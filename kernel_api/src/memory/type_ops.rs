@@ -1,4 +1,4 @@
-use core::cmp::{Ord, Ordering, PartialEq, PartialOrd};
+use core::cmp::{Ordering, PartialEq, PartialOrd};
 use core::iter::Step;
 use core::ops::{Add, Sub};
 

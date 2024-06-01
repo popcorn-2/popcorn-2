@@ -1,15 +1,11 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
-use core::arch::x86_64::CpuidResult;
-use core::cell::{OnceCell, RefCell, UnsafeCell};
+use kernel_api::sync::Mutex;
 use core::fmt::Debug;
 use core::mem;
-use core::ptr::addr_of_mut;
-use core::time::Duration;
 use acpi::madt::MadtEntry;
 use acpi::{AcpiHandler, PhysicalMapping};
 use crate::hal::timing::{Eoi, Timer};
-use bit_field::BitField;
 use kernel_api::sync::{OnceLock, Syncify};
 use kernel::hal::acpi::PagingReason;
 use macros::Fields;
@@ -379,6 +375,7 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 
 pub fn send_self_ipi(vector: usize) {
 	assert!(48 <= vector && vector < 256, "Invalid IPI vector");
+	#[cfg(feature = "log.scheduler")] debug!("self IPI vector {vector:#x}");
 	let vector = vector as u32;
 	
 	let lapic = LAPIC.0.get().expect("APIC not initialised");

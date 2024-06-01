@@ -65,4 +65,5 @@ impl VirtualAllocator for Bootstrap {
 	fn deallocate_contiguous(&self, _: Page, _: usize) {}
 }
 
+#[allow(unused_imports)]
 pub use kernel_api::memory::r#virtual::Global;

@@ -11,6 +11,7 @@
 //! This module exports two common flavours of memory map: [`Mapping`] and [`Stack`].
 
 #![unstable(feature = "kernel_mmap", issue = "24")]
+#![allow(deprecated)]
 
 use core::fmt::{Debug, Formatter};
 use core::marker::PhantomData;
@@ -49,7 +50,7 @@ unsafe impl BackingAllocator for Highmem {
 		highmem().deallocate_contiguous(base, frame_count)
 	}
 
-	fn push(&mut self, allocation: AllocationMeta) {
+	fn push(&mut self, _allocation: AllocationMeta) {
 		unimplemented!()
 	}
 
@@ -153,6 +154,7 @@ impl OldMapping<Highmem> {
 				.map_err(|_| AllocError)
 	}
 
+	#[allow(unreachable_code, unused_variables)]
 	pub fn resize(&mut self, new_len: usize) -> Result<(), AllocError> {
 		match self.resize_inner(new_len) {
 			Ok(_) => Ok(()),
@@ -329,12 +331,12 @@ pub enum Laziness { Lazy, Prefault }
 /// with read and write permissions only.
 pub struct Config<'physical_allocator, A: VirtualAllocator> {
 	physical_location: Location<Frame>,
-	virtual_location: Location<Page>,
-	laziness: Laziness,
+	_virtual_location: Location<Page>,
+	_laziness: Laziness,
 	length: NonZeroUsize,
 	physical_allocator: &'physical_allocator dyn BackingAllocator,
 	virtual_allocator: A,
-	protection: Protection,
+	_protection: Protection,
 }
 
 impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
@@ -342,12 +344,12 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	pub fn new(length: NonZeroUsize) -> Config<'static, Global> {
 		Config {
 			physical_location: Location::Any,
-			virtual_location: Location::Any,
-			laziness: Laziness::Lazy,
+			_virtual_location: Location::Any,
+			_laziness: Laziness::Lazy,
 			length,
 			physical_allocator: highmem(),
 			virtual_allocator: Global,
-			protection: Protection::RWX,
+			_protection: Protection::RWX,
 		}
 	}
 
@@ -367,7 +369,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 
 	pub fn protection(self, protection: Protection) -> Self {
 		Config {
-			protection,
+			_protection: protection,
 			.. self
 		}
 	}
@@ -381,7 +383,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 
 	pub fn virtual_location(self, location: Location<Page>) -> Self {
 		Config {
-			virtual_location: location,
+			_virtual_location: location,
 			.. self
 		}
 	}

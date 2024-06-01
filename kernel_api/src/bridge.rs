@@ -33,7 +33,6 @@ pub mod paging {
 	use core::marker::PhantomData;
 	use core::ops::DerefMut;
 	use crate::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
-	use crate::memory::allocator::{BackingAllocator};
 	use crate::sync::RwWriteGuard;
 
 	// FIXME: replace with extern type when alignment can be specified

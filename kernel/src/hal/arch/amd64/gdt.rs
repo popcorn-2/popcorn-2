@@ -2,7 +2,7 @@
 use core::arch::asm;
 use core::mem::offset_of;
 use kernel_api::sync::OnceLock;
-use crate::hal::arch::amd64::tss::{Tss, TSS};
+use crate::hal::arch::amd64::tss::Tss;
 
 pub static GDT: OnceLock<Gdt> = OnceLock::new();
 
@@ -158,7 +158,7 @@ pub struct Pointer {
 }
 
 impl From<&'static Gdt> for Pointer {
-    fn from(value: &'static Gdt) -> Self {
+    fn from(_value: &'static Gdt) -> Self {
         todo!()
     }
 }

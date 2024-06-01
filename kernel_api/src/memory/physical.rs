@@ -4,7 +4,7 @@ use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
 use crate::memory::allocator::{BackingAllocator, Location, SpecificLocation};
-use crate::memory::{allocator, AllocError, Frame};
+use crate::memory::{AllocError, Frame};
 use crate::sync::RwLock;
 
 #[unstable(feature = "kernel_internals", issue = "none")]

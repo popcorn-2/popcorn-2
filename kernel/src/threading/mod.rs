@@ -92,7 +92,7 @@ impl PartialEq for SchedulerEvent {
 
 impl Eq for SchedulerEvent {}
 
-fn push_to_global_sleep_queue(wake_time: Instant) {
+fn push_to_global_sleep_queue(_wake_time: Instant) {
 	todo!()
 }
 

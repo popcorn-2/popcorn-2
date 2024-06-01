@@ -51,7 +51,7 @@ impl<'a, T: Clone, U: ?Sized> Clone for Cow<'a, T, U> {
 
 	fn clone_from(&mut self, source: &Self) {
 		match (self, source) {
-			(&mut Self::Owned(ref mut dest), &Self::Owned(ref o)) => o.clone_into(dest),
+			(&mut Self::Owned(ref mut dest), Self::Owned(o)) => o.clone_into(dest),
 			(t, s) => *t = s.clone(),
 		}
 	}
@@ -105,6 +105,7 @@ impl<'a, T, U: ?Sized + Hash> Hash for Cow<'a, T, U> where Self: Deref<Target = 
 
 impl<'a, T, U: ?Sized> Borrow<U> for Cow<'a, T, U> where Self: Deref<Target = U> {
 	fn borrow(&self) -> &U {
+		#[allow(clippy::explicit_auto_deref)]
 		&**self
 	}
 }

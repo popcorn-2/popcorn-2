@@ -61,7 +61,7 @@ pub extern "C" fn syscall_entry(proto_method: u128, a: usize, b: usize, c: usize
 	}
 }
 
-fn syscall(proto_method: u128, a: usize, b: usize, c: usize, d: usize) -> Result<NonNegativeIsize, Error> {
+fn syscall(proto_method: u128, a: usize, b: usize, _c: usize, _d: usize) -> Result<NonNegativeIsize, Error> {
 	if proto_method == 0 /* open@core.socket */ {
 		// For now, we special case `open` as the only static function (not taking a `Handle`, and
 		// thus requiring extra knowledge by the kernel to know where to dispatch it)
@@ -75,9 +75,9 @@ fn syscall(proto_method: u128, a: usize, b: usize, c: usize, d: usize) -> Result
 
 		open(ptr).map(|handle| handle.to_arg())
 	} else {
-		let handle = Handle::from_arg(a);
+		let _handle = Handle::from_arg(a);
 		
-		let Some(meta) = METHODS.read().get(&proto_method).map(|&x| x) else {
+		let Some(_meta) = METHODS.read().get(&proto_method).map(|&x| x) else {
 			yeet!(Error::Unimplemented);
 		};
 

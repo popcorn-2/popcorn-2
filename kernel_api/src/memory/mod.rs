@@ -2,11 +2,6 @@
 //! interfaces for memory related kernel modules to implement (such as [`BackingAllocator`](allocator::BackingAllocator))
 #![stable(feature = "kernel_core_api", since = "0.1.0")]
 
-use core::num::NonZeroUsize;
-use core::ops::Deref;
-#[cfg(feature = "full")]
-use crate::sync::RwReadGuard;
-
 #[cfg(feature = "full")]
 pub mod allocator;
 #[cfg(feature = "full")]

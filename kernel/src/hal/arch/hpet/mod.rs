@@ -2,11 +2,9 @@
 use core::fmt::{Debug, Formatter};
 use core::mem;
 use core::ptr::addr_of_mut;
-use acpi::AcpiHandler;
 use macros::Fields;
-use crate::hal::acpi::{AcpiHandlerExt, Handler, XPhysicalMapping};
+use crate::hal::acpi::{AcpiHandlerExt, XPhysicalMapping};
 use crate::mmio::MmioCell;
-use crate::projection::Project;
 use bit_field::BitField;
 use kernel::hal::acpi::PagingReason;
 
