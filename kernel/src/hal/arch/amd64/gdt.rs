@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
 use core::mem::offset_of;
 use kernel_api::sync::OnceLock;

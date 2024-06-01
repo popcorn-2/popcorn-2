@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
 use core::marker::PhantomData;
 

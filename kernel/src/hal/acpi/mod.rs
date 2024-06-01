@@ -1,10 +1,10 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::num::NonZeroUsize;
 use core::ops::{Deref, DerefMut, Div};
 use core::ptr::{from_raw_parts, from_raw_parts_mut, NonNull, Pointee};
 use acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
-use log::debug;
 use kernel_api::memory::mapping::{Config, Location, Mapping};
 use kernel_api::memory::{AllocError, Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::allocator::{BackingAllocator, SpecificLocation};

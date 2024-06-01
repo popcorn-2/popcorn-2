@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{Debug, Display};
 
 pub trait Timer {

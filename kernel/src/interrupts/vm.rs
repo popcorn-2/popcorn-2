@@ -1,5 +1,5 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
-use alloc::vec::Vec;
 use core::fmt::{Display, Formatter};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

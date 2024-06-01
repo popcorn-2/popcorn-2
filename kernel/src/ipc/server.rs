@@ -1,4 +1,4 @@
-use alloc::boxed::Box;
+#[allow(unused_imports)] use crate::prelude::*;
 use alloc::sync::Arc;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -7,7 +7,6 @@ use hashbrown::HashMap;
 use kernel_api::sync::{LazyLock, RwLock};
 use utils::better_cow::Cow;
 use crate::ipc::Error;
-use crate::yeet;
 
 use super::root::RootServer;
 use super::userspace::UserspaceServer;

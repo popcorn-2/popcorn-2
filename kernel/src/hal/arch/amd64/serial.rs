@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{self, Arguments, Write};
 use bitflags::{bitflags, Flags};
 use kernel_api::sync::{LazyLock, Mutex};

@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{Formatter, Pointer};
 use crate::projection::{Field, Project, ProjectSuper};
 

@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
 use core::arch::x86_64::CpuidResult;
 use core::cell::{OnceCell, RefCell, UnsafeCell};
@@ -7,7 +8,6 @@ use core::ptr::addr_of_mut;
 use core::time::Duration;
 use acpi::madt::MadtEntry;
 use acpi::{AcpiHandler, PhysicalMapping};
-use log::{debug, info, warn};
 use crate::hal::timing::{Eoi, Timer};
 use bit_field::BitField;
 use kernel_api::sync::{OnceLock, Syncify};

@@ -69,13 +69,12 @@ extern crate unwinding;
 
 extern crate self as kernel;
 
+#[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
 use core::alloc::Layout;
 use core::cell::UnsafeCell;
 use core::panic::PanicInfo;
 use core::ptr::{addr_of, slice_from_raw_parts_mut};
-use log::{debug, error, info, trace, warn};
 use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
 use core::{future, mem, ptr};
 use core::cmp::{max, min};
@@ -86,6 +85,21 @@ use kernel_api::memory::mapping::OldMapping;
 use hal::{HalTy, Hal, ThreadControlBlock, SaveState};
 use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
+use kernel_api::memory::{Frame};
+use kernel_api::memory::allocator::{Config, SizedBackingAllocator, SpecificLocation};
+use kernel_api::memory::mapping::Stack;
+use kernel_api::memory::physical::highmem;
+use kernel_api::memory::r#virtual::Global;
+use kernel_api::ptr::Unique;
+use kernel_api::sync::Mutex;
+use kernel_api::time::Instant;
+use crate::hal::paging2::{construct_tables, TTable, TTableTy};
+use utils::handoff::MemoryType;
+use crate::hal::acpi::XPhysicalMapping;
+use crate::hal::exception::{PageFault, Ty};
+use crate::memory::paging::ktable;
+use crate::memory::watermark_allocator::WatermarkAllocator;
+use crate::task::executor::Executor;
 
 mod sync;
 mod memory;
@@ -101,6 +115,7 @@ mod projection;
 mod mmio;
 mod interrupts;
 mod ipc;
+mod prelude;
 
 #[cfg(test)]
 pub mod test_harness;
@@ -278,22 +293,6 @@ extern "sysv64" fn kstart(handoff_data: &'static utils::handoff::Data) -> ! {
 		unreachable!("test harness returned")
 	}
 }
-
-use kernel_api::memory::{Frame};
-use kernel_api::memory::allocator::{Config, SizedBackingAllocator, SpecificLocation};
-use kernel_api::memory::mapping::Stack;
-use kernel_api::memory::physical::highmem;
-use kernel_api::memory::r#virtual::Global;
-use kernel_api::ptr::Unique;
-use kernel_api::sync::Mutex;
-use kernel_api::time::Instant;
-use crate::hal::paging2::{construct_tables, TTable, TTableTy};
-use utils::handoff::MemoryType;
-use crate::hal::acpi::XPhysicalMapping;
-use crate::hal::exception::{PageFault, Ty};
-use crate::memory::paging::ktable;
-use crate::memory::watermark_allocator::WatermarkAllocator;
-use crate::task::executor::Executor;
 
 fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let _ = logging::init();

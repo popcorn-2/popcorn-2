@@ -1,11 +1,10 @@
-use alloc::boxed::Box;
+#[allow(unused_imports)] use crate::prelude::*;
 use core::any::Any;
 use core::ptr;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use unwinding::abi::UnwindReasonCode;
 use unwinding::panic::catch_unwind as catch_unwind_impl;
 use kernel_api::sync::RwLock;
-use crate::sprintln;
 
 static PANIC_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub static SYMBOL_MAP: RwLock<Option<&'static [u8]>> = RwLock::new(None);

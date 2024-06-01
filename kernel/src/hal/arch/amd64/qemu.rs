@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use crate::hal::arch::amd64::port::Port;
 
 pub fn debug_con_write(data: &[u8]) {

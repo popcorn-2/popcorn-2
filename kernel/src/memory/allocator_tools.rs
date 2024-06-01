@@ -1,3 +1,5 @@
+#[allow(unused_imports)] use crate::prelude::*;
+
 use core::alloc::AllocError;
 use core::num::NonZeroUsize;
 use kernel_exports::memory::Frame;

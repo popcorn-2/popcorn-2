@@ -1,7 +1,8 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::alloc::{GlobalAlloc, Layout};
 use core::fmt;
 use core::fmt::Write;
-use crate::{panicking::do_panic, panicking, sprintln};
+use crate::{panicking::do_panic, panicking};
 use kernel_api::sync::Mutex;
 use core::panic::PanicInfo;
 use test::{ShouldPanic, TestDescAndFn, TestFn, TestName};

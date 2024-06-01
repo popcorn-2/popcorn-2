@@ -1,3 +1,4 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::ops::{Deref, DerefMut};
 use kernel_api::sync::OnceLock;
 

@@ -1,8 +1,8 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
 use core::arch::x86_64::{__cpuid, CpuidResult};
 use core::num::NonZeroU128;
 use bit_field::BitField;
-use log::debug;
 use kernel_api::sync::OnceLock;
 
 #[export_name = "__popcorn_system_time"]

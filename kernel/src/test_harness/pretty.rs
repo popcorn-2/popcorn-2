@@ -1,6 +1,6 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::Arguments;
 use test::{ShouldPanic, TestName};
-use crate::{sprint, sprintln};
 use super::Formatter;
 
 pub struct Pretty;

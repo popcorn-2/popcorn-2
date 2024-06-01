@@ -1,3 +1,5 @@
+#[allow(unused_imports)] use crate::prelude::*;
+
 use core::fmt::Debug;
 use kernel_api::bridge::paging::MapPageError;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};

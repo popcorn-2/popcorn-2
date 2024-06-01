@@ -1,7 +1,7 @@
+#[allow(unused_imports)] use crate::prelude::*;
 use core::arch::{asm, global_asm};
 use core::num::NonZeroU8;
 use core::ops::{Index, IndexMut};
-use log::{debug, info, warn};
 
 pub mod handler {
 	use bitflags::bitflags;
