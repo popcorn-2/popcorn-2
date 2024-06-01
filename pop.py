@@ -142,7 +142,7 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
             "-p", "kernel",
             "--target", "x86_64-unknown-popcorn.json",
             "-Zbuild-std=compiler_builtins,core,alloc", "-Zbuild-std-features=compiler-builtins-mem,core/debug_refcell",
-            f"--features=\"{args.kernel_features}\"",
+            f"--features={args.kernel_features}",
             *kernel_cargo_flags,
             "--",
             "-C", "link-args=-export-dynamic",
