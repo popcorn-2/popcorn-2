@@ -292,7 +292,6 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 
 	let mut apic_addr = madt.local_apic_address as u64;
 	let mut ioapics = Ioapics::new();
-	let mut legacy_gsi_mapping = LegacyMap::pc_default();
 
 	for entry in madt.entries() {
 		match entry {
@@ -312,7 +311,7 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 					let level = if iso.flags & 2 == 0 { ActiveLevel::High } else { ActiveLevel::Low };
 					let mode = if iso.flags & 8 == 0 { TriggerMode::Edge } else { TriggerMode::Level };
 					let entry = (iso.global_system_interrupt, mode, level);
-
+					let legacy_gsi_mapping = ioapics.legacy_map();
 					match iso.irq {
 						0 => legacy_gsi_mapping.pit = entry,
 						1 => legacy_gsi_mapping.ps2_keyboard = entry,

@@ -42,18 +42,24 @@ enum DestinationMode {
 
 pub struct Ioapics<H: AcpiHandler> {
 	ioapics: RangedBTreeMap<usize, Ioapic<H>>, // would be nice if this could be made intrusive to not duplicate entry count between key and value
+	legacy_map: LegacyMap,
 }
 
 impl<H: AcpiHandler> Ioapics<H> {
 	pub const fn new() -> Self {
 		Self {
 			ioapics: RangedBTreeMap::new(),
+			legacy_map: LegacyMap::pc_default(),
 		}
 	}
 
 	pub fn push(&mut self, gsi: usize, ioapic: Ioapic<H>) {
 		let range = gsi..(gsi + ioapic.size());
 		self.ioapics.insert(range, ioapic).unwrap()
+	}
+
+	pub fn legacy_map(&mut self) -> &mut LegacyMap {
+		&mut self.legacy_map
 	}
 }
 
