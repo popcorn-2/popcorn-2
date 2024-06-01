@@ -53,6 +53,7 @@ def run_cargo_command(subcommand: str, *cargo_args: [str], env: dict[str, str] |
 
     result = subprocess.run(command, env={**os.environ, **env}, capture_output=True, text=True)
     if result.returncode != 0:
+        print("-- stdout --")
         for line in result.stdout.strip().split("\n"):
             try:
                 data = json.loads(line.strip())
@@ -65,6 +66,10 @@ def run_cargo_command(subcommand: str, *cargo_args: [str], env: dict[str, str] |
                         print(data["message"], data["spans"])
             except json.decoder.JSONDecodeError:
                 print(line)
+        print("-- stderr --")
+        for line in result.stderr.strip().split("\n"):
+            print(line)
+        print("------------")
         raise RuntimeError("cargo failed")
 
     for line in reversed(result.stdout.strip().split("\n")):
