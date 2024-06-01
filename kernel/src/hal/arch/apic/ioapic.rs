@@ -86,15 +86,15 @@ impl<H: AcpiHandler> Ioapic<H> {
 	pub(super) unsafe fn new(ioapic_base: usize, handler: H) -> Self {
 		let mapping = unsafe { handler.map_physical_region::<Registers>(ioapic_base, mem::size_of::<Registers>()) };
 
-		let mut temp_self = Self {
+		let mut this = Self {
 			cell: unsafe { MmioCell::new(mapping.virtual_start().as_ptr()) },
 			mapping,
 			num_entries: 0,
 		};
 
-		temp_self.num_entries = temp_self.version_register().max_redirection_entry() + 1;
+		this.num_entries = this.version_register().max_redirection_entry() + 1;
 
-		temp_self
+		this
 	}
 
 	pub fn version_register(&mut self) -> VersionRegister {
