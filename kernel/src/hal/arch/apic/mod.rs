@@ -122,6 +122,7 @@ impl MmioCell<Apic> {
 struct Lapic(OnceLock<Syncify<IrqCell<PhysicalMapping<hal::acpi::Handler<'static>, Apic>>>>);
 
 static LAPIC: Lapic = Lapic(OnceLock::new());
+pub static IOAPICS: OnceLock<Mutex<Syncify<Ioapics<hal::acpi::Handler<'static>>>>> = OnceLock::new();
 
 pub type LapicTimer = &'static IrqCell<PhysicalMapping<hal::acpi::Handler<'static>, Apic>>;
 
@@ -292,7 +293,6 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 
 	let mut apic_addr = madt.local_apic_address as u64;
 	let mut ioapics = Ioapics::new();
-	let mut legacy_gsi_mapping = LegacyMap::pc_default();
 
 	for entry in madt.entries() {
 		match entry {
@@ -312,7 +312,7 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 					let level = if iso.flags & 2 == 0 { ActiveLevel::High } else { ActiveLevel::Low };
 					let mode = if iso.flags & 8 == 0 { TriggerMode::Edge } else { TriggerMode::Level };
 					let entry = (iso.global_system_interrupt, mode, level);
-
+					let legacy_gsi_mapping = ioapics.legacy_map();
 					match iso.irq {
 						0 => legacy_gsi_mapping.pit = entry,
 						1 => legacy_gsi_mapping.ps2_keyboard = entry,
@@ -333,7 +333,32 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 	}
 
 	debug!("I/O APICs: {:?}", ioapics);
-	debug!("Legacy mapping: {:?}", legacy_gsi_mapping);
+
+	{
+		macro_rules! ioapic_legacy_setup {
+            ($ioapics:ident.$entry:ident) => {
+	            let entry_meta = ioapics.legacy_map(). $entry;
+				if let Some(mut redirection_entry) = $ioapics .redirection_entry(entry_meta.0) {
+					redirection_entry.update(|entry| {
+						entry.trigger_mode = entry_meta.1;
+						entry.polarity = entry_meta.2;
+						entry.mask = true;
+					});
+				}
+            };
+		}
+		
+		ioapic_legacy_setup!(ioapics.pit);
+		ioapic_legacy_setup!(ioapics.ps2_keyboard);
+		ioapic_legacy_setup!(ioapics.com2);
+		ioapic_legacy_setup!(ioapics.com1);
+		ioapic_legacy_setup!(ioapics.lpt2);
+		ioapic_legacy_setup!(ioapics.floppy);
+		ioapic_legacy_setup!(ioapics.rtc);
+		ioapic_legacy_setup!(ioapics.ps2_mouse);
+		ioapic_legacy_setup!(ioapics.ata_primary);
+		ioapic_legacy_setup!(ioapics.ata_secondary);
+	}
 
 	let apic = unsafe { hal::acpi::Handler::new(&hal::acpi::Allocator).map_physical_region::<Apic>(apic_addr as usize, mem::size_of::<Apic>()) };
 	let apic_boxed = unsafe { MmioCell::new(apic.virtual_start().as_ptr()) };
@@ -371,6 +396,7 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 	timer_lvt.write(val);
 
 	LAPIC.0.get_or_init(|| unsafe { Syncify::new(IrqCell::new(apic)) });
+	IOAPICS.get_or_init(|| unsafe { Mutex::new(Syncify::new(ioapics)) });
 }
 
 pub fn send_self_ipi(vector: usize) {
