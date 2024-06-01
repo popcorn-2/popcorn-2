@@ -5,13 +5,13 @@ use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
 /// A mutual exclusion primitive useful for protecting shared data
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub type Mutex<T> = lock_api::Mutex<RawSpinlock, T>;
+pub type Mutex<T: ?Sized> = lock_api::Mutex<RawSpinlock, T>;
 #[unstable(feature = "kernel_spinlocks", issue = "none")]
-pub type Spinlock<T> = lock_api::Mutex<RawSpinlock, T>;
+pub type Spinlock<T: ?Sized> = lock_api::Mutex<RawSpinlock, T>;
 
 /// An RAII implementation of a “scoped lock” of a mutex. When this structure is dropped (falls out of scope), the lock will be unlocked.
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub type MutexGuard<'a, T> = lock_api::MutexGuard<'a, RawSpinlock, T>;
+pub type MutexGuard<'a, T: ?Sized> = lock_api::MutexGuard<'a, RawSpinlock, T>;
 
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 pub trait MutexGuardExt {
@@ -76,6 +76,12 @@ pub struct RawSpinlock {
     state: AtomicU8,
     irq_state: AtomicUsize
 }
+
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
+unsafe impl Send for RawSpinlock {}
+
+#[stable(feature = "kernel_core_api", since = "0.1.0")]
+unsafe impl Sync for RawSpinlock {}
 
 impl RawSpinlock {
     unsafe fn unlock_no_interrupts(&self) {
