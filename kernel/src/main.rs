@@ -101,6 +101,7 @@ mod projection;
 mod mmio;
 mod interrupts;
 mod ipc;
+mod prelude;
 
 #[cfg(test)]
 pub mod test_harness;
