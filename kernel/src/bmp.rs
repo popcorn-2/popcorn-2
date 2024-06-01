@@ -2,6 +2,7 @@ use core::mem;
 use core::ptr::addr_of;
 use acpi::AcpiHandler;
 use acpi::bgrt::Bgrt;
+use kernel::hal::acpi::PagingReason;
 use crate::hal::acpi::{Handler, XPhysicalMapping, AcpiHandlerExt};
 
 #[repr(C, packed)]
@@ -79,6 +80,12 @@ impl<'a> IntoIterator for Bmp<'a> {
 			x: 0,
 			y: 0,
 		}
+	}
+}
+
+impl PagingReason for BmpHeader {
+	fn reason() -> u16 {
+		crate::paging_codes::BGRT_BMP_HEADER
 	}
 }
 

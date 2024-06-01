@@ -5,6 +5,7 @@ use acpi::{AcpiHandler, PhysicalMapping};
 use ranged_btree::RangedBTreeMap;
 use bit_field::BitField;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+use kernel::hal::acpi::PagingReason;
 use macros::Fields;
 use crate::mmio::MmioCell;
 use crate::projection::Project;
@@ -71,6 +72,12 @@ pub struct Ioapic<H: AcpiHandler> {
 	mapping: PhysicalMapping<H, Registers>,
 	cell: MmioCell<Registers>,
 	num_entries: u32,
+}
+
+impl PagingReason for Registers {
+	fn reason() -> u16 {
+		crate::paging_codes::IOAPIC_REGISTERS
+	}
 }
 
 impl<H: AcpiHandler> Ioapic<H> {

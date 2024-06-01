@@ -11,6 +11,7 @@ use log::{debug, info, warn};
 use crate::hal::timing::{Eoi, Timer};
 use bit_field::BitField;
 use kernel_api::sync::{OnceLock, Syncify};
+use kernel::hal::acpi::PagingReason;
 use macros::Fields;
 use crate::hal;
 use timer::TimerMode;
@@ -107,6 +108,12 @@ apic_registers! {
 		_res42,
 		_res43,
 		timer_divide_config,
+	}
+}
+
+impl PagingReason for Apic {
+	fn reason() -> u16 {
+		crate::paging_codes::APIC_REGISTERS
 	}
 }
 

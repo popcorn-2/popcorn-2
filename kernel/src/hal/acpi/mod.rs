@@ -71,6 +71,52 @@ impl<'a> Handler<'a> {
 	}
 }
 
+pub trait PagingReason {
+	fn reason() -> u16;
+}
+
+impl<T: ?Sized> PagingReason for T {
+	default fn reason() -> u16 {
+		crate::paging_codes::PHYSMAP_OTHER
+	}
+}
+
+impl PagingReason for acpi::sdt::SdtHeader {
+	fn reason() -> u16 {
+		crate::paging_codes::ACPI_SDT_HEADER
+	}
+}
+
+impl PagingReason for acpi::rsdp::Rsdp {
+	fn reason() -> u16 {
+		crate::paging_codes::ACPI_RSDP
+	}
+}
+
+impl PagingReason for acpi::hpet::HpetTable {
+	fn reason() -> u16 {
+		crate::paging_codes::ACPI_HPET
+	}
+}
+
+impl PagingReason for acpi::fadt::Fadt {
+	fn reason() -> u16 {
+		crate::paging_codes::ACPI_FADT
+	}
+}
+
+impl PagingReason for acpi::bgrt::Bgrt {
+	fn reason() -> u16 {
+		crate::paging_codes::ACPI_BGRT
+	}
+}
+
+impl PagingReason for [u8] {
+	fn reason() -> u16 {
+		crate::paging_codes::BYTE_ARRAY
+	}
+}
+
 impl AcpiHandlerExt for Handler<'_> {
 	unsafe fn map_region<T: ?Sized>(&self, physical_address: usize, size: usize, meta: <T as Pointee>::Metadata) -> XPhysicalMapping<Self, T> {
 		debug!("physical_address = {physical_address:#x}, size = {size:#x}");
@@ -83,7 +129,7 @@ impl AcpiHandlerExt for Handler<'_> {
 		let config = Config::<Global>::new(page_count)
 				.physical_location(Location::At(Frame::new(lower_addr)))
 				.physical_allocator(self.allocator);
-		let mapping = Mapping::new(config).expect("Unable to create physical mapping");
+		let mapping = Mapping::new(config, <T as PagingReason>::reason()).expect("Unable to create physical mapping");
 
 
 		let (frames, pages) = mapping.into_raw_parts();

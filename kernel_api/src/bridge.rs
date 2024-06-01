@@ -45,7 +45,7 @@ pub mod paging {
 
 		pub fn __popcorn_paging_ktable_translate_page(this: &KTable, page: Page) -> Option<Frame>;
 		pub fn __popcorn_paging_ktable_translate_address(this: &KTable, addr: VirtualAddress) -> Option<PhysicalAddress>;
-		pub fn __popcorn_paging_ktable_map_page(this: &mut KTable, page: Page, frame: Frame) -> Result<(), MapPageError>;
+		pub fn __popcorn_paging_ktable_map_page(this: &mut KTable, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
 		pub fn __popcorn_paging_ktable_unmap_page(this: &mut KTable, page: Page) -> Result<(), ()>;
 	}
 
@@ -60,7 +60,7 @@ pub mod paging {
 	#[derive(Debug, Copy, Clone)]
 	pub enum MapPageError {
 		AllocError,
-		AlreadyMapped
+		AlreadyMapped(u16)
 	}
 
 	#[doc(hidden)]

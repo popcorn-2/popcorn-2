@@ -11,7 +11,7 @@ use lvgl2::display::buffer::DrawBuffer;
 use lvgl2::display::driver::DisplayUpdate;
 use psf::PsfFont;
 use uefi::prelude::BootServices;
-use uefi::proto::console::gop::{BltOp, BltPixel, BltRegion, GraphicsOutput};
+use uefi::proto::console::gop::{BltOp, BltPixel, BltRegion, FrameBuffer, GraphicsOutput, ModeInfo};
 use uefi::proto::unsafe_protocol;
 
 use crate::logging::FormatWrite;
@@ -111,8 +111,9 @@ pub struct Gui<'gop> {
 	_phantom: PhantomPinned,*/
 	pub(crate) display: display::Display<'static, 'static, 'static>,
 	driver: AliasableBox<display::driver::Driver<'gop, 'static>>,
-	buffer: AliasableBox<DrawBuffer>
-	//_phantom: PhantomData<&'a mut u8>
+	buffer: AliasableBox<DrawBuffer>,
+	pub fb: (*mut u8, usize, ModeInfo),
+	//_phantom: PhantomData<&'a mut u8>,
 }
 
 impl Gui<'_> {
@@ -152,6 +153,7 @@ impl Gui<'_> {
 		use display::{Display, driver::Driver};
 
 		let (width, height) = gop.current_mode_info().resolution();
+		let fb = (gop.frame_buffer().as_mut_ptr(), gop.frame_buffer().size(), gop.current_mode_info());
 
 		lvgl2::init();
 
@@ -170,7 +172,8 @@ impl Gui<'_> {
 		Gui {
 			display,
 			driver,
-			buffer
+			buffer,
+			fb,
 		}
 	}
 }

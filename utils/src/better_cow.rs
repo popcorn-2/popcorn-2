@@ -1,5 +1,5 @@
 use alloc::borrow::ToOwned;
-use core::borrow::{Borrow, BorrowMut};
+use core::borrow::Borrow;
 use core::cmp::Ordering;
 use core::fmt::{Debug, Display, Formatter};
 use core::hash::{Hash, Hasher};

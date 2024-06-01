@@ -101,6 +101,7 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 			      segment.page_count.try_into().unwrap(),
 			      || allocator(1, AllocateType::AnyPages),
 			      flags,
+			      crate::paging_reasons::kernel_seg_to_reason(segment_meta.segment_type, segment_meta.segment_flags),
 		      ).unwrap();
 
 		      Ok(())

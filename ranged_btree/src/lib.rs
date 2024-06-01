@@ -14,7 +14,7 @@ pub struct RangedBTreeMap<K, V> {
 }
 
 impl<K, V> RangedBTreeMap<K, V> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             inner: BTreeMap::new()
         }
@@ -45,6 +45,10 @@ impl<K, V> RangedBTreeMap<K, V> where K: Ord {
 
     pub fn get_entry_at_point(&self, point: K) -> Option<&V> {
         self.inner.get(&KeyType::Point(point))
+    }
+    
+    pub fn get_entry_at_point_mut(&mut self, point: K) -> Option<&mut V> {
+        self.inner.get_mut(&KeyType::Point(point))
     }
 
     pub fn used_regions(&self) -> impl Iterator<Item = &Range<K>> + '_ {

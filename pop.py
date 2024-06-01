@@ -18,6 +18,7 @@ parser.add_argument("-j", "--jobs", action="store", type=int)
 parser.add_argument("--release", action="store_true")
 parser.add_argument("--accel", choices=["none", "kvm", "hvf"], default="none")
 parser.add_argument("--symbol-map", action="store_true")
+parser.add_argument("--kernel-features", default="")
 
 args, subcommand_parse = parser.parse_known_args()
 
@@ -52,15 +53,23 @@ def run_cargo_command(subcommand: str, *cargo_args: [str], env: dict[str, str] |
 
     result = subprocess.run(command, env={**os.environ, **env}, capture_output=True, text=True)
     if result.returncode != 0:
+        print("-- stdout --")
         for line in result.stdout.strip().split("\n"):
-            data = json.loads(line.strip())
-            if data["reason"] == "compiler-message":
-                if data["message"]["rendered"] is not None:
-                    ty, message = data["message"]["rendered"].split(":", 1)
-                    color = "\033[31m" if data["message"]["level"] == "error" else "\033[33m" if data["message"]["level"] == "warning" else ""
-                    print(f"{color}{ty}\033[0m:{message}")
-                else:
-                    print(data["message"], data["spans"])
+            try:
+                data = json.loads(line.strip())
+                if data["reason"] == "compiler-message":
+                    if data["message"]["rendered"] is not None:
+                        ty, message = data["message"]["rendered"].split(":", 1)
+                        color = "\033[31m" if data["message"]["level"] == "error" else "\033[33m" if data["message"]["level"] == "warning" else ""
+                        print(f"{color}{ty}\033[0m:{message}")
+                    else:
+                        print(data["message"], data["spans"])
+            except json.decoder.JSONDecodeError:
+                print(line)
+        print("-- stderr --")
+        for line in result.stderr.strip().split("\n"):
+            print(line)
+        print("------------")
         raise RuntimeError("cargo failed")
 
     for line in reversed(result.stdout.strip().split("\n")):
@@ -133,6 +142,7 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
             "-p", "kernel",
             "--target", "x86_64-unknown-popcorn.json",
             "-Zbuild-std=compiler_builtins,core,alloc", "-Zbuild-std-features=compiler-builtins-mem,core/debug_refcell",
+            f"--features={args.kernel_features}",
             *kernel_cargo_flags,
             "--",
             "-C", "link-args=-export-dynamic",

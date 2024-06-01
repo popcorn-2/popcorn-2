@@ -108,13 +108,13 @@ impl KTable for Amd64TTable {
 		pt.entries[page.pt_index()].pointed_frame()
 	}
 
-	fn map_page(&mut self, page: Page, frame: Frame) -> Result<(), MapPageError> {
+	fn map_page(&mut self, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
 		assert!(page.start().addr < 0xffff_8000_0000_0000, "TTable only handles lower half addresses");
 
 		let pdpt = self.pml4.pml4_mut().child_table_or_new(page.pml4_index(), &self.allocator)?;
 		let pd = pdpt.child_table_or_new(page.pdpt_index(), &self.allocator)?;
 		let pt = pd.child_table_or_new(page.pd_index(), &self.allocator)?;
-		pt.entries[page.pt_index()].point_to_frame(frame).map_err(|_| MapPageError::AlreadyMapped)
+		pt.entries[page.pt_index()].point_to_frame(frame, reason).map_err(|e| MapPageError::AlreadyMapped(e))
 	}
 
 	fn unmap_page(&mut self, page: Page) -> Result<(), ()> {
@@ -149,13 +149,13 @@ impl KTable for Amd64KTable {
 		pt.entries[page.pt_index()].pointed_frame()
 	}
 
-	fn map_page(&mut self, page: Page, frame: Frame) -> Result<(), MapPageError> {
+	fn map_page(&mut self, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
 		assert!(page.start().addr >= 0xffff_8000_0000_0000, "KTable only handles upper half addresses");
 
 		let pdpt = &mut self.tables.tables_mut()[page.pml4_index() - 256];
 		let pd = pdpt.child_table_or_new(page.pdpt_index(), &self.allocator)?;
 		let pt = pd.child_table_or_new(page.pd_index(), &self.allocator)?;
-		pt.entries[page.pt_index()].point_to_frame(frame).map_err(|_| MapPageError::AlreadyMapped)
+		pt.entries[page.pt_index()].point_to_frame(frame, reason).map_err(|e| MapPageError::AlreadyMapped(e))
 	}
 
 	fn unmap_page(&mut self, page: Page) -> Result<(), ()> {
@@ -196,7 +196,7 @@ impl TTable for Amd64TTable {
 
 		for (i, entry) in pml4.entries[256..].iter_mut().enumerate() {
 			let ktable_frame = ktable.tables.0 + i;
-			entry.point_to_frame(ktable_frame)
+			entry.point_to_frame(ktable_frame, 0)
 					.expect("Empty table should have no mappings");
 		}
 

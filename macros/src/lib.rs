@@ -1,6 +1,6 @@
 #![feature(proc_macro_diagnostic)]
 
-use proc_macro::{Span, TokenStream};
+use proc_macro::TokenStream;
 use std::str::FromStr;
 use syn::{Data, DeriveInput, parse_macro_input, Visibility};
 use syn::__private::ToTokens;

@@ -15,7 +15,7 @@ use core::ops::Range;
 use kernel_api::memory::{Frame, AllocError};
 use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, SizedBackingAllocator, SpecificLocation};
 use kernel_api::sync::Mutex;
-use log::{debug, warn};
+use log::debug;
 
 const BITS_PER_BITMAP_UNIT: usize = mem::size_of::<usize>() * 8;
 
@@ -56,7 +56,7 @@ impl BitmapAllocator {
         let (bitmap_index, bit_index) = self.frame_to_indices(frame);
         match state {
             FrameState::Allocated => self.bitmap[bitmap_index] &= !(1 << bit_index),
-            FrameState::Free => self.bitmap[bitmap_index] |= (1 << bit_index),
+            FrameState::Free => self.bitmap[bitmap_index] |= 1 << bit_index,
         }
 
         Ok(())

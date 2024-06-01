@@ -108,7 +108,7 @@ impl<L: ParentLevel> Table<L> {
 	pub(super) fn child_table_or_new(&mut self, idx: usize, allocator: impl BackingAllocator) -> Result<&mut Table<L::Child>, AllocError> {
 		if self.child_table_mut(idx).is_none() {
 			let table_frame = Table::<L::Child>::empty_with(allocator)?;
-			self.entries[idx].point_to_frame(table_frame).expect("Entry was not present");
+			self.entries[idx].point_to_frame(table_frame, 0).expect("Entry was not present");
 		}
 
 		Ok(self.child_table_mut(idx).expect("Just mapped this entry"))

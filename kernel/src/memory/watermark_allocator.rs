@@ -2,7 +2,7 @@ use core::num::NonZeroUsize;
 use core::ops::Range;
 use log::trace;
 use kernel_api::memory::allocator::{AllocateNonContiguousRet, AllocationMeta, BackingAllocator, Config, Location, SizedBackingAllocator, SpecificLocation};
-use kernel_api::memory::{Frame, PhysicalAddress, AllocError, physical, allocator};
+use kernel_api::memory::{Frame, PhysicalAddress, AllocError};
 use kernel_api::sync::Mutex;
 
 pub struct WatermarkAllocator<'mem_map>(Mutex<Inner<'mem_map>>);

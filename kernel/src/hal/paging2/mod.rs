@@ -21,7 +21,7 @@ pub trait KTable: Debug + Sized {
 		Some(physical.start() + diff)
 	}
 
-	fn map_page(&mut self, page: Page, frame: Frame) -> Result<(), MapPageError>;
+	fn map_page(&mut self, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
 	fn unmap_page(&mut self, page: Page) -> Result<(), ()>;
 }
 
@@ -51,8 +51,8 @@ fn translate_address(this: &<HalTy as Hal>::KTableTy, addr: VirtualAddress) -> O
 }
 
 #[export_name = "__popcorn_paging_ktable_map_page"]
-fn map_page(this: &mut <HalTy as Hal>::KTableTy, page: Page, frame: Frame) -> Result<(), MapPageError> {
-	<<HalTy as Hal>::KTableTy as KTable>::map_page(this, page, frame)
+fn map_page(this: &mut <HalTy as Hal>::KTableTy, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
+	<<HalTy as Hal>::KTableTy as KTable>::map_page(this, page, frame, reason)
 }
 
 #[export_name = "__popcorn_paging_ktable_unmap_page"]

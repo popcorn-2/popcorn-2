@@ -103,7 +103,7 @@ pub(crate) fn system_time() -> u128 {
 			let freq_khz = platform_info.get_bits(8..=15) * scaler_to_khz;
 
 			debug!("[TSC] MSR enumerated: {freq_khz}kHz");
-			Some((1000000, freq_khz.try_into().unwrap()))
+			NonZeroU128::new(freq_khz).map(|val| (1000000, val))
 		};
 
 		let multiplier = multiplier.or_else(intel_msr);

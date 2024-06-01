@@ -28,14 +28,14 @@ use core::{fmt, mem};
 use core::arch::asm;
 use core::fmt::Write;
 use core::panic::PanicInfo;
-use core::ptr::NonNull;
+use core::ptr::{NonNull, slice_from_raw_parts};
 use core::time::Duration;
 
 use bitflags::Flags;
 use derive_more::Display;
 use log::{debug, error, info, trace, warn};
 use more_asserts::assert_lt;
-use uefi::{Char16, Event, Guid};
+use uefi::{Char16, CStr16, Event, Guid};
 use uefi::data_types::{Align, Identify};
 use uefi::fs::{FileSystem, Path};
 use uefi::prelude::*;
@@ -49,6 +49,7 @@ use uefi::proto::media::partition::PartitionInfo;
 use uefi::table::boot::{AllocateType, EventType, MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams, PAGE_SIZE, SearchType, TimerTrigger, Tpl};
 use uefi::table::cfg;
 use uefi::table::runtime::ResetType;
+use uefi_services::system_table;
 
 use kernel_api::memory::{PhysicalAddress, VirtualAddress, Frame as KFrame, Page as KPage};
 use kernel_api::ptr::Unique;
@@ -69,6 +70,7 @@ use utils::handoff::{ColorMask, MemoryMapEntry, Range};
 
 use crate::config::Config;
 use crate::framebuffer::Gui;
+use crate::logging::LvglLogger;
 use crate::paging::{Frame, Page, TableEntryFlags};
 
 mod framebuffer;
@@ -284,8 +286,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         i16::try_from(height).unwrap() * 16 / 10
     };
 
-    style.set_size(menu_width, lvgl2::misc::pct(95));
-    style.set_align(lvgl2::object::style::Align::Center);
+    style.set_size(menu_width, lvgl2::misc::pct(90));
+    style.set_align(lvgl2::object::style::Align::TopMid);
 
     let mut label = Label::new(Some(flex_box.as_mut()));
     label.set_text(c"popcorn");
@@ -322,7 +324,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let mut button_group = Group::new();
 
-    for i in 0..5 {
+    for i in 0..1 {
         
         let mut btn = Button::new_with_callback(Some(flex_box.as_mut()), move || {
             
@@ -412,10 +414,16 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     style.set_text_color(Color::from_rgb(255, 255, 255));
     style.set_border_width(2);
     style.set_width(lvgl2::misc::pct(80));
-    style.set_height(256);
+    style.set_height(512);
     style.set_bg_opa(Opacity::OPA_COVER);
     log.set_recolor(true);
     log.set_text(c"Hello world!\n#ff0000 ERROR#: This is a test");
+    let mut logger = LvglLogger {
+        label: log,
+        current_color: Color::from_rgb(255, 255, 255),
+        buffer: Default::default(),
+    };
+    unsafe { logging::add_ui(&mut logger); }
 
     let mut cursor = Image::new(Some(screen));
     {
@@ -605,22 +613,16 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         }
     }*/
 
-    services.close_event(timer_event).unwrap();
-    drop(ui);
-
     // map framebuffer
     let framebuffer_info: Option<handoff::Framebuffer> = try {
         use uefi::proto::console::gop::PixelBitmask;
 
-        let mode_info = gop.current_mode_info();
-        let mut framebuffer_info = gop.frame_buffer();
-        let (width, height) = mode_info.resolution();
-
-        let page_count = (framebuffer_info.size() + PAGE_SIZE - 1) / PAGE_SIZE;
+        let mode_info = ui.fb.2;
+        let page_count = (ui.fb.1 + PAGE_SIZE - 1) / PAGE_SIZE;
         address_range.start = (address_range.start - page_count * PAGE_SIZE).align_down();
         let fb_start = address_range.start;
 
-        let framebuffer_addr = framebuffer_info.as_mut_ptr() as usize;
+        let framebuffer_addr = ui.fb.0 as usize;
 
         page_table.try_map_range_with::<(), _>(
             Page(fb_start.addr.try_into().unwrap()),
@@ -628,6 +630,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             page_count.try_into().unwrap(),
 	        || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()),
 	        TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE | TableEntryFlags::MMIO,
+	        paging_reasons::FB,
         ).ok()?;
 
         let color_format = match mode_info.pixel_format() {
@@ -657,7 +660,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             panic!("Failed to allocate enough memory to load popcorn2");
         };
 
-        page_table.try_map_range_with::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE,)
+        page_table.try_map_range_with::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, paging_reasons::KERNEL_STACK)
                          .unwrap();
 
         handoff::Stack {
@@ -707,7 +710,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
             let virt_addr = addr + PAGE_MAP_OFFSET;
             assert!(addr < PAGE_MAP_OFFSET_LEN, "Too much physical memory");
-            page_table.try_map_page_with::<(), _>(Page(virt_addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE,)
+            page_table.try_map_page_with::<(), _>(Page(virt_addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, paging_reasons::MEM_MAP)
         }).unwrap();
     }
 
@@ -719,7 +722,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         // UEFI memory sections are always aligned by firmware
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
-            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE,)
+            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, paging_reasons::LOADER)
         }).unwrap();
     }
 
@@ -728,7 +731,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         // UEFI memory sections are always aligned by firmware
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
-            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::WRITABLE,)
+            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::WRITABLE, paging_reasons::LOADER)
         }).unwrap();
     }
 
@@ -781,6 +784,10 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let kernel_entry = kernel.entrypoint();
     debug!("Handover to kernel with entrypoint at {:#x}", kernel_entry);
+
+
+    services.close_event(timer_event).unwrap();
+    drop(ui);
 
     drop(button_reboot);
     drop(button_off);
@@ -906,6 +913,63 @@ fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Op
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
     error!("{}", info);
+
+    #[derive(Debug)]
+    struct Counter { count: usize };
+    impl Write for Counter {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            self.count += s.len();
+            Ok(())
+        }
+    }
+
+    let mut c = Counter { count: 1 };
+    write!(c, "{info}");
+    debug!("{c:?}");
+
+    let tab = unsafe { system_table().as_mut() };
+
+    write!(tab.stderr(), "{}", info);
+
+    if let Ok(raw_buffer) = tab.boot_services().allocate_pool(MemoryType::BOOT_SERVICES_DATA, c.count * 2) {
+        struct Writer {
+            start: *mut u16,
+            idx: usize,
+            max: usize,
+        }
+        impl Write for Writer {
+            fn write_str(&mut self, s: &str) -> fmt::Result {
+                for c in s.chars() {
+                    if c.is_ascii() {
+                        if self.idx >= self.max { return Err(fmt::Error); }
+                        unsafe { self.start.add(self.idx).write(c as u16); }
+	                    self.idx += 1;
+                    }
+                }
+
+                Ok(())
+            }
+        }
+
+        let mut w = Writer {
+            start: raw_buffer.cast(),
+            idx: 0,
+            max: c.count - 1
+        };
+        write!(&mut w, "{info}");
+        unsafe { w.start.add(w.idx).write(0); }
+
+        let buffer = unsafe { &*slice_from_raw_parts(w.start, w.idx + 1) };
+        debug!("exit buffer: {buffer:?}");
+        if let Ok(buffer) = CStr16::from_u16_with_nul(buffer) {
+            debug!("exit buffer: {buffer:?}");
+            tab.boot_services().stall(10_000_000);
+            unsafe { tab.boot_services().exit(tab.boot_services().image_handle(), Status::ABORTED, c.count, buffer.as_ptr().cast_mut()); }
+        }
+    } else {
+        warn!("exit message buffer not allocated");
+    }
+
     loop {}
 }
 
@@ -930,7 +994,27 @@ fn panic_handler(info: &PanicInfo) -> ! {
 | EfiUnacceptedMemoryType    | ???                                                              |
  */
 
+mod paging_reasons {
+	use elf::header::program::{SegmentFlags, SegmentType};
 
+	pub const FB: u16 = 1;
+	pub const KERNEL_DATA: u16 = 2;
+	pub const KERNEL_CODE: u16 = 3;
+	pub const KERNEL_TLS: u16 = 4;
+	pub const KERNEL_OTHER: u16 = 5;
+	pub const KERNEL_STACK: u16 = 6;
+	pub const MEM_MAP: u16 = 7;
+	pub const LOADER: u16 = 8;
+
+	pub fn kernel_seg_to_reason(ty: SegmentType, flags: SegmentFlags) -> u16 {
+		match ty {
+			SegmentType::LOAD if flags.contains(SegmentFlags::Executable) => KERNEL_CODE,
+			SegmentType::LOAD => KERNEL_DATA,
+			SegmentType::TLS => KERNEL_TLS,
+			_ => KERNEL_OTHER,
+		}
+	}
+}
 
 #[derive(Display)]
 enum ModuleLoadError {

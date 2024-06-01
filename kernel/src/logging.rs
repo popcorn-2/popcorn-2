@@ -1,4 +1,4 @@
-use log::{Record, Level, Metadata, SetLoggerError, LevelFilter};
+use log::{Record, Level, Metadata, SetLoggerError};
 use crate::{sprint, sprintln};
 
 struct SimpleLogger;

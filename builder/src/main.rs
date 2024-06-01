@@ -109,7 +109,7 @@ fn init_efi_partition(fs: FileSystem<impl ReadWriteSeek>, mut bootloader_data: i
 	io::copy(&mut popfs_data, &mut popfs).unwrap();
 }
 
-fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: impl Read, mut map_data: Option<impl Read>) {
+fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: impl Read, map_data: Option<impl Read>) {
 	let root_dir = fs.root_dir();
 	root_dir.create_dir("kernel").unwrap();
 	let mut kernel = root_dir.create_file("kernel/kernel.exec").unwrap();

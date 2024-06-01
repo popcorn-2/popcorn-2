@@ -19,7 +19,7 @@ pub trait Entry: Copy {
 	fn empty() -> Self;
 	fn is_present(self) -> bool;
 	fn pointed_frame(self) -> Option<Frame>;
-	fn point_to_frame(&mut self, frame: Frame) -> Result<(), ()>;
+	fn point_to_frame(&mut self, frame: Frame, reason: u16) -> Result<(), u16>;
 }
 
 mod sanity {
@@ -155,7 +155,7 @@ impl<L: ParentLevel> Table<L> {
 	pub fn child_table_or_new(&mut self, idx: usize, allocator: impl BackingAllocator) -> Result<&mut Table<L::Child>, AllocError> {
 		if self.child_table_mut(idx).is_none() {
 			let (table_frame, _) = Table::<L::Child>::empty_with(allocator)?;
-			self.entries[idx].point_to_frame(table_frame).expect("Entry was not present");
+			self.entries[idx].point_to_frame(table_frame, 0).expect("Entry was not present");
 		}
 
 		Ok(self.child_table_mut(idx).expect("Just mapped this entry"))

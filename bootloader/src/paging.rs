@@ -64,28 +64,29 @@ impl PageTable {
 		tab[virt.l1_index().try_into().unwrap()].pointed_frame()
 	}
 
-	pub fn try_map_page<E, F: Fn() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, allocate: F) -> Result<(),MapError<E>> {
-		self.try_map_page_with(page, frame, allocate, TableEntryFlags::empty())
+	pub fn try_map_page<E, F: Fn() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, allocate: F, reason: u16) -> Result<(),MapError<E>> {
+		self.try_map_page_with(page, frame, allocate, TableEntryFlags::empty(), reason)
 	}
 
-	pub fn try_map_page_with<E, F: FnMut() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, mut allocate: F, flags: TableEntryFlags) -> Result<(),MapError<E>> {
+	pub fn try_map_page_with<E, F: FnMut() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, mut allocate: F, flags: TableEntryFlags, reason: u16) -> Result<(),MapError<E>> {
 		let entry = &mut self.0.try_get_or_create_child_table(page.l4_index().try_into().unwrap(), &mut allocate)?
 			.try_get_or_create_child_table(page.l3_index().try_into().unwrap(), &mut allocate)?
 			.try_get_or_create_child_table(page.l2_index().try_into().unwrap(), &mut allocate)?
 			[page.l1_index().try_into().unwrap()];
+		let flags = flags | TableEntryFlags::from_reason(reason);
 		entry.set_pointed_frame(frame, flags).map_err(|_| MapError::AlreadyMapped)
 	}
 
-	pub fn try_map_range<E, F: FnMut() -> Result<u64, E>>(&mut self, page_start: Page, frame_start: Frame, page_count: u64, allocate: F) -> Result<(), MapError<E>> {
-		self.try_map_range_with(page_start, frame_start, page_count, allocate, TableEntryFlags::empty())
+	pub fn try_map_range<E, F: FnMut() -> Result<u64, E>>(&mut self, page_start: Page, frame_start: Frame, page_count: u64, allocate: F, reason: u16) -> Result<(), MapError<E>> {
+		self.try_map_range_with(page_start, frame_start, page_count, allocate, TableEntryFlags::empty(), reason)
 	}
 
-	pub fn try_map_range_with<E, F: FnMut() -> Result<u64, E>>(&mut self, page_start: Page, frame_start: Frame, page_count: u64, mut allocate: F, flags: TableEntryFlags) -> Result<(), MapError<E>> {
+	pub fn try_map_range_with<E, F: FnMut() -> Result<u64, E>>(&mut self, page_start: Page, frame_start: Frame, page_count: u64, mut allocate: F, flags: TableEntryFlags, reason: u16) -> Result<(), MapError<E>> {
 		for i in 0..page_count {
 			let page = Page(page_start.0 + i*4096);
 			let frame = Frame(frame_start.0 + i*4096);
 
-			self.try_map_page_with(page, frame, &mut allocate, flags)?;
+			self.try_map_page_with(page, frame, &mut allocate, flags, reason)?;
 		}
 		Ok(())
 	}
@@ -156,9 +157,7 @@ impl<Level: ParentTableLevel> Table<Level> {
 	pub fn try_get_or_create_child_table<E, F: FnOnce() -> Result<u64, E>>(&mut self, index: usize, allocate: F) -> Result<&'static mut Table<Level::Child>, E> {
 		self.get_child_table_mut(index).map_or_else(|| {
 			debug!("New page table Level {}, index {}", Level::Child::VALUE, index);
-			if Level::Child::VALUE == 3 {
-				warn!("L3 table did not exist already - if this is not in lower half, this is a bug");
-			}
+			debug_assert!(Level::Child::VALUE != 3 || index < 256, "L3 table did not exist already - if this is not in lower half, this is a bug");
 			let table_ptr = allocate()? as *mut MaybeUninit<Table<_>>;
 			assert!(table_ptr.is_aligned() && !table_ptr.is_null());
 			let table = unsafe { &mut *table_ptr };
@@ -235,10 +234,17 @@ bitflags! {
         const GLOBAL =          1 << 8;
         const NO_EXECUTE =      1 << 63;
 
-		const UEFI_USED =       1 << 9;
-
 		const PERMISSIVE =      Self::WRITABLE.bits() | Self::USER_ACCESSIBLE.bits();
 		const MMIO =            Self::WRITE_THROUGH.bits() | Self::NO_CACHE.bits();
+	}
+}
+
+impl TableEntryFlags {
+	pub fn from_reason(reason: u16) -> Self {
+		let reason = u64::from(reason);
+		let low = (reason & 7) << 9;
+		let high = (reason & 0x7ff8) << (52 - 3);
+		Self::from_bits_retain(low | high)
 	}
 }
 
