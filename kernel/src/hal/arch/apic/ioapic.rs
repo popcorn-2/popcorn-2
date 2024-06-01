@@ -19,10 +19,9 @@ impl VersionRegister {
 	pub fn max_redirection_entry(self) -> u32 { self.0.get_bits(16..24) }
 }
 
-// FIXME: should be repr(u8) but needs to be u64 for macro stuff above to work
 #[derive(TryFromPrimitive, IntoPrimitive, Debug)]
-#[repr(u64)]
-enum DeliveryMode {
+#[repr(u32)]
+pub enum DeliveryMode {
 	Fixed = 0,
 	LowestPriority = 1,
 	Smi = 2,
@@ -34,8 +33,8 @@ enum DeliveryMode {
 }
 
 #[derive(TryFromPrimitive, IntoPrimitive, Debug)]
-#[repr(u64)]
-enum DestinationMode {
+#[repr(u32)]
+pub enum DestinationMode {
 	Physical = 0,
 	Logical = 1,
 }
@@ -60,6 +59,11 @@ impl<H: AcpiHandler> Ioapics<H> {
 
 	pub fn legacy_map(&mut self) -> &mut LegacyMap {
 		&mut self.legacy_map
+	}
+
+	pub fn redirection_entry(&mut self, vector: u32) -> Option<RedirectionEntry<'_, H>> {
+		let ioapic = self.ioapics.get_entry_at_point_mut(vector as usize)?;
+		ioapic.redirection_entry(vector)
 	}
 }
 
@@ -133,6 +137,62 @@ struct Registers {
 pub struct RedirectionEntry<'ioapic, H: AcpiHandler> {
 	ioapic: &'ioapic mut Ioapic<H>,
 	num: u32,
+}
+
+pub struct EntryData {
+	pub vector: u8,
+	pub delivery_mode: DeliveryMode,
+	pub destination_mode: DestinationMode,
+	pub polarity: ActiveLevel,
+	pub trigger_mode: TriggerMode,
+	pub mask: bool,
+	pub destination: u8,
+}
+
+impl<H: AcpiHandler> RedirectionEntry<'_, H> {
+	pub fn update(&mut self, f: impl FnOnce(&mut EntryData)) {
+		let low_register = 0x10 + self.num*2;
+		let high_register = 0x10 + self.num*2 + 1;
+
+		self.ioapic.cell.project::<Registers::select>()
+				.write(low_register);
+		let low = self.ioapic.cell.project::<Registers::data>()
+				.read();
+
+		self.ioapic.cell.project::<Registers::select>()
+				.write(high_register);
+		let high = self.ioapic.cell.project::<Registers::data>()
+				.read();
+
+		let mut data = EntryData {
+			vector: low.get_bits(0..8) as u8,
+			delivery_mode: DeliveryMode::try_from(low.get_bits(8..=10)).unwrap(),
+			destination_mode: DestinationMode::try_from(low.get_bits(11..=11)).unwrap(),
+			polarity: ActiveLevel::try_from(low.get_bits(13..=13)).unwrap(),
+			trigger_mode: TriggerMode::try_from(low.get_bits(15..=15)).unwrap(),
+			mask: low.get_bit(16),
+			destination: high.get_bits(24..=31) as u8,
+		};
+
+		f(&mut data);
+
+		let new_low =
+				u32::from(data.vector) |
+				u32::from(data.delivery_mode) << 8 |
+				u32::from(data.destination_mode) << 11 |
+				u32::from(data.polarity) << 13 |
+				u32::from(data.trigger_mode) << 15 |
+				u32::from(data.mask) << 16;
+		let new_high = u32::from(data.destination) << 24;
+
+		self.ioapic.cell.project::<Registers::select>()
+		    .write(low_register);
+		self.ioapic.cell.project::<Registers::data>().write(new_low);
+
+		self.ioapic.cell.project::<Registers::select>()
+		    .write(high_register);
+		self.ioapic.cell.project::<Registers::data>().write(new_high);
+	}
 }
 
 #[derive(Debug, Copy, Clone, TryFromPrimitive, IntoPrimitive)]
