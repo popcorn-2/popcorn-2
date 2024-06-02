@@ -1,7 +1,7 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use crossbeam_queue::SegQueue;
 use utils::better_cow::Cow;
-use crate::hal::ThreadState;
+use crate::threading::tcb::ThreadState;
 use crate::ipc::Error;
 use crate::ipc::server::Server;
 use crate::threading;

@@ -73,7 +73,7 @@ use core::cmp::{max, min};
 use core::num::NonZero;
 use core::task::{Poll, Waker};
 use core::time::Duration;
-use hal::ThreadControlBlock;
+use crate::threading::tcb::ThreadControlBlock;
 use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
 use kernel_api::memory::{Frame};

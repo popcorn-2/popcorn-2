@@ -6,12 +6,13 @@ pub mod acpi;
 pub mod timing;
 
 #[allow(unused_imports)] use crate::prelude::*;
-use alloc::borrow::Cow;
 use core::fmt::Debug;
 use core::mem::MaybeUninit;
 use kernel_api::memory::mapping;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::r#virtual::Global;
+pub(crate) use macros::Hal;
+use crate::threading::tcb::{ThreadControlBlock, ArgTuple};
 use paging2::{KTable, TTable};
 use core::num::NonZero;
 use crate::non_zero;
@@ -57,7 +58,7 @@ pub trait InterruptTable {
 
 mod hal_impl {
 	use super::*;
-	
+
 	pub type SerialOut = <arch::Arch as Hal>::SerialOut;
 	pub type KTableTy = <arch::Arch as Hal>::KTableTy;
 	pub type TTableTy = <arch::Arch as Hal>::TTableTy;
@@ -95,81 +96,17 @@ macro_rules! sprint {
 	}}
 }
 
-trait ArgTuple {
-	fn as_array(self) -> [MaybeUninit<usize>; 4];
+#[export_name = "__popcorn_enable_irq"]
+fn enable_interrupts() {
+	<HalTy as Hal>::enable_interrupts()
 }
 
-impl ArgTuple for () {
-	fn as_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()]
-	}
+#[export_name = "__popcorn_disable_irq"]
+fn get_and_disable_interrupts() -> usize {
+	<HalTy as Hal>::get_and_disable_interrupts()
 }
 
-impl ArgTuple for (usize,) {
-	fn as_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::new(self.0), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()]
-	}
-}
-
-impl ArgTuple for (usize,usize) {
-	fn as_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::new(self.0), MaybeUninit::new(self.1), MaybeUninit::uninit(), MaybeUninit::uninit()]
-	}
-}
-
-/*impl ArgTuple for (usize,usize,usize) {
-	fn as_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::new(self.0), MaybeUninit::new(self.1), MaybeUninit::new(self.2), MaybeUninit::uninit()]
-	}
-}
-
-impl ArgTuple for (usize,usize,usize,usize) {
-	fn as_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::new(self.0), MaybeUninit::new(self.1), MaybeUninit::new(self.2), MaybeUninit::new(self.3)]
-	}
-}*/
-
-#[derive(Debug)]
-pub struct ThreadControlBlock {
-	pub ttable: TTableTy,
-	pub save_state: SaveState,
-	pub name: Cow<'static, str>,
-	pub kernel_stack: Stack<'static, Global>,
-	pub state: ThreadState,
-}
-
-impl ThreadControlBlock {
-	pub fn new<Args: ArgTuple>(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: Args) -> Self {
-		let new_stack = Stack::new(
-			mapping::Config::<Global>::new(non_zero!(32)),
-			crate::paging_codes::THREAD_KERNEL_STACK,
-		).unwrap();
-
-		let mut new_thread = ThreadControlBlock {
-			ttable,
-			save_state: Default::default(),
-			name,
-			kernel_stack: new_stack,
-			state: ThreadState::Ready,
-		};
-		let save_state = SaveState::new(&mut new_thread, startup, main, args.as_array());
-		new_thread.save_state = save_state;
-
-		new_thread
-	}
-}
-
-impl Drop for ThreadControlBlock {
-	fn drop(&mut self) {
-		assert_ne!(self.state, ThreadState::Running, "Cannot drop currently running thread as this would remove the current stack");
-	}
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum ThreadState {
-	Ready,
-	Running,
-	Blocked,
-	Sleeping,
-	AwaitingDeletion,
+#[export_name = "__popcorn_set_irq"]
+fn set_interrupts(old_state: usize) {
+	<HalTy as Hal>::set_interrupts(old_state)
 }

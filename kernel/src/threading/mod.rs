@@ -8,10 +8,11 @@ use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
 use kernel_api::memory::r#virtual::{Global, OwnedPages};
 use kernel_api::time::Instant;
-use crate::hal::{ThreadControlBlock, ThreadState};
+use crate::threading::tcb::{ThreadControlBlock, ThreadState};
 use scheduler::Tid;
 
 pub mod scheduler;
+pub mod tcb;
 
 pub unsafe fn init(handoff_data: crate::HandoffWrapper) -> Tid {
 	let stack = handoff_data.memory.stack;
