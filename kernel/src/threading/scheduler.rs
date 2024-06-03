@@ -7,7 +7,7 @@ use core::cmp::min;
 use core::fmt::{Debug, Formatter};
 use core::marker::PhantomData;
 use core::mem::{ManuallyDrop, MaybeUninit};
-use core::num::NonZeroU128;
+use core::num::NonZero;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use crate::hal::{HalTy, Hal, ThreadControlBlock, ThreadState};
@@ -202,10 +202,10 @@ impl Scheduler {
 		let ticks_to_event = |time: Instant| {
 			let time = time.saturating_duration_since(now);
 			let ticks = 1000 *  time.as_nanos() / u128::from(tick_period);
-			NonZeroU128::new(ticks)
+			NonZero::<u128>::new(ticks)
 		};
 
-		let mut timer_ticks = None::<NonZeroU128>;
+		let mut timer_ticks = None::<NonZero<u128>>;
 
 		loop {
 			let Some(event) = self.event_queue.events.get(0) else { break; };

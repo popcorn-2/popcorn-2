@@ -1,7 +1,7 @@
 #[allow(unused_imports)] use crate::prelude::*;
 
 use core::alloc::AllocError;
-use core::num::NonZeroUsize;
+use core::num::NonZero;
 use kernel_exports::memory::Frame;
 use super::Allocator;
 
@@ -17,7 +17,7 @@ impl<'a, 'b> ChainedAllocator<'a, 'b> {
 }
 
 impl<'a, 'b> Allocator for ChainedAllocator<'a, 'b> {
-	fn allocate_contiguous_aligned(&self, count: NonZeroUsize, alignment_log2: usize) -> Result<Frame, AllocError> {
+	fn allocate_contiguous_aligned(&self, count: NonZero<usize>, alignment_log2: usize) -> Result<Frame, AllocError> {
 		self.first.allocate_contiguous_aligned(count, alignment_log2)
 				.or(self.second.allocate_contiguous_aligned(count, alignment_log2))
 	}

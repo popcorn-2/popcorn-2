@@ -1,6 +1,6 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::arch::{asm, global_asm};
-use core::num::NonZeroU8;
+use core::num::NonZero;
 use core::ops::{Index, IndexMut};
 
 pub mod handler {
@@ -42,7 +42,7 @@ pub mod handler {
 pub mod entry {
 	use core::fmt::{Formatter, LowerHex, UpperHex};
 	use core::mem;
-	use core::num::NonZeroU8;
+	use core::num::NonZero;
 
 	pub enum Type {
 		InterruptGate,
@@ -74,7 +74,7 @@ pub mod entry {
 	pub struct Entry {
 		pointer_low: u16,
 		segment_selector: u16,
-		ist: Option<NonZeroU8>,
+		ist: Option<NonZero<u8>>,
 		attributes: Attributes,
 		pointer_middle: u16,
 		pointer_high: u32,
@@ -102,7 +102,7 @@ pub mod entry {
 	}
 
 	impl Entry {
-		pub fn new_ptr(f: unsafe extern "C" fn(), ist_idx: Option<NonZeroU8>, dpl: u8, ty: Type) -> Self {
+		pub fn new_ptr(f: unsafe extern "C" fn(), ist_idx: Option<NonZero<u8>>, dpl: u8, ty: Type) -> Self {
 			if let Some(ist) = ist_idx { assert!(ist.get() <= 7, "Only 7 IST stacks"); }
 			let addr = f as usize;
 			Self {
@@ -663,7 +663,7 @@ pub(super) fn init_idt() {
 		idt_entry!(table, 5);
 		idt_entry!(table, 6);
 		idt_entry!(table, 7);
-		table[8] = Entry::new_ptr(amd64_irq_handler_8, Some(NonZeroU8::new(1).unwrap()), 0, Type::InterruptGate);
+		table[8] = Entry::new_ptr(amd64_irq_handler_8, Some(NonZero::<u8>::new(1).unwrap()), 0, Type::InterruptGate);
 		idt_entry!(table, 9);
 		idt_entry!(table, 10);
 		idt_entry!(table, 11);

@@ -39,7 +39,7 @@ pub struct Page {
 }
 
 /// A physical memory address of alignment `ALIGN`
-// todo: replace ALIGN with a NonZeroUsize
+// todo: replace ALIGN with a NonZero<usize>
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
 #[derive(Debug, Copy, Clone, Eq, Ord)]
 #[repr(transparent)]

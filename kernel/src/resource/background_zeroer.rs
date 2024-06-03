@@ -1,6 +1,6 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::sync::Arc;
-use core::num::NonZeroUsize;
+use core::num::NonZero;
 use
 use kernel_api::memory::allocator::{BackingAllocator, AllocError, ZeroAllocError, AllocatorConfig};
 
@@ -32,7 +32,7 @@ impl<A: BackingAllocator> BackingAllocator for BackgroundZeroer<A> {
         self.backing.try_allocate_zero(frame_count)
     }
 
-    unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize) {
+    unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZero<usize>) {
         unsafe { self.backing.deallocate_contiguous(base, frame_count) }
     }
 
