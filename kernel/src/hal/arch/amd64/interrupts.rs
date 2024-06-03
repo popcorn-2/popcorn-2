@@ -135,6 +135,7 @@ use kernel_api::sync::OnceLock;
 use crate::hal::arch::amd64::Amd64Hal;
 use crate::hal::arch::amd64::interrupts::entry::Type;
 use crate::hal::exception::{DebugTy, Exception, ExceptionRegisters, PageFault, Ty};
+use crate::non_zero;
 
 #[repr(C, align(16))]
 pub struct Idt {
@@ -663,7 +664,7 @@ pub(super) fn init_idt() {
 		idt_entry!(table, 5);
 		idt_entry!(table, 6);
 		idt_entry!(table, 7);
-		table[8] = Entry::new_ptr(amd64_irq_handler_8, Some(NonZero::<u8>::new(1).unwrap()), 0, Type::InterruptGate);
+		table[8] = Entry::new_ptr(amd64_irq_handler_8, Some(non_zero!(1)), 0, Type::InterruptGate);
 		idt_entry!(table, 9);
 		idt_entry!(table, 10);
 		idt_entry!(table, 11);

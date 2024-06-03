@@ -89,6 +89,7 @@ mod tests {
 	use core::num::NonZero;
 	use kernel_api::memory::{Frame, PhysicalAddress};
 	use core::ops::Range;
+	use crate::non_zero;
 
 	const MEMORY_LAYOUT: [Range<Frame>; 4] = [
 		Frame::new(PhysicalAddress::new(0))..Frame::new(PhysicalAddress::new(0x2000)),
@@ -107,28 +108,28 @@ mod tests {
 	fn allocates_available_frames_downwards() {
 		let mut iter = MEMORY_LAYOUT[0..1].iter().cloned();
 		let mut alloc = Inner::new(&mut iter);
-		assert_eq!(alloc.allocate_contiguous(NonZero::<usize>::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0x1000))));
-		assert_eq!(alloc.allocate_contiguous(NonZero::<usize>::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0x0000))));
-		assert_eq!(alloc.allocate_contiguous(NonZero::<usize>::new(1).unwrap(), 0), Err(AllocError));
+		assert_eq!(alloc.allocate_contiguous(non_zero!(1), 0), Ok(Frame::new(PhysicalAddress::new(0x1000))));
+		assert_eq!(alloc.allocate_contiguous(non_zero!(1), 0), Ok(Frame::new(PhysicalAddress::new(0x0000))));
+		assert_eq!(alloc.allocate_contiguous(non_zero!(1), 0), Err(AllocError));
 	}
 
 	#[test]
 	fn jumps_between_areas() {
 		let mut iter = MEMORY_LAYOUT[0..2].iter().cloned();
 		let mut alloc = Inner::new(&mut iter);
-		assert_eq!(alloc.allocate_contiguous(NonZero::<usize>::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0x6000))));
-		assert_eq!(alloc.allocate_contiguous(NonZero::<usize>::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0x1000))));
-		assert_eq!(alloc.allocate_contiguous(NonZero::<usize>::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0x0000))));
-		assert_eq!(alloc.allocate_contiguous(NonZero::<usize>::new(1).unwrap(), 0), Err(AllocError));
+		assert_eq!(alloc.allocate_contiguous(non_zero!(1), 0), Ok(Frame::new(PhysicalAddress::new(0x6000))));
+		assert_eq!(alloc.allocate_contiguous(non_zero!(1), 0), Ok(Frame::new(PhysicalAddress::new(0x1000))));
+		assert_eq!(alloc.allocate_contiguous(non_zero!(1), 0), Ok(Frame::new(PhysicalAddress::new(0x0000))));
+		assert_eq!(alloc.allocate_contiguous(non_zero!(1), 0), Err(AllocError));
 	}
 
 	#[test]
 	fn allocates_multiple_pages() {
 		let mut iter = MEMORY_LAYOUT[3..4].iter().cloned();
 		let mut alloc = Inner::new(&mut iter);
-		assert_eq!(alloc.allocate_contiguous(NonZero::<usize>::new(3).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0xd000))));
-		assert_eq!(alloc.allocate_contiguous(NonZero::<usize>::new(2).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0xb000))));
-		assert_eq!(alloc.allocate_contiguous(NonZero::<usize>::new(1).unwrap(), 0), Ok(Frame::new(PhysicalAddress::new(0xa000))));
-		assert_eq!(alloc.allocate_contiguous(NonZero::<usize>::new(1).unwrap(), 0), Err(AllocError));
+		assert_eq!(alloc.allocate_contiguous(non_zero!(3), 0), Ok(Frame::new(PhysicalAddress::new(0xd000))));
+		assert_eq!(alloc.allocate_contiguous(non_zero!(2), 0), Ok(Frame::new(PhysicalAddress::new(0xb000))));
+		assert_eq!(alloc.allocate_contiguous(non_zero!(1), 0), Ok(Frame::new(PhysicalAddress::new(0xa000))));
+		assert_eq!(alloc.allocate_contiguous(non_zero!(1), 0), Err(AllocError));
 	}
 }
