@@ -1,8 +1,48 @@
+//! This module provides the thread API
+//!
+//! # [`ThreadControlBlock`] vs [`Thread`] vs [`ThreadPointer`] vs [`ThreadId`]
+//!
+//! [`ThreadControlBlock`] holds the underlying state of a thread, including the saved register
+//! state. This is a mix of core kernel types and types exposed via the [HAL](crate::hal).
+//! Each [`ThreadControlBlock`] is stored on the heap, and is effectively pointed to by [`Thread`],
+//! [`ThreadPointer`] and [`ThreadId`].
+//!
+//! [`ThreadId`] is a cheap to copy handle to a particular thread, which does not give access
+//! to the underlying [`ThreadControlBlock`]. Instead, a limited API is provided through methods on it,
+//! similar in scope to thread control methods available in userspace. This is designed for use outside
+//! the scheduler itself, for example being used in [wait queues](crate::threading::wait_queue). While
+//! unlikely, if a [`ThreadId`] is held for a long time, the underlying thread may have exit, and the
+//! [`ThreadId`] reused. In this case, any actions will affect the new thread. The limited API surface
+//! provided is designed to guard against this causing any problems.
+//!
+//! [`Thread`] and [`ThreadPointer`] are both pointers to an underlying [`ThreadControlBlock`]. [`Thread`]
+//! 'owns' the allocation, and a single [`ThreadPointer`] can be borrowed from it at any one time. These
+//! both provide access to most of the fields of [`ThreadControlBlock`] (see the [safety](#threadpointer-safety) section below
+//! for more information). [`Thread`]s are stored in the global task list, while [`ThreadPointer`]s are
+//! passed to scheduler implementations for use within run-queues.
+//!
+//! Together, [`Thread`] and [`ThreadPointer`] are somewhat analogous to [`Arc<ThreadControlBlock>`](alloc::sync::Arc)
+//! whereas [`ThreadId`] is like a [`Weak<ThreadControlBlock>`](alloc::sync::Weak).
+//!
+//! # [`ThreadPointer`] safety
+//!
+//! Each [`ThreadControlBlock`] is pointed to by an [`Thread`] pointer from a global thread list.
+//! This pointer can be 'borrowed' to a [`ThreadPointer`] to be placed into run queues. Only once
+//! instance of an [`Thread`] can ever exist for the same [`ThreadControlBlock`], and either zero
+//! or one [`ThreadPointer`]s to the same [`ThreadControlBlock`].
+//!
+//! Since the pointers are shared pointers, both pointers only provide immutable access to most of
+//! the inner [`ThreadControlBlock`] fields. [`save_state`](ThreadControlBlock::save_state) is an exception to
+//! this. This can only be accessed through [`ThreadPointer`], making it safe to provide mutable access. This
+//! removes any lock contention during context switches.
+
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
 use core::arch::{asm, naked_asm};
 use core::cmp::Ordering;
 use core::num::NonZero;
+use core::ptr::NonNull;
+use core::sync::atomic::AtomicUsize;
 use core::time::Duration;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
@@ -10,9 +50,69 @@ use kernel_api::memory::r#virtual::{Global, OwnedPages};
 use kernel_api::time::Instant;
 use crate::threading::tcb::{ThreadControlBlock, ThreadState};
 use scheduler::Tid;
+use crate::hal::{Hal, HalTy, SaveState};
 
 pub mod scheduler;
 pub mod tcb;
+
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub struct ThreadId {
+	id: NonZero<usize>,
+}
+
+impl ThreadId {
+	fn new() -> Self {
+		static THREAD_IDS: AtomicUsize = AtomicUsize::new(1);
+
+		let id = THREAD_IDS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+		let id = NonZero::<usize>::new(id)
+				.expect("`ThreadId` value overflowed");
+
+		ThreadId {
+			id
+		}
+	}
+}
+
+pub struct Thread {
+	ptr: NonNull<ThreadControlBlock>,
+}
+
+pub struct ThreadPointer {
+	ptr: NonNull<ThreadControlBlock>,
+}
+
+impl Thread {
+	/// Constructs an Owned pointer to a [`ThreadControlBlock`]. See the [module level docs](pointer) for more information.
+	pub fn new(tcb: ThreadControlBlock) -> Thread {
+		let b = Box::new(tcb);
+		let ptr = NonNull::from(Box::leak(b));
+		Thread { ptr }
+	}
+}
+
+impl ThreadPointer {
+	/// # Safety
+	///
+	/// The caller must ensure that no other [`ThreadPointer`]s to the same [`ThreadControlBlock`] exist
+	unsafe fn new(owned: &Thread) -> ThreadPointer {
+		ThreadPointer { ptr: owned.ptr }
+	}
+
+	fn tcb(&self) -> &ThreadControlBlock {
+		unsafe { self.ptr.as_ref() }
+	}
+
+	// Must take `&mut self` to prevent aliasing, as in the following example
+	// ```no_run
+	// let a = ptr.save_state();
+	// let b = ptr.save_state(); // <- produces a multiple mutable borrow only with `&mut self`
+	// f(a, b);
+	// ```
+	pub fn save_state(&mut self) -> &mut <HalTy as Hal>::SaveState {
+		todo!()
+	}
+}
 
 pub unsafe fn init(handoff_data: crate::HandoffWrapper) -> Tid {
 	let stack = handoff_data.memory.stack;
