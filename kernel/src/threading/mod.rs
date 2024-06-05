@@ -49,8 +49,8 @@ use kernel_api::memory::physical::{highmem, OwnedFrames};
 use kernel_api::memory::r#virtual::{Global, OwnedPages};
 use kernel_api::time::Instant;
 use crate::threading::tcb::{ThreadControlBlock, ThreadState};
-use scheduler::Tid;
 use crate::hal::{Hal, HalTy, SaveState};
+use crate::non_zero;
 
 pub mod scheduler;
 pub mod tcb;
@@ -62,7 +62,7 @@ pub struct ThreadId {
 
 impl ThreadId {
 	fn new() -> Self {
-		static THREAD_IDS: AtomicUsize = AtomicUsize::new(1);
+		static THREAD_IDS: AtomicUsize = AtomicUsize::new(2);
 
 		let id = THREAD_IDS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 		let id = NonZero::<usize>::new(id)
@@ -111,10 +111,12 @@ impl ThreadPointer {
 	// ```
 	pub fn save_state(&mut self) -> &mut <HalTy as Hal>::SaveState {
 		todo!()
+		/*let ptr = self.tcb().save_state.get();
+		unsafe { &mut *ptr }*/
 	}
 }
 
-pub unsafe fn init(handoff_data: crate::HandoffWrapper) -> Tid {
+pub unsafe fn init(handoff_data: crate::HandoffWrapper) -> ThreadId {
 	let stack = handoff_data.memory.stack;
 	let ttable = handoff_data.to_empty_ttable();
 
@@ -142,7 +144,7 @@ pub unsafe fn init(handoff_data: crate::HandoffWrapper) -> Tid {
 	
 	scheduler.init(tcb);
 
-	Tid(0)
+	ThreadId { id: non_zero!(1) }
 }
 
 pub fn thread_yield() {
@@ -153,18 +155,18 @@ pub fn block(reason: ThreadState) {
 	scheduler::SCHEDULER.lock().block(reason);
 }
 
-pub fn current_thread() -> Tid {
+pub fn current_thread() -> ThreadId {
 	scheduler::SCHEDULER.lock().current_tid()
 }
 
-pub fn unblock(tid: Tid) {
+pub fn unblock(tid: ThreadId) {
 	scheduler::SCHEDULER.lock().unblock(tid);
 }
 
 #[derive(Debug, Copy, Clone)]
 struct SchedulerEvent {
 	time: Instant,
-	tid: Tid,
+	tid: ThreadId,
 	action: EventTy,
 }
 

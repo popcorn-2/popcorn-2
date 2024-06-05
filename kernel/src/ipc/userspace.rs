@@ -5,12 +5,12 @@ use crate::threading::tcb::ThreadState;
 use crate::ipc::Error;
 use crate::ipc::server::Server;
 use crate::threading;
-use crate::threading::scheduler::Tid;
+use crate::threading::ThreadId;
 
 #[derive(Debug)]
 pub(crate) struct UserspaceServer {
 	pending_queue: SegQueue<Packet>,
-	pid: Tid,
+	pid: ThreadId,
 	processed_queue: (),
 }
 

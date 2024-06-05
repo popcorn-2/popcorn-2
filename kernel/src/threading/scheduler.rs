@@ -21,28 +21,19 @@ use crate::hal::paging2::TTable;
 use crate::hal::timing::{Timer, Eoi};
 use crate::interrupts::irq_handler;
 use crate::memory::paging::ktable;
-use crate::threading::{EventTy, SchedulerEvent};
+use crate::non_zero;
+use crate::threading::{EventTy, SchedulerEvent, ThreadId};
 
 #[thread_local]
 pub static SCHEDULER: IrqCell<Scheduler> = IrqCell::new(Scheduler::new());
 
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub struct Tid(pub(super) usize);
-
-impl Tid {
-	fn new() -> Self {
-		static TIDS: AtomicUsize = AtomicUsize::new(1);
-		Self(TIDS.fetch_add(1, Ordering::Relaxed))
-	}
-}
-
 #[derive(Debug)]
 pub struct Scheduler {
-	tasks: BTreeMap<Tid, ThreadControlBlock>,
-	run_queue: VecDeque<Tid>,
-	current_tid: Tid,
+	tasks: BTreeMap<ThreadId, ThreadControlBlock>,
+	run_queue: VecDeque<ThreadId>,
+	current_tid: ThreadId,
 	pub event_queue: EventQueue,
-	cleanup_queue: VecDeque<Tid>,
+	cleanup_queue: VecDeque<ThreadId>,
 }
 
 #[derive(Debug)]
@@ -107,7 +98,7 @@ impl Scheduler {
 		Self {
 			tasks: BTreeMap::new(),
 			run_queue: VecDeque::new(),
-			current_tid: Tid(0),
+			current_tid: ThreadId { id: non_zero!(1) },
 			event_queue: EventQueue {
 				events: VecDeque::new(),
 				#[cfg(feature = "preemptive")] yield_event: None,
@@ -123,7 +114,7 @@ impl Scheduler {
 			error!("Task `{}` exited with status code {exit_code}", tcb.name);
 		}
 		self.cleanup_queue.push_back(tid);
-		self.unblock(Tid(1));
+		self.unblock(ThreadId { id: non_zero!(2) });
 		self.block(ThreadState::AwaitingDeletion);
 	}
 
@@ -178,8 +169,8 @@ impl Scheduler {
 		}
 	}
 
-	pub fn init(&mut self, tid0: ThreadControlBlock) {
-		assert!(self.tasks.insert(Tid(0), tid0).is_none(), "Cannot init scheduler multiple times");
+	pub fn init(&mut self, tid1: ThreadControlBlock) {
+		assert!(self.tasks.insert(ThreadId { id: non_zero!(1) }, tid1).is_none(), "Cannot init scheduler multiple times");
 		
 		let ttable = hal::TTableTy::new(&*ktable(), highmem()).unwrap();
 		self.add_task(ThreadControlBlock::new(
@@ -218,10 +209,10 @@ impl Scheduler {
 		crate::interrupts::set_defer_irq(scheduler_defer_irq);
 	}
 
-	pub fn current_tid(&self) -> Tid { self.current_tid }
+	pub fn current_tid(&self) -> ThreadId { self.current_tid }
 
-	pub fn add_task(&mut self, tcb: ThreadControlBlock) -> Tid {
-		let tid = Tid::new();
+	pub fn add_task(&mut self, tcb: ThreadControlBlock) -> ThreadId {
+		let tid = ThreadId::new();
 		self.tasks.insert(tid, tcb);
 		self.run_queue.push_back(tid);
 		super::defer_schedule();
@@ -294,7 +285,7 @@ impl Scheduler {
 		super::defer_schedule();
 	}
 
-	pub fn unblock(&mut self, tid: Tid) {
+	pub fn unblock(&mut self, tid: ThreadId) {
 		#[cfg(feature = "log.scheduler")] debug!("unblocking {:?}", tid);
 		if let Some(tcb) = self.tasks.get_mut(&tid) {
 			if tcb.state != ThreadState::Ready && tcb.state != ThreadState::Running {
