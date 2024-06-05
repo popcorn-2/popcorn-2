@@ -14,7 +14,8 @@ use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::r#virtual::Global;
 pub(crate) use macros::Hal;
 use paging2::{KTable, TTable, TTableTy};
-use core::num::NonZeroUsize;
+use core::num::NonZero;
+use crate::non_zero;
 
 pub enum Result { Success, Failure }
 
@@ -117,7 +118,7 @@ pub struct ThreadControlBlock {
 impl ThreadControlBlock {
 	pub fn new<Args: ArgTuple>(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: Args) -> Self {
 		let new_stack = Stack::new(
-			mapping::Config::<Global>::new(NonZeroUsize::new(32).unwrap()),
+			mapping::Config::<Global>::new(non_zero!(32)),
 			crate::paging_codes::THREAD_KERNEL_STACK,
 		).unwrap();
 

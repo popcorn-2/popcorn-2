@@ -16,7 +16,7 @@
 use core::fmt::{Debug, Formatter};
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
-use core::num::{NonZeroU32, NonZeroUsize};
+use core::num::NonZero;
 use core::ptr;
 use log::debug;
 use crate::memory::allocator::{AllocationMeta, BackingAllocator, SpecificLocation, ZeroAllocError};
@@ -46,7 +46,7 @@ unsafe impl BackingAllocator for Highmem {
 		highmem().allocate_zeroed(frame_count)
 	}
 
-	unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize) {
+	unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZero<usize>) {
 		highmem().deallocate_contiguous(base, frame_count)
 	}
 
@@ -271,7 +271,7 @@ impl<A: BackingAllocator> Drop for OldMapping<A> {
 /// Implementations of this can be used to instantiate a [`RawMapping`].
 pub trait Mappable {
 	/// The amount of virtual memory required to create a mapping with `physical_length` [`Frame`]s
-	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize;
+	fn physical_length_to_virtual_length(physical_length: NonZero<usize>) -> NonZero<usize>;
 
 	/// The number of [`Page`]s to offset the physical memory into the allocated virtual memory
 	fn physical_start_offset_from_virtual() -> isize;
@@ -302,11 +302,11 @@ pub enum Location<A: Address> {
 	/// The mapping can go anywhere
 	Any,
 	/// The mapping must be aligned to a specific number of [`Page`]s/[`Frame`]s
-	Aligned(NonZeroU32),
+	Aligned(NonZero<u32>),
 	/// The mapping will fail if it cannot be allocated at this exact location
 	At(A),
 	/// The mapping must be below this location, aligned to `with_alignment` number of [`Page`]s/[`Frame`]s
-	Below { location: A, with_alignment: NonZeroU32 }
+	Below { location: A, with_alignment: NonZero<u32> }
 }
 
 impl From<Location<Frame>> for super::allocator::Location {
@@ -333,7 +333,7 @@ pub struct Config<'physical_allocator, A: VirtualAllocator> {
 	physical_location: Location<Frame>,
 	_virtual_location: Location<Page>,
 	_laziness: Laziness,
-	length: NonZeroUsize,
+	length: NonZero<usize>,
 	physical_allocator: &'physical_allocator dyn BackingAllocator,
 	virtual_allocator: A,
 	_protection: Protection,
@@ -341,7 +341,7 @@ pub struct Config<'physical_allocator, A: VirtualAllocator> {
 
 impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	/// Creates a new [mapping](self) configuration with default options
-	pub fn new(length: NonZeroUsize) -> Config<'static, Global> {
+	pub fn new(length: NonZero<usize>) -> Config<'static, Global> {
 		Config {
 			physical_location: Location::Any,
 			_virtual_location: Location::Any,
@@ -401,7 +401,7 @@ impl RawMappingInner<'_> {
 		self.virtual_valid_start
 	}
 
-	pub(super) fn physical_len(&self) -> NonZeroUsize {
+	pub(super) fn physical_len(&self) -> NonZero<usize> {
 		self.physical.len
 	}
 
@@ -495,7 +495,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		}
 	}
 
-	fn virtual_len(&self) -> NonZeroUsize {
+	fn virtual_len(&self) -> NonZero<usize> {
 		R::physical_length_to_virtual_length(self.physical_len())
 	}
 
@@ -511,7 +511,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		self.virtual_start() + self.virtual_len().get()
 	}
 
-	pub fn physical_len(&self) -> NonZeroUsize {
+	pub fn physical_len(&self) -> NonZero<usize> {
 		self.inner.physical_len()
 	}
 
@@ -550,7 +550,7 @@ impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 pub enum RawMmap {}
 
 impl Mappable for RawMmap {
-	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize { physical_length }
+	fn physical_length_to_virtual_length(physical_length: NonZero<usize>) -> NonZero<usize> { physical_length }
 	fn physical_start_offset_from_virtual() -> isize { 0 }
 }
 
@@ -558,7 +558,7 @@ impl Mappable for RawMmap {
 pub enum RawStack {}
 
 impl Mappable for RawStack {
-	fn physical_length_to_virtual_length(physical_length: NonZeroUsize) -> NonZeroUsize {
+	fn physical_length_to_virtual_length(physical_length: NonZero<usize>) -> NonZero<usize> {
 		physical_length.checked_add(1).expect("Stack size overflow")
 	}
 	fn physical_start_offset_from_virtual() -> isize { 1 }

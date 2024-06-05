@@ -136,6 +136,18 @@ macro_rules! yeet {
     ($e:expr) => {return Err($e);};
 }
 
+#[macro_export]
+macro_rules! non_zero {
+    ($lit:literal) => {
+        const {
+            match NonZero::new($lit) {
+                Some(x) => x,
+                None => panic!("Cannot use `0` as a NonZero constant"),
+            }
+        }
+    };
+}
+
 #[inline]
 fn syscall_handler() {
 

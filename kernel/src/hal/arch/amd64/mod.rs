@@ -1,7 +1,7 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
 use core::mem::{MaybeUninit, offset_of};
-use core::num::NonZeroU8;
+use core::num::NonZero;
 use crate::hal::ArgTuple;
 use crate::hal::{Hal, SaveState, ThreadControlBlock};
 use crate::hal::arch::amd64::interrupts::handler::InterruptStackFrame;

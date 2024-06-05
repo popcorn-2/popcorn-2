@@ -2,7 +2,7 @@
 
 #![stable(feature = "kernel_core_api", since = "0.1.0")]
 
-use core::num::{NonZeroU32, NonZeroUsize};
+use core::num::NonZero;
 use core::ops::Range;
 use auto_impl::auto_impl;
 
@@ -135,7 +135,7 @@ pub unsafe trait BackingAllocator: Send + Sync {
     /// # Safety
     /// Must be deallocated with the same allocator that made the allocation
     #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize);
+    unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZero<usize>);
 
     #[unstable(feature = "kernel_allocation_new", issue = "5")]
     fn push(&mut self, _allocation: AllocationMeta) { unimplemented!("experimental") }
@@ -153,11 +153,11 @@ pub unsafe trait SizedBackingAllocator: BackingAllocator + Sized {
 #[unstable(feature = "kernel_physical_allocator_location", issue = "none")]
 pub enum SpecificLocation {
     /// The mapping must be aligned to a specific number of [`Frame`]s
-    Aligned(NonZeroU32),
+    Aligned(NonZero<u32>),
     /// The mapping will fail if it cannot be allocated at this exact location
     At(Frame),
     /// The mapping must be below this location, aligned to `with_alignment` number of [`Frame`]s
-    Below { location: Frame, with_alignment: NonZeroU32 }
+    Below { location: Frame, with_alignment: NonZero<u32> }
 }
 
 #[unstable(feature = "kernel_physical_allocator_location", issue = "none")]

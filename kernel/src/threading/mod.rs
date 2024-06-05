@@ -2,7 +2,7 @@
 use alloc::borrow::Cow;
 use core::arch::asm;
 use core::cmp::Ordering;
-use core::num::NonZeroUsize;
+use core::num::NonZero;
 use core::time::Duration;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
@@ -21,12 +21,12 @@ pub unsafe fn init(handoff_data: crate::HandoffWrapper) -> Tid {
 	let stack_phys_len = stack.top_virt - stack.bottom_virt - 1;
 	let stack_frames = OwnedFrames::from_raw_parts(
 		stack.top_phys - stack_phys_len,
-		NonZeroUsize::new(stack_phys_len).expect("Cannot have a zero sized stack"),
+		NonZero::<usize>::new(stack_phys_len).expect("Cannot have a zero sized stack"),
 		highmem()
 	);
 	let stack_pages = OwnedPages::from_raw_parts(
 		stack.bottom_virt,
-		NonZeroUsize::new(stack_phys_len + 1).expect("Cannot have a zero sized stack"),
+		NonZero::<usize>::new(stack_phys_len + 1).expect("Cannot have a zero sized stack"),
 		Global
 	);
 

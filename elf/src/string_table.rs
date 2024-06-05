@@ -1,6 +1,6 @@
 use core::ffi;
 use core::ffi::CStr;
-use core::num::NonZeroU32;
+use core::num::NonZero;
 use core::ptr::slice_from_raw_parts;
 use crate::dynamic_table::DynamicTableEntry;
 
@@ -15,11 +15,11 @@ impl<'a> StringTable<'a> {
 
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
-pub struct StringIndex(pub NonZeroU32);
+pub struct StringIndex(pub NonZero<u32>);
 
 impl From<u32> for StringIndex {
 	fn from(value: u32) -> Self {
-		Self(NonZeroU32::try_from(value).unwrap())
+		Self(NonZero::<u32>::try_from(value).unwrap())
 	}
 }
 

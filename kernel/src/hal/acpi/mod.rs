@@ -1,7 +1,7 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
-use core::num::NonZeroUsize;
+use core::num::NonZero;
 use core::ops::{Deref, DerefMut};
 use core::ptr::{from_raw_parts_mut, NonNull, Pointee};
 use acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
@@ -30,7 +30,7 @@ pub unsafe fn init_tables(rsdp_addr: usize) {
 pub use alloc::NullAllocator as Allocator;
 
 mod alloc {
-	use core::num::NonZeroUsize;
+	use core::num::NonZero;
 	use kernel_api::memory::allocator::{BackingAllocator, SpecificLocation};
 	use kernel_api::memory::{AllocError, Frame};
 
@@ -38,7 +38,7 @@ mod alloc {
 
 	unsafe impl BackingAllocator for NullAllocator {
 		fn allocate_contiguous(&self, _: usize) -> Result<Frame, AllocError> { unimplemented!() }
-		unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZeroUsize) {}
+		unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZero<usize>) {}
 
 		fn allocate_at(&self, _: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
 			match location {
@@ -123,8 +123,8 @@ impl AcpiHandlerExt for Handler<'_> {
 		let lower_addr =  PhysicalAddress::<1>::new(physical_address).align_down();
 		let offset = physical_address - lower_addr.addr;
 		let upper_addr: PhysicalAddress<4096> = PhysicalAddress::<1>::new(physical_address + size).align_up();
-		let actual_size = NonZeroUsize::new(upper_addr - lower_addr).expect("Cannot map zero size physical region");
-		let page_count = unsafe { NonZeroUsize::new_unchecked(actual_size.get().div_ceil(4096)) };
+		let actual_size = NonZero::<usize>::new(upper_addr - lower_addr).expect("Cannot map zero size physical region");
+		let page_count = unsafe { NonZero::<usize>::new_unchecked(actual_size.get().div_ceil(4096)) };
 		let config = Config::<Global>::new(page_count)
 				.physical_location(Location::At(Frame::new(lower_addr)))
 				.physical_allocator(self.allocator);
@@ -207,7 +207,7 @@ impl AcpiHandler for Handler<'_> {
 			let start = PhysicalAddress::<1>::new(region.physical_start());
 			Frame::new(start.align_down())
 		};
-		let len = NonZeroUsize::new(region.mapped_length() / 4096).unwrap();
+		let len = NonZero::<usize>::new(region.mapped_length() / 4096).unwrap();
 		let first_page = {
 			let start = VirtualAddress::<1>::from(region.virtual_start().as_ptr());
 			Page::new(start.align_down())

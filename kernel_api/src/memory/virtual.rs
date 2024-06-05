@@ -1,7 +1,7 @@
 #![unstable(feature = "kernel_virtual_memory", issue = "none")]
 
 use core::mem::ManuallyDrop;
-use core::num::NonZeroUsize;
+use core::num::NonZero;
 use core::ptr;
 use auto_impl::auto_impl;
 use log::debug;
@@ -46,12 +46,12 @@ impl VirtualAllocator for Global {
 
 pub struct OwnedPages<A: VirtualAllocator = Global> {
 	base: Page,
-	len: NonZeroUsize,
+	len: NonZero<usize>,
 	allocator: A
 }
 
 impl OwnedPages<Global> {
-	pub fn new(len: NonZeroUsize) -> Result<Self, AllocError> {
+	pub fn new(len: NonZero<usize>) -> Result<Self, AllocError> {
 		let base = Global.allocate_contiguous(len.get())?;
 		Ok(Self {
 			base,
@@ -62,7 +62,7 @@ impl OwnedPages<Global> {
 }
 
 impl<A: VirtualAllocator> OwnedPages<A> {
-	pub fn new_with(len: NonZeroUsize, allocator: A) -> Result<Self, AllocError> {
+	pub fn new_with(len: NonZero<usize>, allocator: A) -> Result<Self, AllocError> {
 		let base = allocator.allocate_contiguous(len.get())?;
 		Ok(Self {
 			base,
@@ -71,7 +71,7 @@ impl<A: VirtualAllocator> OwnedPages<A> {
 		})
 	}
 
-	pub fn into_raw_parts(self) -> (Page, NonZeroUsize, A) {
+	pub fn into_raw_parts(self) -> (Page, NonZero<usize>, A) {
 		let this = ManuallyDrop::new(self);
 		(
 			this.base,
@@ -80,7 +80,7 @@ impl<A: VirtualAllocator> OwnedPages<A> {
 		)
 	}
 
-	pub unsafe fn from_raw_parts(base: Page, len: NonZeroUsize, allocator: A) -> Self {
+	pub unsafe fn from_raw_parts(base: Page, len: NonZero<usize>, allocator: A) -> Self {
 		Self {
 			base, len, allocator
 		}

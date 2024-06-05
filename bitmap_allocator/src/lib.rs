@@ -10,7 +10,7 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::mem;
-use core::num::NonZeroUsize;
+use core::num::NonZero;
 use core::ops::Range;
 use kernel_api::memory::{Frame, AllocError};
 use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, SizedBackingAllocator, SpecificLocation};
@@ -208,7 +208,7 @@ unsafe impl BackingAllocator for Wrapped {
         }
     }
 
-    unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZeroUsize) {
+    unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZero<usize>) {
         let mut guard = self.0.lock();
 
         for i in 0..frame_count.get() {
