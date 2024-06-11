@@ -26,6 +26,13 @@ impl<T: ?Sized> IrqCell<T> {
 		IrqGuard { cell: self, _phantom_not_send: PhantomData }
 	}
 
+	pub unsafe fn make_guard_unchecked(&self) -> IrqGuard<'_, T> {
+		// Unsafety: is this actually needed?
+		debug_assert!(self.state.get().is_some(), "Created IrqGuard for unlocked IrqCell");
+
+		IrqGuard { cell: self, _phantom_not_send: PhantomData }
+	}
+
 	pub unsafe fn unlock(&self) {
 		let old_state = self.state.take();
 		unsafe { crate::bridge::hal::__popcorn_set_irq(old_state.unwrap()); }
