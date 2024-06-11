@@ -8,8 +8,9 @@ use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::r#virtual::Global;
 use crate::hal::{Hal, HalTy, SaveState};
 use crate::hal::paging2::TTableTy;
+use crate::threading::ThreadId;
 
-macro_rules! gen_field {
+macro_rules! __tcb_gen_field {
     /* mutable - thread */ (ref Thread, Thread, $field_ty:ty) => { &'a mut $field_ty };
     /* mutable - pointer */ (ref Pointer, Pointer, $field_ty:ty) => { &'a mut $field_ty };
 	/* invisible */ (ref $_: ident, $_1: ident, $field_ty:ty) => { () };
@@ -18,7 +19,7 @@ macro_rules! gen_field {
 	/* immutable - underlying */ ($field_ty:ty) => { $field_ty };
 }
 
-macro_rules! extract_field {
+macro_rules! __tcb_extract_field {
     /* mutable */ ($tcb:ident, ref Thread, Thread, $field_name: ident) => { unsafe { &mut *$tcb.$field_name.get() } };
     /* mutable */ ($tcb:ident, ref Pointer, Pointer, $field_name: ident) => { unsafe { &mut *$tcb.$field_name.get() } };
 	/* invisible */ ($tcb:ident, ref $_: ident, $_1: ident, $field_name: ident) => { () };
@@ -31,21 +32,22 @@ macro_rules! tcb_views {
     }) => {
 		#[derive(Debug)]
 	    pub struct ThreadControlBlock {
-		    $(pub $field_name : gen_field!( $($field_place ,)? $field_ty)),*
+		    $(pub $field_name : __tcb_gen_field!( $($field_place ,)? $field_ty)),*
 	    }
 
 		#[derive(Debug)]
 	    pub struct OwnedView<'a> {
-		    $(pub $field_name : gen_field!( ref Thread, $($field_place ,)? $field_ty)),*
+		    $(pub $field_name : __tcb_gen_field!( ref Thread, $($field_place ,)? $field_ty)),*
 	    }
 
+		#[repr(C)]
 		#[derive(Debug)]
 	    pub struct PointerView<'a> {
-		    $(pub $field_name : gen_field!( ref Pointer, $($field_place ,)? $field_ty)),*
+		    $(pub $field_name : __tcb_gen_field!( ref Pointer, $($field_place ,)? $field_ty)),*
 	    }
 
 	    impl ThreadControlBlock {
-		    fn new_inner($($field_name: $field_ty),*) -> ThreadControlBlock {
+		    pub(super) fn new_inner($($field_name: $field_ty),*) -> ThreadControlBlock {
 			    ThreadControlBlock {
 				    $($field_name : ::core::convert::Into::into($field_name)),*
 			    }
@@ -56,9 +58,9 @@ macro_rules! tcb_views {
 		    /// # Safety
 		    ///
 		    /// No other `OwnedView`s to the same [`ThreadControlBlock`] must exist at the same time
-		    unsafe fn from_tcb(tcb: &ThreadControlBlock) -> OwnedView<'_> {
+		    pub(super) unsafe fn from_tcb(tcb: &ThreadControlBlock) -> OwnedView<'_> {
 			    OwnedView {
-				    $($field_name : extract_field!( tcb, ref Thread, $($field_place ,)? $field_name)),*
+				    $($field_name : __tcb_extract_field!( tcb, ref Thread, $($field_place ,)? $field_name)),*
 			    }
 		    }
 	    }
@@ -67,9 +69,9 @@ macro_rules! tcb_views {
 		    /// # Safety
 		    ///
 		    /// No other `PointerView`s to the same [`ThreadControlBlock`] must exist at the same time
-		    unsafe fn from_tcb(tcb: &ThreadControlBlock) -> PointerView<'_> {
+		    pub(super) unsafe fn from_tcb(tcb: &ThreadControlBlock) -> PointerView<'_> {
 			    PointerView {
-				    $($field_name : extract_field!( tcb, ref Pointer, $($field_place ,)? $field_name)),*
+				    $($field_name : __tcb_extract_field!( tcb, ref Pointer, $($field_place ,)? $field_name)),*
 			    }
 		    }
 	    }
@@ -82,33 +84,36 @@ tcb_views! {
 		#[mut = Pointer] save_state: <HalTy as Hal>::SaveState,
 		name: Cow<'static, str>,
 		kernel_stack: Stack<'static, Global>,
-		state: ThreadState,
+		#[mut = Pointer] state: ThreadState,
+		thread_id: ThreadId,
 	}
 }
 
 impl ThreadControlBlock {
-	pub fn new<Args: ArgTuple>(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: Args) -> Self {
+	pub fn new<Args: ArgTuple>(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: Args) -> (Self, ThreadId) {
 		let new_stack = Stack::new(
 			mapping::Config::<Global>::new(NonZeroUsize::new(32).unwrap()),
 			crate::paging_codes::THREAD_KERNEL_STACK,
 		).unwrap();
-
+		
+		let id = ThreadId::new();
 		let mut new_thread = ThreadControlBlock::new_inner(
 			ttable,
 			Default::default(),
 			name,
 			new_stack,
 			ThreadState::Ready,
+			id,
 		);
 		new_thread.save_state = UnsafeCell::new(SaveState::new(&mut new_thread, startup, main, args.into_array()));
 
-		new_thread
+		(new_thread, id)
 	}
 }
 
 impl Drop for ThreadControlBlock {
 	fn drop(&mut self) {
-		assert_ne!(self.state, ThreadState::Running, "Cannot drop currently running thread as this would remove the current stack");
+		assert_ne!(*self.state.get_mut(), ThreadState::Running, "Cannot drop currently running thread as this would remove the current stack");
 	}
 }
 

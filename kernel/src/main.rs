@@ -147,6 +147,29 @@ macro_rules! non_zero {
     };
 }
 
+#[macro_export]
+macro_rules! hashmap_new {
+    () => { HashMap::with_hasher(::hashbrown::hash_map::DefaultHashBuilder::new()) };
+}
+
+#[macro_export]
+macro_rules! assert_unsafe_precondition {
+    ($message:expr, ($($name:ident:$ty:ty = $arg:expr),*$(,)?) => $e:expr $(,)?) => {
+        #[cfg(debug_assertions)] {
+            #[inline]
+            /* todo: const */ fn precondition_check($($name:$ty),*) {
+                if !$e {
+                    panic!(
+                        concat!("unsafe precondition(s) violated: ", $message)
+                    );
+                }
+            }
+
+            precondition_check($($arg,)*);
+        }
+    };
+}
+
 #[inline]
 fn syscall_handler() {
 
@@ -513,51 +536,22 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	hal::post_acpi_init();
 
 	let init_thread = unsafe { threading::init(handoff_data) };
-	debug!("{init_thread:x?}");
+	debug!("Init running on {init_thread:?}");
 
-	{
-		let update_line = update_line.as_mut().map(|f| f as &mut dyn FnMut());
-
-		if let Some(update_line) = update_line {
-			extern "C" fn animation_task((data, meta): (usize, usize)) -> ! {
-				let update_line = unsafe { &mut *ptr::from_raw_parts_mut::<dyn FnMut()>(data as *mut (), mem::transmute(meta)) };
-				let mut next_time = Instant::now();
-				loop {
-					next_time += Duration::from_nanos(1302083);
-					update_line();
-					threading::sleep_until(next_time);
-				}
+	if let Some(mut update_line) = update_line {
+		let animation = move || {
+			let mut next_time = Instant::now();
+			loop {
+				next_time += Duration::from_nanos(1302083);
+				update_line();
+				threading::sleep_until(next_time);
 			}
+		};
 
-			let update_line_parts = (update_line as *mut dyn FnMut()).to_raw_parts();
-
-			{
-				let ttable = hal::TTableTy::new(&*ktable(), highmem()).unwrap();
-				let task = ThreadControlBlock::new(
-					Cow::Borrowed("Boot animation"),
-					ttable,
-					threading::thread_startup,
-					animation_task,
-					(update_line_parts.0 as _, unsafe { mem::transmute(update_line_parts.1) })
-				);
-				let mut guard = threading::scheduler::SCHEDULER.lock();
-				guard.add_task(task);
-			}
-		}
+		let task = threading::spawn_with(animation, Cow::Borrowed("Boot animation"));
+		debug!("Boot animation running on {task:?}");
 	}
-
-	/*{
-		let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
-		let task = ThreadControlBlock::new(
-			Cow::Borrowed("PS/2 driver"),
-			ttable,
-			threading::thread_startup,
-			drivers::i8042::main,
-			()
-		);
-		let mut guard = threading::scheduler::SCHEDULER.lock();
-		guard.add_task(task);
-	}*/
+	threading::debug();
 
 	{
 		const CORE_SOCKET_OPEN: u128 = 0;
@@ -575,22 +569,14 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, 0xdeadbeef, 10, 0, 0));
 		shim(":core.input.mouse@");
 		{
-			extern "C" fn f(_: ()) -> ! {
+			let f = || {
 				let a = "core.input.mouse@:mouse".as_bytes();
 				debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, a.as_ptr() as _, a.len(), 0, 0));
-				threading::exit(0)
-			}
-			let ttable = hal::TTableTy::new(&*ktable(), highmem()).unwrap();
-			let task = ThreadControlBlock::new(
-				Cow::Borrowed("foo"),
-				ttable,
-				threading::thread_startup,
-				f,
-				()
-			);
-			let mut guard = threading::scheduler::SCHEDULER.lock();
-			guard.add_task(task);
+			};
+
+			threading::spawn_with(f, Cow::Borrowed("foo"));
 		}
+		threading::debug();
 		threading::thread_yield();
 		debug!("{:#?}", &*ipc::server::servers());
 	}
@@ -598,30 +584,6 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	loop {
 		threading::thread_yield();
 	}
-
-	let mut executor = Executor::new();
-	static mut WAKER: Option<Waker> = None;
-
-	executor.spawn(|| async {
-		sprintln!("inside async fn, about to wait");
-
-		let mut x = 0;
-		let waiter = future::poll_fn(|ctx| {
-			unsafe { WAKER = Some(ctx.waker().clone()); }
-			if x < 5 { sprintln!("{x}"); x += 1; Poll::Pending }
-			else { Poll::Ready(()) }
-		});
-		waiter.await;
-
-		sprintln!("async fn back");
-	});
-
-	executor.spawn(|| async { for _ in 0..5 {
-		sprintln!("Inside other async fn");
-		unsafe { WAKER.as_ref().unwrap().wake_by_ref(); }
-	}});
-
-	executor.run();
 }
 
 #[cfg(not(test))]

@@ -40,8 +40,10 @@
 use alloc::borrow::Cow;
 use core::arch::{asm, naked_asm};
 use core::cmp::Ordering;
+use core::fmt::{Debug, Formatter};
+use core::mem;
 use core::num::NonZero;
-use core::ptr::NonNull;
+use core::ptr::{addr_of, DynMetadata, NonNull};
 use core::sync::atomic::AtomicUsize;
 use core::time::Duration;
 use kernel_api::memory::mapping::Stack;
@@ -50,10 +52,16 @@ use kernel_api::memory::r#virtual::{Global, OwnedPages};
 use kernel_api::time::Instant;
 use crate::threading::tcb::{ThreadControlBlock, ThreadState};
 use crate::hal::{Hal, HalTy, SaveState};
-use crate::non_zero;
+use crate::{non_zero, assert_unsafe_precondition};
+use scheduler::Scheduler;
+use crate::hal::paging2::{TTable, TTableTy};
+use crate::memory::paging::ktable;
 
-pub mod scheduler;
+mod scheduler;
 pub mod tcb;
+mod cleanup;
+
+const INIT_THREAD: ThreadId = ThreadId { id: non_zero!(1) };
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct ThreadId {
@@ -78,12 +86,18 @@ pub struct Thread {
 	ptr: NonNull<ThreadControlBlock>,
 }
 
+unsafe impl Send for Thread {}
+unsafe impl Sync for Thread {}
+
 pub struct ThreadPointer {
 	ptr: NonNull<ThreadControlBlock>,
 }
 
+unsafe impl Send for ThreadPointer {}
+unsafe impl Sync for ThreadPointer {}
+
 impl Thread {
-	/// Constructs an Owned pointer to a [`ThreadControlBlock`]. See the [module level docs](pointer) for more information.
+	/// Constructs an Owned pointer to a [`ThreadControlBlock`]. See the [module level docs](self) for more information.
 	pub fn new(tcb: ThreadControlBlock) -> Thread {
 		let b = Box::new(tcb);
 		let ptr = NonNull::from(Box::leak(b));
@@ -95,12 +109,18 @@ impl ThreadPointer {
 	/// # Safety
 	///
 	/// The caller must ensure that no other [`ThreadPointer`]s to the same [`ThreadControlBlock`] exist
-	unsafe fn new(owned: &Thread) -> ThreadPointer {
+	unsafe fn new_unchecked(owned: &Thread) -> ThreadPointer {
 		ThreadPointer { ptr: owned.ptr }
 	}
 
-	fn tcb(&self) -> &ThreadControlBlock {
-		unsafe { self.ptr.as_ref() }
+	fn new(owned: Thread) -> (Thread, ThreadPointer) {
+		let ptr = unsafe { Self::new_unchecked(&owned) };
+		(owned, ptr)
+	}
+
+	fn tcb(&mut self) -> tcb::PointerView<'_> {
+		let tcb = unsafe { self.ptr.as_ref() };
+		unsafe { tcb::PointerView::from_tcb(tcb) }
 	}
 
 	// Must take `&mut self` to prevent aliasing, as in the following example
@@ -116,7 +136,34 @@ impl ThreadPointer {
 	}
 }
 
+impl Debug for Thread {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		let thread_id = unsafe { *addr_of!((*self.ptr.as_ptr()).thread_id) };
+		f.debug_struct("Thread")
+		 .field("ThreadId", &thread_id)
+		 .finish_non_exhaustive()
+	}
+}
+
+impl Debug for ThreadPointer {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		let thread_id = unsafe { *addr_of!((*self.ptr.as_ptr()).thread_id) };
+		f.debug_struct("ThreadPointer")
+		 .field("ThreadId", &thread_id)
+		 .finish_non_exhaustive()
+	}
+}
+
+/// # Safety
+/// This must only be called once during boot
 pub unsafe fn init(handoff_data: crate::HandoffWrapper) -> ThreadId {
+	assert_unsafe_precondition!("`threading::init` must only be called once", () => {
+		static INIT: ::core::sync::atomic::AtomicBool = ::core::sync::atomic::AtomicBool::new(false);
+		let ret = INIT.load(::core::sync::atomic::Ordering::Relaxed) == false;
+		INIT.store(true, ::core::sync::atomic::Ordering::Relaxed);
+		ret
+	});
+
 	let stack = handoff_data.memory.stack;
 	let ttable = handoff_data.to_empty_ttable();
 
@@ -133,82 +180,93 @@ pub unsafe fn init(handoff_data: crate::HandoffWrapper) -> ThreadId {
 		Global
 	);
 
-	let mut scheduler = scheduler::SCHEDULER.lock();
-	let tcb =  ThreadControlBlock {
-		name: Cow::Borrowed("init"),
-		kernel_stack: Stack::from_contiguous_raw_parts(stack_frames, stack_pages),
+	let tcb = ThreadControlBlock::new_inner(
 		ttable,
-		state: ThreadState::Running,
-		save_state: Default::default(),
-	};
+		Default::default(),
+		Cow::Borrowed("init"),
+		Stack::from_contiguous_raw_parts(stack_frames, stack_pages),
+		ThreadState::Running,
+		INIT_THREAD,
+	);
+	let thread = Thread::new(tcb);
+	let ptr = ThreadPointer { ptr: thread.ptr };
+	assert!(
+		scheduler::TASK_LIST.lock()
+				.try_insert(INIT_THREAD, thread)
+				.is_ok(),
+		"ThreadId(1) should not exist already"
+	);
 	
-	scheduler.init(tcb);
+	scheduler::create_scheduler_for_current_core(ptr);
 
-	ThreadId { id: non_zero!(1) }
+	INIT_THREAD
 }
 
 pub fn thread_yield() {
-	defer_schedule();
+	let s = scheduler::scheduler();
+	let (from, to) = s.prepare_switch_thread();
+	debug!("switch from `{:?}` to `{:?}`", from.thread_id, to.thread_id);
+	unsafe { <HalTy as Hal>::switch_thread(&from, &to); }
+	debug!("switch done");
+	s.post_switch_thread();
+	//defer_schedule();
+}
+
+pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) -> ThreadId {
+	extern "C" fn main((ptr, meta): (usize, usize)) -> ! {
+		let ptr = ptr as *mut i8;
+		let meta = unsafe { mem::transmute::<usize, DynMetadata<dyn FnOnce()>>(meta) };
+		let ptr = core::ptr::from_raw_parts_mut::<dyn FnOnce()>(ptr, meta);
+		unsafe { Box::from_raw(ptr)() };
+		exit(0);
+	}
+
+	let (ptr, meta) = {
+		let b = Box::new(f) as Box<dyn FnOnce()>;
+		Box::into_raw(b).to_raw_parts()
+	};
+
+	let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
+	let (tcb, id) = ThreadControlBlock::new(
+		name,
+		ttable,
+		thread_startup,
+		main,
+		(ptr as usize, unsafe { mem::transmute::<DynMetadata<dyn FnOnce()>, usize>(meta) })
+	);
+
+	scheduler::enqueue(tcb);
+
+	id
 }
 
 pub fn block(reason: ThreadState) {
-	scheduler::SCHEDULER.lock().block(reason);
+	todo!()
 }
 
-pub fn current_thread() -> ThreadId {
-	scheduler::SCHEDULER.lock().current_tid()
+pub fn current_thread() -> Option<ThreadId> {
+	scheduler::scheduler().current_thread()
 }
 
 pub fn unblock(tid: ThreadId) {
-	scheduler::SCHEDULER.lock().unblock(tid);
+	todo!()
 }
-
-#[derive(Debug, Copy, Clone)]
-struct SchedulerEvent {
-	time: Instant,
-	tid: ThreadId,
-	action: EventTy,
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-enum EventTy {
-	Unblock,
-}
-
-impl Ord for SchedulerEvent {
-	fn cmp(&self, other: &Self) -> Ordering {
-		self.time.cmp(&other.time)
-	}
-}
-
-impl PartialOrd for SchedulerEvent {
-	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-		Some(self.cmp(other))
-	}
-}
-
-impl PartialEq for SchedulerEvent {
-	fn eq(&self, other: &Self) -> bool {
-		self.time.eq(&other.time)
-	}
-}
-
-impl Eq for SchedulerEvent {}
 
 fn push_to_global_sleep_queue(_wake_time: Instant) {
 	todo!()
 }
 
 fn pinned_sleep(time_of_wake: Instant) {
-	let mut guard = scheduler::SCHEDULER.lock();
+	todo!();
+	/* let mut guard = scheduler::SCHEDULER.lock();
 	let sleep_event = SchedulerEvent {
-		tid: guard.current_tid(),
+		tid: guard.current_thread_id().unwrap(),
 		time: time_of_wake,
 		action: EventTy::Unblock
 	};
 	#[cfg(feature = "log.scheduler")] debug!("sleeping tid {:?}", sleep_event.tid);
 	guard.event_queue.add(sleep_event);
-	guard.block(ThreadState::Sleeping);
+	guard.block(ThreadState::Sleeping);*/
 }
 
 pub fn sleep(duration: Duration) {
@@ -227,18 +285,18 @@ pub fn sleep_until(wake_time: Instant) {
 }
 
 pub fn exit(exit_code: i8) -> ! {
-	let mut guard = scheduler::SCHEDULER.lock();
+	/*let mut guard = scheduler::SCHEDULER.lock();
 	guard.queue_for_deletion(exit_code);
-	drop(guard); // drop guard before end of scope to ensure deferred schedule goes through
+	drop(guard); // drop guard before end of scope to ensure deferred schedule goes through */
+	todo!();
 	unreachable!("Returned to deleted task")
 }
 
 #[naked]
 pub unsafe extern "C" fn thread_startup() {
 	extern "C" fn thread_startup_inner() {
-		unsafe {
-			scheduler::SCHEDULER.unlock();
-		}
+		unsafe { scheduler::scheduler().thread_startup(); }
+		debug!("thread_startup");
 	}
 
 	naked_asm!(
@@ -265,3 +323,5 @@ pub unsafe extern "C" fn thread_startup() {
 pub fn defer_schedule() {
 	crate::hal::arch::apic::send_self_ipi(0x30);
 }
+
+pub fn debug() { debug!("{:#?}", scheduler::scheduler()); }

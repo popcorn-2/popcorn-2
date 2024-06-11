@@ -3,9 +3,11 @@ use core::arch::{asm, naked_asm};
 use core::fmt::{Debug, Formatter};
 use core::mem::{MaybeUninit, offset_of};
 use core::num::NonZero;
+use kernel_api::memory::mapping::Stack;
 use crate::hal::ArgTuple;
 use crate::hal::{Hal, SaveStateTr, ThreadControlBlock};
 use crate::hal::arch::amd64::interrupts::handler::InterruptStackFrame;
+use crate::threading::{ThreadPointer, tcb};
 
 mod gdt;
 mod tss;
@@ -106,49 +108,55 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	#[naked]
-	unsafe extern "C" fn switch_thread(from: &mut ThreadControlBlock, to: &ThreadControlBlock) {
+	unsafe extern "C" fn switch_thread(from: &tcb::PointerView, to: &tcb::PointerView) {
+		// rdi: from
+		// rsi: to
 		naked_asm!(
-			"mov [rdi + {0}], rbx",
-			"mov [rdi + {1}], rsp",
-			"mov [rdi + {2}], rbp",
-			"mov [rdi + {3}], r12",
-			"mov [rdi + {4}], r13",
-			"mov [rdi + {5}], r14",
-			"mov [rdi + {6}], r15",
+			"mov rdi, [rdi + {save_state_ptr_offset}]", // load pointer to `from` save-state into `rdi`
+			"mov rsi, [rsi + {save_state_ptr_offset}]", // load pointer to `to` save-state into `rsi`
+
+			"mov [rdi + {rbx_offset}], rbx",
+			"mov [rdi + {rsp_offset}], rsp",
+			"mov [rdi + {rbp_offset}], rbp",
+			"mov [rdi + {r12_offset}], r12",
+			"mov [rdi + {r13_offset}], r13",
+			"mov [rdi + {r14_offset}], r14",
+			"mov [rdi + {r15_offset}], r15",
 			"pushf",
 			"pop rbx",
-			"mov [rdi + {7}], rbx",
+			"mov [rdi + {rflags_offset}], rbx",
 
-			"mov rax, [rsi + {8}]",
+			"mov rax, [rsi + {pml4_offset}]",
 			"mov rcx, cr3",
 			"cmp rax, rcx",
 			"je 2f",
-			"mov cr3, rax",
+			todo: "mov cr3, rax",
 			"2:",
 
 			// todo: adjust RSP0 in TSS
-			"mov rbx, [rdi + {7}]",
+			"mov rbx, [rdi + {rflags_offset}]",
 			"push rbx",
 			"popf",
-			"mov rbx, [rsi + {0}]",
-			"mov rsp, [rsi + {1}]",
-			"mov rbp, [rsi + {2}]",
-			"mov r12, [rsi + {3}]",
-			"mov r13, [rsi + {4}]",
-			"mov r14, [rsi + {5}]",
-			"mov r15, [rsi + {6}]",
+			"mov rbx, [rsi + {rbx_offset}]",
+			"mov rsp, [rsi + {rsp_offset}]",
+			"mov rbp, [rsi + {rbp_offset}]",
+			"mov r12, [rsi + {r12_offset}]",
+			"mov r13, [rsi + {r13_offset}]",
+			"mov r14, [rsi + {r14_offset}]",
+			"mov r15, [rsi + {r15_offset}]",
 
 			"ret",
 
-			const offset_of!(ThreadControlBlock, save_state.rbx),
-			const offset_of!(ThreadControlBlock, save_state.rsp),
-			const offset_of!(ThreadControlBlock, save_state.rbp),
-			const offset_of!(ThreadControlBlock, save_state.r12),
-			const offset_of!(ThreadControlBlock, save_state.r13),
-			const offset_of!(ThreadControlBlock, save_state.r14),
-			const offset_of!(ThreadControlBlock, save_state.r15),
-			const offset_of!(ThreadControlBlock, save_state.rflags),
-			const offset_of!(ThreadControlBlock, ttable.pml4),
+			save_state_ptr_offset = const offset_of!(tcb::PointerView, save_state),
+			rbx_offset = const offset_of!(ThreadControlBlock, save_state.rbx),
+			rsp_offset = const offset_of!(ThreadControlBlock, save_state.rsp),
+			rbp_offset = const offset_of!(ThreadControlBlock, save_state.rbp),
+			r12_offset = const offset_of!(ThreadControlBlock, save_state.r12),
+			r13_offset = const offset_of!(ThreadControlBlock, save_state.r13),
+			r14_offset = const offset_of!(ThreadControlBlock, save_state.r14),
+			r15_offset = const offset_of!(ThreadControlBlock, save_state.r15),
+			rflags_offset = const offset_of!(ThreadControlBlock, save_state.rflags),
+			pml4_offset = const offset_of!(ThreadControlBlock, ttable.pml4),
 		);
 	}
 
