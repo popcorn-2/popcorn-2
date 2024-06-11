@@ -39,6 +39,17 @@ impl<T: ?Sized> IrqCell<T> {
 	}
 }
 
+impl<T: Debug> Debug for IrqCell<T> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		let guard = self.lock();
+		let r = f.debug_struct("IrqCell")
+		 .field("data", &*guard)
+		 .finish_non_exhaustive();
+		IrqGuard::unlock(guard);
+		r
+	}
+}
+
 pub struct IrqGuard<'cell, T: ?Sized> {
 	cell: &'cell IrqCell<T>,
 	_phantom_not_send: PhantomData<*mut u8>, // Dropping guard on other core would cause interrupts to be enabled in the wrong place
@@ -48,6 +59,11 @@ impl<T: ?Sized> IrqGuard<'_, T> {
 	pub fn unlock_no_interrupts(this: IrqGuard<T>) {
 		let this = ManuallyDrop::new(this);
 		this.cell.state.take();
+	}
+
+	fn unlock(this: IrqGuard<T>) {
+		let this = ManuallyDrop::new(this);
+		unsafe { this.cell.unlock(); }
 	}
 }
 
