@@ -1,5 +1,6 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::arch::{asm, naked_asm};
+use core::fmt::{Debug, Formatter};
 use core::mem::{MaybeUninit, offset_of};
 use core::num::NonZero;
 use crate::hal::ArgTuple;
@@ -155,7 +156,6 @@ unsafe impl Hal for Amd64Hal {
 	const MAX_IRQ_NUM: usize = 255; // 255 for spurious apic
 }
 
-#[derive(Debug)]
 pub struct Amd64SaveState {
 	pub rbx: MaybeUninit<usize>,
 	pub rsp: MaybeUninit<usize>,
@@ -165,6 +165,21 @@ pub struct Amd64SaveState {
 	pub r14: MaybeUninit<usize>,
 	pub r15: MaybeUninit<usize>,
 	pub rflags: MaybeUninit<usize>,
+}
+
+impl Debug for Amd64SaveState {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		f.debug_struct("Amd64SaveState")
+				.field("rbx", unsafe { &self.rbx.assume_init_read() })
+				.field("rsp", unsafe { &self.rsp.assume_init_read() })
+				.field("rbp", unsafe { &self.rbp.assume_init_read() })
+				.field("r12", unsafe { &self.r12.assume_init_read() })
+				.field("r13", unsafe { &self.r13.assume_init_read() })
+				.field("r14", unsafe { &self.r14.assume_init_read() })
+				.field("r15", unsafe { &self.r15.assume_init_read() })
+				.field("rflags", unsafe { &self.rflags.assume_init_read() })
+				.finish()
+	}
 }
 
 impl Default for Amd64SaveState {
