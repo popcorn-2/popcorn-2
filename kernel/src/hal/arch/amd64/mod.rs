@@ -192,7 +192,10 @@ impl Default for Amd64SaveState {
 			r13: MaybeUninit::zeroed(),
 			r14: MaybeUninit::zeroed(),
 			r15: MaybeUninit::zeroed(),
-			rflags: MaybeUninit::zeroed(),
+			// According to Sys V entry convention
+			// Reserved bit 1 = 1
+			// IE = 0
+			rflags: MaybeUninit::new(0x02),
 		}
 	}
 }
