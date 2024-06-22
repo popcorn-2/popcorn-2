@@ -11,10 +11,14 @@
 #![feature(type_alias_impl_trait)]
 #![feature(extern_types)]
 #![feature(new_uninit)]
+#![feature(doc_auto_cfg)]
 #![cfg_attr(feature = "use_std", feature(lazy_cell))]
 #![warn(missing_docs)]
 
 #![doc(issue_tracker_base_url = "https://github.com/popcorn-2/popcorn-2/issues/")]
+#![doc(cfg_hide(all(not(feature = "use_std"), feature = "full"))))]
+#![doc(cfg_hide(feature = "full")]
+#![doc(cfg_hide(not(feature = "use_std")))]
 
 #![stable(feature = "kernel_core_api", since = "0.1.0")]
 
