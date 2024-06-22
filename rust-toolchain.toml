@@ -1,5 +1,5 @@
 [toolchain]
-channel = "nightly"
+channel = "nightly-2024-06-05"
 targets = [ "x86_64-unknown-uefi" ]
 profile = "minimal"
 components = [ "rust-src" ]
