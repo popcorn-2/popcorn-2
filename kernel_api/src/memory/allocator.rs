@@ -50,14 +50,14 @@ impl AllocationMeta {
 }
 
 #[unstable(feature = "kernel_physical_allocator_non_contiguous", issue = "none")]
-pub type AllocateNonContiguousRet = impl IntoIterator<Item = Frame>;
+pub struct AllocateNonContiguousRet(Range<Frame>);
 
-const _: () = {
-    fn dummy() -> AllocateNonContiguousRet {
-        fn f() -> Range<Frame> { unimplemented!() }
-        f()
-    }
-};
+impl IntoIterator for AllocateNonContiguousRet {
+    type Item = Frame;
+    type IntoIter = Range<Frame>;
+
+    fn into_iter(self) -> Self::IntoIter { self.0 }
+}
 
 /// An allocator that managed physical memory
 ///
@@ -87,7 +87,7 @@ pub unsafe trait BackingAllocator: Send + Sync {
     #[unstable(feature = "kernel_physical_allocator_non_contiguous", issue = "none")]
     fn allocate(&self, frame_count: usize) -> Result<AllocateNonContiguousRet, AllocError> {
         let base = self.allocate_contiguous(frame_count)?;
-        Ok(base..(base + frame_count))
+        Ok(AllocateNonContiguousRet(base..(base + frame_count)))
     }
 
     /// Allocates a contiguous range of physical memory
