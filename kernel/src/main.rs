@@ -37,6 +37,7 @@
 #![feature(str_from_raw_parts)]
 #![feature(build_hasher_default_const_new)]
 #![feature(min_specialization)]
+#![feature(doc_auto_cfg)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
