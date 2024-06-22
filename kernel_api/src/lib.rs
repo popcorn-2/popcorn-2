@@ -14,6 +14,8 @@
 #![cfg_attr(feature = "use_std", feature(lazy_cell))]
 #![warn(missing_docs)]
 
+#![doc(issue_tracker_base_url = "https://github.com/popcorn-2/popcorn-2/issues/")]
+
 #![stable(feature = "kernel_core_api", since = "0.1.0")]
 
 extern crate alloc;
