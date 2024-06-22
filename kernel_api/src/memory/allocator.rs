@@ -52,6 +52,7 @@ impl AllocationMeta {
 #[unstable(feature = "kernel_physical_allocator_non_contiguous", issue = "none")]
 pub struct AllocateNonContiguousRet(Range<Frame>);
 
+#[unstable(feature = "kernel_physical_allocator_non_contiguous", issue = "none")]
 impl IntoIterator for AllocateNonContiguousRet {
     type Item = Frame;
     type IntoIter = Range<Frame>;
