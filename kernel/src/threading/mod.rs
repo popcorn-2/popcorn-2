@@ -118,7 +118,12 @@ impl ThreadPointer {
 		(owned, ptr)
 	}
 
-	fn tcb(&mut self) -> tcb::PointerView<'_> {
+	fn tcb_ref(&self) -> tcb::SharedView<'_> {
+		let tcb = unsafe { self.ptr.as_ref() };
+		tcb::SharedView::from_tcb(tcb)
+	}
+
+	fn tcb_mut(&mut self) -> tcb::PointerView<'_> {
 		let tcb = unsafe { self.ptr.as_ref() };
 		unsafe { tcb::PointerView::from_tcb(tcb) }
 	}
@@ -131,7 +136,7 @@ impl ThreadPointer {
 	// ```
 	pub fn save_state(&mut self) -> &mut <HalTy as Hal>::SaveState {
 		todo!()
-		/*let ptr = self.tcb().save_state.get();
+		/*let ptr = self.tcb_mut().save_state.get();
 		unsafe { &mut *ptr }*/
 	}
 }

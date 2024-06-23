@@ -24,7 +24,7 @@ impl SchedulerMut for TicklessRoundRobin {
 
 	fn current_thread(&mut self) -> Option<ThreadId> {
 		self.current_thread.as_mut()
-				.map(|t| *t.tcb().thread_id)
+		    .map(|t| *t.tcb_ref().thread_id)
 	}
 
 	fn prepare_switch_thread(&mut self) -> (PointerView<'_>, PointerView<'_>) {
@@ -36,14 +36,14 @@ impl SchedulerMut for TicklessRoundRobin {
 				self.run_queue.push_back(old_thread);
 				self.run_queue.back_mut()
 						.expect("Just added a new thread")
-						.tcb()
+				    .tcb_mut()
 			};
 			
 			let new_tcb = self.current_thread.as_mut()
 					.expect("Just added a new thread")
-					.tcb();
 
 			(old_tcb, new_tcb)
+			                  .tcb_mut();
 		} else {
 			#[cfg(feature = "log.scheduler")] debug!("No other tasks");
 			
