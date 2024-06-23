@@ -13,7 +13,7 @@ use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::r#virtual::Global;
 pub(crate) use macros::Hal;
 use paging2::{KTable, TTable};
-use crate::threading::tcb;
+use crate::threading::{tcb, ThreadPointer};
 use crate::threading::tcb::{ThreadControlBlock, ArgTuple};
 use core::num::NonZero;
 use crate::non_zero;
@@ -41,7 +41,7 @@ pub unsafe trait Hal {
 	fn set_interrupts(old_state: usize);
 	unsafe fn load_tls(ptr: *mut u8);
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
-	unsafe extern "C" fn switch_thread(from: &tcb::PointerView, to: &tcb::PointerView);
+	unsafe extern "C" fn switch_thread(from: &tcb::PointerView, to: &tcb::PointerView, preserve: ThreadPointer) -> ThreadPointer;
 
 	const MIN_IRQ_NUM: usize;
 	const MAX_IRQ_NUM: usize;

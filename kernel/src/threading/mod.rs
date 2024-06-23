@@ -41,7 +41,8 @@ use alloc::borrow::Cow;
 use core::arch::{asm, naked_asm};
 use core::cmp::Ordering;
 use core::fmt::{Debug, Formatter};
-use core::mem;
+use core::{mem, ptr};
+use core::mem::ManuallyDrop;
 use core::num::NonZero;
 use core::ptr::{addr_of, DynMetadata, NonNull};
 use core::sync::atomic::AtomicUsize;
@@ -49,6 +50,7 @@ use core::time::Duration;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
 use kernel_api::memory::r#virtual::{Global, OwnedPages};
+use kernel_api::sync::IrqCell;
 use kernel_api::time::Instant;
 use crate::threading::tcb::{ThreadControlBlock, ThreadState};
 use crate::hal::{Hal, HalTy, SaveState};
@@ -61,7 +63,8 @@ mod scheduler;
 pub mod tcb;
 mod cleanup;
 
-const INIT_THREAD: ThreadId = ThreadId { id: non_zero!(1) };
+const INIT_THREAD_NUM: usize = 1;
+const INIT_THREAD_ID: ThreadId = ThreadId { id: non_zero!(INIT_THREAD_NUM) };
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct ThreadId {
@@ -70,7 +73,7 @@ pub struct ThreadId {
 
 impl ThreadId {
 	fn new() -> Self {
-		static THREAD_IDS: AtomicUsize = AtomicUsize::new(2);
+		static THREAD_IDS: AtomicUsize = AtomicUsize::new(INIT_THREAD_NUM + 1);
 
 		let id = THREAD_IDS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 		let id = NonZero::<usize>::new(id)
@@ -82,6 +85,11 @@ impl ThreadId {
 	}
 }
 
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub struct CoreId {
+	id: usize,
+}
+
 pub struct Thread {
 	ptr: NonNull<ThreadControlBlock>,
 }
@@ -89,6 +97,7 @@ pub struct Thread {
 unsafe impl Send for Thread {}
 unsafe impl Sync for Thread {}
 
+#[repr(transparent)]
 pub struct ThreadPointer {
 	ptr: NonNull<ThreadControlBlock>,
 }
@@ -159,62 +168,47 @@ impl Debug for ThreadPointer {
 	}
 }
 
-/// # Safety
-/// This must only be called once during boot
-pub unsafe fn init(handoff_data: crate::HandoffWrapper) -> ThreadId {
-	assert_unsafe_precondition!("`threading::init` must only be called once", () => {
-		static INIT: ::core::sync::atomic::AtomicBool = ::core::sync::atomic::AtomicBool::new(false);
-		let ret = INIT.load(::core::sync::atomic::Ordering::Relaxed) == false;
-		INIT.store(true, ::core::sync::atomic::Ordering::Relaxed);
-		ret
-	});
-
+pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 	let stack = handoff_data.memory.stack;
 	let ttable = handoff_data.to_empty_ttable();
 
 	// fixme: is highmem always correct?
 	let stack_phys_len = stack.top_virt - stack.bottom_virt - 1;
-	let stack_frames = OwnedFrames::from_raw_parts(
-		stack.top_phys - stack_phys_len,
-		NonZero::<usize>::new(stack_phys_len).expect("Cannot have a zero sized stack"),
-		highmem()
-	);
-	let stack_pages = OwnedPages::from_raw_parts(
-		stack.bottom_virt,
-		NonZero::<usize>::new(stack_phys_len + 1).expect("Cannot have a zero sized stack"),
-		Global
-	);
+	let stack_frames = unsafe {
+		OwnedFrames::from_raw_parts(
+			stack.top_phys - stack_phys_len,
+			NonZero::<usize>::new(stack_phys_len).expect("Cannot have a zero sized stack"),
+			highmem()
+		)
+	};
+	let stack_pages = unsafe {
+		OwnedPages::from_raw_parts(
+			stack.bottom_virt,
+			NonZero::<usize>::new(stack_phys_len + 1).expect("Cannot have a zero sized stack"),
+			Global
+		)
+	};
 
 	let tcb = ThreadControlBlock::new_inner(
 		ttable,
 		Default::default(),
 		Cow::Borrowed("init"),
-		Stack::from_contiguous_raw_parts(stack_frames, stack_pages),
+		unsafe { Stack::from_contiguous_raw_parts(stack_frames, stack_pages) },
 		ThreadState::Running,
-		INIT_THREAD,
+		INIT_THREAD_ID,
 	);
 	let thread = Thread::new(tcb);
 	let ptr = ThreadPointer { ptr: thread.ptr };
 	assert!(
 		scheduler::TASK_LIST.lock()
-				.try_insert(INIT_THREAD, thread)
+				.try_insert(INIT_THREAD_ID, thread)
 				.is_ok(),
 		"ThreadId(1) should not exist already"
 	);
 	
-	scheduler::create_scheduler_for_current_core(ptr);
+	let core = scheduler::create_scheduler_for_current_core(ptr);
 
-	INIT_THREAD
-}
-
-pub fn thread_yield() {
-	let s = scheduler::scheduler();
-	let (from, to) = s.prepare_switch_thread();
-	debug!("switch from `{:?}` to `{:?}`", from.thread_id, to.thread_id);
-	unsafe { <HalTy as Hal>::switch_thread(&from, &to); }
-	debug!("switch done");
-	s.post_switch_thread();
-	//defer_schedule();
+	(INIT_THREAD_ID, core)
 }
 
 pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) -> ThreadId {
@@ -250,7 +244,7 @@ pub fn block(reason: ThreadState) {
 }
 
 pub fn current_thread() -> Option<ThreadId> {
-	scheduler::scheduler().current_thread()
+	scheduler::scheduler().lock().current_thread()
 }
 
 pub fn unblock(tid: ThreadId) {
@@ -299,8 +293,10 @@ pub fn exit(exit_code: i8) -> ! {
 
 #[naked]
 pub unsafe extern "C" fn thread_startup() {
-	extern "C" fn thread_startup_inner() {
-		unsafe { scheduler::scheduler().thread_startup(); }
+	extern "C" fn thread_startup_inner(previous_thread: ThreadPointer) {
+		let guard = unsafe { scheduler::scheduler().make_guard_unchecked() };
+		debug!("[b] switch from `{:?}` to current", previous_thread.tcb_ref().thread_id,);
+		guard.switch_thread_post(previous_thread);
 		debug!("thread_startup");
 	}
 
@@ -311,6 +307,8 @@ pub unsafe extern "C" fn thread_startup() {
 		"pop rbp", // aligns to 16 bytes
 		".cfi_def_cfa rsp, 40",
 		".cfi_register rip, rbp",
+		"mov rdi, rax",
+		".cfi_undefined rdi",
 		"call {}",
 		"pop rdi", // pop args off stack
 		".cfi_def_cfa rsp, 32",
@@ -325,8 +323,33 @@ pub unsafe extern "C" fn thread_startup() {
 	sym thread_startup_inner);
 }
 
-pub fn defer_schedule() {
+/// Adds a pending thread switch that will switch threads once all nested interrupts are handled.
+///
+/// This will immediately return regardless of the current thread's blocked state.
+///
+/// # Interrupt safety
+/// This function **is** interrupt safe, and will immediately return
+pub fn defer_yield() {
 	crate::hal::arch::apic::send_self_ipi(0x30);
+}
+
+/// Immediately invokes the scheduler to switch threads.
+///
+/// If the thread has be placed into a blocked state, this will not return until it is unblocked.
+///
+/// # Interrupt safety
+/// This function is **not** interrupt safe, and will block any pending interrupts
+pub fn thread_yield() {
+	let scheduler = scheduler::scheduler();
+	let mut scheduler = scheduler.lock();
+	let (from, to_view) = scheduler.switch_thread_pre();
+	let mut from = ManuallyDrop::new(from);
+	let from_ptr = &from as *const ManuallyDrop<ThreadPointer>;
+	let from_view = from.tcb_mut();
+	debug!("[a] switch from `{:?}` to `{:?}`", from_view.thread_id, to_view.thread_id);
+	let from = unsafe { <HalTy as Hal>::switch_thread(&from_view, &to_view, ptr::read(from_ptr.cast())) };
+	debug!("[b] switch from `{:?}` to current", from.tcb_ref().thread_id,);
+	scheduler.switch_thread_post(from);
 }
 
 pub fn debug() { debug!("{:#?}", scheduler::scheduler()); }

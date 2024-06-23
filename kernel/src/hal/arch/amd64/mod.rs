@@ -108,9 +108,10 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	#[naked]
-	unsafe extern "C" fn switch_thread(from: &tcb::PointerView, to: &tcb::PointerView) {
+	unsafe extern "C" fn switch_thread(from: &tcb::PointerView, to: &tcb::PointerView, preserve: ThreadPointer) -> ThreadPointer {
 		// rdi: from
 		// rsi: to
+		// rdx: preserve
 		naked_asm!(
 			"mov rdi, [rdi + {save_state_ptr_offset}]", // load pointer to `from` save-state into `rdi`
 			"mov rsi, [rsi + {save_state_ptr_offset}]", // load pointer to `to` save-state into `rsi`
@@ -130,7 +131,7 @@ unsafe impl Hal for Amd64Hal {
 			"mov rcx, cr3",
 			"cmp rax, rcx",
 			"je 2f",
-			todo: "mov cr3, rax",
+			"mov cr3, rax",
 			"2:",
 
 			// todo: adjust RSP0 in TSS
@@ -144,6 +145,8 @@ unsafe impl Hal for Amd64Hal {
 			"mov r13, [rsi + {r13_offset}]",
 			"mov r14, [rsi + {r14_offset}]",
 			"mov r15, [rsi + {r15_offset}]",
+
+			"mov rax, rdx",
 
 			"ret",
 
