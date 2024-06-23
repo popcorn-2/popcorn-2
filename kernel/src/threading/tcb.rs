@@ -46,6 +46,12 @@ macro_rules! tcb_views {
 		    $(pub $field_name : __tcb_gen_field!( ref Pointer, $($field_place ,)? $field_ty)),*
 	    }
 
+		#[repr(C)]
+		#[derive(Debug)]
+	    pub struct SharedView<'a> {
+		    $(pub $field_name : __tcb_gen_field!( ref Shared, $($field_place ,)? $field_ty)),*
+	    }
+
 	    impl ThreadControlBlock {
 		    pub(super) fn new_inner($($field_name: $field_ty),*) -> ThreadControlBlock {
 			    ThreadControlBlock {
@@ -72,6 +78,14 @@ macro_rules! tcb_views {
 		    pub(super) unsafe fn from_tcb(tcb: &ThreadControlBlock) -> PointerView<'_> {
 			    PointerView {
 				    $($field_name : __tcb_extract_field!( tcb, ref Pointer, $($field_place ,)? $field_name)),*
+			    }
+		    }
+	    }
+
+	    impl SharedView<'_> {
+		    pub(super) fn from_tcb(tcb: &ThreadControlBlock) -> SharedView<'_> {
+			    SharedView {
+				    $($field_name : __tcb_extract_field!( tcb, ref Shared, $($field_place ,)? $field_name)),*
 			    }
 		    }
 	    }
