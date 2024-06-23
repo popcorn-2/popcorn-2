@@ -66,12 +66,28 @@ mod cleanup;
 const INIT_THREAD_NUM: usize = 1;
 const INIT_THREAD_ID: ThreadId = ThreadId { id: non_zero!(INIT_THREAD_NUM) };
 
+/// The numerical ID of a thread
+/// 
+/// See the [module level documentation](crate::threading#threadcontrolblock-vs-thread-vs-threadpointer-vs-threadid) for more information
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct ThreadId {
 	id: NonZero<usize>,
 }
 
 impl ThreadId {
+	/// Creates a new unique [`ThreadId`]
+	/// 
+	/// The exact semantics of how the numerical ID is determined is implementation defined and should not be relied upon
+	/// 
+	/// # Examples
+	/// 
+	/// ```
+	/// use kernel::threading::ThreadId;
+	/// 
+	/// let thread_a = ThreadId::new();
+	/// let thread_b = ThreadId::new();
+	/// assert_ne!(thread_a, thread_b);
+	/// ```
 	fn new() -> Self {
 		static THREAD_IDS: AtomicUsize = AtomicUsize::new(INIT_THREAD_NUM + 1);
 
@@ -85,11 +101,15 @@ impl ThreadId {
 	}
 }
 
+/// The numerical ID of a CPU core
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct CoreId {
 	id: usize,
 }
 
+/// Global ownership of a [`ThreadControlBlock`]
+/// 
+/// See the [module level documentation](crate::threading#threadcontrolblock-vs-thread-vs-threadpointer-vs-threadid) for more information
 pub struct Thread {
 	ptr: NonNull<ThreadControlBlock>,
 }
@@ -97,6 +117,9 @@ pub struct Thread {
 unsafe impl Send for Thread {}
 unsafe impl Sync for Thread {}
 
+/// Scheduler ownership of a [`ThreadControlBlock`]
+///
+/// See the [module level documentation](crate::threading#threadcontrolblock-vs-thread-vs-threadpointer-vs-threadid) for more information
 #[repr(transparent)]
 pub struct ThreadPointer {
 	ptr: NonNull<ThreadControlBlock>,
@@ -127,26 +150,16 @@ impl ThreadPointer {
 		(owned, ptr)
 	}
 
+	/// Immutably "borrows" a [`ThreadPointer`]
 	fn tcb_ref(&self) -> tcb::SharedView<'_> {
 		let tcb = unsafe { self.ptr.as_ref() };
 		tcb::SharedView::from_tcb(tcb)
 	}
 
+	/// Mutably "borrows" a [`ThreadPointer`]
 	fn tcb_mut(&mut self) -> tcb::PointerView<'_> {
 		let tcb = unsafe { self.ptr.as_ref() };
 		unsafe { tcb::PointerView::from_tcb(tcb) }
-	}
-
-	// Must take `&mut self` to prevent aliasing, as in the following example
-	// ```no_run
-	// let a = ptr.save_state();
-	// let b = ptr.save_state(); // <- produces a multiple mutable borrow only with `&mut self`
-	// f(a, b);
-	// ```
-	pub fn save_state(&mut self) -> &mut <HalTy as Hal>::SaveState {
-		todo!()
-		/*let ptr = self.tcb_mut().save_state.get();
-		unsafe { &mut *ptr }*/
 	}
 }
 
@@ -168,6 +181,11 @@ impl Debug for ThreadPointer {
 	}
 }
 
+/// Initializes the scheduler subsystem
+/// 
+/// Initializes the scheduler for the bootstrap core, and creates the [`ThreadControlBlock`] for the already running
+/// first thread. Using `handoff_data`, this moves ownership of the in-use stack and page tables into the new
+/// [`ThreadControlBlock`].
 pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 	let stack = handoff_data.memory.stack;
 	let ttable = handoff_data.to_empty_ttable();
@@ -211,6 +229,38 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 	(INIT_THREAD_ID, core)
 }
 
+/// Spawns a new thread in its own address space
+/// 
+/// The thread is created with the passed `name` in a new address space. It will run the passed closure on start,
+/// and will exit with a success code if the closure returns. A failure exit code can be returned by explicitly
+/// calling [`exit()`].
+/// 
+/// # Examples
+/// 
+/// ```
+/// use kernel::threading::spawn_with;
+/// # use kernel::prelude::debug;
+/// 
+/// let new_id = spawn_with(|| {
+///     debug!("`My new thread` is running!");
+/// }, "My new thread".into());
+/// 
+/// debug!("Spawned a new thread with id {new_id:?}");
+/// // TODO: get the exit state of the thread
+/// ```
+///
+/// ```
+/// use kernel::threading::{spawn_with, exit};
+/// # use kernel::prelude::debug;
+///
+/// let new_id = spawn_with(|| {
+///     error!("Oh no something went wrong");
+///     exit(-1);
+/// }, "Bad thread".into());
+///
+/// // TODO: get the exit state of the thread
+/// ```
+/// 
 pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) -> ThreadId {
 	extern "C" fn main((ptr, meta): (usize, usize)) -> ! {
 		let ptr = ptr as *mut i8;
@@ -243,6 +293,9 @@ pub fn block(reason: ThreadState) {
 	todo!()
 }
 
+/// Gets the [`ThreadId`] for the thread currently running on this core
+/// 
+/// Returns `None` if the core is idle
 pub fn current_thread() -> Option<ThreadId> {
 	scheduler::scheduler().lock().current_thread()
 }
@@ -352,4 +405,5 @@ pub fn thread_yield() {
 	scheduler.switch_thread_post(from);
 }
 
+#[doc(hidden)]
 pub fn debug() { debug!("{:#?}", scheduler::scheduler()); }

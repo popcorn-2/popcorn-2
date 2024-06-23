@@ -10,6 +10,7 @@ use crate::hal::{Hal, HalTy, SaveState};
 use crate::hal::paging2::TTableTy;
 use crate::threading::ThreadId;
 
+#[doc(hidden)]
 macro_rules! __tcb_gen_field {
     /* mutable - thread */ (ref Thread, Thread, $field_ty:ty) => { &'a mut $field_ty };
     /* mutable - pointer */ (ref Pointer, Pointer, $field_ty:ty) => { &'a mut $field_ty };
@@ -19,6 +20,7 @@ macro_rules! __tcb_gen_field {
 	/* immutable - underlying */ ($field_ty:ty) => { $field_ty };
 }
 
+#[doc(hidden)]
 macro_rules! __tcb_extract_field {
     /* mutable */ ($tcb:ident, ref Thread, Thread, $field_name: ident) => { unsafe { &mut *$tcb.$field_name.get() } };
     /* mutable */ ($tcb:ident, ref Pointer, Pointer, $field_name: ident) => { unsafe { &mut *$tcb.$field_name.get() } };
@@ -26,33 +28,39 @@ macro_rules! __tcb_extract_field {
 	/* immutable */ ($tcb:ident, ref $_: ident, $field_name: ident) => { &$tcb.$field_name };
 }
 
+#[doc(hidden)]
 macro_rules! tcb_views {
     (pub struct ThreadControlBlock {
-	    $($(#[mut = $field_place: ident])? $field_name: ident : $field_ty:ty),* $(,)?
+	    $($(#[$attr:meta])* $(#mut($field_place: ident))? $field_name: ident : $field_ty:ty),* $(,)?
     }) => {
+	    /// The underlying state of a thread
 		#[derive(Debug)]
 	    pub struct ThreadControlBlock {
-		    $(pub $field_name : __tcb_gen_field!( $($field_place ,)? $field_ty)),*
+		    $($(#[$attr])* pub $field_name : __tcb_gen_field!( $($field_place ,)? $field_ty)),*
 	    }
 
+	    /// A mutable "borrow" of [`ThreadControlBlock`] when "borrowed" from a [`Thread`](super::Thread)
 		#[derive(Debug)]
 	    pub struct OwnedView<'a> {
-		    $(pub $field_name : __tcb_gen_field!( ref Thread, $($field_place ,)? $field_ty)),*
+		    $($(#[$attr])* pub $field_name : __tcb_gen_field!( ref Thread, $($field_place ,)? $field_ty)),*
 	    }
 
+	    /// A mutable "borrow" of [`ThreadControlBlock`] when "borrowed" from a [`ThreadPointer`](super::ThreadPointer)
 		#[repr(C)]
 		#[derive(Debug)]
 	    pub struct PointerView<'a> {
-		    $(pub $field_name : __tcb_gen_field!( ref Pointer, $($field_place ,)? $field_ty)),*
+		    $($(#[$attr])* pub $field_name : __tcb_gen_field!( ref Pointer, $($field_place ,)? $field_ty)),*
 	    }
 
+	    /// An immutable "borrow" of [`ThreadControlBlock`] when "borrowed" from a [`Thread`](super::Thread) or [`ThreadPointer`](super::ThreadPointer)
 		#[repr(C)]
 		#[derive(Debug)]
 	    pub struct SharedView<'a> {
-		    $(pub $field_name : __tcb_gen_field!( ref Shared, $($field_place ,)? $field_ty)),*
+		    $($(#[$attr])* pub $field_name : __tcb_gen_field!( ref Shared, $($field_place ,)? $field_ty)),*
 	    }
 
 	    impl ThreadControlBlock {
+		    /// A constructor function that internally converts mutable fields to `UnsafeCell`s
 		    pub(super) fn new_inner($($field_name: $field_ty),*) -> ThreadControlBlock {
 			    ThreadControlBlock {
 				    $($field_name : ::core::convert::Into::into($field_name)),*
@@ -61,6 +69,8 @@ macro_rules! tcb_views {
 	    }
 
 	    impl OwnedView<'_> {
+		    /// Creates a mutable [`OwnedView`] from the underlying [`ThreadControlBlock`]
+		    ///
 		    /// # Safety
 		    ///
 		    /// No other `OwnedView`s to the same [`ThreadControlBlock`] must exist at the same time
@@ -72,6 +82,8 @@ macro_rules! tcb_views {
 	    }
 
 	    impl PointerView<'_> {
+		    /// Creates a mutable [`PointerView`] from the underlying [`ThreadControlBlock`]
+		    ///
 		    /// # Safety
 		    ///
 		    /// No other `PointerView`s to the same [`ThreadControlBlock`] must exist at the same time
@@ -83,6 +95,7 @@ macro_rules! tcb_views {
 	    }
 
 	    impl SharedView<'_> {
+		    /// Creates an immutable [`SharedView`] from the underlying [`ThreadControlBlock`]
 		    pub(super) fn from_tcb(tcb: &ThreadControlBlock) -> SharedView<'_> {
 			    SharedView {
 				    $($field_name : __tcb_extract_field!( tcb, ref Shared, $($field_place ,)? $field_name)),*
@@ -94,16 +107,55 @@ macro_rules! tcb_views {
 
 tcb_views! {
 	pub struct ThreadControlBlock {
+		/// The page table for the thread
 		ttable: TTableTy,
-		#[mut = Pointer] save_state: <HalTy as Hal>::SaveState,
+		/// The saved CPU state
+		#mut(Pointer) save_state: <HalTy as Hal>::SaveState,
+		/// The user-facing name of the thread
 		name: Cow<'static, str>,
+		/// The stack that kernel code runs on inside the thread
 		kernel_stack: Stack<'static, Global>,
-		#[mut = Pointer] state: ThreadState,
+		/// The current running state of the thread
+		#mut(Pointer) state: ThreadState,
+		/// The numerical ID of the thread
 		thread_id: ThreadId,
 	}
 }
 
 impl ThreadControlBlock {
+	/// Creates the [`ThreadControlBlock`] for a new thread
+	///
+	/// Assigns a [`ThreadId`] to the thread, and initializes the [`SaveState`](Hal::SaveState) to call `main`
+	/// with the arguments given in the `args` tuple
+	///
+	/// # Panics
+	///
+	/// Panics if a stack cannot be created for the new thread
+	///
+	/// # Examples
+	///
+	/// ```
+	/// use kernel::threading::tcb::ThreadControlBlock;
+	/// use kernel::threading::scheduler::enqueue;
+	/// # use kernel::prelude::debug;
+	///
+	/// extern "C" fn my_thread((a, b): (usize, usize)) -> ! {
+	///     assert_eq!(a, 1);
+	///     assert_eq!(b, 2);
+	///     loop {}
+	/// }
+	///
+	/// # let current_ttable = TTableTy::new(&*crate::memory::paging::ktable(), kernel_api::memory::physical::highmem()).unwrap();
+	/// let (tcb, id) = ThreadControlBlock::new(
+	///     "My new thread".into(),
+	///     current_ttable,
+	///     kernel::threading::thread_startup,
+	///     my_thread,
+	///     (1, 2),
+	/// );
+	/// 
+	/// enqueue(tcb);
+	/// ```
 	pub fn new<Args: ArgTuple>(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: Args) -> (Self, ThreadId) {
 		let new_stack = Stack::new(
 			mapping::Config::<Global>::new(NonZeroUsize::new(32).unwrap()),
@@ -133,13 +185,16 @@ impl Drop for ThreadControlBlock {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ThreadState {
+	/// The thread is able to run, but has not yet been scheduled
 	Ready,
+	/// The thread is actively running
 	Running,
 	Blocked,
 	Sleeping,
 	AwaitingDeletion,
 }
 
+/// Implementation detail of [`ThreadControlBlock::new()`] to work around the lack of variadic generics
 pub trait ArgTuple {
 	fn into_array(self) -> [MaybeUninit<usize>; 4];
 }

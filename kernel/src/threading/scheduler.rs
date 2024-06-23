@@ -1,3 +1,14 @@
+//! This module provides traits for writing scheduler implementations, and the global helper methods for
+//! interacting with schedulers
+//!
+//! A scheduler implementation is made from three objects:
+//! - [`Scheduler`], implementing the actual logic of deciding which thread to run next
+//! - [`Injector`], a global handle allowing adding new threads from a different core
+//! - [`Stealer`], a global handle allowing [`Ready`](super::tcb::ThreadState::Ready) threads to be removed from the scheduler for
+//! load balancing
+//!
+//! See the [book](https://popcorn-2.github.io/book) for an example of writing a scheduler from scratch.
+
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
 use alloc::collections::{BTreeMap, VecDeque};
@@ -26,8 +37,10 @@ use crate::{hashmap_new, non_zero, assert_unsafe_precondition};
 use crate::threading::{CoreId, Thread, ThreadId, ThreadPointer};
 use crate::threading::tcb::{PointerView, ThreadControlBlock};
 
+#[doc(hidden)]
 mod tickless_round_robin;
 
+/// The [`Scheduler`] for the current core
 #[thread_local]
 static SCHEDULER: OnceCell<IrqCell<tickless_round_robin::TicklessRoundRobin>> = OnceCell::new();
 
@@ -35,20 +48,47 @@ static SCHEDULER: OnceCell<IrqCell<tickless_round_robin::TicklessRoundRobin>> = 
 pub static TASK_LIST: Spinlock<HashMap<ThreadId, Thread>> = Spinlock::new(hashmap_new!());
 
 /// [`Injector`]s to add new threads to each core
+
+/// [`Injector`]s to add new threads to each core
 static SCHEDULER_INJECTORS: Spinlock<Vec<Box<dyn Injector>>> = Spinlock::new(vec![]);
 
 pub trait Injector: Send + Sync {
+	/// Adds the `thread` to the list of ready-to-run threads in the scheduler
 	fn enqueue(&self, thread: ThreadPointer);
 }
 
 pub trait Stealer: Send + Sync {}
 
+/// A scheduler implementation
 pub trait Scheduler: Debug {
+	/// Creates a new instance of the scheduler
 	fn new(running_thread: ThreadPointer) -> (Self, Box<dyn Injector>, Arc<dyn Stealer>) where Self: Sized;
+
+	/// Returns the [`ThreadId`] for the currently running thread
+	///
+	/// Returns `None` if idle
 	fn current_thread(&self) -> Option<ThreadId>;
+
+	/// Prepares to switch threads
+	///
+	/// Returns an owned [`ThreadPointer`] to the currently running thread, and a [`PointerView`] to the thread to switch to.
+	/// Ownership of the [`ThreadPointer`] will be given back to the scheduler in [`Scheduler::switch_thread_post()`].
 	fn switch_thread_pre(&mut self) -> (ThreadPointer, PointerView<'_>);
+
+	/// Called after switching threads, including during startup of a new thread
+	///
+	/// `previous_thread` is the thread that was running before the context switch took place,
+	/// and should be placed back on the run-list if it is not blocked.
 	fn switch_thread_post(self: IrqGuard<Self>, previous_thread: ThreadPointer); // do we want to dispatch on `IrqGuard`? - it's supposed to enforce proper usage of switch_thread
-	fn enqueue(&mut self, thread: ThreadPointer);
+
+	/// Enqueues the passed `thread`
+	///
+	/// This may be called if enqueuing a thread from the same core the scheduler is on, as optimizations
+	/// to reduce locking may be possible
+	fn enqueue(&mut self, thread: ThreadPointer) {
+		let _ = thread;
+		todo!("");
+	}
 }
 
 pub(super) fn create_scheduler_for_current_core(running_thread: ThreadPointer) -> CoreId {
@@ -67,6 +107,9 @@ pub(super) fn scheduler() -> &'static IrqCell<impl Scheduler + Debug> {
 	unsafe { transmute::<&IrqCell<tickless_round_robin::TicklessRoundRobin>, &'static IrqCell<tickless_round_robin::TicklessRoundRobin>>(s) }
 }
 
+/// Starts running the [`ThreadControlBlock`]
+///
+/// The [`ThreadControlBlock`] is added to the global task list, and sent to a particular scheduler to be run
 pub(super) fn enqueue(tcb: ThreadControlBlock) {
 	let id = tcb.thread_id;
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
@@ -78,6 +121,7 @@ pub(super) fn enqueue(tcb: ThreadControlBlock) {
 	enqueue_balanced(ptr);
 }
 
+/// Enqueues a thread onto a core such that system load stays balanced
 fn enqueue_balanced(thread: ThreadPointer) {
 	static CORE_NUM: AtomicUsize = AtomicUsize::new(0);
 
