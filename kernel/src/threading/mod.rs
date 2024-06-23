@@ -393,15 +393,32 @@ pub fn defer_yield() {
 /// # Interrupt safety
 /// This function is **not** interrupt safe, and will block any pending interrupts
 pub fn thread_yield() {
+	// First we lock the scheduler for the current core, and ask it for the current and new threads
 	let scheduler = scheduler::scheduler();
 	let mut scheduler = scheduler.lock();
 	let (from, to_view) = scheduler.switch_thread_pre();
+	
+	// We need to duplicate the `ThreadPointer` so we can pass it to `switch_thread` while it is borrowed
+	// so wrap the first copy in a `ManuallyDrop` to prevent a double free
 	let mut from = ManuallyDrop::new(from);
-	let from_ptr = &from as *const ManuallyDrop<ThreadPointer>;
+	// Get a pointer to the `ThreadPointer` to use to duplicate it later
+	let from_ptr = addr_of!(*from);
+	// Extract the `PointerView`
+	// The `PointerView` does not borrow the contents of the `ThreadPointer` - it only requires the
+	// `ThreadPointer` to exist 'somewhere', so holding this borrow while moving the underlying `ThreadPointer`
+	// is safe
 	let from_view = from.tcb_mut();
+	
 	debug!("[a] switch from `{:?}` to `{:?}`", from_view.thread_id, to_view.thread_id);
-	let from = unsafe { <HalTy as Hal>::switch_thread(&from_view, &to_view, ptr::read(from_ptr.cast())) };
-	debug!("[b] switch from `{:?}` to current", from.tcb_ref().thread_id,);
+	
+	// From the CPU's perspective during a context switch, `from` is no longer the same `ThreadPointer`
+	// as the stack has been changed. Instead, we replace it with the `ThreadPointer` that `switch_thread`
+	// preserves across the function call
+	let from = unsafe { <HalTy as Hal>::switch_thread(&from_view, &to_view, ptr::read(from_ptr)) };
+	
+	debug!("[b] switch from `{:?}` to current", from.tcb_ref().thread_id);
+	
+	// Then we pass the old `ThreadPointer` back to the scheduler for it to enqueue
 	scheduler.switch_thread_post(from);
 }
 
