@@ -16,6 +16,9 @@
 #![feature(let_chains)]
 #![cfg_attr(feature = "use_std", feature(lazy_cell))]
 #![warn(missing_docs)]
+#![feature(unsize)]
+#![feature(dispatch_from_dyn)]
+#![feature(coerce_unsized)]
 
 #![doc(issue_tracker_base_url = "https://github.com/popcorn-2/popcorn-2/issues/")]
 #![doc(cfg_hide(all(not(feature = "use_std"), feature = "full")))]

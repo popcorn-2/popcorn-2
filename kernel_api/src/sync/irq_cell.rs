@@ -2,9 +2,9 @@
 
 use core::cell::{Cell, UnsafeCell};
 use core::fmt::{Debug, Formatter};
-use core::marker::PhantomData;
+use core::marker::{PhantomData, Unsize};
 use core::mem::ManuallyDrop;
-use core::ops::{Deref, DerefMut};
+use core::ops::{CoerceUnsized, Deref, DerefMut, DispatchFromDyn};
 
 pub struct IrqCell<T: ?Sized> {
 	state: Cell<Option<usize>>,
@@ -94,3 +94,6 @@ impl<T: ?Sized> Drop for IrqGuard<'_, T> {
 		unsafe { self.cell.unlock(); }
 	}
 }
+
+impl<'a, T: ?Sized + Unsize<U>, U: ?Sized> DispatchFromDyn<IrqGuard<'a, U>> for IrqGuard<'a, T> {}
+impl<'b, T: ?Sized + Unsize<U>, U: ?Sized> CoerceUnsized<IrqGuard<'b, U>> for IrqGuard<'b, T> {}
