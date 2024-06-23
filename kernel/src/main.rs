@@ -137,9 +137,9 @@ macro_rules! yeet {
 
 #[macro_export]
 macro_rules! non_zero {
-    ($lit:literal) => {
+    ($num:tt) => {
         const {
-            match NonZero::new($lit) {
+            match NonZero::new($num) {
                 Some(x) => x,
                 None => panic!("Cannot use `0` as a NonZero constant"),
             }
