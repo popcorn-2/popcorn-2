@@ -5,17 +5,20 @@ use core::num::NonZero;
 use bit_field::BitField;
 use kernel_api::sync::OnceLock;
 
-#[export_name = "__popcorn_system_time"]
-pub(crate) fn system_time() -> u128 {
-	static TSC_MULTIPLIER: OnceLock<(u128, NonZero<u128>)> = OnceLock::new();
+static TSC_MULTIPLIER: OnceLock<(u128, NonZero<u128>)> = OnceLock::new();
 
+#[inline(always)]
+pub(crate) fn tsc() -> u128 {
 	let low: u32;
 	let high: u32;
 	unsafe {
 		asm!("rdtsc", out("eax") low, out("edx") high, options(nostack, preserves_flags, nomem));
 	}
-	let tsc_val = (low as u128) | (high as u128) << 32;
-	let (num, denom) = TSC_MULTIPLIER.get_or_init(|| {
+	(low as u128) | (high as u128) << 32
+}
+
+pub(crate) fn tsc_to_nanos() -> (u128, NonZero<u128>) {
+	*TSC_MULTIPLIER.get_or_init(|| {
 		let mut multiplier = None::<(u128, NonZero<u128>)>;
 
 		let max_leaf = unsafe { __cpuid(0) }.eax;
@@ -44,7 +47,7 @@ pub(crate) fn system_time() -> u128 {
 
 		let intel_msr = || {
 			let cpu_brand_name = unsafe { __cpuid(0) };
-			
+
 			if !(cpu_brand_name.ebx == u32::from_le_bytes(*b"Genu")
 					&& cpu_brand_name.edx == u32::from_le_bytes(*b"ineI")
 					&& cpu_brand_name.ecx == u32::from_le_bytes(*b"ntel")) {
@@ -107,11 +110,17 @@ pub(crate) fn system_time() -> u128 {
 		};
 
 		let multiplier = multiplier.or_else(intel_msr);
-		
+
 		debug!("multiplier is {multiplier:?}");
 
 		multiplier.unwrap_or_else(|| panic!("Unable to determine TSC frequency"))
-	});
+	})
+}
+
+#[export_name = "__popcorn_system_time"]
+pub(crate) fn system_time() -> u128 {
+	let tsc_val = tsc();
+	let (num, denom) = tsc_to_nanos();
 
 	tsc_val * num / denom.get()
 }
