@@ -102,7 +102,7 @@ pub mod entry {
 	}
 
 	impl Entry {
-		pub fn new_ptr(f: unsafe extern "C" fn(), ist_idx: Option<NonZero<u8>>, dpl: u8, ty: Type) -> Self {
+		pub fn new_ptr(f: unsafe extern "C-unwind" fn(), ist_idx: Option<NonZero<u8>>, dpl: u8, ty: Type) -> Self {
 			if let Some(ist) = ist_idx { assert!(ist.get() <= 7, "Only 7 IST stacks"); }
 			let addr = f as usize;
 			Self {
@@ -241,7 +241,7 @@ impl ExceptionRegisters for Amd64RegisterDump<'_> {
 }
 
 #[no_mangle]
-extern "C" fn amd64_handler2(data: &mut IrqData) {
+extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 	#[cfg(feature = "log.scheduler")] debug!("[amd64] vector {:#x}", data.num);
 	
 	use crate::hal::Hal;
@@ -349,7 +349,7 @@ extern "C" fn amd64_handler2(data: &mut IrqData) {
 }
 
 #[naked]
-unsafe extern "C" fn amd64_syscall_handler() {
+unsafe extern "C-unwind" fn amd64_syscall_handler() {
 	asm!("ud2", options(noreturn));
 }
 
@@ -361,7 +361,7 @@ mod handlers {
 		    ::paste::paste! {
 			    #[naked]
 			    #[allow(dead_code)]
-		        pub(super) unsafe extern "C" fn [<amd64_irq_handler_ $num>]() {
+		        pub(super) unsafe extern "C-unwind" fn [<amd64_irq_handler_ $num>]() {
 					::core::arch::asm!(
 						concat!("push ", stringify!($num)),
 						"jmp amd64_global_irq_handler",
@@ -374,7 +374,7 @@ mod handlers {
 		    ::paste::paste! {
 			    #[naked]
 			    #[allow(dead_code)]
-		        pub(super) unsafe extern "C" fn [<amd64_irq_handler_ $num>]() {
+		        pub(super) unsafe extern "C-unwind" fn [<amd64_irq_handler_ $num>]() {
 					::core::arch::asm!(
 						"push 0",
 						concat!("push ", stringify!($num)),
