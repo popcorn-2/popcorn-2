@@ -189,7 +189,7 @@ impl SaveState for Amd64SaveState {
 		let stack = &mut tcb.kernel_stack;
 		let stack_start = unsafe {
 			let stack_top = stack.virtual_end().start().as_ptr().cast::<usize>();
-			stack_top.sub(1).write(0xdeadbeef);
+			stack_top.sub(1).write(0);
 			stack_top.sub(2).write(main as usize);
 			stack_top.sub(3).cast::<MaybeUninit<_>>().write(args[3]);
 			stack_top.sub(4).cast::<MaybeUninit<_>>().write(args[2]);
