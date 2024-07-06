@@ -75,8 +75,10 @@ pub fn stack_trace_iter<F: FnMut(usize, Symbol)>(mut f: F) {
 	) -> UnwindReasonCode {
 		let f = unsafe { &mut *arg.cast::<F1>() };
 		let ip = _Unwind_GetIP(unwind_ctx);
-		let symbol = get_symbol_from_ip(ip);
-		f(ip, symbol);
+		if ip != 0 {
+			let symbol = get_symbol_from_ip(ip);
+			f(ip, symbol);
+		}
 		UnwindReasonCode::NO_REASON
 	}
 
