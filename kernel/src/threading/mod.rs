@@ -139,12 +139,20 @@ pub unsafe extern "C" fn thread_startup() {
 	}
 
 	asm!(
+	".cfi_def_cfa rsp, 48",
+	".cfi_offset rip, -48",
 	"pop rbp", // aligns to 16 bytes
+	".cfi_def_cfa rsp, 40",
+	".cfi_register rip, rbp",
 	"call {}",
 	"pop rdi", // pop args off stack
+	".cfi_def_cfa rsp, 32",
 	"pop rsi",
+	".cfi_def_cfa rsp, 24",
 	"pop rdx",
+	".cfi_def_cfa rsp, 16",
 	"pop rcx",
+	".cfi_def_cfa rsp, 8",
 	"ret",
 	sym thread_startup_inner, options(noreturn));
 }
