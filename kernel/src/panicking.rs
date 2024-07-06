@@ -15,14 +15,19 @@ pub fn catch_unwind<R, F: FnOnce() -> R + core::panic::UnwindSafe>(f: F) -> Resu
 	res
 }
 
-pub fn get_symbol_name(ip: usize) -> &'static str {
+pub struct Symbol {
+	pub name: &'static str,
+	pub file: &'static str,
+}
+
+pub fn get_symbol_from_ip(ip: usize) -> Symbol {
 	struct SymbolMapIterator {
 		index: usize,
 		str: &'static [u8]
 	}
 
 	impl Iterator for SymbolMapIterator {
-		type Item = (usize, &'static str);
+		type Item = (usize, &'static str, &'static str);
 
 		fn next(&mut self) -> Option<Self::Item> {
 			let original_idx = self.index;
@@ -33,52 +38,64 @@ pub fn get_symbol_name(ip: usize) -> &'static str {
 
 			let data = core::str::from_utf8(&self.str[original_idx..idx]).ok()?;
 			let addr = &data[0..16];
-			let name = &data[19..];
+			let (name, filename) = (&data[19..]).split_once('\t')?;
+			let filename = match filename.split_once(':') {
+				Some((filename, _)) => filename,
+				None => filename
+			};
 			let addr = usize::from_str_radix(addr, 16).ok()?;
 
 			self.index = idx + 1;
 
-			Some((addr, name))
+			Some((addr, name, filename))
 		}
 	}
 
-	let Some(map) = *SYMBOL_MAP.read() else { return "<no symbols>"; };
+	let Some(map) = *SYMBOL_MAP.read() else { return Symbol { name: "[no symbols]", file: "" }; };
 	let iter = SymbolMapIterator {
 		index: 0,
 		str: map
 	};
-	let mut sym_name = "<unknown>";
-	for (sym_addr, name) in iter {
+	let mut sym_name = "[unknown]";
+	let mut sym_file = "[unknown]";
+	for (sym_addr, name, file) in iter {
 		if sym_addr > ip { break; }
-		else if sym_addr != 0 { sym_name = name; }
+		else if sym_addr != 0 { sym_name = name; sym_file = file; }
 	}
-	sym_name
+	Symbol { name: sym_name, file: sym_file }
 }
 
-pub fn stack_trace() {
+pub fn stack_trace_iter<F: FnMut(usize, Symbol)>(mut f: F) {
 	use unwinding::abi::{UnwindContext, _Unwind_GetIP, _Unwind_Backtrace};
 	use core::ffi::c_void;
 
-	struct CallbackData {
-		counter: usize,
-	}
-	extern "C" fn callback(
+	extern "C" fn callback<F1: FnMut(usize, Symbol)>(
 		unwind_ctx: &UnwindContext<'_>,
 		arg: *mut c_void,
 	) -> UnwindReasonCode {
-		let data = unsafe { &mut *arg.cast::<CallbackData>() };
-		data.counter += 1;
+		let f = unsafe { &mut *arg.cast::<F1>() };
 		let ip = _Unwind_GetIP(unwind_ctx);
-		sprintln!(
-			"{:4}:{:#19x} - {}",
-			data.counter,
-			ip,
-			get_symbol_name(ip)
-		);
+		if ip != 0 {
+			let symbol = get_symbol_from_ip(ip);
+			f(ip, symbol);
+		}
 		UnwindReasonCode::NO_REASON
 	}
-	let mut data = CallbackData { counter: 0 };
-	_Unwind_Backtrace(callback, ptr::addr_of_mut!(data).cast());
+
+	_Unwind_Backtrace(callback::<F>, ptr::addr_of_mut!(f).cast());
+}
+
+pub fn stack_trace() {
+	let mut counter = 0;
+	stack_trace_iter(|ip, name| {
+		counter += 1;
+		sprintln!(
+			"{:4}:{:#19x} - {}",
+			counter,
+			ip,
+			name.name,
+		);
+	});
 }
 
 pub(crate) fn do_panic() -> ! {

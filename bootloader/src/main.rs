@@ -860,13 +860,14 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         asm!(
             "mov rsp, rcx",
             "xor ebp, ebp",
+            "push 0",
 
             "mov eax, 0xead10ca1",
             "mov edx, 0xd", // edx:eax = 0xdead10cal
             "mov ecx, 0xc0000100", // ecx = FSBase MSR
             "wrmsr",
 
-            "call rsi",
+            "jmp rsi",
         in("rcx") stack.top_virt.start().addr, in("rsi") kernel_entry, in("rdi") &handoff, options(noreturn))
     }
 }

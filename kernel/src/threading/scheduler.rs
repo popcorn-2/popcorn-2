@@ -36,11 +36,19 @@ impl<T> IrqCell<T> {
 }
 
 impl<T: ?Sized> IrqCell<T> {
+	#[track_caller]
 	pub fn lock(&self) -> IrqGuard<'_, T> {
 		// Unsafety: is this actually needed?
 		if self.state.get().is_some() { panic!("IrqCell cannot be borrowed multiple times"); }
 
 		self.state.set(Some(HalTy::get_and_disable_interrupts()));
+		IrqGuard { cell: self, _phantom_not_send: PhantomData }
+	}
+
+	pub unsafe fn make_guard_unchecked(&self) -> IrqGuard<'_, T> {
+		// Unsafety: is this actually needed?
+		//debug_assert!(self.state.get().is_some(), "Created IrqGuard for unlocked IrqCell");
+
 		IrqGuard { cell: self, _phantom_not_send: PhantomData }
 	}
 

@@ -49,6 +49,10 @@ impl Instant {
 		let nanos = self.nanos.checked_sub(duration.as_nanos())?;
 		Some(Instant { nanos })
 	}
+	
+	pub fn nanos_since_boot(&self) -> u128 {
+		self.nanos
+	}
 }
 
 impl Add<Duration> for Instant {

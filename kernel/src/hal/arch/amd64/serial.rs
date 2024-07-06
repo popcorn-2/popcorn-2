@@ -165,3 +165,10 @@ impl crate::hal::FormatWriter for HalWriter {
 		SERIAL0.lock().write_fmt(args).unwrap();
 	}
 }
+
+#[export_name = "__popcorn_force_unsafe_serial"]
+unsafe fn force_serial(s: &str) {
+	let mut guard = unsafe { SERIAL0.make_guard_unchecked() };
+	let _ = guard.write_str(s);
+	core::mem::forget(guard);
+}
