@@ -36,6 +36,7 @@ impl<T> IrqCell<T> {
 }
 
 impl<T: ?Sized> IrqCell<T> {
+	#[track_caller]
 	pub fn lock(&self) -> IrqGuard<'_, T> {
 		// Unsafety: is this actually needed?
 		if self.state.get().is_some() { panic!("IrqCell cannot be borrowed multiple times"); }
