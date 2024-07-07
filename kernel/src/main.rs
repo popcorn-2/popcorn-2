@@ -38,6 +38,7 @@
 #![feature(build_hasher_default_const_new)]
 #![feature(min_specialization)]
 #![feature(doc_auto_cfg)]
+#![feature(asm_unwind)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
