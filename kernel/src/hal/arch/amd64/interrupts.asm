@@ -3,8 +3,12 @@
 amd64_global_irq_handler:
     .cfi_startproc
     .cfi_def_cfa rsp, 56 # CFA = rsp + 7*8 (top of interrupt frame)
-    .cfi_offset rip, -40 # %RA = CFA - 5*8 (offset of rip in stack frame)
-    .cfi_offset rsp, -16 # %RSP = CFA - 2*8 (offset of rsp in stack frame)
+    # DW_CFA_val_expression, RIP =, <expr len>, DW_OP_call_frame_cfa, DW_OP_const1u, 40, DW_OP_minus,
+    # DW_OP_deref DW_OP_lit1, DW_OP_plus
+    # %RIP = [CFA - 5*8] + 1  -- unwinder subtracts 1 byte from RIP assuming it needs to go back to a call instruction
+    #                            which is wrong for an interrupt handler
+    .cfi_escape 0x16, 16, 7, 0x9c, 0x08, 40, 0x1c, 0x06, 0x31, 0x22
+    .cfi_offset rsp, -16 # %RSP = [CFA - 2*8] (offset of rsp in stack frame)
     push rax
     .cfi_def_cfa_offset 64
     .cfi_offset rax, -64
