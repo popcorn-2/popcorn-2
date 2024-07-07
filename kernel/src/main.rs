@@ -38,6 +38,8 @@
 #![feature(build_hasher_default_const_new)]
 #![feature(min_specialization)]
 #![feature(doc_auto_cfg)]
+#![feature(integer_atomics)]
+#![feature(asm_unwind)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -86,9 +88,11 @@ use kernel_api::memory::physical::highmem;
 use kernel_api::time::Instant;
 use crate::hal::paging2::{construct_tables, TTable, TTableTy};
 use utils::handoff::MemoryType;
+use crate::hal::arch::apic::Apic;
 use crate::hal::exception::Ty;
 use crate::memory::paging::ktable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
+use crate::mmio::MmioCell;
 use crate::task::executor::Executor;
 
 mod sync;
@@ -106,6 +110,7 @@ mod mmio;
 mod interrupts;
 mod ipc;
 mod prelude;
+mod profile;
 
 #[cfg(test)]
 pub mod test_harness;
@@ -217,7 +222,35 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 				todo!()
 			}
 		}
-		ty @ (Ty::Nmi | Ty::Panic) => {
+		Ty::Nmi => {
+			interrupts::irq_handler!(|| {
+				main => {
+				}
+				eoi => {
+					use crate::projection::Project;
+					
+					struct S;
+					impl core::fmt::Write for S {
+						fn write_str(&mut self, s: &str) -> core::fmt::Result {
+							extern "Rust" {
+								fn __popcorn_force_unsafe_serial(s: &str);
+							}
+							unsafe { __popcorn_force_unsafe_serial(s); }
+							Ok(())
+						}
+					}
+					profile::intel_handle(S);
+					
+					let lapic_guard = unsafe { hal::arch::apic::LAPIC.0.get().expect("APIC not initialised").make_guard_unchecked() };
+					let mut lapic = unsafe { MmioCell::new(lapic_guard.virtual_start().as_ptr()) };
+					lapic.project::<Apic::perf_monitor_lvt>()
+					     .write(0b10000000000);
+					lapic.project::<Apic::eoi>().write(0);
+					mem::forget(lapic_guard);
+				}
+			})();
+		},
+		ty @ Ty::Panic => {
 			// todo: BSOD equivalent?
 			error!("Unhandled exception occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
 			if is_kernel_mode { backtrace(); }
@@ -507,6 +540,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	}
 
 	<HalTy as Hal>::post_acpi_init();
+	profile::init_intel();
 
 	let init_thread = unsafe { threading::init(handoff_data) };
 	debug!("{init_thread:x?}");

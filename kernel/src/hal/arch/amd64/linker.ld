@@ -15,6 +15,19 @@ PHDRS {
 SECTIONS {
 	. = 0xFFFFFFFF80000000;
 
+	.text :
+    {
+        *(.text .text.*)
+    } :text
+
+    .plt :
+    {
+        *(.plt .plt.*)
+    }
+    PROVIDE(__etext = .);
+
+    . = ALIGN(4K);
+
 	.dynsym :
     {
         *(.dynsym .dynsym.*)
@@ -79,31 +92,19 @@ SECTIONS {
 
     .eh_frame_hdr :
     {
-        *(.eh_frame_hdr .eh_frame_hdr.*)
+        KEEP (*(.eh_frame_hdr .eh_frame_hdr.*))
     } :gnu_eh_frame :rodata
 
     . = ALIGN(8);
     PROVIDE(__eh_frame = .);
     .eh_frame :
     {
-        *(.eh_frame .eh_frame.*)
+        KEEP (*(.eh_frame .eh_frame.*))
     } :rodata
     .gcc_except_table :
     {
-        *(.gcc_except_table .gcc_except_table.*)
+        KEEP (*(.gcc_except_table .gcc_except_table.*))
     } :rodata
-
-	. = ALIGN(4K);
-    .text :
-    {
-        *(.text .text.*)
-        PROVIDE(__etext = .);
-    } :text
-
-    .plt :
-    {
-        *(.plt .plt.*)
-    }
 
 	. = ALIGN(4K);
 	.data :

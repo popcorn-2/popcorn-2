@@ -20,5 +20,6 @@
   "stack-probes": {
     "kind": "inline"
   },
-  "target-pointer-width": "64"
+  "target-pointer-width": "64",
+  "requires_uwtable": true
 }

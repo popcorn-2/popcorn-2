@@ -23,7 +23,7 @@ pub fn checked_read_1(ptr: *const MaybeUninit<u8>) -> Option<MaybeUninit<u8>> {
 			inout(reg_byte) MaybeUninit::<u8>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
 			in(reg) ptr,
 			inout(reg) 0usize => success,
-			options(nostack, preserves_flags, readonly)
+			options(nostack, preserves_flags, readonly, may_unwind)
 		);
 	}
 
@@ -55,7 +55,7 @@ pub fn checked_read_2(ptr: *const MaybeUninit<u16>) -> Option<MaybeUninit<u16>> 
 			inout(reg) MaybeUninit::<u16>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
 			in(reg) ptr,
 			inout(reg) 0usize => success,
-			options(nostack, preserves_flags, readonly)
+			options(nostack, preserves_flags, readonly, may_unwind)
 		);
 	}
 
@@ -87,7 +87,7 @@ pub fn checked_read_4(ptr: *const MaybeUninit<u32>) -> Option<MaybeUninit<u32>> 
 			inout(reg) MaybeUninit::<u32>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
 			in(reg) ptr,
 			inout(reg) 0usize => success,
-			options(nostack, preserves_flags, readonly)
+			options(nostack, preserves_flags, readonly, may_unwind)
 		);
 	}
 
@@ -120,7 +120,7 @@ pub fn checked_read_8(ptr: *const MaybeUninit<u64>) -> Option<MaybeUninit<u64>> 
 			inout(reg) MaybeUninit::<u64>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
 			in(reg) ptr,
 			inout(reg) 0usize => success,
-			options(nostack, preserves_flags, readonly)
+			options(nostack, preserves_flags, readonly, may_unwind)
 		);
 	}
 
@@ -151,7 +151,7 @@ pub fn checked_write_1(ptr: *mut MaybeUninit<u8>, val: MaybeUninit<u8>) -> Optio
 			in(reg) ptr,
 			in(reg_byte) val,
 			inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-			options(nostack, preserves_flags, readonly)
+			options(nostack, preserves_flags, readonly, may_unwind)
 		);
 	}
 
@@ -182,7 +182,7 @@ pub fn checked_write_2(ptr: *mut MaybeUninit<u16>, val: MaybeUninit<u16>) -> Opt
 			in(reg) ptr,
 			in(reg) val,
 			inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-			options(nostack, preserves_flags, readonly)
+			options(nostack, preserves_flags, readonly, may_unwind)
 		);
 	}
 
@@ -213,7 +213,7 @@ pub fn checked_write_4(ptr: *mut MaybeUninit<u32>, val: MaybeUninit<u32>) -> Opt
 			in(reg) ptr,
 			in(reg) val,
 			inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-			options(nostack, preserves_flags, readonly)
+			options(nostack, preserves_flags, readonly, may_unwind)
 		);
 	}
 
@@ -245,7 +245,7 @@ pub fn checked_write_8(ptr: *mut MaybeUninit<u64>, val: MaybeUninit<u64>) -> Opt
 			in(reg) ptr,
 			in(reg) val,
 			inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-			options(nostack, preserves_flags, readonly)
+			options(nostack, preserves_flags, readonly, may_unwind)
 		);
 	}
 
@@ -277,7 +277,7 @@ pub fn checked_memcpy(src: *const MaybeUninit<u8>, dest: *mut MaybeUninit<u8>, c
 			in("rdi") dest,
 			in("rsi") src,
 			inout("rcx") count => _,
-			options(nostack)
+			options(nostack, may_unwind)
 		);
 	}
 

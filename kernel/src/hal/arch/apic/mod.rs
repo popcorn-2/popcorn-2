@@ -119,9 +119,9 @@ impl MmioCell<Apic> {
 	}
 }
 
-struct Lapic(OnceLock<Syncify<IrqCell<PhysicalMapping<hal::acpi::Handler<'static>, Apic>>>>);
+pub(crate) struct Lapic(pub(crate) OnceLock<Syncify<IrqCell<PhysicalMapping<hal::acpi::Handler<'static>, Apic>>>>);
 
-static LAPIC: Lapic = Lapic(OnceLock::new());
+pub(crate) static LAPIC: Lapic = Lapic(OnceLock::new());
 pub static IOAPICS: OnceLock<Mutex<Syncify<Ioapics<hal::acpi::Handler<'static>>>>> = OnceLock::new();
 
 pub type LapicTimer = &'static IrqCell<PhysicalMapping<hal::acpi::Handler<'static>, Apic>>;
@@ -394,6 +394,9 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 	let val = timer_lvt.read()
 		.with_mask(false);
 	timer_lvt.write(val);
+
+	apic_boxed.project::<Apic::perf_monitor_lvt>()
+			.write(0b100_00000000);
 
 	LAPIC.0.get_or_init(|| unsafe { Syncify::new(IrqCell::new(apic)) });
 	IOAPICS.get_or_init(|| unsafe { Mutex::new(Syncify::new(ioapics)) });

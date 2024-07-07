@@ -36,3 +36,6 @@ debug = "full"
 
 [patch.crates-io]
 auto_impl = { git = "https://github.com/popcorn-2/auto_impl.git" }
+
+[patch.'https://github.com/nbdd0121/unwinding.git']
+unwinding = { git = "https://github.com/popcorn-2/unwinding.git", branch = "call_frame_cfa_expr" }

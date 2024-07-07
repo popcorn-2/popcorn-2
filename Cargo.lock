@@ -1132,7 +1132,6 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 [[package]]
 name = "unwinding"
 version = "0.2.1"
-source = "git+https://github.com/nbdd0121/unwinding.git?rev=d7cd46e#d7cd46e009ed1dbc762dbaaf4402f57973b300bb"
 dependencies = [
  "gimli",
  "log",
