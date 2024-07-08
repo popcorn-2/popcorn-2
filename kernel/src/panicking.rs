@@ -4,10 +4,10 @@ use core::ptr;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use unwinding::abi::UnwindReasonCode;
 use unwinding::panic::catch_unwind as catch_unwind_impl;
-use kernel_api::sync::RwSpinlock;
+use kernel_api::sync::OnceLock;
 
 static PANIC_COUNT: AtomicUsize = AtomicUsize::new(0);
-pub static SYMBOL_MAP: RwSpinlock<Option<&'static [u8]>> = RwSpinlock::new(None);
+pub static SYMBOL_MAP: OnceLock<&'static [u8]> = OnceLock::new();
 
 pub fn catch_unwind<R, F: FnOnce() -> R + core::panic::UnwindSafe>(f: F) -> Result<R, Box<dyn Any + Send>> {
 	let res = catch_unwind_impl(f);
@@ -51,7 +51,7 @@ pub fn get_symbol_from_ip(ip: usize) -> Symbol {
 		}
 	}
 
-	let Some(map) = *SYMBOL_MAP.read() else { return Symbol { name: "[no symbols]", file: "" }; };
+	let Some(map) = SYMBOL_MAP.get() else { return Symbol { name: "[no symbols]", file: "" }; };
 	let iter = SymbolMapIterator {
 		index: 0,
 		str: map
