@@ -13,6 +13,7 @@
 #![feature(new_uninit)]
 #![feature(doc_auto_cfg)]
 #![feature(doc_cfg_hide)]
+#![feature(let_chains)]
 #![cfg_attr(feature = "use_std", feature(lazy_cell))]
 #![warn(missing_docs)]
 

@@ -600,23 +600,64 @@ impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 
 		// fixme: can't assume ktable depending on AddressSpace once #43 is sorted
 		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
+
+		// If the underlying memory is discontiguous, we need to find the physical memory chunks via the page tables
+		// and deallocate them before unmapping. To reduce the number of allocator calls, we merge contiguous chunks
+		// together. Since the concept of a single 'allocation' does not exist in the physical allocator, this is
+		// allowed regardless of whether the chunks were allocated in one go.
+		// If the memory is contiguous, we deallocate it in one go by converting it to an OwnedFrames object and
+		// immediately dropping it.
+		match self.contiguity {
+			RawMappingContiguity::Contiguous(base_frame) => {
+				let _frames = unsafe { OwnedFrames::from_raw_parts(
+					base_frame,
+					self.physical_len(),
+					self.allocator,
+				) };
+			},
+			RawMappingContiguity::Discontiguous => {
+				let page_iter = (0..self.physical_len().get()).map(|i| self.virtual_valid_start() + i);
+				let frame_iter = page_iter.map(|page| unsafe {
+					crate::bridge::paging::__popcorn_paging_ktable_translate_page(&mut page_table, page)
+							.expect("Virtual memory uniquely owned by this mmap so shouldn't be unmapped")
+				});
+				
+				let drop_frame_range = |(frame, len)| {
+					let _frames = unsafe { OwnedFrames::from_raw_parts(
+						frame,
+						len,
+						self.allocator,
+					) };
+				};
+				
+				// Group the frames into contiguous chunks
+				// First convert into a tuple of `(start, len)`, where each is of len 1
+				// Then reduce: if the end of one frame range is the start of the next,
+				// combine into a range with the new length; otherwise, take the already
+				// combined chunks, and deallocate in one go
+				let last_chunk = frame_iter.map(|frame| (frame, NonZero::<usize>::new(1).unwrap()))
+						.reduce(|prev_group, new_group| {
+							if prev_group.0 + prev_group.1.get() == new_group.0
+								&& let Some(combined_len) = prev_group.1.checked_add(new_group.1.get()) { // If the length overflows, just drop in two chunks
+								// contiguous, so merge
+								(prev_group.0, combined_len)
+							} else {
+								// discontigous, so drop the existing set
+								drop_frame_range(prev_group);
+								new_group
+							}
+						});
+				if let Some(last_chunk) = last_chunk {
+					drop_frame_range(last_chunk);
+				}
+			},
+		}
+
 		for page in (0..self.physical_len().get()).map(|i| self.virtual_valid_start() + i) {
 			debug!("unmapping page {page:x?}");
 			unsafe { crate::bridge::paging::__popcorn_paging_ktable_unmap_page(&mut page_table, page) }
 					.expect("Virtual memory uniquely owned by this mmap so shouldn't be unmapped");
 		}
-
-		let _frames = unsafe {
-			let RawMappingContiguity::Contiguous(base_frame) = self.contiguity else {
-				todo!("Properly drop discontiguous mmap");
-			};
-
-			OwnedFrames::from_raw_parts(
-				base_frame,
-				self.physical_len(),
-				self.allocator,
-			)
-		};
 
 		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
 		let _pages = unsafe {
