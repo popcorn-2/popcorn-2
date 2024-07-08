@@ -1,10 +1,34 @@
+# Building
+
+Build with `./pop.py build`
+```
+usage: pop.py [-h] [-v] [--arch {x86_64,host}] [-j JOBS] [--release] [--accel {none,kvm,hvf}] [--symbol-map] [--kernel-features KERNEL_FEATURES] {build,run,test,clean}
+
+positional arguments:
+  {build,run,test,clean}
+
+options:
+  -h, --help            show this help message and exit
+  -v, --verbose
+  --arch {x86_64,host}
+  -j JOBS, --jobs JOBS
+  --release
+  --accel {none,kvm,hvf}
+  --symbol-map
+  --kernel-features KERNEL_FEATURES
+```
+
+Requires LLVM 18 or above
+
+# Other stuff
+
 (Italics represents currently unsupported)
 
-# Disk structure
+## Disk structure
 
 All partitions are expected to be on the same disk (including the EFI system partition). This may change in future.
 
-## EFI system partition
+### EFI system partition
 
 **GUID**: `C12A7328-F81F-11D2-BA4B-00A0C93EC93B`
 
@@ -14,15 +38,15 @@ The `/EFI/POPCORN` directory shall also contain a file named either `config.toml
 
 The `/EFI/POPCORN` directory may also contain other files as referenced by the configuration file.
 
-## System partition
+### System partition
 
 **Format**: ~~PopcornFS~~ FAT32
 
-### GUIDs
+#### GUIDs
 
 - amd64: `8A6CC16C-D110-46F1-813F-0382046342C8`
 
-### Structure
+#### Structure
 
 This shall contain a folder in root directory named `kernel`.
 
@@ -52,7 +76,7 @@ Once hardware has been initialised, the bootloader may display a UI to allow the
 
 The bootloader then locates the first partition on the disk that the EFI system partition is on, and uses the first partition with a GUID matching the [System partition](#system-partition) as the System partition. The kernel image and modules are loaded from this partition. The bootloader creates a stack for the kernel and requests a memory map from the firmware, before handing control of the system to the kernel.
 
-## Kernel initialisation
+### Kernel initialisation
 
 ---
 
