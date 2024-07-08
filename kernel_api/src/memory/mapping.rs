@@ -341,6 +341,13 @@ pub struct Config<'physical_allocator, A: VirtualAllocator> {
 
 impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	/// Creates a new [mapping](self) configuration with default options
+	/// 
+	/// The default options are not guaranteed, but at the moment are:
+	/// - physical and virtual locations: anywhere
+	/// - lazily allocated
+	/// - Highmem physical allocator
+	/// - Global virtual allocator
+	/// - Readable, writable and executable
 	pub fn new(length: NonZero<usize>) -> Config<'static, Global> {
 		Config {
 			physical_location: Location::Any,
@@ -353,6 +360,9 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 		}
 	}
 
+	/// Set the physical allocator to use
+	/// 
+	/// This is used for both the underlying memory as well as any page tables that need creating
 	pub fn physical_allocator<'a>(self, allocator: &'a dyn BackingAllocator) -> Config<'a, A> {
 		Config {
 			physical_allocator: allocator,
@@ -360,6 +370,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 		}
 	}
 
+	/// Set the virtual allocator to use
 	pub fn virtual_allocator<New: VirtualAllocator>(self, allocator: New) -> Config<'physical_allocator, New> {
 		Config {
 			virtual_allocator: allocator,
@@ -374,6 +385,9 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 		}
 	}
 
+	/// Set the physical location of the low address of the mapping
+	///
+	/// This is currently ignored
 	pub fn physical_location(self, location: Location<Frame>) -> Self {
 		Config {
 			physical_location: location,
@@ -381,6 +395,9 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 		}
 	}
 
+	/// Set the virtual location of the low address of the mapping
+	/// 
+	/// This is currently ignored
 	pub fn virtual_location(self, location: Location<Page>) -> Self {
 		Config {
 			_virtual_location: location,
@@ -414,6 +431,9 @@ impl RawMappingInner<'_> {
 	}
 }
 
+/// Returned from [`RawMapping::into_raw_parts()`] if the underlying physical memory is not contiguous
+/// 
+/// See the documentation for [`into_raw_parts()`](RawMapping::into_raw_parts()) for more information.
 #[derive(Debug)]
 pub struct DiscontinuityError;
 
@@ -439,8 +459,18 @@ impl<R: Mappable, A: VirtualAllocator> Debug for RawMapping<'_, R, A> {
 }
 
 impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A> {
+	/// Create a new memory mapping with the given configuration
+	/// 
 	/// All physical memory used for the initial allocation will be contiguous.
 	/// This may change in future.
+	/// 
+	/// # Errors
+	/// 
+	/// If the required physical or virtual memory could not be allocation, [`AllocError`] is returned.
+	/// 
+	/// # Panics
+	/// 
+	/// If the page tables already contained a mapping for the newly allocated virtual memory.
 	pub fn new(config: Config<'phys_alloc, A>, reason: u16) -> Result<Self, AllocError> {
 		let Config { length, physical_allocator, virtual_allocator, physical_location, .. } = config;
 
@@ -471,6 +501,15 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		})
 	}
 
+	/// Destructure into the underlying [`OwnedFrames`] and [`OwnedPages`] that back the allocation
+	/// 
+	/// Depending on the implementation of [`Mappable`] used, these may be different length.
+	/// These can be turned back into a [`RawMapping`] by calling [`from_raw_parts()`].
+	/// 
+	/// # Errors
+	/// 
+	/// If the underlying physical memory is not contiguous, and so cannot be represented as a single instance
+	/// of [`OwnedFrames`], [`DiscontinuityError`] is returned.
 	pub fn into_raw_parts(mut self) -> Result<(OwnedFrames<'phys_alloc>, OwnedPages<A>), DiscontinuityError> {
 		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
 		let pages = unsafe {
