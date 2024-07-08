@@ -414,6 +414,9 @@ impl RawMappingInner<'_> {
 	}
 }
 
+#[derive(Debug)]
+pub struct DiscontinuityError;
+
 /// The raw type underlying all memory mappings.
 ///
 /// This will allocate any required memory when created, and register any lazily mapped memory as such.
@@ -436,6 +439,8 @@ impl<R: Mappable, A: VirtualAllocator> Debug for RawMapping<'_, R, A> {
 }
 
 impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A> {
+	/// All physical memory used for the initial allocation will be contiguous.
+	/// This may change in future.
 	pub fn new(config: Config<'phys_alloc, A>, reason: u16) -> Result<Self, AllocError> {
 		let Config { length, physical_allocator, virtual_allocator, physical_location, .. } = config;
 
@@ -466,7 +471,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		})
 	}
 
-	pub fn into_raw_parts(mut self) -> (OwnedFrames<'phys_alloc>, OwnedPages<A>) {
+	pub fn into_raw_parts(mut self) -> Result<(OwnedFrames<'phys_alloc>, OwnedPages<A>), DiscontinuityError> {
 		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
 		let pages = unsafe {
 			OwnedPages::from_raw_parts(
@@ -477,7 +482,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		};
 
 		let this = ManuallyDrop::new(self);
-		(unsafe { ptr::read(&this.inner.physical) }, pages)
+		Ok((unsafe { ptr::read(&this.inner.physical) }, pages))
 	}
 
 	pub unsafe fn from_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>) -> Self {
