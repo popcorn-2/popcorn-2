@@ -491,6 +491,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 
 		// TODO: huge pages
 		// FIXME: memory leak of physical and virtual memory if this fails
+		// fixme: can't assume ktable depending on AddressSpace once #43 is sorted
 		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
 		for (frame, page) in (0..physical_len.get()).map(|i| (physical_base + i, offset_base + i)) {
 			unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut page_table, page, frame, reason) }
@@ -597,6 +598,7 @@ impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 	fn drop(&mut self) {
 		debug!("mmap dropped: {self:x?}");
 
+		// fixme: can't assume ktable depending on AddressSpace once #43 is sorted
 		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
 		for page in (0..self.physical_len().get()).map(|i| self.virtual_valid_start() + i) {
 			debug!("unmapping page {page:x?}");
