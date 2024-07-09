@@ -3,7 +3,7 @@
 #![feature(kernel_heap)]
 #![feature(kernel_address_alignment_runtime)]
 #![feature(kernel_sync_once)]
-#![feature(kernel_mmap)]
+#![feature(kernel_mmap_old)]
 #![feature(int_roundings)]
 
 use core::alloc::Layout;

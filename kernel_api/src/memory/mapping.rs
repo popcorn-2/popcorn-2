@@ -10,7 +10,7 @@
 //!
 //! This module exports two common flavours of memory map: [`Mapping`] and [`Stack`].
 
-#![unstable(feature = "kernel_mmap", issue = "24")]
+#![stable(feature = "kernel_mmap", since = "1.1.0")]
 #![allow(deprecated)]
 
 use core::fmt::{Debug, Formatter};
@@ -24,11 +24,12 @@ use crate::memory::{AllocError, Frame, Page};
 use crate::memory::physical::{OwnedFrames, highmem};
 use crate::memory::r#virtual::{Global, OwnedPages, VirtualAllocator};
 
-#[deprecated(since = "0.1.0", note = "Use Mapping instead")]
-#[unstable(feature = "kernel_mmap", issue = "24")]
+#[deprecated(since = "1.0.0", note = "Use Mapping instead")]
+#[unstable(feature = "kernel_mmap_old", issue = "none")]
 #[derive(Copy, Clone, Debug)]
 pub struct Highmem;
 
+#[unstable(feature = "kernel_mmap_old", issue = "none")]
 unsafe impl BackingAllocator for Highmem {
 	fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
 		highmem().allocate_contiguous(frame_count)
@@ -67,7 +68,7 @@ unsafe impl BackingAllocator for Highmem {
 ///
 /// Depending on memory attributes, this may be invalid to read or write to
 #[deprecated(since = "0.1.0", note = "Use Mapping instead")]
-#[unstable(feature = "kernel_mmap", issue = "24")]
+#[unstable(feature = "kernel_mmap_old", issue = "none")]
 #[derive(Debug)]
 pub struct OldMapping<A: BackingAllocator = Highmem> {
 	base: Page,
@@ -76,14 +77,17 @@ pub struct OldMapping<A: BackingAllocator = Highmem> {
 }
 
 impl<A: BackingAllocator> OldMapping<A> {
+	#[unstable(feature = "kernel_mmap_old", issue = "none")]
 	pub fn as_ptr(&self) -> *const u8 {
 		self.base.as_ptr()
 	}
-	
+
+	#[unstable(feature = "kernel_mmap_old", issue = "none")]
 	pub fn as_mut_ptr(&mut self) -> *mut u8 {
 		self.base.as_ptr()
 	}
-	
+
+	#[unstable(feature = "kernel_mmap_old", issue = "none")]
 	pub fn new_with(len: usize, physical_allocator: A) -> Result<Self, AllocError> {
 		// FIXME: memory leak here on error from lack of ArcFrame
 		let physical_mem = physical_allocator.allocate_contiguous(len)?;
@@ -105,6 +109,7 @@ impl<A: BackingAllocator> OldMapping<A> {
 }
 
 impl OldMapping<Highmem> {
+	#[unstable(feature = "kernel_mmap_old", issue = "none")]
 	pub fn new(len: usize) -> Result<Self, AllocError> {
 		Self::new_with(len, Highmem)
 	}
@@ -149,11 +154,13 @@ impl OldMapping<Highmem> {
 		}
 	}
 
+	#[unstable(feature = "kernel_mmap_old", issue = "none")]
 	pub fn resize_in_place(&mut self, new_len: usize) -> Result<(), AllocError> {
 		self.resize_inner(new_len)
 				.map_err(|_| AllocError)
 	}
 
+	#[unstable(feature = "kernel_mmap_old", issue = "none")]
 	#[allow(unreachable_code, unused_variables)]
 	pub fn resize(&mut self, new_len: usize) -> Result<(), AllocError> {
 		match self.resize_inner(new_len) {
@@ -238,11 +245,13 @@ impl OldMapping<Highmem> {
 		}
 	}*/
 
+	#[unstable(feature = "kernel_mmap_old", issue = "none")]
 	pub fn into_raw_parts(self) -> (Page, usize) {
 		let Self { base, len, .. } = self;
 		(base, len)
 	}
 
+	#[unstable(feature = "kernel_mmap_old", issue = "none")]
 	pub unsafe fn from_raw_parts(base: Page, len: usize) -> Self {
 		Self {
 			base,
@@ -251,15 +260,18 @@ impl OldMapping<Highmem> {
 		}
 	}
 
+	#[unstable(feature = "kernel_mmap_old", issue = "none")]
 	pub fn end(&self) -> Page {
 		self.base + self.len
 	}
 
+	#[unstable(feature = "kernel_mmap_old", issue = "none")]
 	pub fn len(&self) -> usize {
 		self.len
 	}
 }
 
+#[unstable(feature = "kernel_mmap_old", issue = "none")]
 impl<A: BackingAllocator> Drop for OldMapping<A> {
 	fn drop(&mut self) {
 		// todo
@@ -269,6 +281,7 @@ impl<A: BackingAllocator> Drop for OldMapping<A> {
 /// Basic operations to decide how to map memory together.
 ///
 /// Implementations of this can be used to instantiate a [`RawMapping`].
+#[unstable(feature = "kernel_mmap_trait", issue = "24")]
 pub trait Mappable {
 	/// The amount of virtual memory required to create a mapping with `physical_length` [`Frame`]s
 	fn physical_length_to_virtual_length(physical_length: NonZero<usize>) -> NonZero<usize>;
@@ -278,6 +291,7 @@ pub trait Mappable {
 }
 
 /// The memory protection to use for the memory mapping
+#[unstable(feature = "kernel_mmap_config", issue = "24")]
 pub enum Protection {
 	/// The mapping is read-write and can be executed from
 	RWX
@@ -286,29 +300,38 @@ pub enum Protection {
 mod private {
 	use crate::memory::{Frame, Page};
 
+	#[unstable(feature = "kernel_mmap_config", issue = "24")]
 	pub trait Sealed {}
 
+	#[unstable(feature = "kernel_mmap_config", issue = "24")]
 	impl Sealed for Page {}
+	#[unstable(feature = "kernel_mmap_config", issue = "24")]
 	impl Sealed for Frame {}
 }
 
 /// A marker trait for types that can be used as a [`Location`]
+#[unstable(feature = "kernel_mmap_config", issue = "24")]
 pub trait Address: private::Sealed {}
+#[unstable(feature = "kernel_mmap_config", issue = "24")]
 impl Address for Page {}
+#[unstable(feature = "kernel_mmap_config", issue = "24")]
 impl Address for Frame {}
 
 /// The location at which to make the [mapping](self)
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub enum Location<A: Address> {
 	/// The mapping can go anywhere
-	Any,
+	#[stable(feature = "kernel_mmap", since = "1.1.0")] Any,
 	/// The mapping must be aligned to a specific number of [`Page`]s/[`Frame`]s
-	Aligned(NonZero<u32>),
+	#[unstable(feature = "kernel_mmap_config", issue = "24")] Aligned(NonZero<u32>),
 	/// The mapping will fail if it cannot be allocated at this exact location
-	At(A),
+	#[stable(feature = "kernel_mmap", since = "1.1.0")] At(#[stable(feature = "kernel_mmap", since = "1.1.0")] A),
 	/// The mapping must be below this location, aligned to `with_alignment` number of [`Page`]s/[`Frame`]s
-	Below { location: A, with_alignment: NonZero<u32> }
+	#[unstable(feature = "kernel_mmap_config", issue = "24")] Below { location: A, with_alignment: NonZero<u32> }
 }
 
+#[doc(hidden)]
+#[unstable(feature = "kernel_mmap_config", issue = "24")]
 impl From<Location<Frame>> for super::allocator::Location {
 	fn from(value: Location<Frame>) -> Self {
 		use super::allocator::{Location as XLocation, SpecificLocation};
@@ -322,6 +345,7 @@ impl From<Location<Frame>> for super::allocator::Location {
 }
 
 /// When to allocate physical memory for the [mapping](self)
+#[unstable(feature = "kernel_mmap_config", issue = "24")]
 pub enum Laziness { Lazy, Prefault }
 
 /// Configuration for creating a [mapping](self)
@@ -329,6 +353,7 @@ pub enum Laziness { Lazy, Prefault }
 /// By default, it will allocate memory anywhere that is valid, using the kernel [`VirtualAllocator`], and the
 /// `highmem` [`physical allocator`](BackingAllocator). It will lazily allocate physical memory, and map it
 /// with read and write permissions only.
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub struct Config<'physical_allocator, A: VirtualAllocator> {
 	physical_location: Location<Frame>,
 	_virtual_location: Location<Page>,
@@ -350,6 +375,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	/// - Highmem physical allocator
 	/// - Global virtual allocator
 	/// - Readable, writable and executable
+	#[stable(feature = "kernel_mmap", since = "1.1.0")]
 	pub fn new(length: NonZero<usize>) -> Config<'static, Global> {
 		Config {
 			physical_location: Location::Any,
@@ -364,7 +390,8 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 
 	/// Set the physical allocator to use
 	///
-	/// This is used for both the underlying memory as well as any page tables that need creating
+	/// This is used for both the underlying memory and any page tables that need creating
+	#[unstable(feature = "kernel_mmap_config", issue = "24")]
 	pub fn physical_allocator<'a>(self, allocator: &'a dyn BackingAllocator) -> Config<'a, A> {
 		Config {
 			physical_allocator: allocator,
@@ -373,6 +400,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	}
 
 	/// Set the virtual allocator to use
+	#[unstable(feature = "kernel_mmap_config", issue = "24")]
 	pub fn virtual_allocator<New: VirtualAllocator>(self, allocator: New) -> Config<'physical_allocator, New> {
 		Config {
 			virtual_allocator: allocator,
@@ -380,6 +408,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 		}
 	}
 
+	#[unstable(feature = "kernel_mmap_config", issue = "24")]
 	pub fn protection(self, protection: Protection) -> Self {
 		Config {
 			_protection: protection,
@@ -388,6 +417,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	}
 
 	/// Set the physical location of the low address of the mapping
+	#[stable(feature = "kernel_mmap", since = "1.1.0")]
 	pub fn physical_location(self, location: Location<Frame>) -> Self {
 		Config {
 			physical_location: location,
@@ -398,6 +428,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	/// Set the virtual location of the low address of the mapping
 	///
 	/// This is currently ignored
+	#[unstable(feature = "kernel_mmap_config", issue = "24")]
 	pub fn virtual_location(self, location: Location<Page>) -> Self {
 		Config {
 			_virtual_location: location,
@@ -419,12 +450,14 @@ pub(super) enum RawMappingContiguity {
 ///
 /// See the documentation for [`into_contiguous_raw_parts()`](RawMapping::into_contiguous_raw_parts()) for more information.
 #[derive(Debug)]
+#[unstable(feature = "kernel_mmap_to_parts", issue = "24")]
 pub struct DiscontiguityError(());
 
 /// The raw type underlying all memory mappings.
 ///
 /// This will allocate any required memory when created, and register any lazily mapped memory as such.
 /// It will also manage the page tables to correctly unmap the memory when dropped.
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
 	raw: PhantomData<R>,
 
@@ -445,6 +478,7 @@ pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
 	allocator: &'phys_allocator dyn BackingAllocator
 }
 
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
 impl<R: Mappable, A: VirtualAllocator> Debug for RawMapping<'_, R, A> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		f.debug_struct("RawMapping")
@@ -476,6 +510,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	/// # Panics
 	///
 	/// If the page tables already contained a mapping for the newly allocated virtual memory.
+	#[stable(feature = "kernel_mmap", since = "1.1.0")]
 	pub fn new(config: Config<'phys_alloc, A>, reason: u16) -> Result<Self, AllocError> {
 		let Config { length, physical_allocator, virtual_allocator, physical_location, .. } = config;
 
@@ -517,6 +552,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	///
 	/// If the underlying physical memory is not contiguous, and so cannot be represented as a single instance
 	/// of [`OwnedFrames`], [`DiscontiguityError`] is returned.
+	#[unstable(feature = "kernel_mmap_to_parts", issue = "24")]
 	pub fn into_contiguous_raw_parts(mut self) -> Result<(OwnedFrames<'phys_alloc>, OwnedPages<A>), DiscontiguityError> {
 		let frames = unsafe {
 			let RawMappingContiguity::Contiguous(base_frame) = self.contiguity else {
@@ -543,6 +579,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		Ok((frames, pages))
 	}
 
+	#[unstable(feature = "kernel_mmap_to_parts", issue = "24")]
 	pub unsafe fn from_contiguous_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>) -> Self {
 		let (virtual_base, actual_vlen, virtual_allocator) = pages.into_raw_parts();
 		let (physical_base, physical_len, physical_allocator) = frames.into_raw_parts();
@@ -563,6 +600,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		R::physical_length_to_virtual_length(self.physical_len())
 	}
 
+	#[unstable(feature = "kernel_mmap_to_parts", issue = "24")]
 	pub fn virtual_start(&self) -> Page {
 		self.virtual_valid_start() - R::physical_start_offset_from_virtual()
 	}
@@ -571,14 +609,17 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		self.virtual_valid_start
 	}
 
+	#[unstable(feature = "kernel_mmap_to_parts", issue = "24")]
 	pub fn virtual_end(&self) -> Page {
 		self.virtual_start() + self.virtual_len().get()
 	}
 
+	#[unstable(feature = "kernel_mmap_to_parts", issue = "24")]
 	pub fn physical_len(&self) -> NonZero<usize> {
 		self.physical_len
 	}
 
+	#[unstable(feature = "kernel_mmap_to_parts", issue = "24")]
 	pub fn physical_start(&self) -> Result<Frame, DiscontiguityError> {
 		match self.contiguity {
 			RawMappingContiguity::Contiguous(base_frame) => Ok(base_frame),
@@ -586,6 +627,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		}
 	}
 
+	#[unstable(feature = "kernel_mmap_to_parts", issue = "24")]
 	pub fn physical_end(&self) -> Result<Frame, DiscontiguityError> {
 		match self.contiguity {
 			RawMappingContiguity::Contiguous(base_frame) => Ok(base_frame + self.physical_len().get()),
@@ -597,6 +639,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	/// 
 	/// If the allocation could be resized, the [`Page`] corresponding to the previous end of the mapping.
 	/// If it could not be resized, it returns the [`AllocError`] from the underlying allocators.
+	#[stable(feature = "kernel_mmap", since = "1.1.0")]
 	pub fn resize_in_place(&mut self, new_len: NonZero<usize>) -> Result<Page, AllocError> {
 		if new_len == self.physical_len() { return Ok(self.virtual_end()); }
 
@@ -638,6 +681,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	}
 }
 
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
 impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 	fn drop(&mut self) {
 		debug!("mmap dropped: {self:x?}");
@@ -715,16 +759,20 @@ impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 }
 
 #[doc(hidden)]
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub enum RawMmap {}
 
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
 impl Mappable for RawMmap {
 	fn physical_length_to_virtual_length(physical_length: NonZero<usize>) -> NonZero<usize> { physical_length }
 	fn physical_start_offset_from_virtual() -> isize { 0 }
 }
 
 #[doc(hidden)]
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub enum RawStack {}
 
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
 impl Mappable for RawStack {
 	fn physical_length_to_virtual_length(physical_length: NonZero<usize>) -> NonZero<usize> {
 		physical_length.checked_add(1).expect("Stack size overflow")
@@ -736,10 +784,12 @@ impl Mappable for RawStack {
 ///
 /// Manages a mapping directly between physical and virtual memory.
 #[allow(type_alias_bounds)] // makes docs nicer
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub type Mapping<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, RawMmap, V>;
 
 /// A RAII stack
 ///
 /// Manages the memory map for a stack, including a guard page below the stack.
 #[allow(type_alias_bounds)] // makes docs nicer
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub type Stack<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, RawStack, V>;
