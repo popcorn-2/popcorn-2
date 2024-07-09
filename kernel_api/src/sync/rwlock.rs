@@ -3,23 +3,23 @@ use core::mem;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 /// A reader-writer lock
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub type RwSpinlock<T: ?Sized> = lock_api::RwLock<RwCount, T>;
 
 /// RAII structure used to release the shared read access of a lock when dropped.
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub type RwReadGuard<'a, T: ?Sized> = lock_api::RwLockReadGuard<'a, RwCount, T>;
 
 /// RAII structure used to release upgradable read access of a lock when dropped.
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub type RwUpgradableReadGuard<'a, T: ?Sized> = lock_api::RwLockUpgradableReadGuard<'a, RwCount, T>;
 
 /// RAII structure used to release the exclusive write access of a lock when dropped.
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub type RwWriteGuard<'a, T: ?Sized> = lock_api::RwLockWriteGuard<'a, RwCount, T>;
 
 #[doc(hidden)]
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub struct RwCount(AtomicUsize);
 
 // FIXME: Deadlocks due to interrupts
@@ -29,7 +29,7 @@ impl RwCount {
     const READ_COUNT_MASK: usize = !(Self::WRITE_BIT_MASK | Self::UPGRADEABLE_BIT_MASK);
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl core::fmt::Debug for RwCount {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         let mut d = f.debug_struct("RwCount");
@@ -43,7 +43,7 @@ impl core::fmt::Debug for RwCount {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 unsafe impl lock_api::RawRwLock for RwCount {
     const INIT: Self = Self(AtomicUsize::new(0));
     type GuardMarker = lock_api::GuardSend; // Doesn't (yet) touch interrupts so safe to send to other core
@@ -109,7 +109,7 @@ unsafe impl lock_api::RawRwLock for RwCount {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 unsafe impl lock_api::RawRwLockDowngrade for RwCount {
     unsafe fn downgrade(&self) {
         if cfg!(debug_assertions) {
@@ -122,7 +122,7 @@ unsafe impl lock_api::RawRwLockDowngrade for RwCount {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 unsafe impl lock_api::RawRwLockUpgrade for RwCount {
     fn lock_upgradable(&self) {
         while !self.try_lock_upgradable() {
@@ -172,7 +172,7 @@ unsafe impl lock_api::RawRwLockUpgrade for RwCount {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 unsafe impl lock_api::RawRwLockUpgradeDowngrade for RwCount {
     unsafe fn downgrade_upgradable(&self) {
         let mut old_value = self.0.load(Ordering::Relaxed);

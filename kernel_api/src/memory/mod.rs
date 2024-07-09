@@ -1,5 +1,6 @@
 //! Provides primitives for interfacing with raw memory (such as [pages](`Page`) and [frames](`Frame`)), as well as
 //! interfaces for memory related kernel modules to implement (such as [`BackingAllocator`](allocator::PhysicalAllocator))
+#![stable(feature = "kernel_core_api", since = "1.0.0")]
 
 #[cfg(feature = "full")]
 pub mod allocator;
@@ -15,14 +16,14 @@ pub mod physical;
 
 /// The error returned when an allocation was unsuccessful
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub struct AllocError;
 
 const PAGE_SIZE: usize = 4096;
 const PAGE_MAP_OFFSET: usize = 0xffff_8000_0000_0000;
 
 /// A memory frame
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(transparent)]
 pub struct Frame {
@@ -30,7 +31,7 @@ pub struct Frame {
 }
 
 /// A memory page
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(transparent)]
 pub struct Page {
@@ -39,7 +40,7 @@ pub struct Page {
 
 /// A physical memory address of alignment `ALIGN`
 // todo: replace ALIGN with a NonZero<usize>
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 #[derive(Debug, Copy, Clone, Eq, Ord)]
 #[repr(transparent)]
 pub struct PhysicalAddress<const ALIGN: usize = 1> {
@@ -48,7 +49,7 @@ pub struct PhysicalAddress<const ALIGN: usize = 1> {
 }
 
 /// A virtual memory address of alignment `ALIGN`
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 #[derive(Debug, Copy, Clone, Eq, Ord)]
 #[repr(transparent)]
 pub struct VirtualAddress<const ALIGN: usize = 1> {
@@ -58,8 +59,8 @@ pub struct VirtualAddress<const ALIGN: usize = 1> {
 
 impl<const ALIGN: usize> PhysicalAddress<ALIGN> {
     /// Creates a new [`PhysicalAddress`], panicking if the alignment is incorrect
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     #[track_caller]
     pub const fn new(addr: usize) -> Self {
         let unaligned: PhysicalAddress = PhysicalAddress { addr };
@@ -81,8 +82,8 @@ impl<const ALIGN: usize> PhysicalAddress<ALIGN> {
     /// Forces a [`PhysicalAddress`] to have a specific alignment
     /// # Safety
     /// The address must be already aligned to the new alignment
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const unsafe fn align_unchecked<const NEW_ALIGN: usize>(self) -> PhysicalAddress<NEW_ALIGN> {
         PhysicalAddress {
             .. self
@@ -90,8 +91,8 @@ impl<const ALIGN: usize> PhysicalAddress<ALIGN> {
     }
 
     /// Returns the [`PhysicalAddress`] less than or equal to `self` with the given alignment
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn align_down<const NEW_ALIGN: usize>(self) -> PhysicalAddress<NEW_ALIGN> {
         PhysicalAddress {
             addr: self.addr & !(NEW_ALIGN - 1)
@@ -99,8 +100,8 @@ impl<const ALIGN: usize> PhysicalAddress<ALIGN> {
     }
 
     /// Returns the [`PhysicalAddress`] greater than or equal to `self` with the given alignment
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn align_up<const NEW_ALIGN: usize>(self) -> PhysicalAddress<NEW_ALIGN> {
         // FIXME(const): use normal add implementation
         let a: PhysicalAddress = PhysicalAddress {
@@ -143,15 +144,15 @@ impl Frame {
     }
 
     /// Creates a [`Frame`] using `base` as the first address within it
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn new(base: PhysicalAddress<PAGE_SIZE>) -> Self {
         Self { base }
     }
 
     /// Attempts to subtract `rhs` number of pages, returning `None` if overflow would occur
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn checked_sub(&self, rhs: usize) -> Option<Self> {
         // FIXME(const): Option::map
         match self.base.addr.checked_sub(rhs * PAGE_SIZE) {
@@ -163,15 +164,15 @@ impl Frame {
     }
 
     /// Returns the first address within the [`Frame`]
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn start(&self) -> PhysicalAddress<PAGE_SIZE> {
         self.base
     }
 
     /// Returns the address one after the end of the [`Frame`]
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn end(&self) -> PhysicalAddress<PAGE_SIZE> {
         // FIXME(const): use normal add implementation
         PhysicalAddress::<4096>::new(self.base.addr + PAGE_SIZE)
@@ -180,8 +181,8 @@ impl Frame {
 
 impl<const ALIGN: usize> VirtualAddress<ALIGN> {
     /// Creates a new [`VirtualAddress`], panicking if the alignment is incorrect
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     #[track_caller]
     pub const fn new(addr: usize) -> Self {
         let unaligned: VirtualAddress = VirtualAddress { addr };
@@ -193,8 +194,8 @@ impl<const ALIGN: usize> VirtualAddress<ALIGN> {
     }
 
     /// Converts a [`VirtualAddress`] into a raw pointer
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn as_ptr(self) -> *mut u8 {
         self.addr as _
     }
@@ -202,8 +203,8 @@ impl<const ALIGN: usize> VirtualAddress<ALIGN> {
     /// Forces a [`VirtualAddress`] to have a specific alignment
     /// # Safety
     /// The address must be already aligned to the new alignment
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const unsafe fn align_unchecked<const NEW_ALIGN: usize>(self) -> VirtualAddress<NEW_ALIGN> {
         VirtualAddress {
             .. self
@@ -211,8 +212,8 @@ impl<const ALIGN: usize> VirtualAddress<ALIGN> {
     }
 
     /// Returns the [`VirtualAddress`] less than or equal to `self` with the given alignment
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn align_down<const NEW_ALIGN: usize>(self) -> VirtualAddress<NEW_ALIGN> {
         VirtualAddress {
             addr: self.addr & !(NEW_ALIGN - 1)
@@ -220,8 +221,8 @@ impl<const ALIGN: usize> VirtualAddress<ALIGN> {
     }
 
     /// Returns the [`VirtualAddress`] greater than or equal to `self` with the given alignment
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn align_up<const NEW_ALIGN: usize>(self) -> VirtualAddress<NEW_ALIGN> {
         // FIXME: const ops
         let a: VirtualAddress = VirtualAddress {
@@ -256,43 +257,43 @@ impl<const ALIGN: usize> VirtualAddress<ALIGN> {
 
 impl Page {
     /// Converts a [`Page`] into a raw pointer pointing to the first address within the page
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn as_ptr(&self) -> *mut u8 {
         self.base.as_ptr()
     }
 
     /// Creates a [`Page`] using `base` as the first address within it
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn new(base: VirtualAddress<PAGE_SIZE>) -> Self {
         Self { base }
     }
 
     /// Returns the first address within the [`Page`]
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn start(&self) -> VirtualAddress<PAGE_SIZE> {
         self.base
     }
 
     /// Returns the address one after the end of the [`Page`]
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
     pub const fn end(&self) -> VirtualAddress<PAGE_SIZE> {
         // FIXME(const): use normal add implementation
         VirtualAddress::<4096>::new(self.base.addr + PAGE_SIZE)
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<T: ?Sized> From<*mut T> for VirtualAddress<1> {
     fn from(value: *mut T) -> Self {
         VirtualAddress { addr: value as *mut u8 as usize }
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<T: ?Sized> From<*const T> for VirtualAddress<1> {
     fn from(value: *const T) -> Self {
         VirtualAddress { addr: value as *const u8 as usize }

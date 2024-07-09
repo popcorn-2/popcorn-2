@@ -1,6 +1,6 @@
 //! Provides physical memory allocation APIs
 
-#![stable(feature = "kernel_core_api", since = "0.1.0")]
+#![stable(feature = "kernel_core_api", since = "1.0.0")]
 
 use core::num::NonZero;
 use core::ops::Range;
@@ -65,7 +65,7 @@ impl IntoIterator for AllocateNonContiguousRet {
 /// In future, this may be replaced by a more general resource allocator. In that case, this trait will be deprecated
 /// and implementors will be expected to move to the more general trait.
 #[auto_impl(&, Box, Arc)]
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub unsafe trait PhysicalAllocator: Send + Sync {
     // (Bitmap, Buddy, Watermark, ...)
 
@@ -92,11 +92,11 @@ pub unsafe trait PhysicalAllocator: Send + Sync {
     }
 
     /// Allocates a contiguous range of physical memory
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
     fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError>;
 
     /// Allocates a single [`Frame`]
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
     fn allocate_one(&self) -> Result<Frame, AllocError> {
         let frame = self.allocate(1)?;
         Ok(frame.into_iter().next().expect("`allocate(1)` must return one frame"))
@@ -135,7 +135,7 @@ pub unsafe trait PhysicalAllocator: Send + Sync {
 
     /// # Safety
     /// Must be deallocated with the same allocator that made the allocation
-    #[stable(feature = "kernel_core_api", since = "0.1.0")]
+    #[stable(feature = "kernel_core_api", since = "1.0.0")]
     unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZero<usize>);
 
     #[unstable(feature = "kernel_allocation_new", issue = "5")]

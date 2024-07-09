@@ -4,35 +4,35 @@ use core::ops::{Add, Sub};
 
 use super::{Frame, Page, PAGE_SIZE, PhysicalAddress, VirtualAddress};
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const A: usize, const B: usize> PartialEq<PhysicalAddress<A>> for PhysicalAddress<B> {
     fn eq(&self, other: &PhysicalAddress<A>) -> bool {
         self.addr == other.addr
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const A: usize, const B: usize> PartialEq<VirtualAddress<A>> for VirtualAddress<B> {
     fn eq(&self, other: &VirtualAddress<A>) -> bool {
         self.addr == other.addr
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const A: usize, const B: usize> PartialOrd<PhysicalAddress<A>> for PhysicalAddress<B> {
     fn partial_cmp(&self, other: &PhysicalAddress<A>) -> Option<Ordering> {
         self.addr.partial_cmp(&other.addr)
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const A: usize, const B: usize> PartialOrd<VirtualAddress<A>> for VirtualAddress<B> {
     fn partial_cmp(&self, other: &VirtualAddress<A>) -> Option<Ordering> {
         self.addr.partial_cmp(&other.addr)
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const ALIGN: usize> Add<usize> for VirtualAddress<ALIGN> {
     type Output = VirtualAddress<1>;
 
@@ -43,7 +43,7 @@ impl<const ALIGN: usize> Add<usize> for VirtualAddress<ALIGN> {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const ALIGN: usize> Add<usize> for PhysicalAddress<ALIGN> {
     type Output = PhysicalAddress<1>;
 
@@ -54,7 +54,7 @@ impl<const ALIGN: usize> Add<usize> for PhysicalAddress<ALIGN> {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const ALIGN: usize> Add<isize> for VirtualAddress<ALIGN> {
     type Output = VirtualAddress<1>;
 
@@ -72,7 +72,7 @@ impl<const ALIGN: usize> Add<isize> for VirtualAddress<ALIGN> {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const ALIGN: usize> Add<isize> for PhysicalAddress<ALIGN> {
     type Output = PhysicalAddress<1>;
 
@@ -90,7 +90,7 @@ impl<const ALIGN: usize> Add<isize> for PhysicalAddress<ALIGN> {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const ALIGN: usize> Sub<usize> for VirtualAddress<ALIGN> {
     type Output = VirtualAddress<1>;
 
@@ -101,7 +101,7 @@ impl<const ALIGN: usize> Sub<usize> for VirtualAddress<ALIGN> {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const ALIGN: usize> Sub<usize> for PhysicalAddress<ALIGN> {
     type Output = PhysicalAddress<1>;
 
@@ -112,7 +112,7 @@ impl<const ALIGN: usize> Sub<usize> for PhysicalAddress<ALIGN> {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const ALIGN: usize> Sub<isize> for VirtualAddress<ALIGN> {
     type Output = VirtualAddress<1>;
 
@@ -130,7 +130,7 @@ impl<const ALIGN: usize> Sub<isize> for VirtualAddress<ALIGN> {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const ALIGN: usize> Sub<isize> for PhysicalAddress<ALIGN> {
     type Output = PhysicalAddress<1>;
 
@@ -148,7 +148,7 @@ impl<const ALIGN: usize> Sub<isize> for PhysicalAddress<ALIGN> {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const A: usize, const B: usize> Sub<VirtualAddress<A>> for VirtualAddress<B> {
     type Output = usize;
 
@@ -157,7 +157,7 @@ impl<const A: usize, const B: usize> Sub<VirtualAddress<A>> for VirtualAddress<B
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<const A: usize, const B: usize> Sub<PhysicalAddress<A>> for PhysicalAddress<B> {
     type Output = usize;
 
@@ -166,7 +166,7 @@ impl<const A: usize, const B: usize> Sub<PhysicalAddress<A>> for PhysicalAddress
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Add<usize> for Page {
     type Output = Page;
 
@@ -177,7 +177,7 @@ impl Add<usize> for Page {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Add<usize> for Frame {
     type Output = Frame;
 
@@ -188,7 +188,7 @@ impl Add<usize> for Frame {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Add<isize> for Page {
     type Output = Page;
 
@@ -199,7 +199,7 @@ impl Add<isize> for Page {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Add<isize> for Frame {
     type Output = Frame;
 
@@ -210,7 +210,7 @@ impl Add<isize> for Frame {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Sub<usize> for Page {
     type Output = Page;
 
@@ -221,7 +221,7 @@ impl Sub<usize> for Page {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Sub<usize> for Frame {
     type Output = Frame;
 
@@ -232,7 +232,7 @@ impl Sub<usize> for Frame {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Sub<isize> for Page {
     type Output = Page;
 
@@ -243,7 +243,7 @@ impl Sub<isize> for Page {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Sub<isize> for Frame {
     type Output = Frame;
 
@@ -254,7 +254,7 @@ impl Sub<isize> for Frame {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Sub<Page> for Page {
     type Output = usize;
 
@@ -263,7 +263,7 @@ impl Sub<Page> for Page {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Sub<Frame> for Frame {
     type Output = usize;
 
@@ -272,7 +272,7 @@ impl Sub<Frame> for Frame {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Step for Frame {
     fn steps_between(start: &Self, end: &Self) -> Option<usize> {
         end.base.addr.checked_sub(start.base.addr)
@@ -298,7 +298,7 @@ impl Step for Frame {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Step for Page {
     fn steps_between(start: &Self, end: &Self) -> Option<usize> {
         end.base.addr.checked_sub(start.base.addr)
