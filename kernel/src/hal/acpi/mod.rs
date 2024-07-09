@@ -131,7 +131,7 @@ impl AcpiHandlerExt for Handler<'_> {
 		let mapping = Mapping::new(config, <T as PagingReason>::reason()).expect("Unable to create physical mapping");
 
 
-		let (frames, pages) = mapping.into_raw_parts()
+		let (frames, pages) = mapping.into_contiguous_raw_parts()
 				.expect("Initial `Mapping` allocation should be contiguous"); // FIXME: kernel_mmap discontinuous initial alloc
 		let (first_frame, phys_len, _) = frames.into_raw_parts();
 		let (first_page, virt_len, _) = pages.into_raw_parts();
@@ -217,7 +217,7 @@ impl AcpiHandler for Handler<'_> {
 		unsafe {
 			let frames = OwnedFrames::from_raw_parts(first_frame, len, region.handler().allocator);
 			let pages = OwnedPages::from_raw_parts(first_page, len, Global);
-			let _mapping = Mapping::from_raw_parts(frames, pages);
+			let _mapping = Mapping::from_contiguous_raw_parts(frames, pages);
 		}
 	}
 }

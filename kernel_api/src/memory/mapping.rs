@@ -415,9 +415,9 @@ pub(super) enum RawMappingContiguity {
 	Discontiguous,
 }
 
-/// Returned from [`RawMapping::into_raw_parts()`] if the underlying physical memory is not contiguous
+/// Returned from [`RawMapping::into_contiguous_raw_parts()`] if the underlying physical memory is not contiguous
 ///
-/// See the documentation for [`into_raw_parts()`](RawMapping::into_raw_parts()) for more information.
+/// See the documentation for [`into_contiguous_raw_parts()`](RawMapping::into_contiguous_raw_parts()) for more information.
 #[derive(Debug)]
 pub struct DiscontiguityError;
 
@@ -517,7 +517,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	///
 	/// If the underlying physical memory is not contiguous, and so cannot be represented as a single instance
 	/// of [`OwnedFrames`], [`DiscontiguityError`] is returned.
-	pub fn into_raw_parts(mut self) -> Result<(OwnedFrames<'phys_alloc>, OwnedPages<A>), DiscontiguityError> {
+	pub fn into_contiguous_raw_parts(mut self) -> Result<(OwnedFrames<'phys_alloc>, OwnedPages<A>), DiscontiguityError> {
 		let frames = unsafe {
 			let RawMappingContiguity::Contiguous(base_frame) = self.contiguity else {
 				return Err(DiscontiguityError);
@@ -543,7 +543,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		Ok((frames, pages))
 	}
 
-	pub unsafe fn from_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>) -> Self {
+	pub unsafe fn from_contiguous_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>) -> Self {
 		let (virtual_base, actual_vlen, virtual_allocator) = pages.into_raw_parts();
 		let (physical_base, physical_len, physical_allocator) = frames.into_raw_parts();
 		let correct_vlen = R::physical_length_to_virtual_length(physical_len);

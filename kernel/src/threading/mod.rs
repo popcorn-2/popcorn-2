@@ -33,7 +33,7 @@ pub unsafe fn init(handoff_data: crate::HandoffWrapper) -> Tid {
 	let mut scheduler = scheduler::SCHEDULER.lock();
 	let tcb =  ThreadControlBlock {
 		name: Cow::Borrowed("init"),
-		kernel_stack: Stack::from_raw_parts(stack_frames, stack_pages),
+		kernel_stack: Stack::from_contiguous_raw_parts(stack_frames, stack_pages),
 		ttable,
 		state: ThreadState::Running,
 		save_state: Default::default(),
