@@ -341,6 +341,8 @@ pub struct Config<'physical_allocator, A: VirtualAllocator> {
 
 impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	/// Creates a new [mapping](self) configuration with default options
+	/// 
+	/// `length` is specified in pages
 	///
 	/// The default options are not guaranteed, but at the moment are:
 	/// - physical and virtual locations: anywhere
@@ -386,8 +388,6 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	}
 
 	/// Set the physical location of the low address of the mapping
-	///
-	/// This is currently ignored
 	pub fn physical_location(self, location: Location<Frame>) -> Self {
 		Config {
 			physical_location: location,
@@ -592,6 +592,46 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 			RawMappingContiguity::Discontiguous => Err(DiscontiguityError),
 		}
 	}
+
+	/// Attempts to resize the allocation to `new_len` without moving the allocation
+	/// 
+	/// If the allocation could be resized, the [`Page`] corresponding to the previous end of the mapping.
+	/// If it could not be resized, it returns the [`AllocError`] from the underlying allocators.
+	pub fn resize_in_place(&mut self, new_len: NonZero<usize>) -> Result<Page, AllocError> {
+		if new_len == self.physical_len() { return Ok(self.virtual_end()); }
+
+		let original_physical_allocator = self.allocator;
+
+		if new_len < self.physical_len() {
+			todo!("actually free and unmap the extra memory")
+		} else {
+			let extra_len: NonZero<usize> = new_len.get().checked_sub(self.physical_len().get())
+			                             .expect("`new_len` is checked to be greater than `physical_len`")
+										.try_into()
+										.expect("`new_len` is checked to be not equal to `physical_len`");
+
+			let extra_virtual_mem = Global.allocate_contiguous_at(self.virtual_end(), extra_len.get())?; // FIXME: use OwnedPages
+
+			debug_assert_eq!(self.virtual_end(), extra_virtual_mem);
+			
+			// TODO: huge pages
+			let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
+
+			let extra_physical_mem = OwnedFrames::xnew(extra_len, original_physical_allocator, super::allocator::Location::Any)?;
+			let (start_frame, _, _) = extra_physical_mem.into_raw_parts();
+
+			// FIXME: memory leak of physical and virtual memory if this fails
+			// FIXME: can't assume ktable depending on AddressSpace once #43 is sorted
+			// FIXME: this is probably wrong if the extra unmapped virtual memory is after the physical memory, not before
+			for (frame, page) in (0..extra_len.get()).map(|i| (start_frame + i, extra_virtual_mem + i)) {
+				unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut page_table, page, frame, 25) }
+						.expect("todo");
+			}
+
+			self.physical_len = new_len;
+			Ok(extra_virtual_mem)
+		}
+	}
 }
 
 impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
@@ -621,7 +661,7 @@ impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 					crate::bridge::paging::__popcorn_paging_ktable_translate_page(&mut page_table, page)
 							.expect("Virtual memory uniquely owned by this mmap so shouldn't be unmapped")
 				});
-				
+
 				let drop_frame_range = |(frame, len)| {
 					let _frames = unsafe { OwnedFrames::from_raw_parts(
 						frame,
@@ -629,7 +669,7 @@ impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 						self.allocator,
 					) };
 				};
-				
+
 				// Group the frames into contiguous chunks
 				// First convert into a tuple of `(start, len)`, where each is of len 1
 				// Then reduce: if the end of one frame range is the start of the next,
