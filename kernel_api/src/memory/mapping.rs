@@ -419,7 +419,7 @@ pub(super) enum RawMappingContiguity {
 ///
 /// See the documentation for [`into_contiguous_raw_parts()`](RawMapping::into_contiguous_raw_parts()) for more information.
 #[derive(Debug)]
-pub struct DiscontiguityError;
+pub struct DiscontiguityError(());
 
 /// The raw type underlying all memory mappings.
 ///
@@ -520,7 +520,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	pub fn into_contiguous_raw_parts(mut self) -> Result<(OwnedFrames<'phys_alloc>, OwnedPages<A>), DiscontiguityError> {
 		let frames = unsafe {
 			let RawMappingContiguity::Contiguous(base_frame) = self.contiguity else {
-				return Err(DiscontiguityError);
+				return Err(DiscontiguityError(()));
 			};
 			
 			OwnedFrames::from_raw_parts(
@@ -582,14 +582,14 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	pub fn physical_start(&self) -> Result<Frame, DiscontiguityError> {
 		match self.contiguity {
 			RawMappingContiguity::Contiguous(base_frame) => Ok(base_frame),
-			RawMappingContiguity::Discontiguous => Err(DiscontiguityError),
+			RawMappingContiguity::Discontiguous => Err(DiscontiguityError(())),
 		}
 	}
 
 	pub fn physical_end(&self) -> Result<Frame, DiscontiguityError> {
 		match self.contiguity {
 			RawMappingContiguity::Contiguous(base_frame) => Ok(base_frame + self.physical_len().get()),
-			RawMappingContiguity::Discontiguous => Err(DiscontiguityError),
+			RawMappingContiguity::Discontiguous => Err(DiscontiguityError(())),
 		}
 	}
 
