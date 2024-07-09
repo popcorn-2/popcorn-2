@@ -341,6 +341,15 @@ pub struct Config<'physical_allocator, A: VirtualAllocator> {
 
 impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	/// Creates a new [mapping](self) configuration with default options
+	/// 
+	/// `length` is specified in pages
+	///
+	/// The default options are not guaranteed, but at the moment are:
+	/// - physical and virtual locations: anywhere
+	/// - lazily allocated
+	/// - Highmem physical allocator
+	/// - Global virtual allocator
+	/// - Readable, writable and executable
 	pub fn new(length: NonZero<usize>) -> Config<'static, Global> {
 		Config {
 			physical_location: Location::Any,
@@ -353,6 +362,9 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 		}
 	}
 
+	/// Set the physical allocator to use
+	///
+	/// This is used for both the underlying memory as well as any page tables that need creating
 	pub fn physical_allocator<'a>(self, allocator: &'a dyn BackingAllocator) -> Config<'a, A> {
 		Config {
 			physical_allocator: allocator,
@@ -360,6 +372,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 		}
 	}
 
+	/// Set the virtual allocator to use
 	pub fn virtual_allocator<New: VirtualAllocator>(self, allocator: New) -> Config<'physical_allocator, New> {
 		Config {
 			virtual_allocator: allocator,
@@ -374,6 +387,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 		}
 	}
 
+	/// Set the physical location of the low address of the mapping
 	pub fn physical_location(self, location: Location<Frame>) -> Self {
 		Config {
 			physical_location: location,
@@ -381,6 +395,9 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 		}
 	}
 
+	/// Set the virtual location of the low address of the mapping
+	///
+	/// This is currently ignored
 	pub fn virtual_location(self, location: Location<Page>) -> Self {
 		Config {
 			_virtual_location: location,
@@ -389,30 +406,20 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	}
 }
 
-// This exists to allow writing functions that only access the owned memory, rather than causing any allocations or deallocations,
-// to not have to be generic at runtime over the allocator and mapping controller
-pub(super) struct RawMappingInner<'phys_allocator> {
-	physical: OwnedFrames<'phys_allocator>,
-	virtual_valid_start: Page,
+/// Used to track if the memory underlying the mapping is contiguous
+pub(super) enum RawMappingContiguity {
+	/// The underlying physical memory is contiguous, and starts at the contained frame
+	Contiguous(Frame),
+
+	/// The underlying physical memory is discontiguous, but all allocated by the same
+	Discontiguous,
 }
 
-impl RawMappingInner<'_> {
-	pub(super) fn virtual_valid_start(&self) -> Page {
-		self.virtual_valid_start
-	}
-
-	pub(super) fn physical_len(&self) -> NonZero<usize> {
-		self.physical.len
-	}
-
-	pub(super) fn physical_start(&self) -> Frame {
-		self.physical.base
-	}
-
-	pub(super) fn physical_end(&self) -> Frame {
-		self.physical_start() + self.physical_len().get()
-	}
-}
+/// Returned from [`RawMapping::into_contiguous_raw_parts()`] if the underlying physical memory is not contiguous
+///
+/// See the documentation for [`into_contiguous_raw_parts()`](RawMapping::into_contiguous_raw_parts()) for more information.
+#[derive(Debug)]
+pub struct DiscontiguityError(());
 
 /// The raw type underlying all memory mappings.
 ///
@@ -420,14 +427,35 @@ impl RawMappingInner<'_> {
 /// It will also manage the page tables to correctly unmap the memory when dropped.
 pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
 	raw: PhantomData<R>,
+
+	/// The virtual allocator used for memory allocation
 	virtual_allocator: ManuallyDrop<A>,
-	inner: RawMappingInner<'phys_allocator>
+
+	/// Whether the underlying physical memory is contiguous or not
+	contiguity: RawMappingContiguity,
+
+	/// The first page in the mapping that is mapped to physical memory.
+	/// The region of virtual memory from `virtual_valid_start` to `virtual_valid_start + physical_length` is mapped.
+	virtual_valid_start: Page,
+	
+	/// The number of physical pages allocated to the mapping
+	physical_len: NonZero<usize>,
+
+	/// The physical allocator used for memory allocation
+	allocator: &'phys_allocator dyn BackingAllocator
 }
 
 impl<R: Mappable, A: VirtualAllocator> Debug for RawMapping<'_, R, A> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		f.debug_struct("RawMapping")
-		 .field("physical", &self.inner.physical)
+		 .field(
+			 "physical_base",
+			 match self.physical_start() {
+				 Ok(ref frame) => frame,
+				 Err(_) => &"<discontiguous>",
+			 }
+		 )
+		 .field("physical_length", &self.physical_len().get())
 		 .field("virtual_base", &self.virtual_start())
 		 .field("virtual_valid_start", &self.virtual_valid_start())
 		 .field("virtual_allocator", &"<virtual allocator>")
@@ -436,6 +464,18 @@ impl<R: Mappable, A: VirtualAllocator> Debug for RawMapping<'_, R, A> {
 }
 
 impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A> {
+	/// Create a new memory mapping with the given configuration
+	///
+	/// All physical memory used for the initial allocation will be contiguous.
+	/// This may change in future.
+	///
+	/// # Errors
+	///
+	/// If the required physical or virtual memory could not be allocation, [`AllocError`] is returned.
+	///
+	/// # Panics
+	///
+	/// If the page tables already contained a mapping for the newly allocated virtual memory.
 	pub fn new(config: Config<'phys_alloc, A>, reason: u16) -> Result<Self, AllocError> {
 		let Config { length, physical_allocator, virtual_allocator, physical_location, .. } = config;
 
@@ -445,11 +485,13 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 		let physical_mem = OwnedFrames::xnew(physical_len, physical_allocator, physical_location.into())?;
 		let virtual_mem = OwnedPages::new_with(virtual_len, virtual_allocator)?;
 
-		let physical_base = physical_mem.base;
+		let (physical_base, _, _) = physical_mem.into_raw_parts();
 		let (virtual_base, _, virtual_allocator) = virtual_mem.into_raw_parts();
 		let offset_base = virtual_base + R::physical_start_offset_from_virtual();
 
 		// TODO: huge pages
+		// FIXME: memory leak of physical and virtual memory if this fails
+		// fixme: can't assume ktable depending on AddressSpace once #43 is sorted
 		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
 		for (frame, page) in (0..physical_len.get()).map(|i| (physical_base + i, offset_base + i)) {
 			unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut page_table, page, frame, reason) }
@@ -458,15 +500,36 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 
 		Ok(Self {
 			raw: PhantomData,
-			inner: RawMappingInner {
-				physical: physical_mem,
-				virtual_valid_start: offset_base
-			},
-			virtual_allocator: ManuallyDrop::new(virtual_allocator)
+			virtual_allocator: ManuallyDrop::new(virtual_allocator),
+			contiguity: RawMappingContiguity::Contiguous(physical_base),
+			virtual_valid_start: offset_base,
+			physical_len,
+			allocator: physical_allocator,
 		})
 	}
 
-	pub fn into_raw_parts(mut self) -> (OwnedFrames<'phys_alloc>, OwnedPages<A>) {
+	/// Destructure into the underlying [`OwnedFrames`] and [`OwnedPages`] that back the allocation
+	///
+	/// Depending on the implementation of [`Mappable`] used, these may be different length.
+	/// These can be turned back into a [`RawMapping`] by calling [`from_raw_parts()`].
+	///
+	/// # Errors
+	///
+	/// If the underlying physical memory is not contiguous, and so cannot be represented as a single instance
+	/// of [`OwnedFrames`], [`DiscontiguityError`] is returned.
+	pub fn into_contiguous_raw_parts(mut self) -> Result<(OwnedFrames<'phys_alloc>, OwnedPages<A>), DiscontiguityError> {
+		let frames = unsafe {
+			let RawMappingContiguity::Contiguous(base_frame) = self.contiguity else {
+				return Err(DiscontiguityError(()));
+			};
+			
+			OwnedFrames::from_raw_parts(
+				base_frame,
+				self.physical_len(),
+				self.allocator,
+			)
+		};
+		
 		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
 		let pages = unsafe {
 			OwnedPages::from_raw_parts(
@@ -476,22 +539,23 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 			)
 		};
 
-		let this = ManuallyDrop::new(self);
-		(unsafe { ptr::read(&this.inner.physical) }, pages)
+		core::mem::forget(self);
+		Ok((frames, pages))
 	}
 
-	pub unsafe fn from_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>) -> Self {
+	pub unsafe fn from_contiguous_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>) -> Self {
 		let (virtual_base, actual_vlen, virtual_allocator) = pages.into_raw_parts();
-		let correct_vlen = R::physical_length_to_virtual_length(frames.len);
+		let (physical_base, physical_len, physical_allocator) = frames.into_raw_parts();
+		let correct_vlen = R::physical_length_to_virtual_length(physical_len);
 		debug_assert_eq!(actual_vlen, correct_vlen);
 
 		Self {
 			raw: PhantomData,
-			inner: RawMappingInner {
-				physical: frames,
-				virtual_valid_start: virtual_base + R::physical_start_offset_from_virtual()
-			},
-			virtual_allocator: ManuallyDrop::new(virtual_allocator)
+			virtual_allocator: ManuallyDrop::new(virtual_allocator),
+			contiguity: RawMappingContiguity::Contiguous(physical_base),
+			virtual_valid_start: virtual_base + R::physical_start_offset_from_virtual(),
+			physical_len,
+			allocator: physical_allocator,
 		}
 	}
 
@@ -504,7 +568,7 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	}
 
 	fn virtual_valid_start(&self) -> Page {
-		self.inner.virtual_valid_start()
+		self.virtual_valid_start
 	}
 
 	pub fn virtual_end(&self) -> Page {
@@ -512,15 +576,65 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	}
 
 	pub fn physical_len(&self) -> NonZero<usize> {
-		self.inner.physical_len()
+		self.physical_len
 	}
 
-	pub fn physical_start(&self) -> Frame {
-		self.inner.physical_start()
+	pub fn physical_start(&self) -> Result<Frame, DiscontiguityError> {
+		match self.contiguity {
+			RawMappingContiguity::Contiguous(base_frame) => Ok(base_frame),
+			RawMappingContiguity::Discontiguous => Err(DiscontiguityError(())),
+		}
 	}
 
-	pub fn physical_end(&self) -> Frame {
-		self.inner.physical_end()
+	pub fn physical_end(&self) -> Result<Frame, DiscontiguityError> {
+		match self.contiguity {
+			RawMappingContiguity::Contiguous(base_frame) => Ok(base_frame + self.physical_len().get()),
+			RawMappingContiguity::Discontiguous => Err(DiscontiguityError(())),
+		}
+	}
+
+	/// Attempts to resize the allocation to `new_len` without moving the allocation
+	/// 
+	/// If the allocation could be resized, the [`Page`] corresponding to the previous end of the mapping.
+	/// If it could not be resized, it returns the [`AllocError`] from the underlying allocators.
+	pub fn resize_in_place(&mut self, new_len: NonZero<usize>) -> Result<Page, AllocError> {
+		if new_len == self.physical_len() { return Ok(self.virtual_end()); }
+
+		let original_physical_allocator = self.allocator;
+
+		if new_len < self.physical_len() {
+			todo!("actually free and unmap the extra memory")
+		} else {
+			let extra_len: NonZero<usize> = new_len.get().checked_sub(self.physical_len().get())
+			                             .expect("`new_len` is checked to be greater than `physical_len`")
+										.try_into()
+										.expect("`new_len` is checked to be not equal to `physical_len`");
+
+			let extra_virtual_mem = Global.allocate_contiguous_at(self.virtual_end(), extra_len.get())?; // FIXME: use OwnedPages
+
+			debug_assert_eq!(self.virtual_end(), extra_virtual_mem);
+			
+			// TODO: huge pages
+			let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
+
+			let extra_physical_mem = OwnedFrames::xnew(extra_len, original_physical_allocator, super::allocator::Location::Any)?;
+			let (new_start_frame, _, _) = extra_physical_mem.into_raw_parts();
+
+			if let RawMappingContiguity::Contiguous(base_frame) = self.contiguity {
+				if base_frame + self.physical_len.get() != base_frame { self.contiguity = RawMappingContiguity::Discontiguous; }
+			}
+
+			// FIXME: memory leak of physical and virtual memory if this fails
+			// FIXME: can't assume ktable depending on AddressSpace once #43 is sorted
+			// FIXME: this is probably wrong if the extra unmapped virtual memory is after the physical memory, not before
+			for (frame, page) in (0..extra_len.get()).map(|i| (new_start_frame + i, extra_virtual_mem + i)) {
+				unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut page_table, page, frame, 25) }
+						.expect("todo");
+			}
+
+			self.physical_len = new_len;
+			Ok(extra_virtual_mem)
+		}
 	}
 }
 
@@ -528,7 +642,61 @@ impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 	fn drop(&mut self) {
 		debug!("mmap dropped: {self:x?}");
 
+		// fixme: can't assume ktable depending on AddressSpace once #43 is sorted
 		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
+
+		// If the underlying memory is discontiguous, we need to find the physical memory chunks via the page tables
+		// and deallocate them before unmapping. To reduce the number of allocator calls, we merge contiguous chunks
+		// together. Since the concept of a single 'allocation' does not exist in the physical allocator, this is
+		// allowed regardless of whether the chunks were allocated in one go.
+		// If the memory is contiguous, we deallocate it in one go by converting it to an OwnedFrames object and
+		// immediately dropping it.
+		match self.contiguity {
+			RawMappingContiguity::Contiguous(base_frame) => {
+				let _frames = unsafe { OwnedFrames::from_raw_parts(
+					base_frame,
+					self.physical_len(),
+					self.allocator,
+				) };
+			},
+			RawMappingContiguity::Discontiguous => {
+				let page_iter = (0..self.physical_len().get()).map(|i| self.virtual_valid_start() + i);
+				let frame_iter = page_iter.map(|page| unsafe {
+					crate::bridge::paging::__popcorn_paging_ktable_translate_page(&mut page_table, page)
+							.expect("Virtual memory uniquely owned by this mmap so shouldn't be unmapped")
+				});
+
+				let drop_frame_range = |(frame, len)| {
+					let _frames = unsafe { OwnedFrames::from_raw_parts(
+						frame,
+						len,
+						self.allocator,
+					) };
+				};
+
+				// Group the frames into contiguous chunks
+				// First convert into a tuple of `(start, len)`, where each is of len 1
+				// Then reduce: if the end of one frame range is the start of the next,
+				// combine into a range with the new length; otherwise, take the already
+				// combined chunks, and deallocate in one go
+				let last_chunk = frame_iter.map(|frame| (frame, NonZero::<usize>::new(1).unwrap()))
+						.reduce(|prev_group, new_group| {
+							if prev_group.0 + prev_group.1.get() == new_group.0
+								&& let Some(combined_len) = prev_group.1.checked_add(new_group.1.get()) { // If the length overflows, just drop in two chunks
+								// contiguous, so merge
+								(prev_group.0, combined_len)
+							} else {
+								// discontigous, so drop the existing set
+								drop_frame_range(prev_group);
+								new_group
+							}
+						});
+				if let Some(last_chunk) = last_chunk {
+					drop_frame_range(last_chunk);
+				}
+			},
+		}
+
 		for page in (0..self.physical_len().get()).map(|i| self.virtual_valid_start() + i) {
 			debug!("unmapping page {page:x?}");
 			unsafe { crate::bridge::paging::__popcorn_paging_ktable_unmap_page(&mut page_table, page) }
