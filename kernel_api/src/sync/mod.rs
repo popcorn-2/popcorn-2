@@ -7,14 +7,10 @@
 use core::ops::{Deref, DerefMut};
 #[cfg(not(feature = "use_std"))]
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub use mutex::{Mutex, MutexGuard, MutexGuardExt};
+pub use mutex::{Spinlock, SpinlockGuard, SpinlockGuardExt};
 #[cfg(feature = "use_std")]
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub use parking_lot::{Mutex, MutexGuard};
-
-#[cfg(not(feature = "use_std"))]
-#[unstable(feature = "kernel_spinlocks", issue = "none")]
-pub use mutex::{Spinlock, SpinlockGuard};
+pub use parking_lot::{Mutex as Spinlock, MutexGuard as SpinlockGuard};
 
 #[cfg(not(feature = "use_std"))]
 #[unstable(feature = "kernel_sync_once", issue = "none")]
@@ -25,10 +21,10 @@ pub use std::sync::{LazyLock, Once, OnceLock};
 
 #[cfg(not(feature = "use_std"))]
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub use rwlock::{RwLock, RwReadGuard, RwUpgradableReadGuard, RwWriteGuard};
+pub use rwlock::{RwSpinlock, RwReadGuard, RwUpgradableReadGuard, RwWriteGuard};
 #[cfg(feature = "use_std")]
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub use parking_lot::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
+pub use parking_lot::{RwLock as RwSpinlock, RwLockReadGuard as RwReadGuard, RwLockUpgradableReadGuard as RwUpgradableReadGuard, RwLockWriteGuard as RwWriteGuard};
 
 #[cfg(not(feature = "use_std"))]
 mod mutex;

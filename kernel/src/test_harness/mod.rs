@@ -3,7 +3,7 @@ use core::alloc::{GlobalAlloc, Layout};
 use core::fmt;
 use core::fmt::Write;
 use crate::{panicking::do_panic, panicking};
-use kernel_api::sync::Mutex;
+use kernel_api::sync::Spinlock;
 use core::panic::PanicInfo;
 use test::{ShouldPanic, TestDescAndFn, TestFn, TestName};
 use crate::hal::Hal;
@@ -11,7 +11,7 @@ use crate::hal::Hal;
 mod junit;
 mod pretty;
 
-static CURRENT_TEST: Mutex<Option<ShouldPanic>> = Mutex::new(None);
+static CURRENT_TEST: Spinlock<Option<ShouldPanic>> = Spinlock::new(None);
 
 pub enum Result { Success, Fail, Ignored }
 
@@ -175,12 +175,12 @@ type FORMATTER = junit::JUnit;
 type FORMATTER = pretty::Pretty;
 
 #[cfg_attr(test, global_allocator)]
-static ALLOCATOR: ExceptionAllocator = ExceptionAllocator(Mutex::new(ExceptionAllocatorInner {
+static ALLOCATOR: ExceptionAllocator = ExceptionAllocator(Spinlock::new(ExceptionAllocatorInner {
 	buffer: [0; 2048],
 	used: 0,
 }));
 
-struct ExceptionAllocator(Mutex<ExceptionAllocatorInner>);
+struct ExceptionAllocator(Spinlock<ExceptionAllocatorInner>);
 
 struct ExceptionAllocatorInner {
 	buffer: [u64; 2048],

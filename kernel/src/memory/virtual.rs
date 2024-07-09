@@ -3,10 +3,10 @@ use core::ptr::addr_of;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
 use kernel_api::memory::r#virtual::VirtualAllocator;
-use kernel_api::sync::RwLock;
+use kernel_api::sync::RwSpinlock;
 
 #[export_name = "__popcorn_memory_virtual_kernel_global"]
-pub static GLOBAL_VIRTUAL_ALLOCATOR: RwLock<&'static dyn VirtualAllocator> = RwLock::new(&BOOTSTRAP);
+pub static GLOBAL_VIRTUAL_ALLOCATOR: RwSpinlock<&'static dyn VirtualAllocator> = RwSpinlock::new(&BOOTSTRAP);
 
 extern "C" {
 	static __popcorn_vmem_bootstrap_start: u8;

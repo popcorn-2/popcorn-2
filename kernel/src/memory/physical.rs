@@ -3,13 +3,13 @@ use core::mem;
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use kernel_api::memory::allocator::BackingAllocator;
-use kernel_api::sync::{RwLock, RwUpgradableReadGuard, RwWriteGuard};
+use kernel_api::sync::{RwSpinlock, RwUpgradableReadGuard, RwWriteGuard};
 use kernel_api::memory::physical::GlobalAllocator;
 
 #[export_name = "__popcorn_memory_physical_highmem"]
-static GLOBAL_HIGHMEM: GlobalAllocator = GlobalAllocator { rwlock: RwLock::new(None) };
+static GLOBAL_HIGHMEM: GlobalAllocator = GlobalAllocator { rwlock: RwSpinlock::new(None) };
 #[export_name = "__popcorn_memory_physical_dmamem"]
-static GLOBAL_DMA: GlobalAllocator = GlobalAllocator { rwlock: RwLock::new(None) };
+static GLOBAL_DMA: GlobalAllocator = GlobalAllocator { rwlock: RwSpinlock::new(None) };
 
 #[allow(unused_imports)]
 pub use kernel_api::memory::physical::{highmem, dmamem};

@@ -1,11 +1,11 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{self, Arguments, Write};
 use bitflags::bitflags;
-use kernel_api::sync::{LazyLock, Mutex};
+use kernel_api::sync::{LazyLock, Spinlock};
 use crate::hal::arch::amd64::port::Port;
 
-static SERIAL0: LazyLock<Mutex<SerialPort>> = LazyLock::new(|| {
-	Mutex::new(unsafe { SerialPort::new(0x3f8) }.expect("Unable to start serial port") )
+static SERIAL0: LazyLock<Spinlock<SerialPort>> = LazyLock::new(|| {
+	Spinlock::new(unsafe { SerialPort::new(0x3f8) }.expect("Unable to start serial port") )
 });
 
 bitflags! {

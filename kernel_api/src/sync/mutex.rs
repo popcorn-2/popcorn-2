@@ -5,22 +5,20 @@ use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
 /// A mutual exclusion primitive useful for protecting shared data
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub type Mutex<T: ?Sized> = lock_api::Mutex<RawSpinlock, T>;
-#[unstable(feature = "kernel_spinlocks", issue = "none")]
 pub type Spinlock<T: ?Sized> = lock_api::Mutex<RawSpinlock, T>;
 
 /// An RAII implementation of a “scoped lock” of a mutex. When this structure is dropped (falls out of scope), the lock will be unlocked.
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub type MutexGuard<'a, T: ?Sized> = lock_api::MutexGuard<'a, RawSpinlock, T>;
+pub type SpinlockGuard<'a, T: ?Sized> = lock_api::MutexGuard<'a, RawSpinlock, T>;
 
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub trait MutexGuardExt {
     #[stable(feature = "kernel_core_api", since = "0.1.0")]
+pub trait SpinlockGuardExt {
     fn unlock_no_interrupts(this: Self);
 }
 
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-impl<T> MutexGuardExt for MutexGuard<'_, T> {
+impl<T> SpinlockGuardExt for SpinlockGuard<'_, T> {
     fn unlock_no_interrupts(this: Self) {
         let this = ManuallyDrop::new(this);
         unsafe {
@@ -29,9 +27,6 @@ impl<T> MutexGuardExt for MutexGuard<'_, T> {
         }
     }
 }
-
-#[unstable(feature = "kernel_spinlocks", issue = "none")]
-pub type SpinlockGuard<'a, T> = lock_api::MutexGuard<'a, RawSpinlock, T>;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum State {
@@ -137,7 +132,7 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
     unsafe fn unlock(&self) {
         let old_irq_state = self.irq_state.load(Ordering::Relaxed);
         let old_state = self.state.swap(State::Unlocked.into(), Ordering::Release);
-        let old_state = State::try_from(old_state).expect("Mutex in undefined state");
+        let old_state = State::try_from(old_state).expect("Spinlock in undefined state");
 
         match old_state {
             State::Unlocked => unreachable!("Mutex was unlocked while unlocked"),

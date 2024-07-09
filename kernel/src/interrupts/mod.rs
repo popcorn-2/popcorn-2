@@ -1,7 +1,7 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::collections::BTreeMap;
 use core::cell::OnceCell;
-use kernel_api::sync::{Mutex, MutexGuard};
+use kernel_api::sync::{Spinlock, SpinlockGuard};
 
 pub mod vm;
 
@@ -47,13 +47,13 @@ pub macro irq_handler {
 }
 
 #[thread_local]
-static IRQ_HANDLES: Mutex<BTreeMap<usize, Box<dyn FnMut() /* + Send ???*/>>> = Mutex::new(BTreeMap::new());
+static IRQ_HANDLES: Spinlock<BTreeMap<usize, Box<dyn FnMut() /* + Send ???*/>>> = Spinlock::new(BTreeMap::new());
 
 #[thread_local]
 static DEFER_IRQ: OnceCell<Box<dyn Fn()>> = OnceCell::new();
 
 pub fn global_irq_handler(vector: usize) {
-	use kernel_api::sync::MutexGuardExt as _;
+	use kernel_api::sync::SpinlockGuardExt as _;
 	
 	if vector == 0x30 { (DEFER_IRQ.get().unwrap())(); return; }
 	
@@ -63,7 +63,7 @@ pub fn global_irq_handler(vector: usize) {
 	} else {
 		warn!("Unhandled IRQ: vector {vector}");
 	}
-	MutexGuard::unlock_no_interrupts(guard);
+	SpinlockGuard::unlock_no_interrupts(guard);
 }
 
 pub fn insert_handler(vector: usize, f: impl FnMut() + 'static) -> Result<(), ()> {

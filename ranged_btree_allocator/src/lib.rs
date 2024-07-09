@@ -7,7 +7,7 @@ use core::ops::Range;
 use kernel_api::memory::{AllocError, Page};
 use ranged_btree::RangedBTreeMap;
 use kernel_api::memory::r#virtual::VirtualAllocator;
-use kernel_api::sync::Mutex;
+use kernel_api::sync::Spinlock;
 
 #[derive(Debug)]
 struct Meta {
@@ -17,14 +17,14 @@ struct Meta {
 #[derive(Debug)]
 pub struct RangedBtreeAllocator {
     range: Range<Page>,
-    map: Mutex<RangedBTreeMap<Page, Meta>>
+    map: Spinlock<RangedBTreeMap<Page, Meta>>
 }
 
 impl RangedBtreeAllocator {
     pub fn new(range: Range<Page>) -> Self {
         Self {
             range,
-            map: Mutex::new(RangedBTreeMap::new())
+            map: Spinlock::new(RangedBTreeMap::new())
         }
     }
 

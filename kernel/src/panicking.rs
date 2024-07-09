@@ -4,10 +4,10 @@ use core::ptr;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use unwinding::abi::UnwindReasonCode;
 use unwinding::panic::catch_unwind as catch_unwind_impl;
-use kernel_api::sync::RwLock;
+use kernel_api::sync::RwSpinlock;
 
 static PANIC_COUNT: AtomicUsize = AtomicUsize::new(0);
-pub static SYMBOL_MAP: RwLock<Option<&'static [u8]>> = RwLock::new(None);
+pub static SYMBOL_MAP: RwSpinlock<Option<&'static [u8]>> = RwSpinlock::new(None);
 
 pub fn catch_unwind<R, F: FnOnce() -> R + core::panic::UnwindSafe>(f: F) -> Result<R, Box<dyn Any + Send>> {
 	let res = catch_unwind_impl(f);

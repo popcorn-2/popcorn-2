@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 /// A reader-writer lock
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub type RwLock<T: ?Sized> = lock_api::RwLock<RwCount, T>;
+pub type RwSpinlock<T: ?Sized> = lock_api::RwLock<RwCount, T>;
 
 /// RAII structure used to release the shared read access of a lock when dropped.
 #[stable(feature = "kernel_core_api", since = "0.1.0")]

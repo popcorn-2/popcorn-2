@@ -11,7 +11,7 @@ use core::fmt::Debug;
 use core::ptr::NonNull;
 use kernel_api::memory::heap::Heap;
 use kernel_api::memory::{VirtualAddress, AllocError};
-use kernel_api::sync::{LazyLock, Mutex};
+use kernel_api::sync::{LazyLock, Spinlock};
 use log::debug;
 use kernel_api::memory::mapping::OldMapping;
 
@@ -30,7 +30,7 @@ use kernel_api::memory::mapping::OldMapping;
 //};
 
 #[derive(Debug)]
-struct SyncHeap(Mutex<BadHeap>);
+struct SyncHeap(Spinlock<BadHeap>);
 
 #[derive(Debug)]
 struct BadHeap {
@@ -42,7 +42,7 @@ impl Heap for SyncHeap {
     fn new() -> Self where Self: Sized {
         let mapping = OldMapping::new(0).unwrap();
 
-        Self(Mutex::new(BadHeap {
+        Self(Spinlock::new(BadHeap {
             watermark: mapping.end().start().align_down(),
             mapping
         }))

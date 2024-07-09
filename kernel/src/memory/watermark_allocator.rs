@@ -3,13 +3,13 @@ use core::num::NonZero;
 use core::ops::Range;
 use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, SpecificLocation};
 use kernel_api::memory::{Frame, PhysicalAddress, AllocError};
-use kernel_api::sync::Mutex;
+use kernel_api::sync::Spinlock;
 
-pub struct WatermarkAllocator<'mem_map>(Mutex<Inner<'mem_map>>);
+pub struct WatermarkAllocator<'mem_map>(Spinlock<Inner<'mem_map>>);
 
 impl<'mem_map> WatermarkAllocator<'mem_map> {
 	pub fn new(free_regions: &'mem_map mut (dyn DoubleEndedIterator<Item = Range<Frame>> + Send)) -> Self {
-		Self(Mutex::new(Inner::new(free_regions)))
+		Self(Spinlock::new(Inner::new(free_regions)))
 	}
 
 	pub fn drain_into(self, into: &mut dyn BackingAllocator) where Self: Sized {

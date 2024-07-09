@@ -4,7 +4,7 @@ use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use enum_dispatch::enum_dispatch;
 use hashbrown::HashMap;
-use kernel_api::sync::{LazyLock, RwLock};
+use kernel_api::sync::{LazyLock, RwSpinlock};
 use utils::better_cow::Cow;
 use crate::ipc::Error;
 
@@ -37,7 +37,7 @@ impl ServerId {
 	pub fn new(val: u16) -> Self { Self(val.into()) }
 }
 
-static SERVERS: LazyLock<RwLock<ServerList>> = LazyLock::new(|| RwLock::new(ServerList::new()));
+static SERVERS: LazyLock<RwSpinlock<ServerList>> = LazyLock::new(|| RwSpinlock::new(ServerList::new()));
 
 pub fn servers() -> impl Deref<Target = ServerList> { SERVERS.read() }
 pub(super) fn servers_mut() -> impl DerefMut<Target = ServerList> { SERVERS.write() }

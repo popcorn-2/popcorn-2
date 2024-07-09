@@ -1,6 +1,6 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
-use kernel_api::sync::Mutex;
+use kernel_api::sync::Spinlock;
 use core::fmt::Debug;
 use core::mem;
 use acpi::madt::MadtEntry;
@@ -122,7 +122,7 @@ impl MmioCell<Apic> {
 struct Lapic(OnceLock<Syncify<IrqCell<PhysicalMapping<hal::acpi::Handler<'static>, Apic>>>>);
 
 static LAPIC: Lapic = Lapic(OnceLock::new());
-pub static IOAPICS: OnceLock<Mutex<Syncify<Ioapics<hal::acpi::Handler<'static>>>>> = OnceLock::new();
+pub static IOAPICS: OnceLock<Spinlock<Syncify<Ioapics<hal::acpi::Handler<'static>>>>> = OnceLock::new();
 
 pub type LapicTimer = &'static IrqCell<PhysicalMapping<hal::acpi::Handler<'static>, Apic>>;
 
@@ -396,7 +396,7 @@ pub(in crate::hal) fn init(spurious_vector: u8) {
 	timer_lvt.write(val);
 
 	LAPIC.0.get_or_init(|| unsafe { Syncify::new(IrqCell::new(apic)) });
-	IOAPICS.get_or_init(|| unsafe { Mutex::new(Syncify::new(ioapics)) });
+	IOAPICS.get_or_init(|| unsafe { Spinlock::new(Syncify::new(ioapics)) });
 }
 
 pub fn send_self_ipi(vector: usize) {

@@ -1,15 +1,15 @@
 #[allow(unused_imports)] use crate::prelude::*;
 
 use core::ops::DerefMut;
-use kernel_api::sync::RwLock;
+use kernel_api::sync::RwSpinlock;
 
 use crate::hal::paging2::KTableTy;
 use crate::sync::late_init::LateInit;
 
-static KERNEL_PAGE_TABLE: LateInit<RwLock<KTableTy>> = LateInit::new();
+static KERNEL_PAGE_TABLE: LateInit<RwSpinlock<KTableTy>> = LateInit::new();
 
 pub unsafe fn init_page_table(active_page_table: KTableTy) {
-	KERNEL_PAGE_TABLE.init_ref(RwLock::new(active_page_table));
+	KERNEL_PAGE_TABLE.init_ref(RwSpinlock::new(active_page_table));
 }
 
 #[export_name = "__popcorn_paging_get_ktable"]
