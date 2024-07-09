@@ -1,6 +1,5 @@
 //! Provides primitives for interfacing with raw memory (such as [pages](`Page`) and [frames](`Frame`)), as well as
-//! interfaces for memory related kernel modules to implement (such as [`BackingAllocator`](allocator::BackingAllocator))
-#![stable(feature = "kernel_core_api", since = "0.1.0")]
+//! interfaces for memory related kernel modules to implement (such as [`BackingAllocator`](allocator::PhysicalAllocator))
 
 #[cfg(feature = "full")]
 pub mod allocator;

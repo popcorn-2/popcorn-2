@@ -66,7 +66,7 @@ impl IntoIterator for AllocateNonContiguousRet {
 /// and implementors will be expected to move to the more general trait.
 #[auto_impl(&, Box, Arc)]
 #[stable(feature = "kernel_core_api", since = "0.1.0")]
-pub unsafe trait BackingAllocator: Send + Sync {
+pub unsafe trait PhysicalAllocator: Send + Sync {
     // (Bitmap, Buddy, Watermark, ...)
 
     // UNRESOLVED: how should errors work into this - does it error early and somehow figure out ahead of time if there's enough free space for the entire allocate, or does the allocation itself happen lazily and so an alloc error can happen on each iteration. If the latter, what happens if you call next() after getting an alloc error?
@@ -146,9 +146,9 @@ pub unsafe trait BackingAllocator: Send + Sync {
 }
 
 #[unstable(feature = "kernel_allocation_new", issue = "5")]
-pub unsafe trait SizedBackingAllocator: BackingAllocator + Sized {
+pub unsafe trait SizedBackingAllocator: PhysicalAllocator + Sized {
     #[unstable(feature = "kernel_allocation_new", issue = "5")]
-    fn new(config: Config) -> &'static mut dyn BackingAllocator;
+    fn new(config: Config) -> &'static mut dyn PhysicalAllocator;
 }
 
 #[unstable(feature = "kernel_physical_allocator_location", issue = "none")]

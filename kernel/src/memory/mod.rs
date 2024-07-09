@@ -9,7 +9,7 @@ pub mod watermark_allocator;
 mod tests {
 	use core::num::NonZero;
 	use core::sync::atomic::{AtomicUsize, Ordering};
-	use kernel_api::memory::allocator::{BackingAllocator, SpecificLocation};
+	use kernel_api::memory::allocator::{PhysicalAllocator, SpecificLocation};
 	use kernel_api::memory::{AllocError, Frame, PhysicalAddress};
 
 	struct MockAllocator {
@@ -53,7 +53,7 @@ mod tests {
 		}
 	}
 
-	unsafe impl BackingAllocator for MockAllocator {
+	unsafe impl PhysicalAllocator for MockAllocator {
 		fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
 			if self.always_fail { return Err(AllocError); }
 

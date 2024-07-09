@@ -2,7 +2,7 @@
 use core::mem;
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use kernel_api::memory::allocator::BackingAllocator;
+use kernel_api::memory::allocator::PhysicalAllocator;
 use kernel_api::sync::{RwSpinlock, RwUpgradableReadGuard, RwWriteGuard};
 use kernel_api::memory::physical::GlobalAllocator;
 
@@ -14,15 +14,15 @@ static GLOBAL_DMA: GlobalAllocator = GlobalAllocator { rwlock: RwSpinlock::new(N
 #[allow(unused_imports)]
 pub use kernel_api::memory::physical::{highmem, dmamem};
 
-pub fn init_highmem<'a>(allocator: &'static dyn BackingAllocator) {
+pub fn init_highmem<'a>(allocator: &'static dyn PhysicalAllocator) {
 	GLOBAL_HIGHMEM.rwlock.write().replace(allocator);
 }
 
-pub fn init_dmamem<'a>(allocator: &'static dyn BackingAllocator) {
+pub fn init_dmamem<'a>(allocator: &'static dyn PhysicalAllocator) {
 	GLOBAL_DMA.rwlock.write().replace(allocator);
 }
 
-pub fn with_highmem_as<'a, R>(allocator: &'a dyn BackingAllocator, f: impl FnOnce() -> R) -> R {
+pub fn with_highmem_as<'a, R>(allocator: &'a dyn PhysicalAllocator, f: impl FnOnce() -> R) -> R {
 	// FIXME: huge issue in that all allocations get lost therefore only safe to use for bootstrap
 	// FIXME(soundness): is this sound?
 

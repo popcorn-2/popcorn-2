@@ -2,7 +2,7 @@
 use core::arch::asm;
 use core::fmt::{Debug, Formatter};
 use kernel_api::bridge::paging::MapPageError;
-use kernel_api::memory::allocator::{BackingAllocator};
+use kernel_api::memory::allocator::{PhysicalAllocator};
 use kernel_api::memory::{Frame, Page, PhysicalAddress, AllocError};
 use kernel_api::memory::physical::highmem;
 use table::{Table, PDPT, PML4, PageIndices};
@@ -39,7 +39,7 @@ struct KTablePtr(Frame); // points to a [Table<PDPT>; 256]
 #[repr(align(8))]
 pub struct Amd64KTable {
 	tables: KTablePtr, // points to a [Table<PDPT>; 256]
-	allocator: &'static dyn BackingAllocator,
+	allocator: &'static dyn PhysicalAllocator,
 }
 
 impl KTablePtr {
@@ -81,7 +81,7 @@ impl TTablePtr {
 
 pub struct Amd64TTable {
 	pub(super) pml4: TTablePtr,
-	allocator: &'static dyn BackingAllocator,
+	allocator: &'static dyn PhysicalAllocator,
 }
 
 impl Amd64TTable {
@@ -189,7 +189,7 @@ impl TTable for Amd64TTable {
 		unsafe { asm!("mov cr3, {}", in(reg) addr); }
 	}
 
-	fn new(ktable: &Amd64KTable, allocator: &'static dyn BackingAllocator) -> Result<Self, AllocError> {
+	fn new(ktable: &Amd64KTable, allocator: &'static dyn PhysicalAllocator) -> Result<Self, AllocError> {
 		let pml4_frame = Table::<PML4>::empty_with(allocator)?;
 		let pml4 = pml4_frame.to_page().as_ptr().cast::<Table<PML4>>();
 		assert!(!pml4.is_null() && pml4.is_aligned());

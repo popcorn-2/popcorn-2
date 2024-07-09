@@ -19,7 +19,7 @@ use core::mem::ManuallyDrop;
 use core::num::NonZero;
 use core::ptr;
 use log::debug;
-use crate::memory::allocator::{AllocationMeta, BackingAllocator, SpecificLocation, ZeroAllocError};
+use crate::memory::allocator::{AllocationMeta, PhysicalAllocator, SpecificLocation, ZeroAllocError};
 use crate::memory::{AllocError, Frame, Page};
 use crate::memory::physical::{OwnedFrames, highmem};
 use crate::memory::r#virtual::{Global, OwnedPages, VirtualAllocator};
@@ -30,7 +30,7 @@ use crate::memory::r#virtual::{Global, OwnedPages, VirtualAllocator};
 pub struct Highmem;
 
 #[unstable(feature = "kernel_mmap_old", issue = "none")]
-unsafe impl BackingAllocator for Highmem {
+unsafe impl PhysicalAllocator for Highmem {
 	fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
 		highmem().allocate_contiguous(frame_count)
 	}
@@ -70,13 +70,13 @@ unsafe impl BackingAllocator for Highmem {
 #[deprecated(since = "0.1.0", note = "Use Mapping instead")]
 #[unstable(feature = "kernel_mmap_old", issue = "none")]
 #[derive(Debug)]
-pub struct OldMapping<A: BackingAllocator = Highmem> {
+pub struct OldMapping<A: PhysicalAllocator = Highmem> {
 	base: Page,
 	len: usize,
 	allocator: A
 }
 
-impl<A: BackingAllocator> OldMapping<A> {
+impl<A: PhysicalAllocator> OldMapping<A> {
 	#[unstable(feature = "kernel_mmap_old", issue = "none")]
 	pub fn as_ptr(&self) -> *const u8 {
 		self.base.as_ptr()
@@ -272,7 +272,7 @@ impl OldMapping<Highmem> {
 }
 
 #[unstable(feature = "kernel_mmap_old", issue = "none")]
-impl<A: BackingAllocator> Drop for OldMapping<A> {
+impl<A: PhysicalAllocator> Drop for OldMapping<A> {
 	fn drop(&mut self) {
 		// todo
 	}
@@ -351,7 +351,7 @@ pub enum Laziness { Lazy, Prefault }
 /// Configuration for creating a [mapping](self)
 ///
 /// By default, it will allocate memory anywhere that is valid, using the kernel [`VirtualAllocator`], and the
-/// `highmem` [`physical allocator`](BackingAllocator). It will lazily allocate physical memory, and map it
+/// `highmem` [`physical allocator`](PhysicalAllocator). It will lazily allocate physical memory, and map it
 /// with read and write permissions only.
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub struct Config<'physical_allocator, A: VirtualAllocator> {
@@ -359,7 +359,7 @@ pub struct Config<'physical_allocator, A: VirtualAllocator> {
 	_virtual_location: Location<Page>,
 	_laziness: Laziness,
 	length: NonZero<usize>,
-	physical_allocator: &'physical_allocator dyn BackingAllocator,
+	physical_allocator: &'physical_allocator dyn PhysicalAllocator,
 	virtual_allocator: A,
 	_protection: Protection,
 }
@@ -392,7 +392,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	///
 	/// This is used for both the underlying memory and any page tables that need creating
 	#[unstable(feature = "kernel_mmap_config", issue = "24")]
-	pub fn physical_allocator<'a>(self, allocator: &'a dyn BackingAllocator) -> Config<'a, A> {
+	pub fn physical_allocator<'a>(self, allocator: &'a dyn PhysicalAllocator) -> Config<'a, A> {
 		Config {
 			physical_allocator: allocator,
 			.. self
@@ -475,7 +475,7 @@ pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
 	physical_len: NonZero<usize>,
 
 	/// The physical allocator used for memory allocation
-	allocator: &'phys_allocator dyn BackingAllocator
+	allocator: &'phys_allocator dyn PhysicalAllocator
 }
 
 #[stable(feature = "kernel_mmap", since = "1.1.0")]

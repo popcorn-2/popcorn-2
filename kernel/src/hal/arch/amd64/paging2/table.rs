@@ -1,6 +1,6 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::marker::PhantomData;
-use kernel_api::memory::allocator::BackingAllocator;
+use kernel_api::memory::allocator::PhysicalAllocator;
 use kernel_api::memory::{AllocError, Frame, Page};
 use crate::hal::arch::amd64::paging::Amd64Entry;
 use crate::hal::paging::Entry;
@@ -76,7 +76,7 @@ impl<L: Level> Table<L> {
 		}
 	}
 
-	pub(super) fn empty_with(allocator: impl BackingAllocator) -> Result<Frame, AllocError> {
+	pub(super) fn empty_with(allocator: impl PhysicalAllocator) -> Result<Frame, AllocError> {
 		let table_frame = allocator.allocate_one()?;
 		let table_ptr: *mut Self = table_frame.to_page().as_ptr().cast();
 		assert!(!table_ptr.is_null() && table_ptr.is_aligned());
@@ -106,7 +106,7 @@ impl<L: ParentLevel> Table<L> {
 		Some(unsafe { &mut *table_page.as_ptr().cast() })
 	}
 
-	pub(super) fn child_table_or_new(&mut self, idx: usize, allocator: impl BackingAllocator) -> Result<&mut Table<L::Child>, AllocError> {
+	pub(super) fn child_table_or_new(&mut self, idx: usize, allocator: impl PhysicalAllocator) -> Result<&mut Table<L::Child>, AllocError> {
 		if self.child_table_mut(idx).is_none() {
 			let table_frame = Table::<L::Child>::empty_with(allocator)?;
 			self.entries[idx].point_to_frame(table_frame, 0).expect("Entry was not present");
