@@ -618,12 +618,16 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 			let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
 
 			let extra_physical_mem = OwnedFrames::xnew(extra_len, original_physical_allocator, super::allocator::Location::Any)?;
-			let (start_frame, _, _) = extra_physical_mem.into_raw_parts();
+			let (new_start_frame, _, _) = extra_physical_mem.into_raw_parts();
+
+			if let RawMappingContiguity::Contiguous(base_frame) = self.contiguity {
+				if base_frame + self.physical_len.get() != base_frame { self.contiguity = RawMappingContiguity::Discontiguous; }
+			}
 
 			// FIXME: memory leak of physical and virtual memory if this fails
 			// FIXME: can't assume ktable depending on AddressSpace once #43 is sorted
 			// FIXME: this is probably wrong if the extra unmapped virtual memory is after the physical memory, not before
-			for (frame, page) in (0..extra_len.get()).map(|i| (start_frame + i, extra_virtual_mem + i)) {
+			for (frame, page) in (0..extra_len.get()).map(|i| (new_start_frame + i, extra_virtual_mem + i)) {
 				unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut page_table, page, frame, 25) }
 						.expect("todo");
 			}
