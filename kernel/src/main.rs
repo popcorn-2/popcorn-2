@@ -38,6 +38,7 @@
 #![feature(build_hasher_default_const_new)]
 #![feature(min_specialization)]
 #![feature(doc_auto_cfg)]
+#![feature(btree_cursors)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -390,6 +391,8 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 		*memory::r#virtual::GLOBAL_VIRTUAL_ALLOCATOR.write() = Box::leak(Box::new(btree_alloc));
 	}
+
+	let _ = panicking::construct_symbol_tree();
 
 	unsafe {
 		hal::acpi::init_tables(handoff_data.rsdp.addr);

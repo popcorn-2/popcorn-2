@@ -54,9 +54,9 @@ impl Heap for SyncHeap {
         debug!("allocate {layout:?}");
 
         let guard = &mut *self.0.lock();
-        
+
         let Some(size) = NonZero::new(layout.size()) else { return Ok(NonNull::dangling()); };
-        
+
         let start = if let Some(mapping) = &mut guard.mapping {
             let start = guard.watermark.align_up_runtime(layout.align());
             let end = start + size.get();
@@ -65,7 +65,7 @@ impl Heap for SyncHeap {
                 debug!("Increment heap end");
                 // FIXME: HACK
                 let increment = isize::try_from(end - heap_end).map_err(|_| AllocError)?
-                        .div_ceil(4096)*10;
+                        .div_ceil(4096)*400;
                 let new_len = mapping.physical_len().checked_add(increment.unsigned_abs()).ok_or(AllocError)?;
                 debug!("Trying to remap");
                 mapping.resize_in_place(new_len)?;
