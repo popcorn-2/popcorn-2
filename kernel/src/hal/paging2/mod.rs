@@ -4,7 +4,7 @@ use core::fmt::Debug;
 use kernel_api::bridge::paging::MapPageError;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
 use crate::{Hal, HalTy};
-use kernel_api::memory::allocator::{BackingAllocator};
+use kernel_api::memory::allocator::{PhysicalAllocator};
 
 pub type KTableTy = <HalTy as crate::Hal>::KTableTy;
 pub type TTableTy = <HalTy as crate::Hal>::TTableTy;
@@ -39,7 +39,7 @@ pub trait TTable: KTable + Sized {
 	/// Figure out a better signature involving `Arc` or something
 	unsafe fn load(&self);
 
-	fn new(ktable: &Self::KTableTy, allocator: &'static dyn BackingAllocator) -> Result<Self, AllocError>;
+	fn new(ktable: &Self::KTableTy, allocator: &'static dyn PhysicalAllocator) -> Result<Self, AllocError>;
 }
 
 #[export_name = "__popcorn_paging_ktable_translate_page"]

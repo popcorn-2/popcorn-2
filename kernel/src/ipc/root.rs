@@ -1,7 +1,7 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::sync::atomic::{AtomicU16, Ordering};
 use hashbrown::HashMap;
-use kernel_api::sync::Mutex;
+use kernel_api::sync::Spinlock;
 use utils::better_cow::Cow;
 use crate::ipc::{Error, server};
 use crate::ipc::server::{Server, ServerId};
@@ -10,7 +10,7 @@ use crate::ipc::userspace::UserspaceServer;
 #[derive(Debug)]
 pub struct RootServer {
 	next_handle: AtomicU16,
-	handle_map: Mutex<HashMap<u16, ServerId>>,
+	handle_map: Spinlock<HashMap<u16, ServerId>>,
 }
 
 impl Server for RootServer {
@@ -38,7 +38,7 @@ impl RootServer {
 	pub const fn new() -> Self {
 		Self {
 			next_handle: AtomicU16::new(0),
-			handle_map: Mutex::new(HashMap::with_hasher(hashbrown::hash_map::DefaultHashBuilder::new())),
+			handle_map: Spinlock::new(HashMap::with_hasher(hashbrown::hash_map::DefaultHashBuilder::new())),
 		}
 	}
 }

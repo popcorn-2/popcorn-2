@@ -10,7 +10,7 @@ bitflags = { version = "2.3.1", features = [] }
 log = { version = "0.4.20", features = ["max_level_debug", "release_max_level_debug"] }
 utils = { path = "../utils" }
 #kernel_exports = { path = "../kernel_exports", default-features = false, features = ["smp"] }
-kernel_api = { version = "0.1.0", path = "../kernel_api" }
+kernel_api = { path = "../kernel_api" }
 derive_more = "0.99.17"
 
 #[target.'cfg(panic = "unwind")'.dependencies]

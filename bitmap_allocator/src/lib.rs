@@ -13,8 +13,8 @@ use core::mem;
 use core::num::NonZero;
 use core::ops::Range;
 use kernel_api::memory::{Frame, AllocError};
-use kernel_api::memory::allocator::{AllocationMeta, BackingAllocator, Config, SizedBackingAllocator, SpecificLocation};
-use kernel_api::sync::Mutex;
+use kernel_api::memory::allocator::{AllocationMeta, PhysicalAllocator, Config, SizedBackingAllocator, SpecificLocation};
+use kernel_api::sync::Spinlock;
 use log::debug;
 
 const BITS_PER_BITMAP_UNIT: usize = mem::size_of::<usize>() * 8;
@@ -193,9 +193,9 @@ impl BitmapAllocator {
     }
 }
 
-pub struct Wrapped(Mutex<BitmapAllocator>);
+pub struct Wrapped(Spinlock<BitmapAllocator>);
 
-unsafe impl BackingAllocator for Wrapped {
+unsafe impl PhysicalAllocator for Wrapped {
     fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
         if frame_count == 0 { return Ok(Frame::zero()); }
 
@@ -249,7 +249,7 @@ unsafe impl BackingAllocator for Wrapped {
 }
 
 unsafe impl SizedBackingAllocator for Wrapped {
-    fn new(config: Config) -> &'static mut dyn BackingAllocator where Self: Sized {
+    fn new(config: Config) -> &'static mut dyn PhysicalAllocator where Self: Sized {
         let Range { start, end } = config.allocation_range;
         let mut allocator = BitmapAllocator::new(start, end - start);
 
@@ -260,7 +260,7 @@ unsafe impl SizedBackingAllocator for Wrapped {
             }
         }
 
-        Box::leak(Box::new(Wrapped(Mutex::new(allocator))))
+        Box::leak(Box::new(Wrapped(Spinlock::new(allocator))))
     }
 }
 

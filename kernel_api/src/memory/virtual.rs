@@ -6,7 +6,7 @@ use core::ptr;
 use auto_impl::auto_impl;
 use log::debug;
 use crate::memory::Page;
-use crate::sync::RwLock;
+use crate::sync::RwSpinlock;
 use super::AllocError;
 
 #[auto_impl(&, Box, Arc)]
@@ -20,7 +20,7 @@ pub struct Global;
 
 extern "Rust" {
 	#[link_name = "__popcorn_memory_virtual_kernel_global"]
-	static GLOBAL_VIRTUAL_ALLOCATOR: RwLock<&'static dyn VirtualAllocator>;
+	static GLOBAL_VIRTUAL_ALLOCATOR: RwSpinlock<&'static dyn VirtualAllocator>;
 }
 
 // todo: can this be macroed?

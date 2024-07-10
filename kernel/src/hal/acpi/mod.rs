@@ -7,7 +7,7 @@ use core::ptr::{from_raw_parts_mut, NonNull, Pointee};
 use acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
 use kernel_api::memory::mapping::{Config, Location, Mapping};
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
-use kernel_api::memory::allocator::BackingAllocator;
+use kernel_api::memory::allocator::PhysicalAllocator;
 use kernel_api::memory::physical::OwnedFrames;
 use kernel_api::memory::r#virtual::{Global, OwnedPages};
 use kernel_api::sync::{OnceLock, Syncify};
@@ -31,12 +31,12 @@ pub use alloc::NullAllocator as Allocator;
 
 mod alloc {
 	use core::num::NonZero;
-	use kernel_api::memory::allocator::{BackingAllocator, SpecificLocation};
+	use kernel_api::memory::allocator::{PhysicalAllocator, SpecificLocation};
 	use kernel_api::memory::{AllocError, Frame};
 
 	pub struct NullAllocator;
 
-	unsafe impl BackingAllocator for NullAllocator {
+	unsafe impl PhysicalAllocator for NullAllocator {
 		fn allocate_contiguous(&self, _: usize) -> Result<Frame, AllocError> { unimplemented!() }
 		unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZero<usize>) {}
 
@@ -52,7 +52,7 @@ mod alloc {
 
 #[derive(Copy, Clone)]
 pub struct Handler<'allocator> {
-	allocator: &'allocator dyn BackingAllocator
+	allocator: &'allocator dyn PhysicalAllocator
 }
 
 impl Debug for Handler<'_> {
@@ -63,7 +63,7 @@ impl Debug for Handler<'_> {
 }
 
 impl<'a> Handler<'a> {
-	pub fn new(allocator: &'a dyn BackingAllocator) -> Handler<'a> {
+	pub fn new(allocator: &'a dyn PhysicalAllocator) -> Handler<'a> {
 		Self {
 			allocator
 		}

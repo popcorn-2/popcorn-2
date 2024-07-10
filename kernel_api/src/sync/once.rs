@@ -37,7 +37,7 @@ impl State {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "0.1.0")]
+#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl From<State> for u8 {
     fn from(value: State) -> Self {
         value.const_into_u8()

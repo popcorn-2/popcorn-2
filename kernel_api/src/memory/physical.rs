@@ -3,19 +3,19 @@
 use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::num::NonZero;
-use crate::memory::allocator::{BackingAllocator, Location, SpecificLocation};
+use crate::memory::allocator::{PhysicalAllocator, Location, SpecificLocation};
 use crate::memory::{AllocError, Frame};
-use crate::sync::RwLock;
+use crate::sync::RwSpinlock;
 
 #[unstable(feature = "kernel_internals", issue = "none")]
 pub struct GlobalAllocator {
 	#[unstable(feature = "kernel_internals", issue = "none")]
-	pub rwlock: RwLock<Option<&'static dyn BackingAllocator>>
+	pub rwlock: RwSpinlock<Option<&'static dyn PhysicalAllocator>>
 }
 
 // todo: can this be a macro?
 #[unstable(feature = "kernel_internals", issue = "none")]
-unsafe impl BackingAllocator for GlobalAllocator {
+unsafe impl PhysicalAllocator for GlobalAllocator {
 	fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
 		self.rwlock.read()
 				.expect("No global allocator set")
@@ -58,7 +58,7 @@ pub fn dmamem() -> &'static GlobalAllocator {
 pub struct OwnedFrames<'allocator> {
 	pub(super) base: Frame,
 	pub(super) len: NonZero<usize>,
-	allocator: &'allocator dyn BackingAllocator
+	allocator: &'allocator dyn PhysicalAllocator
 }
 
 impl Debug for OwnedFrames<'_> {
@@ -78,7 +78,7 @@ impl OwnedFrames<'static> {
 }
 
 impl<'a> OwnedFrames<'a> {
-	pub fn new_with(count: NonZero<usize>, allocator: &'a dyn BackingAllocator) -> Result<Self, AllocError> {
+	pub fn new_with(count: NonZero<usize>, allocator: &'a dyn PhysicalAllocator) -> Result<Self, AllocError> {
 		let base = allocator.allocate_contiguous(count.get())?;
 		Ok(OwnedFrames {
 			base,
@@ -87,7 +87,7 @@ impl<'a> OwnedFrames<'a> {
 		})
 	}
 
-	pub fn xnew(count: NonZero<usize>, allocator: &'a dyn BackingAllocator, location: Location) -> Result<Self, AllocError> {
+	pub fn xnew(count: NonZero<usize>, allocator: &'a dyn PhysicalAllocator, location: Location) -> Result<Self, AllocError> {
 		match location {
 			Location::Any => Self::new_with(count, allocator),
 			Location::Specific(loc) => {
@@ -112,12 +112,12 @@ impl<'a> OwnedFrames<'a> {
 		//(Self { base: self.base, len: lens.0 }, Self { base: second_base, len: lens.1 })
 	}
 
-	pub fn into_raw_parts(self) -> (Frame, NonZero<usize>, &'a dyn BackingAllocator) {
+	pub fn into_raw_parts(self) -> (Frame, NonZero<usize>, &'a dyn PhysicalAllocator) {
 		let this = ManuallyDrop::new(self);
 		(this.base, this.len, this.allocator)
 	}
 
-	pub unsafe fn from_raw_parts(base: Frame, len: NonZero<usize>, allocator: &'a dyn BackingAllocator) -> Self {
+	pub unsafe fn from_raw_parts(base: Frame, len: NonZero<usize>, allocator: &'a dyn PhysicalAllocator) -> Self {
 		Self {
 			base, len, allocator
 		}

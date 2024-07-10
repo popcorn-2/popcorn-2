@@ -22,7 +22,7 @@
 #![doc(cfg_hide(feature = "full"))]
 #![doc(cfg_hide(not(feature = "use_std")))]
 
-#![stable(feature = "kernel_core_api", since = "0.1.0")]
+#![stable(feature = "kernel_core_api", since = "1.0.0")]
 
 extern crate alloc;
 

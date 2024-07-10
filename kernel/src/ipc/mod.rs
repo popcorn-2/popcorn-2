@@ -11,12 +11,12 @@ use kernel_api::ptr::slice_from_raw_parts;
 use core::str::pattern::{Pattern, Searcher};
 use hashbrown::HashMap;
 use kernel_api::ptr::User;
-use kernel_api::sync::RwLock;
+use kernel_api::sync::RwSpinlock;
 use crate::ipc::handle::Handle;
 use crate::ipc::protocol::Method;
 use server::Server as _;
 
-static METHODS: RwLock<HashMap<u128, Method>> = RwLock::new(HashMap::with_hasher(hashbrown::hash_map::DefaultHashBuilder::new()));
+static METHODS: RwSpinlock<HashMap<u128, Method>> = RwSpinlock::new(HashMap::with_hasher(hashbrown::hash_map::DefaultHashBuilder::new()));
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(i16)]
