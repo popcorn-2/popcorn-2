@@ -30,7 +30,7 @@ pub struct Bootstrap {
 impl VirtualAllocator for Bootstrap {
 	fn allocate_contiguous(&self, len: usize) -> Result<Page, AllocError> {
 		let old = match len {
-			0 => self.start.load(Ordering::Relaxed), // this doesn't make sense/needs redesigning but was required to not mess up heap API too much
+			0 => 0 as _,
 			1.. => self.start.fetch_byte_add(len * 4096, Ordering::Relaxed)
 		};
 

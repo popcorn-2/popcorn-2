@@ -1,19 +1,23 @@
 #![no_std]
 
+#![feature(int_roundings)]
+
 #![feature(kernel_heap)]
 #![feature(kernel_address_alignment_runtime)]
 #![feature(kernel_sync_once)]
-#![feature(kernel_mmap_old)]
-#![feature(int_roundings)]
+#![feature(kernel_mmap_to_parts)]
+#![feature(kernel_virtual_memory)]
 
 use core::alloc::Layout;
 use core::fmt::Debug;
+use core::num::NonZero;
 use core::ptr::NonNull;
 use kernel_api::memory::heap::Heap;
 use kernel_api::memory::{VirtualAddress, AllocError};
 use kernel_api::sync::{LazyLock, Spinlock};
 use log::debug;
-use kernel_api::memory::mapping::OldMapping;
+use kernel_api::memory::mapping::{Config, Mapping};
+use kernel_api::memory::r#virtual::Global;
 
 //const _: () = {
     static KERNEL_HEAP: LazyLock<SyncHeap> = LazyLock::new(SyncHeap::new);
@@ -35,38 +39,47 @@ struct SyncHeap(Spinlock<BadHeap>);
 #[derive(Debug)]
 struct BadHeap {
     watermark: VirtualAddress,
-    mapping: OldMapping
+    mapping: Option<Mapping<'static>>,
 }
 
 impl Heap for SyncHeap {
     fn new() -> Self where Self: Sized {
-        let mapping = OldMapping::new(0).unwrap();
-
         Self(Spinlock::new(BadHeap {
-            watermark: mapping.end().start().align_down(),
-            mapping
+            watermark: VirtualAddress::new(0),
+            mapping: None,
         }))
     }
 
     fn allocate(&self, layout: Layout) -> Result<NonNull<u8>, AllocError> {
         debug!("allocate {layout:?}");
 
-        let mut guard = self.0.lock();
-        let start = guard.watermark.align_up_runtime(layout.align());
-        let end = start + layout.size();
+        let guard = &mut *self.0.lock();
+        
+        let Some(size) = NonZero::new(layout.size()) else { return Ok(NonNull::dangling()); };
+        
+        let start = if let Some(mapping) = &mut guard.mapping {
+            let start = guard.watermark.align_up_runtime(layout.align());
+            let end = start + size.get();
+            let heap_end = mapping.virtual_end().start();
+            if end > heap_end {
+                debug!("Increment heap end");
+                // FIXME: HACK
+                let increment = isize::try_from(end - heap_end).map_err(|_| AllocError)?
+                        .div_ceil(4096)*10;
+                let new_len = mapping.physical_len().checked_add(increment.unsigned_abs()).ok_or(AllocError)?;
+                debug!("Trying to remap");
+                mapping.resize_in_place(new_len)?;
+            }
+            start
+        } else {
+            let page_count = NonZero::new(size.get().div_ceil(4096)).unwrap();
+            let mapping = Mapping::new(Config::<Global>::new(page_count), 25)?;
+            let start = mapping.virtual_start().start().align_up::<1>();
+            guard.mapping = Some(mapping);
+            start
+        };
 
-        let max_addr = guard.mapping.end().start();
-        if end > max_addr {
-            debug!("Increment heap end");
-            let increment = isize::try_from(end - max_addr).map_err(|_| AllocError)?;
-            // FIXME: HACK            
-            let increment = increment.div_ceil(4096)*10;
-            let new_len = guard.mapping.len() + increment.unsigned_abs();
-            debug!("Trying to remap");
-            guard.mapping.resize_in_place(new_len)?;
-        }
-
-        guard.watermark = end;
+        guard.watermark = start + size.get();
         Ok(NonNull::new(start.as_ptr()).unwrap())
     }
 
