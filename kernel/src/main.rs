@@ -75,16 +75,17 @@ use core::ptr::{addr_of, slice_from_raw_parts_mut};
 use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
 use core::{future, mem, ptr};
 use core::cmp::{max, min};
+use core::num::NonZero;
 use core::task::{Poll, Waker};
 use core::time::Duration;
-#[warn(deprecated)]
-use kernel_api::memory::mapping::OldMapping;
 use hal::{HalTy, Hal, ThreadControlBlock};
 use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
+use kernel_api::memory::mapping::{Mapping, self};
 use kernel_api::memory::physical::highmem;
+use kernel_api::memory::r#virtual::Global;
 use kernel_api::time::Instant;
 use crate::hal::paging2::{construct_tables, TTable, TTableTy};
 use utils::handoff::MemoryType;
@@ -488,9 +489,15 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let tls_size = tls_data_aligned_size + mem::size_of::<*mut u8>();
 	// Is this always correctly aligned?
 	#[warn(deprecated)]
-			let tls = OldMapping::new(tls_size.div_ceil(4096))
-			.expect("Unable to allocate TLS area");
-	let (tls, _) = tls.into_raw_parts();
+	let tls = Mapping::new(
+			mapping::Config::<Global>::new(
+				NonZero::new(tls_size.div_ceil(4096)).unwrap()
+			),
+			paging_codes::TLS,
+	).expect("Unable to allocate TLS area");
+	let (frames, tls) = tls.into_contiguous_raw_parts().unwrap();
+	mem::forget(frames);
+	let (tls, _, _) = tls.into_raw_parts();
 	debug!("TLS starts at {tls:x?}");
 	debug!("TLS size is {tls_data_size:#x};{tls_size:#x}");
 	unsafe {
@@ -712,6 +719,7 @@ mod paging_codes {
 	pub const ACPI_BGRT: u16 = 20;
 	pub const BYTE_ARRAY: u16 = 21;
 	pub const THREAD_KERNEL_STACK: u16 = 22;
+	pub const TLS: u16 = 23;
 }
 
 #[cfg(test)]
