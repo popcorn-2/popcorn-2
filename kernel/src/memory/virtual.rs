@@ -34,7 +34,7 @@ impl VirtualAllocator for Bootstrap {
 			1.. => self.start.fetch_byte_add(len * 4096, Ordering::Relaxed)
 		};
 
-		if old > VMEM_BOOTSTRAP_END.0 { return Err(AllocError); }
+		if (old as usize) + (len * 4096) > VMEM_BOOTSTRAP_END.0 as usize { return Err(AllocError); }
 
 		Ok(Page::new(VirtualAddress::new(old as usize)))
 	}
