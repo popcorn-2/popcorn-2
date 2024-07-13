@@ -810,7 +810,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         panic!("No RSDP found");
     };
 
-    let handoff = handoff::Data {
+    let handoff = Box::leak(Box::new(handoff::Data {
         framebuffer: framebuffer_info,
         memory: handoff::Memory {
             map: kernel_mem_map,
@@ -829,7 +829,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         },
         tls: (Range(kernel_tls.0.start, kernel_tls.0.end), kernel_tls.1),
         rsdp
-    };
+    }));
 
     let _ = system_table.exit_boot_services();
 
@@ -868,7 +868,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             "wrmsr",
 
             "jmp rsi",
-        in("rcx") stack.top_virt.start().addr, in("rsi") kernel_entry, in("rdi") &handoff, options(noreturn))
+        in("rcx") stack.top_virt.start().addr, in("rsi") kernel_entry, in("rdi") handoff, options(noreturn))
     }
 }
 
