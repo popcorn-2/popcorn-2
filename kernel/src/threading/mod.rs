@@ -38,12 +38,13 @@
 
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
+use alloc::sync::{Arc, Weak};
 use core::arch::{asm, naked_asm};
 use core::cmp::Ordering;
 use core::fmt::{Debug, Formatter};
 use core::{mem, ptr};
 use core::mem::ManuallyDrop;
-use core::num::NonZero;
+use core::num::{NonZero, NonZeroU16, NonZeroUsize};
 use core::ptr::{addr_of, DynMetadata, NonNull};
 use core::sync::atomic::AtomicUsize;
 use core::time::Duration;
@@ -290,8 +291,26 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 	id
 }
 
-pub fn block(reason: ThreadState) {
-	todo!()
+#[derive(Debug)]
+struct ParkState {
+	thread_id: ThreadId,
+}
+
+#[derive(Debug)]
+pub struct ThreadWaker {
+	park_state: Weak<ParkState>,
+}
+
+impl ThreadWaker {
+	pub fn wake(&self, reason: WakeReason) {
+	}
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub enum WakeReason {
+	Timeout,
+	Custom(NonZeroU16),
 }
 
 /// Gets the [`ThreadId`] for the thread currently running on this core

@@ -1,5 +1,6 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
+use alloc::sync::Arc;
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 use core::num::NonZeroUsize;
@@ -8,7 +9,7 @@ use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::r#virtual::Global;
 use crate::hal::{Hal, HalTy, SaveState};
 use crate::hal::paging2::TTableTy;
-use crate::threading::ThreadId;
+use crate::threading::{ParkState, ThreadId, WakeReason};
 
 #[doc(hidden)]
 macro_rules! __tcb_gen_field {
@@ -189,14 +190,17 @@ pub enum ThreadState {
 	Ready,
 	/// The thread is actively running
 	Running,
-	Blocked,
-	Sleeping,
-	AwaitingDeletion,
+	/// The thread is parked
+	Parked(Arc<ParkState>),
+	/// The thread was unparked but has not been run since
+	JustUnparked(WakeReason),
 }
+
 impl ThreadState {
 	pub fn is_ready(&self) -> bool {
 		match self {
 			Self::Ready => true,
+			Self::JustUnparked(_) => true,
 			_ => false,
 		}
 	}
@@ -205,6 +209,27 @@ impl ThreadState {
 		match self {
 			Self::Running => true,
 			_ => false,
+		}
+	}
+
+	pub fn is_parked(&self) -> bool {
+		match self {
+			Self::Parked(_) => true,
+			_ => false,
+		}
+	}
+
+	pub fn is_just_unparked(&self) -> bool {
+		match self {
+			Self::JustUnparked(_) => true,
+			_ => false,
+		}
+	}
+	
+	pub fn wake_reason(&self) -> Option<WakeReason> {
+		match self {
+			Self::JustUnparked(reason) => Some(*reason),
+			_ => None,
 		}
 	}
 }
