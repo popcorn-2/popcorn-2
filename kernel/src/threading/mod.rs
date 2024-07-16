@@ -58,6 +58,7 @@ use crate::{non_zero, assert_unsafe_precondition};
 use scheduler::Scheduler;
 use crate::hal::paging2::{TTable, TTableTy};
 use crate::memory::paging::ktable;
+use crate::threading::scheduler::GlobalThread;
 
 mod scheduler;
 pub mod tcb;
@@ -219,7 +220,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 	let ptr = ThreadPointer { ptr: thread.ptr };
 	assert!(
 		scheduler::TASK_LIST.lock()
-				.try_insert(INIT_THREAD_ID, thread)
+				.try_insert(INIT_THREAD_ID, GlobalThread::Enqueued(thread))
 				.is_ok(),
 		"ThreadId(1) should not exist already"
 	);

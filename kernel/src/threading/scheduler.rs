@@ -45,7 +45,13 @@ mod tickless_round_robin;
 static SCHEDULER: OnceCell<IrqCell<tickless_round_robin::TicklessRoundRobin>> = OnceCell::new();
 
 /// Global list of all running threads
-pub static TASK_LIST: Spinlock<HashMap<ThreadId, Thread>> = Spinlock::new(hashmap_new!());
+pub static TASK_LIST: Spinlock<HashMap<ThreadId, GlobalThread>> = Spinlock::new(hashmap_new!());
+
+#[derive(Debug)]
+pub enum GlobalThread {
+	Enqueued(Thread),
+	Global(Thread, ThreadPointer),
+}
 
 /// [`Injector`]s to add new threads to each core
 
@@ -115,7 +121,7 @@ pub(super) fn enqueue(tcb: ThreadControlBlock) {
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
 
 	TASK_LIST.lock()
-			.try_insert(id, thread)
+			.try_insert(id, GlobalThread::Enqueued(thread))
 			.expect("ThreadId reuse");
 
 	enqueue_balanced(ptr);
