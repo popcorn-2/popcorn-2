@@ -80,9 +80,13 @@ impl Scheduler for TicklessRoundRobin {
 		}
 	}
 
-	fn switch_thread_post(mut self: IrqGuard<Self>, old_thread: ThreadPointer) {
-		// todo: don't put back if blocked
-		self.enqueue(old_thread);
+	fn switch_thread_post(mut self: IrqGuard<Self>, mut old_thread: ThreadPointer) {
+		debug_assert!(!old_thread.tcb_mut().state.is_running());
+		match *old_thread.tcb_mut().state {
+			ThreadState::Parked(_) => /*self.push_parked(old_thread)*/ super::relegate_to_global_parking_lot(old_thread),
+			ThreadState::Ready | ThreadState::JustUnparked(_) => self.enqueue(old_thread),
+			ThreadState::Running => unreachable!(),
+		}
 	}
 
 	fn enqueue(&mut self, thread: ThreadPointer) {

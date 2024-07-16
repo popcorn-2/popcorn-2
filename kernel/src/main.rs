@@ -577,12 +577,12 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 			threading::spawn_with(f, Cow::Borrowed("foo"));
 		}
 		threading::debug();
-		threading::thread_yield();
+		threading::yield_now();
 		debug!("{:#?}", &*ipc::server::servers());
 	}
 
 	loop {
-		threading::thread_yield();
+		threading::yield_now();
 	}
 }
 

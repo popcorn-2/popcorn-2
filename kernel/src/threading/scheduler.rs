@@ -35,7 +35,7 @@ use crate::hal::timing::{Timer, Eoi};
 use crate::interrupts::irq_handler;
 use crate::memory::paging::ktable;
 use crate::{hashmap_new, non_zero, assert_unsafe_precondition};
-use crate::threading::{CoreId, Thread, ThreadId, ThreadPointer};
+use crate::threading::{CoreId, Thread, ThreadId, ThreadPointer, WakeReason};
 use crate::threading::tcb::{PointerView, SharedView, ThreadControlBlock, ThreadState};
 
 #[doc(hidden)]
@@ -157,4 +157,24 @@ fn enqueue_balanced(mut thread: ThreadPointer) {
 	let injector = &injectors[injector_idx];
 	debug!("Inject into core {injector_idx}");
 	injector.enqueue(thread);
+}
+
+fn relegate_to_global_parking_lot(mut thread: ThreadPointer) {
+	assert!(thread.tcb_mut().state.is_parked(), "Cannot place unparked thread in parking lot");
+
+	debug!("Move {thread:?} to global parking lot");
+
+	let mut guard = TASK_LIST.lock();
+	let global_thread = guard.get_mut(thread.tcb_ref().thread_id)
+			.expect("Cannot park a non-existent thread");
+	let thread_uninit = unsafe { transmute::<_, &mut MaybeUninit<GlobalThread>>(global_thread) };
+	let old = mem::replace(thread_uninit, MaybeUninit::uninit());
+	match unsafe { old.assume_init() } {
+		GlobalThread::Enqueued(t) => {
+			thread_uninit.write(GlobalThread::Global(t, thread));
+		},
+		GlobalThread::Global(_, _) => {
+			unreachable!()
+		},
+	};
 }

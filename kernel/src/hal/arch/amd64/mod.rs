@@ -4,7 +4,7 @@ use core::fmt::{Debug, Formatter};
 use core::mem::{MaybeUninit, offset_of};
 use core::num::NonZero;
 use kernel_api::memory::mapping::Stack;
-use crate::hal::ArgTuple;
+use crate::hal::{ArgTuple, ContextSwitchPreserve};
 use crate::hal::{Hal, SaveStateTr, ThreadControlBlock};
 use crate::hal::arch::amd64::interrupts::handler::InterruptStackFrame;
 use crate::threading::{ThreadPointer, tcb};
@@ -108,10 +108,11 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	#[naked]
-	unsafe extern "C" fn switch_thread(from: &tcb::PointerView, to: &tcb::PointerView, preserve: ThreadPointer) -> ThreadPointer {
+	unsafe extern "C" fn switch_thread(from: &tcb::PointerView, to: &tcb::PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
 		// rdi: from
 		// rsi: to
-		// rdx: preserve
+		// rdx: preserve.0 -> rax
+		// rcx: preserve.1 -> rdx
 		naked_asm!(
 			"mov rdi, [rdi + {save_state_ptr_offset}]", // load pointer to `from` save-state into `rdi`
 			"mov rsi, [rsi + {save_state_ptr_offset}]", // load pointer to `to` save-state into `rsi`
@@ -127,11 +128,11 @@ unsafe impl Hal for Amd64Hal {
 			"pop rbx",
 			"mov [rdi + {rflags_offset}], rbx",
 
-			"mov rax, [rsi + {pml4_offset}]",
-			"mov rcx, cr3",
-			"cmp rax, rcx",
+			"mov r12, [rsi + {pml4_offset}]",
+			"mov r13, cr3",
+			"cmp r12, r13",
 			"je 2f",
-			"mov cr3, rax",
+			"mov cr3, r12",
 			"2:",
 
 			// todo: adjust RSP0 in TSS
@@ -147,6 +148,7 @@ unsafe impl Hal for Amd64Hal {
 			"mov r15, [rsi + {r15_offset}]",
 
 			"mov rax, rdx",
+			"mov rdx, rcx",
 
 			"ret",
 

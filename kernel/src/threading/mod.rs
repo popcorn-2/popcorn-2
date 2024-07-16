@@ -54,7 +54,7 @@ use kernel_api::memory::r#virtual::{Global, OwnedPages};
 use kernel_api::sync::IrqCell;
 use kernel_api::time::Instant;
 use crate::threading::tcb::{ThreadControlBlock, ThreadState};
-use crate::hal::{Hal, HalTy, SaveState};
+use crate::hal::{ContextSwitchPreserve, Hal, HalTy, SaveState};
 use crate::{non_zero, assert_unsafe_precondition};
 use scheduler::Scheduler;
 use crate::hal::paging2::{TTable, TTableTy};
@@ -303,6 +303,17 @@ pub struct ThreadWaker {
 
 impl ThreadWaker {
 	pub fn wake(&self, reason: WakeReason) {
+		if let Some(state) = self.park_state.upgrade() {
+			// FIXME: race condition between upgrading and actually waking which could cause a spurious wakeup
+			let tid = state.thread_id;
+			let mut guard = scheduler::TASK_LIST.lock();
+			let Some(global_thread) = guard.get_mut(&tid) else {
+				warn!("Bad thread id {tid:?}");
+				return;
+			};
+			
+			scheduler::enqueue_existing(global_thread, reason);
+		}
 	}
 }
 
@@ -311,6 +322,105 @@ impl ThreadWaker {
 pub enum WakeReason {
 	Timeout,
 	Custom(NonZeroU16),
+}
+
+pub trait WakeMechanism {
+	fn add_waker(&self, waker: ThreadWaker);
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ParkError {}
+
+/// Park the current thread until it is woken up
+///
+/// This will park the thread until a [`ThreadWaker`] for this park event wakes the thread.
+/// The kernel guarantees that this function will not return unless either there is an error
+/// when parking the thread, or the thread is woken.
+///
+/// [`ThreadWaker`]s are generated in `park()`, and added to the [`WakeMechanism`]s passed to `park()`.
+/// A [`ThreadWaker`] will only wake a thread if it was generated for the current park event. This means
+/// that a [`ThreadWaker`] will only wake a thread once, even if [`wake()`](ThreadWaker::wake) is
+/// repeatedly called.
+///
+/// # Atomicity
+///
+/// The entirety of a call to `park()` executes atomically - if the thread is woken by a valid [`ThreadWaker`]
+/// before `park()` has finished executing, it will act like [`yield_now()`], and a thread will never get stuck
+/// waiting for an event that has already occurred.
+///
+/// This means the following code is guaranteed to always make progress:
+/// ```rust
+/// use kernel::threading::{park, WakeReason, WakeMechanism};
+/// 
+/// struct WakeImmediately;
+/// 
+/// impl WakeMechanism for WakeImmediately {
+///     fn add_waker(&self, waker: ThreadWaker) {
+///         waker.wake(WakeReason::Custom(non_zero!(1)));
+///     }
+/// }
+///
+/// park(&[&WakeImmediately]).unwrap();
+/// ```
+///
+/// # Errors
+///
+/// # Examples
+///
+/// ```
+/// # use kernel_api::sync::Spinlock;
+/// use kernel::threading::{park, ThreadWaker, WakeReason, WakeMechanism};
+///
+/// struct TimerWaker {
+///     waker: Spinlock<Option<ThreadWaker>,
+/// }
+/// 
+/// impl WakeMechanism for TimerWaker {
+///     fn add_waker(&self, waker: ThreadWaker) {
+///         *self.waker.lock() = Some(waker);
+///     }
+/// }
+/// 
+/// static WAKER: TimerWaker = TimerWaker { waker: Spinlock::new(None) };
+///
+/// // Called periodically by a timer interrupt
+/// pub fn periodic_timer_handler() {
+///     if let Some(waker) = &mut *WAKER.waker.lock() {
+///         waker.wake(WakeReason::Timeout);
+///     }
+/// }
+///
+/// fn main() {
+///     // This call will return the next time the timer interrupt goes off
+///     park(&[&WAKER]).expect("failed to park thread");
+///
+///     // This call will never return, even if the timer interrupt goes off again, unless
+///     // there was an error in `park`
+///     park(&[]).expect("failed to park thread");
+///     unreachable!();
+/// }
+/// ```
+pub fn park(wake_mechanisms: &[&dyn WakeMechanism]) -> Result<WakeReason, ParkError> {
+	let id = current_thread();
+	debug!("Parking thread {:?}", id.unwrap());
+	let weak_ptr = {
+		let mut guard = scheduler::scheduler().lock();
+		let thread = guard.current_thread().expect("Cannot park when not running a thread");
+		let park_state = Arc::new(ParkState { thread_id: *thread.thread_id });
+		let weak_ptr = Arc::downgrade(&park_state);
+		*thread.state = ThreadState::Parked(park_state);
+		weak_ptr
+	};
+	// Set the state to `Parked` before calling the closure, so if events are triggered
+	// during the closure, the thread already appears parked and will get unparked before yielding
+	// Also drop the scheduler lock so that waking doesn't cause a deadlock
+	for wake_mechanism in wake_mechanisms {
+		wake_mechanism.add_waker(ThreadWaker { park_state: weak_ptr.clone() });
+	}
+	Ok(
+		yield_now().expect("State was set to `Parked` before yielding so must have a reason to wake")
+	)
 }
 
 /// Gets the [`ThreadId`] for the thread currently running on this core
@@ -402,7 +512,7 @@ pub unsafe extern "C" fn thread_startup() {
 ///
 /// # Interrupt safety
 /// This function **is** interrupt safe, and will immediately return
-pub fn defer_yield() {
+pub fn yield_defer() {
 	crate::hal::arch::apic::send_self_ipi(0x30);
 }
 
@@ -412,7 +522,7 @@ pub fn defer_yield() {
 ///
 /// # Interrupt safety
 /// This function is **not** interrupt safe, and will block any pending interrupts
-pub fn thread_yield() {
+pub fn yield_now() -> Option<WakeReason> {
 	// First we lock the scheduler for the current core, and ask it for the current and new threads
 	// Wrap it in `ManuallyDrop` since we recreate the guard later, as the thread may have migrated
 	// during the context switch
@@ -431,16 +541,26 @@ pub fn thread_yield() {
 	let from_view = from.tcb_mut();
 
 	debug!("[a] switch from `{:?}` to `{:?}`", from_view.thread_id, to_view.thread_id);
+	
+	assert!(to_view.state.is_ready());
+	let reason = to_view.state.wake_reason();
+	*to_view.state = ThreadState::Running;
+	if from_view.state.is_running() { *from_view.state = ThreadState::Ready; }
 
 	// From the CPU's perspective during a context switch, `from` is no longer the same `ThreadPointer`
 	// as the stack has been changed. Instead, we replace it with the `ThreadPointer` that `switch_thread`
 	// preserves across the function call
-	let from = unsafe { <HalTy as Hal>::switch_thread(&from_view, &to_view, ptr::read(from_ptr)) };
+	let ContextSwitchPreserve(mut from, reason) = unsafe { <HalTy as Hal>::switch_thread(&from_view, &to_view, ContextSwitchPreserve(ptr::read(from_ptr), reason)) };
 
-	debug!("[b] switch from `{:?}` to current", from.tcb_ref().thread_id);
+	{
+		let tcb = from.tcb_mut();
+		debug!("[b] switch from `{:?}` to current, old blocked in state {:?}, new woken due to {reason:?}", tcb.thread_id, tcb.state);
+	}
 
 	// Then we pass the old `ThreadPointer` back to the scheduler for it to enqueue
 	unsafe { scheduler::scheduler().make_guard_unchecked() }.switch_thread_post(from);
+
+	reason
 }
 
 #[doc(hidden)]

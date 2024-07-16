@@ -13,7 +13,7 @@ use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::r#virtual::Global;
 pub(crate) use macros::Hal;
 use paging2::{KTable, TTable};
-use crate::threading::{tcb, ThreadPointer};
+use crate::threading::{tcb, ThreadPointer, WakeReason};
 use crate::threading::tcb::{ThreadControlBlock, ArgTuple};
 use core::num::NonZero;
 use crate::non_zero;
@@ -23,6 +23,9 @@ pub enum Result { Success, Failure }
 pub trait SaveStateTr: Debug + Default {
 	fn new<Args: ArgTuple>(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: [MaybeUninit<usize>; 4]) -> Self;
 }
+
+#[repr(C)]
+pub struct ContextSwitchPreserve(pub ThreadPointer, pub Option<WakeReason>);
 
 pub unsafe trait Hal {
 	type SerialOut: FormatWriter;
@@ -41,7 +44,7 @@ pub unsafe trait Hal {
 	fn set_interrupts(old_state: usize);
 	unsafe fn load_tls(ptr: *mut u8);
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
-	unsafe extern "C" fn switch_thread(from: &tcb::PointerView, to: &tcb::PointerView, preserve: ThreadPointer) -> ThreadPointer;
+	unsafe extern "C" fn switch_thread(from: &tcb::PointerView, to: &tcb::PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve;
 
 	const MIN_IRQ_NUM: usize;
 	const MAX_IRQ_NUM: usize;
