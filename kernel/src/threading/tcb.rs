@@ -136,7 +136,7 @@ impl ThreadControlBlock {
 	///
 	/// ```
 	/// use kernel::threading::tcb::ThreadControlBlock;
-	/// use kernel::threading::scheduler::enqueue;
+	/// use kernel::threading::scheduler::enqueue_new;
 	/// # use kernel::prelude::debug;
 	///
 	/// extern "C" fn my_thread((a, b): (usize, usize)) -> ! {
@@ -154,7 +154,7 @@ impl ThreadControlBlock {
 	///     (1, 2),
 	/// );
 	/// 
-	/// enqueue(tcb);
+	/// enqueue_new(tcb);
 	/// ```
 	pub fn new<Args: ArgTuple>(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: Args) -> (Self, ThreadId) {
 		let new_stack = Stack::new(
@@ -179,11 +179,11 @@ impl ThreadControlBlock {
 
 impl Drop for ThreadControlBlock {
 	fn drop(&mut self) {
-		assert_ne!(*self.state.get_mut(), ThreadState::Running, "Cannot drop currently running thread as this would remove the current stack");
+		assert!(!self.state.get_mut().is_running(), "Cannot drop currently running thread as this would remove the current stack");
 	}
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum ThreadState {
 	/// The thread is able to run, but has not yet been scheduled
 	Ready,
@@ -192,6 +192,21 @@ pub enum ThreadState {
 	Blocked,
 	Sleeping,
 	AwaitingDeletion,
+}
+impl ThreadState {
+	pub fn is_ready(&self) -> bool {
+		match self {
+			Self::Ready => true,
+			_ => false,
+		}
+	}
+
+	pub fn is_running(&self) -> bool {
+		match self {
+			Self::Running => true,
+			_ => false,
+		}
+	}
 }
 
 /// Implementation detail of [`ThreadControlBlock::new()`] to work around the lack of variadic generics

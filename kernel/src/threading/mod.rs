@@ -285,7 +285,7 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 		(ptr as usize, unsafe { mem::transmute::<DynMetadata<dyn FnOnce()>, usize>(meta) })
 	);
 
-	scheduler::enqueue(tcb);
+	scheduler::enqueue_new(tcb);
 
 	id
 }

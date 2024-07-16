@@ -18,7 +18,8 @@ use core::cell::{Cell, OnceCell, UnsafeCell};
 use core::cmp::min;
 use core::fmt::{Debug, Formatter};
 use core::marker::PhantomData;
-use core::mem::{ManuallyDrop, transmute};
+use core::mem;
+use core::mem::{ManuallyDrop, MaybeUninit, transmute};
 use core::num::NonZero;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
@@ -116,7 +117,7 @@ pub(super) fn scheduler() -> &'static IrqCell<impl Scheduler + Debug> {
 /// Starts running the [`ThreadControlBlock`]
 ///
 /// The [`ThreadControlBlock`] is added to the global task list, and sent to a particular scheduler to be run
-pub(super) fn enqueue(tcb: ThreadControlBlock) {
+pub(super) fn enqueue_new(tcb: ThreadControlBlock) {
 	let id = tcb.thread_id;
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
 
@@ -127,9 +128,28 @@ pub(super) fn enqueue(tcb: ThreadControlBlock) {
 	enqueue_balanced(ptr);
 }
 
+pub(super) fn enqueue_existing(thread: &mut GlobalThread, reason: WakeReason) {
+	let thread_uninit = unsafe { transmute::<_, &mut MaybeUninit<GlobalThread>>(thread) };
+	let old = mem::replace(thread_uninit, MaybeUninit::uninit());
+	match unsafe { old.assume_init() } {
+		GlobalThread::Enqueued(t) => {
+			thread_uninit.write(GlobalThread::Enqueued(t));
+			todo!()
+		},
+		GlobalThread::Global(t, mut ptr) => {
+			thread_uninit.write(GlobalThread::Enqueued(t));
+			debug!("Enqueue thread {:?} from global parking lot with reason {reason:?}", ptr.tcb_mut().thread_id);
+			*ptr.tcb_mut().state = ThreadState::JustUnparked(reason);
+			enqueue_balanced(ptr);
+		},
+	};
+}
+
 /// Enqueues a thread onto a core such that system load stays balanced
-fn enqueue_balanced(thread: ThreadPointer) {
+fn enqueue_balanced(mut thread: ThreadPointer) {
 	static CORE_NUM: AtomicUsize = AtomicUsize::new(0);
+
+	assert!(thread.tcb_mut().state.is_ready());
 
 	let injectors = SCHEDULER_INJECTORS.lock();
 	assert!(!injectors.is_empty(), "Scheduler not yet initialised");
