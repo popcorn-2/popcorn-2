@@ -35,7 +35,7 @@ use crate::interrupts::irq_handler;
 use crate::memory::paging::ktable;
 use crate::{hashmap_new, non_zero, assert_unsafe_precondition};
 use crate::threading::{CoreId, Thread, ThreadId, ThreadPointer};
-use crate::threading::tcb::{PointerView, ThreadControlBlock};
+use crate::threading::tcb::{PointerView, SharedView, ThreadControlBlock, ThreadState};
 
 #[doc(hidden)]
 mod tickless_round_robin;
@@ -67,7 +67,7 @@ pub trait Scheduler: Debug {
 	/// Returns the [`ThreadId`] for the currently running thread
 	///
 	/// Returns `None` if idle
-	fn current_thread(&self) -> Option<ThreadId>;
+	fn current_thread(&mut self) -> Option<PointerView<'_>>;
 
 	/// Prepares to switch threads
 	///

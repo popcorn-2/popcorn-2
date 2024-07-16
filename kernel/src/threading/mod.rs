@@ -297,7 +297,7 @@ pub fn block(reason: ThreadState) {
 /// 
 /// Returns `None` if the core is idle
 pub fn current_thread() -> Option<ThreadId> {
-	scheduler::scheduler().lock().current_thread()
+	scheduler::scheduler().lock().current_thread().map(|t| *t.thread_id)
 }
 
 pub fn unblock(tid: ThreadId) {

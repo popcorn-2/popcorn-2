@@ -6,8 +6,8 @@ use kernel_api::time::Instant;
 use crate::threading::scheduler::Scheduler;
 use crate::threading::{ThreadId, ThreadPointer};
 use event::{Queue, Event};
-use crate::threading::tcb::PointerView;
 use kernel_api::sync::{IrqGuard, Spinlock};
+use crate::threading::tcb::{PointerView, ThreadState};
 
 mod event;
 
@@ -58,9 +58,9 @@ impl Scheduler for TicklessRoundRobin {
 		)
 	}
 
-	fn current_thread(&self) -> Option<ThreadId> {
-		self.current_thread.as_ref()
-		    .map(|t| *t.tcb_ref().thread_id)
+	fn current_thread(&mut self) -> Option<PointerView<'_>> {
+		self.current_thread.as_mut()
+		    .map(|t| t.tcb_mut())
 	}
 
 	fn switch_thread_pre(&mut self) -> (ThreadPointer, PointerView<'_>) {
