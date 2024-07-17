@@ -324,10 +324,6 @@ pub enum WakeReason {
 	Custom(NonZeroU16),
 }
 
-pub trait WakeMechanism {
-	fn add_waker(&self, waker: ThreadWaker);
-}
-
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ParkError {}
@@ -351,17 +347,9 @@ pub struct ParkError {}
 ///
 /// This means the following code is guaranteed to always make progress:
 /// ```rust
-/// use kernel::threading::{park, WakeReason, WakeMechanism};
-/// 
-/// struct WakeImmediately;
-/// 
-/// impl WakeMechanism for WakeImmediately {
-///     fn add_waker(&self, waker: ThreadWaker) {
-///         waker.wake(WakeReason::Custom(non_zero!(1)));
-///     }
-/// }
+/// use kernel::threading::{park, WakeReason};
 ///
-/// park(&[&WakeImmediately]).unwrap();
+/// park(|waker| waker.wake(WakeReason::Custom(non_zero!(1)))).unwrap();
 /// ```
 ///
 /// # Errors
@@ -370,38 +358,28 @@ pub struct ParkError {}
 ///
 /// ```
 /// # use kernel_api::sync::Spinlock;
-/// use kernel::threading::{park, ThreadWaker, WakeReason, WakeMechanism};
-///
-/// struct TimerWaker {
-///     waker: Spinlock<Option<ThreadWaker>,
-/// }
+/// use kernel::threading::{park, ThreadWaker, WakeReason};
 /// 
-/// impl WakeMechanism for TimerWaker {
-///     fn add_waker(&self, waker: ThreadWaker) {
-///         *self.waker.lock() = Some(waker);
-///     }
-/// }
-/// 
-/// static WAKER: TimerWaker = TimerWaker { waker: Spinlock::new(None) };
+/// static WAKER: Spinlock<Option<ThreadWaker> = Spinlock::new(None);
 ///
 /// // Called periodically by a timer interrupt
 /// pub fn periodic_timer_handler() {
-///     if let Some(waker) = &mut *WAKER.waker.lock() {
+///     if let Some(waker) = &mut *WAKER.lock() {
 ///         waker.wake(WakeReason::Timeout);
 ///     }
 /// }
 ///
 /// fn main() {
 ///     // This call will return the next time the timer interrupt goes off
-///     park(&[&WAKER]).expect("failed to park thread");
+///     park(|waker| *WAKER.lock() = Some(waker)).expect("failed to park thread");
 ///
 ///     // This call will never return, even if the timer interrupt goes off again, unless
 ///     // there was an error in `park`
-///     park(&[]).expect("failed to park thread");
+///     park(|_| {}).expect("failed to park thread");
 ///     unreachable!();
 /// }
 /// ```
-pub fn park(wake_mechanisms: &[&dyn WakeMechanism]) -> Result<WakeReason, ParkError> {
+pub fn park(f: impl FnOnce(ThreadWaker)) -> Result<WakeReason, ParkError> {
 	let id = current_thread();
 	debug!("Parking thread {:?}", id.unwrap());
 	let weak_ptr = {
@@ -415,9 +393,7 @@ pub fn park(wake_mechanisms: &[&dyn WakeMechanism]) -> Result<WakeReason, ParkEr
 	// Set the state to `Parked` before calling the closure, so if events are triggered
 	// during the closure, the thread already appears parked and will get unparked before yielding
 	// Also drop the scheduler lock so that waking doesn't cause a deadlock
-	for wake_mechanism in wake_mechanisms {
-		wake_mechanism.add_waker(ThreadWaker { park_state: weak_ptr.clone() });
-	}
+	f(ThreadWaker { park_state: weak_ptr });
 	Ok(
 		yield_now().expect("State was set to `Parked` before yielding so must have a reason to wake")
 	)
@@ -428,10 +404,6 @@ pub fn park(wake_mechanisms: &[&dyn WakeMechanism]) -> Result<WakeReason, ParkEr
 /// Returns `None` if the core is idle
 pub fn current_thread() -> Option<ThreadId> {
 	scheduler::scheduler().lock().current_thread().map(|t| *t.thread_id)
-}
-
-pub fn unblock(tid: ThreadId) {
-	todo!()
 }
 
 fn push_to_global_sleep_queue(_wake_time: Instant) {
