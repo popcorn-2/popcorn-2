@@ -34,7 +34,7 @@ impl Server for UserspaceServer {
 		};
 		debug!("`UserpsaceServer{{ pid: {:?} }}` add packet `{packet:#?}`", self.pid);
 		self.pending_queue.push(packet); // FIXME(panic): fallible OOM
-		threading::park(|_| {});
+		threading::park(&[]);
 		unimplemented!()
 	}
 }
