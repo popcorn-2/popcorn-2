@@ -60,7 +60,7 @@ mod sleeping;
 mod thread_control_block;
 mod yielding;
 
-pub use parking::{park, ParkError, WakeReason, Waker};
+pub use parking::{park, ParkError, WakeReason, WakeTrigger};
 pub use pointers::{Thread, ThreadPointer};
 pub use sleeping::{sleep, sleep_until};
 pub use thread_control_block::{ThreadState, ThreadControlBlock, PointerView, OwnedView, SharedView};

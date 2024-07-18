@@ -88,7 +88,7 @@ use crate::hal::paging2::TTable;
 use crate::memory::paging::ktable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::task::executor::Executor;
-use crate::threading::{Waker, WakeReason};
+use crate::threading::{WakeTrigger, WakeReason};
 
 mod sync;
 mod memory;

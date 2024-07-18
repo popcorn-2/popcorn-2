@@ -8,7 +8,7 @@ use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::r#virtual::Global;
 use crate::hal::{Hal, HalTy, SaveState};
 use crate::hal::paging2::TTableTy;
-use super::{parking::ParkState, ThreadId, WakeReason};
+use super::{parking::ParkGaurd, ThreadId, WakeReason};
 
 #[doc(hidden)]
 macro_rules! __tcb_gen_field {
@@ -189,7 +189,7 @@ pub enum ThreadState {
 	/// The thread is actively running
 	Running,
 	/// The thread is parked
-	Parked(Arc<ParkState>),
+	Parked(Arc<ParkGaurd>),
 	/// The thread was unparked but has not been run since
 	JustUnparked(WakeReason),
 }

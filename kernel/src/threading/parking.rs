@@ -1,25 +1,23 @@
 use alloc::sync::{Arc, Weak};
-use core::intrinsics::transmute;
 use core::mem;
-use core::mem::MaybeUninit;
 use core::num::NonZeroU16;
 use log::{debug, warn};
 use super::{current_thread, scheduler, ThreadId, yield_now, scheduler::Scheduler, ThreadState, PointerState};
 
 /// Park the current thread until it is woken up
 ///
-/// This will park the thread until a [`Waker`] for this park event wakes the thread.
+/// This will park the thread until a [`WakeTrigger`] for this park event wakes the thread.
 /// The kernel guarantees that this function will not return unless either there is an error
 /// when parking the thread, or the thread is woken.
 ///
-/// [`Waker`]s are generated in `park()`, and passed to the closure passed to `park()`.
-/// A [`Waker`] will only wake a thread if it was generated for the current park event. This means
-/// that a [`Waker`] will only wake a thread once, even if [`wake()`](Waker::wake) is
+/// [`WakeTrigger`]s are generated in `park()`, and passed to the closure passed to `park()`.
+/// A [`WakeTrigger`] will only wake a thread if it was generated for the current park event. This means
+/// that a [`WakeTrigger`] will only wake a thread once, even if [`wake()`](WakeTrigger::wake) is
 /// repeatedly called.
 ///
 /// # Atomicity
 ///
-/// The entirety of a call to `park()` executes atomically - if the thread is woken by a valid [`Waker`]
+/// The entirety of a call to `park()` executes atomically - if the thread is woken by a valid [`WakeTrigger`]
 /// before `park()` has finished executing, it will act like [`yield_now()`], and a thread will never get stuck
 /// waiting for an event that has already occurred.
 ///
@@ -36,9 +34,9 @@ use super::{current_thread, scheduler, ThreadId, yield_now, scheduler::Scheduler
 ///
 /// ```
 /// # use kernel_api::sync::Spinlock;
-/// use kernel::threading::{park, Waker, WakeReason};
+/// use kernel::threading::{park, WakeTrigger, WakeReason};
 ///
-/// static WAKER: Spinlock<Option<Waker> = Spinlock::new(None);
+/// static WAKER: Spinlock<Option<WakeTrigger> = Spinlock::new(None);
 ///
 /// // Called periodically by a timer interrupt
 /// pub fn periodic_timer_handler() {
@@ -56,25 +54,25 @@ use super::{current_thread, scheduler, ThreadId, yield_now, scheduler::Scheduler
 /// unreachable!();
 /// ```
 ///
-/// Multiple wakers can be created by calling [`Clone::clone()`] on the passed [`Waker`]
+/// Multiple wakers can be created by calling [`Clone::clone()`] on the passed [`WakeTrigger`]
 ///
 /// ```
-/// use kernel::threading::{park, Waker, WakeReason};
+/// use kernel::threading::{park, WakeTrigger, WakeReason};
 /// use core::time::Duration;
 ///
-/// fn wake_in(waker: Waker, delay: Duration) { /* ... */ }
+/// fn wake_in(waker: WakeTrigger, delay: Duration) { /* ... */ }
 ///
 /// park(|waker| {
 ///     wake_in(waker.clone(), Duration::from_secs(1));
 ///     wake_in(waker, Duration::from_secs(2));
 /// }).unwrap();
-pub fn park(f: impl FnOnce(Waker)) -> Result<WakeReason, ParkError> {
+pub fn park(f: impl FnOnce(WakeTrigger)) -> Result<WakeReason, ParkError> {
 	let id = current_thread();
 	debug!("Parking thread {:?}", id.unwrap());
 	let weak_ptr = {
 		let mut guard = scheduler::local_scheduler().lock();
 		let thread = guard.current_thread().expect("Cannot park when not running a thread");
-		let park_state = Arc::new(ParkState { thread_id: *thread.thread_id });
+		let park_state = Arc::new(ParkGaurd { thread_id: *thread.thread_id });
 		let weak_ptr = Arc::downgrade(&park_state);
 		*thread.state = ThreadState::Parked(park_state);
 		weak_ptr
@@ -82,25 +80,25 @@ pub fn park(f: impl FnOnce(Waker)) -> Result<WakeReason, ParkError> {
 	// Set the state to `Parked` before calling the closure, so if events are triggered
 	// during the closure, the thread already appears parked and will get unparked before yielding
 	// Also drop the scheduler lock so that waking doesn't cause a deadlock
-	f(Waker { park_state: weak_ptr });
+	f(WakeTrigger { park_guard: weak_ptr });
 	Ok(
 		yield_now().expect("State was set to `Parked` before yielding so must have a reason to wake")
 	)
 }
 
 #[derive(Debug)]
-pub(super) struct ParkState {
+pub(super) struct ParkGaurd {
 	thread_id: ThreadId,
 }
 
 #[derive(Debug, Clone)]
-pub struct Waker {
-	park_state: Weak<ParkState>,
+pub struct WakeTrigger {
+	park_guard: Weak<ParkGaurd>,
 }
 
-impl Waker {
+impl WakeTrigger {
 	pub fn wake(&self, reason: WakeReason) {
-		if let Some(state) = self.park_state.upgrade() {
+		if let Some(state) = self.park_guard.upgrade() {
 			// FIXME: race condition between upgrading and actually waking which could cause a spurious wakeup
 			let tid = state.thread_id;
 			let mut guard = super::TASK_LIST.lock();
