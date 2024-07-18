@@ -116,7 +116,7 @@ impl WakeTrigger {
 	}
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[repr(C)]
 pub enum WakeReason {
 	Timeout,
