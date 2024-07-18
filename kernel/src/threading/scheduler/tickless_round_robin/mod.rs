@@ -2,12 +2,12 @@
 use alloc::collections::VecDeque;
 use alloc::sync::{Arc, Weak};
 use core::fmt::Debug;
-use kernel_api::time::Instant;
 use crate::threading::scheduler::Scheduler;
-use crate::threading::{ThreadId, ThreadPointer};
+use crate::threading::ThreadPointer;
 use event::{Queue, Event};
 use kernel_api::sync::{IrqGuard, Spinlock};
-use crate::threading::tcb::{PointerView, ThreadState};
+use crate::threading;
+use crate::threading::{PointerView, ThreadState};
 
 mod event;
 
@@ -83,7 +83,7 @@ impl Scheduler for TicklessRoundRobin {
 	fn switch_thread_post(mut self: IrqGuard<Self>, mut old_thread: ThreadPointer) {
 		debug_assert!(!old_thread.tcb_mut().state.is_running());
 		match *old_thread.tcb_mut().state {
-			ThreadState::Parked(_) => /*self.push_parked(old_thread)*/ super::relegate_to_global_parking_lot(old_thread),
+			ThreadState::Parked(_) => threading::move_to_global_parking_lot(old_thread),
 			ThreadState::Ready | ThreadState::JustUnparked(_) => self.enqueue(old_thread),
 			ThreadState::Running => unreachable!(),
 		}

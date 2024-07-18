@@ -4,30 +4,19 @@
 //! A scheduler implementation is made from three objects:
 //! - [`Scheduler`], implementing the actual logic of deciding which thread to run next
 //! - [`Injector`], a global handle allowing adding new threads from a different core
-//! - [`Stealer`], a global handle allowing [`Ready`](super::tcb::ThreadState::Ready) threads to be removed from the scheduler for
+//! - [`Stealer`], a global handle allowing [`Ready`](super::ThreadState::Ready) threads to be removed from the scheduler for
 //! load balancing
 //!
 //! See the [book](https://popcorn-2.github.io/book) for an example of writing a scheduler from scratch.
 
 #[allow(unused_imports)] use crate::prelude::*;
-use alloc::borrow::Cow;
-use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
-use core::borrow::Borrow;
-use core::cell::{Cell, OnceCell, UnsafeCell};
-use core::cmp::min;
-use core::fmt::{Debug, Formatter};
-use core::marker::PhantomData;
-use core::mem;
-use core::mem::{ManuallyDrop, MaybeUninit, transmute};
-use core::num::NonZero;
-use core::ops::{Deref, DerefMut};
-use core::ptr::NonNull;
+use core::cell::OnceCell;
+use core::fmt::Debug;
+use core::mem::transmute;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::hal;
 #[cfg(feature = "preemptive")] use core::time::Duration;
-use hashbrown::HashMap;
-use kernel_api::memory::physical::highmem;
 use kernel_api::sync::{IrqCell, IrqGuard, Spinlock};
 use kernel_api::time::Instant;
 use crate::hal::paging2::TTable;
@@ -35,7 +24,7 @@ use crate::hal::timing::{Timer, Eoi};
 use crate::interrupts::irq_handler;
 use crate::memory::paging::ktable;
 use crate::{hashmap_new, non_zero, assert_unsafe_precondition};
-use crate::threading::{CoreId, Thread, ThreadId, ThreadPointer, WakeReason};
+use crate::threading::{CoreId, Thread, ThreadId, ThreadPointer, PointerView, WakeReason};
 use crate::threading::tcb::{PointerView, SharedView, ThreadControlBlock, ThreadState};
 
 #[doc(hidden)]
@@ -44,17 +33,6 @@ mod tickless_round_robin;
 /// The [`Scheduler`] for the current core
 #[thread_local]
 static SCHEDULER: OnceCell<IrqCell<tickless_round_robin::TicklessRoundRobin>> = OnceCell::new();
-
-/// Global list of all running threads
-pub static TASK_LIST: Spinlock<HashMap<ThreadId, GlobalThread>> = Spinlock::new(hashmap_new!());
-
-#[derive(Debug)]
-pub enum GlobalThread {
-	Enqueued(Thread),
-	Global(Thread, ThreadPointer),
-}
-
-/// [`Injector`]s to add new threads to each core
 
 /// [`Injector`]s to add new threads to each core
 static SCHEDULER_INJECTORS: Spinlock<Vec<Box<dyn Injector>>> = Spinlock::new(vec![]);
@@ -108,73 +86,22 @@ pub(super) fn create_scheduler_for_current_core(running_thread: ThreadPointer) -
 	CoreId { id: guard.len() - 1 }
 }
 
-pub(super) fn scheduler() -> &'static IrqCell<impl Scheduler + Debug> {
+pub(super) fn local_scheduler() -> &'static IrqCell<impl Scheduler + Debug> {
 	let s = SCHEDULER.get()
 			.expect("Scheduler not yet initialised");
 	unsafe { transmute::<&IrqCell<tickless_round_robin::TicklessRoundRobin>, &'static IrqCell<tickless_round_robin::TicklessRoundRobin>>(s) }
 }
 
-/// Starts running the [`ThreadControlBlock`]
-///
-/// The [`ThreadControlBlock`] is added to the global task list, and sent to a particular scheduler to be run
-pub(super) fn enqueue_new(tcb: ThreadControlBlock) {
-	let id = tcb.thread_id;
-	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
-
-	TASK_LIST.lock()
-			.try_insert(id, GlobalThread::Enqueued(thread))
-			.expect("ThreadId reuse");
-
-	enqueue_balanced(ptr);
-}
-
-pub(super) fn enqueue_existing(thread: &mut GlobalThread, reason: WakeReason) {
-	let thread_uninit = unsafe { transmute::<_, &mut MaybeUninit<GlobalThread>>(thread) };
-	let old = mem::replace(thread_uninit, MaybeUninit::uninit());
-	match unsafe { old.assume_init() } {
-		GlobalThread::Enqueued(t) => {
-			thread_uninit.write(GlobalThread::Enqueued(t));
-			todo!()
-		},
-		GlobalThread::Global(t, mut ptr) => {
-			thread_uninit.write(GlobalThread::Enqueued(t));
-			debug!("Enqueue thread {:?} from global parking lot with reason {reason:?}", ptr.tcb_mut().thread_id);
-			*ptr.tcb_mut().state = ThreadState::JustUnparked(reason);
-			enqueue_balanced(ptr);
-		},
-	};
-}
-
 /// Enqueues a thread onto a core such that system load stays balanced
-fn enqueue_balanced(mut thread: ThreadPointer) {
+pub fn enqueue(mut thread: ThreadPointer) {
 	static CORE_NUM: AtomicUsize = AtomicUsize::new(0);
-
+	
 	assert!(thread.tcb_mut().state.is_ready());
-
+	
 	let injectors = SCHEDULER_INJECTORS.lock();
 	assert!(!injectors.is_empty(), "Scheduler not yet initialised");
 	let injector_idx = CORE_NUM.fetch_add(1, Ordering::Relaxed) % injectors.len();
 	let injector = &injectors[injector_idx];
 	debug!("Inject into core {injector_idx}");
 	injector.enqueue(thread);
-}
-
-fn relegate_to_global_parking_lot(mut thread: ThreadPointer) {
-	assert!(thread.tcb_mut().state.is_parked(), "Cannot place unparked thread in parking lot");
-
-	debug!("Move {thread:?} to global parking lot");
-
-	let mut guard = TASK_LIST.lock();
-	let global_thread = guard.get_mut(thread.tcb_ref().thread_id)
-			.expect("Cannot park a non-existent thread");
-	let thread_uninit = unsafe { transmute::<_, &mut MaybeUninit<GlobalThread>>(global_thread) };
-	let old = mem::replace(thread_uninit, MaybeUninit::uninit());
-	match unsafe { old.assume_init() } {
-		GlobalThread::Enqueued(t) => {
-			thread_uninit.write(GlobalThread::Global(t, thread));
-		},
-		GlobalThread::Global(_, _) => {
-			unreachable!()
-		},
-	};
 }

@@ -38,35 +38,45 @@
 
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
-use alloc::sync::{Arc, Weak};
 use core::arch::{asm, naked_asm};
-use core::cmp::Ordering;
-use core::fmt::{Debug, Formatter};
-use core::{mem, ptr};
-use core::mem::ManuallyDrop;
-use core::num::{NonZero, NonZeroU16, NonZeroUsize};
-use core::ptr::{addr_of, DynMetadata, NonNull};
+use core::fmt::Debug;
+use core::num::NonZero;
 use core::sync::atomic::AtomicUsize;
-use core::time::Duration;
+use hashbrown::HashMap;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
 use kernel_api::memory::r#virtual::{Global, OwnedPages};
-use kernel_api::sync::IrqCell;
-use kernel_api::time::Instant;
-use crate::threading::tcb::{ThreadControlBlock, ThreadState};
-use crate::hal::{ContextSwitchPreserve, Hal, HalTy, SaveState};
-use crate::{non_zero, assert_unsafe_precondition};
+use kernel_api::sync::Spinlock;
+use crate::{hashmap_new, non_zero};
 use scheduler::Scheduler;
 use crate::hal::paging2::{TTable, TTableTy};
 use crate::memory::paging::ktable;
-use crate::threading::scheduler::GlobalThread;
 
-mod scheduler;
-pub mod tcb;
 mod cleanup;
+mod parking;
+mod pointers;
+mod scheduler;
+mod sleeping;
+mod thread_control_block;
+mod yielding;
+
+pub use parking::{park, ParkError, WakeReason, Waker};
+pub use pointers::{Thread, ThreadPointer};
+pub use sleeping::{sleep, sleep_until};
+pub use thread_control_block::{ThreadState, ThreadControlBlock, PointerView, OwnedView, SharedView};
+pub use yielding::{yield_now, yield_defer};
 
 const INIT_THREAD_NUM: usize = 1;
 const INIT_THREAD_ID: ThreadId = ThreadId { id: non_zero!(INIT_THREAD_NUM) };
+
+/// Global list of all running threads
+static TASK_LIST: Spinlock<HashMap<ThreadId, (Thread, PointerState)>> = Spinlock::new(hashmap_new!());
+
+#[derive(Debug)]
+enum PointerState {
+	InScheduler,
+	GloballyParked(ThreadPointer),
+}
 
 /// The numerical ID of a thread
 /// 
@@ -109,80 +119,6 @@ pub struct CoreId {
 	id: usize,
 }
 
-/// Global ownership of a [`ThreadControlBlock`]
-/// 
-/// See the [module level documentation](crate::threading#threadcontrolblock-vs-thread-vs-threadpointer-vs-threadid) for more information
-pub struct Thread {
-	ptr: NonNull<ThreadControlBlock>,
-}
-
-unsafe impl Send for Thread {}
-unsafe impl Sync for Thread {}
-
-/// Scheduler ownership of a [`ThreadControlBlock`]
-///
-/// See the [module level documentation](crate::threading#threadcontrolblock-vs-thread-vs-threadpointer-vs-threadid) for more information
-#[repr(transparent)]
-pub struct ThreadPointer {
-	ptr: NonNull<ThreadControlBlock>,
-}
-
-unsafe impl Send for ThreadPointer {}
-unsafe impl Sync for ThreadPointer {}
-
-impl Thread {
-	/// Constructs an Owned pointer to a [`ThreadControlBlock`]. See the [module level docs](self) for more information.
-	pub fn new(tcb: ThreadControlBlock) -> Thread {
-		let b = Box::new(tcb);
-		let ptr = NonNull::from(Box::leak(b));
-		Thread { ptr }
-	}
-}
-
-impl ThreadPointer {
-	/// # Safety
-	///
-	/// The caller must ensure that no other [`ThreadPointer`]s to the same [`ThreadControlBlock`] exist
-	unsafe fn new_unchecked(owned: &Thread) -> ThreadPointer {
-		ThreadPointer { ptr: owned.ptr }
-	}
-
-	fn new(owned: Thread) -> (Thread, ThreadPointer) {
-		let ptr = unsafe { Self::new_unchecked(&owned) };
-		(owned, ptr)
-	}
-
-	/// Immutably "borrows" a [`ThreadPointer`]
-	fn tcb_ref(&self) -> tcb::SharedView<'_> {
-		let tcb = unsafe { self.ptr.as_ref() };
-		tcb::SharedView::from_tcb(tcb)
-	}
-
-	/// Mutably "borrows" a [`ThreadPointer`]
-	fn tcb_mut(&mut self) -> tcb::PointerView<'_> {
-		let tcb = unsafe { self.ptr.as_ref() };
-		unsafe { tcb::PointerView::from_tcb(tcb) }
-	}
-}
-
-impl Debug for Thread {
-	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		let thread_id = unsafe { *addr_of!((*self.ptr.as_ptr()).thread_id) };
-		f.debug_struct("Thread")
-		 .field("ThreadId", &thread_id)
-		 .finish_non_exhaustive()
-	}
-}
-
-impl Debug for ThreadPointer {
-	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		let thread_id = unsafe { *addr_of!((*self.ptr.as_ptr()).thread_id) };
-		f.debug_struct("ThreadPointer")
-		 .field("ThreadId", &thread_id)
-		 .finish_non_exhaustive()
-	}
-}
-
 /// Initializes the scheduler subsystem
 /// 
 /// Initializes the scheduler for the bootstrap core, and creates the [`ThreadControlBlock`] for the already running
@@ -198,14 +134,14 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		OwnedFrames::from_raw_parts(
 			stack.top_phys - stack_phys_len,
 			NonZero::<usize>::new(stack_phys_len).expect("Cannot have a zero sized stack"),
-			highmem()
+			highmem(),
 		)
 	};
 	let stack_pages = unsafe {
 		OwnedPages::from_raw_parts(
 			stack.bottom_virt,
 			NonZero::<usize>::new(stack_phys_len + 1).expect("Cannot have a zero sized stack"),
-			Global
+			Global,
 		)
 	};
 
@@ -217,11 +153,11 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		ThreadState::Running,
 		INIT_THREAD_ID,
 	);
-	let thread = Thread::new(tcb);
-	let ptr = ThreadPointer { ptr: thread.ptr };
+	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
+
 	assert!(
-		scheduler::TASK_LIST.lock()
-				.try_insert(INIT_THREAD_ID, GlobalThread::Enqueued(thread))
+		TASK_LIST.lock()
+				.try_insert(INIT_THREAD_ID, (thread, PointerState::InScheduler))
 				.is_ok(),
 		"ThreadId(1) should not exist already"
 	);
@@ -286,170 +222,54 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 		(ptr as usize, unsafe { mem::transmute::<DynMetadata<dyn FnOnce()>, usize>(meta) })
 	);
 
-	scheduler::enqueue_new(tcb);
+	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
+
+	TASK_LIST.lock()
+	         .try_insert(id, (thread, PointerState::InScheduler))
+	         .expect("ThreadId reuse");
+
+	scheduler::enqueue(ptr);
 
 	id
-}
-
-#[derive(Debug)]
-struct ParkState {
-	thread_id: ThreadId,
-}
-
-#[derive(Debug)]
-pub struct ThreadWaker {
-	park_state: Weak<ParkState>,
-}
-
-impl ThreadWaker {
-	pub fn wake(&self, reason: WakeReason) {
-		if let Some(state) = self.park_state.upgrade() {
-			// FIXME: race condition between upgrading and actually waking which could cause a spurious wakeup
-			let tid = state.thread_id;
-			let mut guard = scheduler::TASK_LIST.lock();
-			let Some(global_thread) = guard.get_mut(&tid) else {
-				warn!("Bad thread id {tid:?}");
-				return;
-			};
-			
-			scheduler::enqueue_existing(global_thread, reason);
-		}
-	}
-}
-
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub enum WakeReason {
-	Timeout,
-	Custom(NonZeroU16),
-}
-
-#[derive(Debug)]
-#[non_exhaustive]
-pub struct ParkError {}
-
-/// Park the current thread until it is woken up
-///
-/// This will park the thread until a [`ThreadWaker`] for this park event wakes the thread.
-/// The kernel guarantees that this function will not return unless either there is an error
-/// when parking the thread, or the thread is woken.
-///
-/// [`ThreadWaker`]s are generated in `park()`, and added to the [`WakeMechanism`]s passed to `park()`.
-/// A [`ThreadWaker`] will only wake a thread if it was generated for the current park event. This means
-/// that a [`ThreadWaker`] will only wake a thread once, even if [`wake()`](ThreadWaker::wake) is
-/// repeatedly called.
-///
-/// # Atomicity
-///
-/// The entirety of a call to `park()` executes atomically - if the thread is woken by a valid [`ThreadWaker`]
-/// before `park()` has finished executing, it will act like [`yield_now()`], and a thread will never get stuck
-/// waiting for an event that has already occurred.
-///
-/// This means the following code is guaranteed to always make progress:
-/// ```rust
-/// use kernel::threading::{park, WakeReason};
-///
-/// park(|waker| waker.wake(WakeReason::Custom(non_zero!(1)))).unwrap();
-/// ```
-///
-/// # Errors
-///
-/// # Examples
-///
-/// ```
-/// # use kernel_api::sync::Spinlock;
-/// use kernel::threading::{park, ThreadWaker, WakeReason};
-/// 
-/// static WAKER: Spinlock<Option<ThreadWaker> = Spinlock::new(None);
-///
-/// // Called periodically by a timer interrupt
-/// pub fn periodic_timer_handler() {
-///     if let Some(waker) = &mut *WAKER.lock() {
-///         waker.wake(WakeReason::Timeout);
-///     }
-/// }
-///
-/// fn main() {
-///     // This call will return the next time the timer interrupt goes off
-///     park(|waker| *WAKER.lock() = Some(waker)).expect("failed to park thread");
-///
-///     // This call will never return, even if the timer interrupt goes off again, unless
-///     // there was an error in `park`
-///     park(|_| {}).expect("failed to park thread");
-///     unreachable!();
-/// }
-/// ```
-pub fn park(f: impl FnOnce(ThreadWaker)) -> Result<WakeReason, ParkError> {
-	let id = current_thread();
-	debug!("Parking thread {:?}", id.unwrap());
-	let weak_ptr = {
-		let mut guard = scheduler::scheduler().lock();
-		let thread = guard.current_thread().expect("Cannot park when not running a thread");
-		let park_state = Arc::new(ParkState { thread_id: *thread.thread_id });
-		let weak_ptr = Arc::downgrade(&park_state);
-		*thread.state = ThreadState::Parked(park_state);
-		weak_ptr
-	};
-	// Set the state to `Parked` before calling the closure, so if events are triggered
-	// during the closure, the thread already appears parked and will get unparked before yielding
-	// Also drop the scheduler lock so that waking doesn't cause a deadlock
-	f(ThreadWaker { park_state: weak_ptr });
-	Ok(
-		yield_now().expect("State was set to `Parked` before yielding so must have a reason to wake")
-	)
 }
 
 /// Gets the [`ThreadId`] for the thread currently running on this core
 /// 
 /// Returns `None` if the core is idle
 pub fn current_thread() -> Option<ThreadId> {
-	scheduler::scheduler().lock().current_thread().map(|t| *t.thread_id)
+	scheduler::local_scheduler().lock().current_thread().map(|t| *t.thread_id)
 }
 
-fn push_to_global_sleep_queue(_wake_time: Instant) {
-	todo!()
-}
+fn move_to_global_parking_lot(mut thread: ThreadPointer) {
+	assert!(thread.tcb_mut().state.is_parked(), "Cannot place unparked thread in parking lot");
 
-fn pinned_sleep(time_of_wake: Instant) {
-	todo!();
-	/* let mut guard = scheduler::SCHEDULER.lock();
-	let sleep_event = SchedulerEvent {
-		tid: guard.current_thread_id().unwrap(),
-		time: time_of_wake,
-		action: EventTy::Unblock
+	debug!("Move {thread:?} to global parking lot");
+
+	let mut guard = TASK_LIST.lock();
+	let global_thread = guard.get_mut(thread.tcb_ref().thread_id)
+	                         .expect("Cannot park a non-existent thread");
+
+	match global_thread.1 {
+		PointerState::InScheduler => {
+			global_thread.1 = PointerState::GloballyParked(thread);
+		},
+		PointerState::GloballyParked(_) => {
+			unreachable!(
+				"Cannot place a thread into the global parking lot if it is already there.\
+				Also how are there two `ThreadPointer`s to the same thread?"
+			);
+		},
 	};
-	#[cfg(feature = "log.scheduler")] debug!("sleeping tid {:?}", sleep_event.tid);
-	guard.event_queue.add(sleep_event);
-	guard.block(ThreadState::Sleeping);*/
 }
 
-pub fn sleep(duration: Duration) {
-	// fixme: if duration <= Duration::from_secs(1) {
-		// Core pinned sleep
-		pinned_sleep(Instant::now() + duration);
-	//} else {
-	//	todo!();
-	//	push_to_global_sleep_queue(Instant::now() + duration);
-	//}
-}
-
-pub fn sleep_until(wake_time: Instant) {
-	// to avoid having to calculate time until wake, always do a pinned sleep and have it pulled from back of queue later
-	pinned_sleep(wake_time);
-}
-
-pub fn exit(exit_code: i8) -> ! {
-	/*let mut guard = scheduler::SCHEDULER.lock();
-	guard.queue_for_deletion(exit_code);
-	drop(guard); // drop guard before end of scope to ensure deferred schedule goes through */
-	todo!();
-	unreachable!("Returned to deleted task")
+pub fn exit(_exit_code: i8) -> ! {
+	todo!()
 }
 
 #[naked]
 pub unsafe extern "C" fn thread_startup() {
 	extern "C" fn thread_startup_inner(previous_thread: ThreadPointer) {
-		let guard = unsafe { scheduler::scheduler().make_guard_unchecked() };
+		let guard = unsafe { scheduler::local_scheduler().make_guard_unchecked() };
 		debug!("[b] switch from `{:?}` to current", previous_thread.tcb_ref().thread_id,);
 		guard.switch_thread_post(previous_thread);
 		debug!("thread_startup");
@@ -478,62 +298,5 @@ pub unsafe extern "C" fn thread_startup() {
 	sym thread_startup_inner);
 }
 
-/// Adds a pending thread switch that will switch threads once all nested interrupts are handled.
-///
-/// This will immediately return regardless of the current thread's blocked state.
-///
-/// # Interrupt safety
-/// This function **is** interrupt safe, and will immediately return
-pub fn yield_defer() {
-	crate::hal::arch::apic::send_self_ipi(0x30);
-}
-
-/// Immediately invokes the scheduler to switch threads.
-///
-/// If the thread has be placed into a blocked state, this will not return until it is unblocked.
-///
-/// # Interrupt safety
-/// This function is **not** interrupt safe, and will block any pending interrupts
-pub fn yield_now() -> Option<WakeReason> {
-	// First we lock the scheduler for the current core, and ask it for the current and new threads
-	// Wrap it in `ManuallyDrop` since we recreate the guard later, as the thread may have migrated
-	// during the context switch
-	let mut scheduler = ManuallyDrop::new(scheduler::scheduler().lock());
-	let (from, to_view) = scheduler.switch_thread_pre();
-
-	// We need to duplicate the `ThreadPointer` so we can pass it to `switch_thread` while it is borrowed
-	// so wrap the first copy in a `ManuallyDrop` to prevent a double free
-	let mut from = ManuallyDrop::new(from);
-	// Get a pointer to the `ThreadPointer` to use to duplicate it later
-	let from_ptr = addr_of!(*from);
-	// Extract the `PointerView`
-	// The `PointerView` does not borrow the contents of the `ThreadPointer` - it only requires the
-	// `ThreadPointer` to exist 'somewhere', so holding this borrow while moving the underlying `ThreadPointer`
-	// is safe
-	let from_view = from.tcb_mut();
-
-	debug!("[a] switch from `{:?}` to `{:?}`", from_view.thread_id, to_view.thread_id);
-	
-	assert!(to_view.state.is_ready());
-	let reason = to_view.state.wake_reason();
-	*to_view.state = ThreadState::Running;
-	if from_view.state.is_running() { *from_view.state = ThreadState::Ready; }
-
-	// From the CPU's perspective during a context switch, `from` is no longer the same `ThreadPointer`
-	// as the stack has been changed. Instead, we replace it with the `ThreadPointer` that `switch_thread`
-	// preserves across the function call
-	let ContextSwitchPreserve(mut from, reason) = unsafe { <HalTy as Hal>::switch_thread(&from_view, &to_view, ContextSwitchPreserve(ptr::read(from_ptr), reason)) };
-
-	{
-		let tcb = from.tcb_mut();
-		debug!("[b] switch from `{:?}` to current, old blocked in state {:?}, new woken due to {reason:?}", tcb.thread_id, tcb.state);
-	}
-
-	// Then we pass the old `ThreadPointer` back to the scheduler for it to enqueue
-	unsafe { scheduler::scheduler().make_guard_unchecked() }.switch_thread_post(from);
-
-	reason
-}
-
 #[doc(hidden)]
-pub fn debug() { debug!("{:#?}", scheduler::scheduler()); }
+pub fn debug() { debug!("{:#?}", scheduler::local_scheduler()); }

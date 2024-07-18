@@ -7,7 +7,7 @@ use kernel_api::memory::mapping::Stack;
 use crate::hal::{ArgTuple, ContextSwitchPreserve};
 use crate::hal::{Hal, SaveStateTr, ThreadControlBlock};
 use crate::hal::arch::amd64::interrupts::handler::InterruptStackFrame;
-use crate::threading::{ThreadPointer, tcb};
+use crate::threading::{ThreadPointer, PointerView};
 
 mod gdt;
 mod tss;
@@ -108,7 +108,7 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	#[naked]
-	unsafe extern "C" fn switch_thread(from: &tcb::PointerView, to: &tcb::PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
+	unsafe extern "C" fn switch_thread(from: &PointerView, to: &PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
 		// rdi: from
 		// rsi: to
 		// rdx: preserve.0 -> rax
@@ -152,7 +152,7 @@ unsafe impl Hal for Amd64Hal {
 
 			"ret",
 
-			save_state_ptr_offset = const offset_of!(tcb::PointerView, save_state),
+			save_state_ptr_offset = const offset_of!(PointerView, save_state),
 			rbx_offset = const offset_of!(ThreadControlBlock, save_state.rbx),
 			rsp_offset = const offset_of!(ThreadControlBlock, save_state.rsp),
 			rbp_offset = const offset_of!(ThreadControlBlock, save_state.rbp),

@@ -2,14 +2,13 @@
 use alloc::borrow::Cow;
 use alloc::sync::Arc;
 use core::cell::UnsafeCell;
-use core::mem::MaybeUninit;
 use core::num::NonZeroUsize;
 use kernel_api::memory::mapping;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::r#virtual::Global;
 use crate::hal::{Hal, HalTy, SaveState};
 use crate::hal::paging2::TTableTy;
-use crate::threading::{ParkState, ThreadId, WakeReason};
+use super::{parking::ParkState, ThreadId, WakeReason};
 
 #[doc(hidden)]
 macro_rules! __tcb_gen_field {
