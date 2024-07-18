@@ -139,9 +139,8 @@ impl ThreadControlBlock {
 	/// use kernel::threading::scheduler::enqueue_new;
 	/// # use kernel::prelude::debug;
 	///
-	/// extern "C" fn my_thread((a, b): (usize, usize)) -> ! {
+	/// extern "C" fn my_thread(a: usize) -> ! {
 	///     assert_eq!(a, 1);
-	///     assert_eq!(b, 2);
 	///     loop {}
 	/// }
 	///
@@ -151,12 +150,12 @@ impl ThreadControlBlock {
 	///     current_ttable,
 	///     kernel::threading::thread_startup,
 	///     my_thread,
-	///     (1, 2),
+	///     1,
 	/// );
 	/// 
 	/// enqueue_new(tcb);
 	/// ```
-	pub fn new<Args: ArgTuple>(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: Args) -> (Self, ThreadId) {
+	pub fn new(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, arg: usize) -> (Self, ThreadId) {
 		let new_stack = Stack::new(
 			mapping::Config::<Global>::new(NonZeroUsize::new(32).unwrap()),
 			crate::paging_codes::THREAD_KERNEL_STACK,
@@ -171,7 +170,7 @@ impl ThreadControlBlock {
 			ThreadState::Ready,
 			id,
 		);
-		new_thread.save_state = UnsafeCell::new(SaveState::new(&mut new_thread, startup, main, args.into_array()));
+		new_thread.save_state = UnsafeCell::new(SaveState::new(&mut new_thread, startup, main, arg));
 
 		(new_thread, id)
 	}
@@ -232,38 +231,3 @@ impl ThreadState {
 		}
 	}
 }
-
-/// Implementation detail of [`ThreadControlBlock::new()`] to work around the lack of variadic generics
-pub trait ArgTuple {
-	fn into_array(self) -> [MaybeUninit<usize>; 4];
-}
-
-impl ArgTuple for () {
-	fn into_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()]
-	}
-}
-
-impl ArgTuple for (usize,) {
-	fn into_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::new(self.0), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()]
-	}
-}
-
-impl ArgTuple for (usize,usize) {
-	fn into_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::new(self.0), MaybeUninit::new(self.1), MaybeUninit::uninit(), MaybeUninit::uninit()]
-	}
-}
-
-/*impl ArgTuple for (usize,usize,usize) {
-	fn as_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::new(self.0), MaybeUninit::new(self.1), MaybeUninit::new(self.2), MaybeUninit::uninit()]
-	}
-}
-
-impl ArgTuple for (usize,usize,usize,usize) {
-	fn as_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::new(self.0), MaybeUninit::new(self.1), MaybeUninit::new(self.2), MaybeUninit::new(self.3)]
-	}
-}*/

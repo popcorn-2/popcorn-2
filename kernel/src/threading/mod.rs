@@ -200,18 +200,14 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 /// ```
 /// 
 pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) -> ThreadId {
-	extern "C" fn main((ptr, meta): (usize, usize)) -> ! {
-		let ptr = ptr as *mut i8;
-		let meta = unsafe { mem::transmute::<usize, DynMetadata<dyn FnOnce()>>(meta) };
-		let ptr = core::ptr::from_raw_parts_mut::<dyn FnOnce()>(ptr, meta);
-		unsafe { Box::from_raw(ptr)() };
+	extern "C" fn main(ptr: usize) -> ! {
+		let boxed = unsafe { Box::<Box<dyn FnOnce()>>::from_raw(ptr as *mut _) };
+		boxed();
 		exit(0);
 	}
 
-	let (ptr, meta) = {
-		let b = Box::new(f) as Box<dyn FnOnce()>;
-		Box::into_raw(b).to_raw_parts()
-	};
+	let boxed = Box::new(f) as Box<dyn FnOnce()>;
+	let boxed = Box::into_raw(Box::new(boxed));
 
 	let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
 	let (tcb, id) = ThreadControlBlock::new(
@@ -219,7 +215,7 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 		ttable,
 		thread_startup,
 		main,
-		(ptr as usize, unsafe { mem::transmute::<DynMetadata<dyn FnOnce()>, usize>(meta) })
+		boxed as usize,
 	);
 
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
@@ -277,21 +273,17 @@ pub unsafe extern "C" fn thread_startup() {
 
 	naked_asm!(
 		".cfi_startproc simple",
-		".cfi_def_cfa rsp, 48",
-		".cfi_offset rip, -48",
+		".cfi_def_cfa rsp, 32",
+		".cfi_offset rip, -32",
 		"pop rbp", // aligns to 16 bytes
-		".cfi_def_cfa rsp, 40",
+		".cfi_def_cfa rsp, 24",
 		".cfi_register rip, rbp",
 		"mov rdi, rax",
 		".cfi_undefined rdi",
 		"call {}",
 		"pop rdi", // pop args off stack
-		".cfi_def_cfa rsp, 32",
-		"pop rsi",
-		".cfi_def_cfa rsp, 24",
-		"pop rdx",
 		".cfi_def_cfa rsp, 16",
-		"pop rcx",
+		"pop rdi",
 		".cfi_def_cfa rsp, 8",
 		"ret",
 		".cfi_endproc",

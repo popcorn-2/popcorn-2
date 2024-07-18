@@ -4,7 +4,7 @@ use core::fmt::{Debug, Formatter};
 use core::mem::{MaybeUninit, offset_of};
 use core::num::NonZero;
 use kernel_api::memory::mapping::Stack;
-use crate::hal::{ArgTuple, ContextSwitchPreserve};
+use crate::hal::ContextSwitchPreserve;
 use crate::hal::{Hal, SaveStateTr, ThreadControlBlock};
 use crate::hal::arch::amd64::interrupts::handler::InterruptStackFrame;
 use crate::threading::{ThreadPointer, PointerView};
@@ -214,19 +214,16 @@ impl Default for Amd64SaveState {
 }
 
 impl SaveStateTr for Amd64SaveState {
-	fn new<Args: ArgTuple>(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: [MaybeUninit<usize>; 4]) -> Self {
+	fn new(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, arg: usize) -> Self {
 		let stack = &mut tcb.kernel_stack;
 		let stack_start = unsafe {
 			let stack_top = stack.virtual_end().start().as_ptr().cast::<usize>();
 			stack_top.sub(1).write(0);
 			stack_top.sub(2).write(main as usize);
-			stack_top.sub(3).cast::<MaybeUninit<_>>().write(args[3]);
-			stack_top.sub(4).cast::<MaybeUninit<_>>().write(args[2]);
-			stack_top.sub(5).cast::<MaybeUninit<_>>().write(args[1]);
-			stack_top.sub(6).cast::<MaybeUninit<_>>().write(args[0]);
-			stack_top.sub(7).write(0);
-			stack_top.sub(8).write(init as usize);
-			stack_top.sub(8)
+			stack_top.sub(3).write(arg); // Intentionally skip stack slot 4 here for alignment
+			stack_top.sub(5).write(0);
+			stack_top.sub(6).write(init as usize);
+			stack_top.sub(6)
 		};
 
 		Self {

@@ -13,14 +13,14 @@ use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::r#virtual::Global;
 pub(crate) use macros::Hal;
 use paging2::{KTable, TTable};
-use crate::threading::{ThreadControlBlock, ThreadPointer, WakeReason, PointerView, ArgTuple};
+use crate::threading::{ThreadControlBlock, ThreadPointer, WakeReason, PointerView};
 use core::num::NonZero;
 use crate::non_zero;
 
 pub enum Result { Success, Failure }
 
 pub trait SaveStateTr: Debug + Default {
-	fn new<Args: ArgTuple>(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: [MaybeUninit<usize>; 4]) -> Self;
+	fn new(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, args: usize) -> Self;
 }
 
 #[repr(C)]
