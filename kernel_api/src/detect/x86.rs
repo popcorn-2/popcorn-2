@@ -1,0 +1,176 @@
+use super::cache::Initializer;
+use super::features_macro;
+
+use core::arch::x86_64::{__cpuid, __cpuid_count, CpuidResult};
+use core::mem;
+
+features_macro! {
+	@TARGET: x86;
+	@CFG: any(target_arch = "x86", target_arch = "x86_64");
+	@MACRO_NAME: is_x86_feature_detected;
+	@MACRO_ATTRS: #[unstable(feature = "kernel_feature_detect", issue = "none")]
+	@FEATURE: tsc: "tsc";
+	@FEATURE: msr: "msr";
+	@FEATURE: apic: "apic";
+	@FEATURE: cx16: "cx16";
+	@FEATURE: pcid: "pcid";
+	@FEATURE: x2apic: "x2apic";
+	@FEATURE: tsc_deadline: "tsc_deadline";
+	@FEATURE: xsave: "xsave";
+	@FEATURE: hypervisor: "hypervisor";
+	@FEATURE: arat: "arat";
+	@FEATURE: intel_thread_director: "intel_thread_director";
+	@FEATURE: fsgsbase: "fsgsbase";
+	@FEATURE: tsc_adjust: "tsc_adjust";
+	@FEATURE: smep: "smep";
+	@FEATURE: invpcid: "invpcid";
+	@FEATURE: smap: "smap";
+	@FEATURE: la57: "la57";
+	@FEATURE: rdpid: "rdpid";
+	@FEATURE: hybrid: "hybrid";
+	@FEATURE: lass: "lass";
+	@FEATURE: nmi_src: "nmi_src";
+	@FEATURE: sipi64: "sipi64";
+	@FEATURE: xsave_x87: "xsave_x87";
+	@FEATURE: xsave_sse: "xsave_sse";
+	@FEATURE: xsave_avx: "xsave_avx";
+	@FEATURE: xsave_mpx_bounds: "xsave_mpx_bounds";
+	@FEATURE: xsave_mpx_cfg_status: "xsave_mpx_cfg_status";
+	@FEATURE: xsave_avx512_opmask: "xsave_avx512_opmask";
+	@FEATURE: xsave_avx512_zmm_hi256: "xsave_avx512_zmm_hi256";
+	@FEATURE: xsave_avx512_zmm_hi16: "xsave_avx512_zmm_hi16";
+	@FEATURE: xsave_pkru: "xsave_pkru";
+	@FEATURE: xsave_amx_cfg: "xsave_amx_cfg";
+	@FEATURE: xsave_amx_tile_data: "xsave_amx_tile_data";
+	@FEATURE: xsave_apx_gpr: "xsave_apx_gpr";
+	@FEATURE: nx: "nx";
+	@FEATURE: pdpe1gb: "pdpe1gb";
+	@FEATURE: rdtscp: "rdtscp";
+	@FEATURE: extapic: "extapic";
+	@FEATURE: invlpgb: "invlpgb";
+}
+
+pub fn detect() -> Initializer {
+	let mut initializer = Initializer::new();
+
+	let (max_basic_leaf, vendor_id) = unsafe {
+		let CpuidResult {
+			eax: max_basic_leaf,
+			ebx,
+			ecx,
+			edx,
+		} = __cpuid(0);
+		let vendor_id: [[u8; 4]; 3] = [
+			mem::transmute(ebx),
+			mem::transmute(edx),
+			mem::transmute(ecx),
+		];
+		let vendor_id: [u8; 12] = mem::transmute(vendor_id);
+		(max_basic_leaf, vendor_id)
+	};
+
+	if max_basic_leaf < 1 { return initializer; }
+
+	let CpuidResult {
+		ecx: proc_info_ecx,
+		edx: proc_info_edx,
+		..
+	} = unsafe { __cpuid(0x0000_0001_u32) };
+
+	let thermal_power_eax = if max_basic_leaf >= 6 {
+		let CpuidResult { eax, .. } = unsafe { __cpuid(0x0000_0006_u32) };
+		eax
+	} else {
+		0 // CPUID does not support "Thermal/power Management Features"
+	};
+
+	let (extended_features_eax, extended_features_ebx, extended_features_ecx, extended_features_edx) = if max_basic_leaf >= 7 {
+		let CpuidResult { eax, ebx, ecx, edx } = unsafe { __cpuid(0x0000_0007_u32) };
+		(eax, ebx, ecx, edx)
+	} else {
+		(0, 0, 0, 0) // CPUID does not support "Extended Features"
+	};
+
+	let (extended_features_1_eax, extended_features_1_ecx) = if extended_features_eax >= 1 {
+		let CpuidResult { eax, ecx, .. } = unsafe { __cpuid_count(0x0000_0007_u32, 1) };
+		(eax, ecx)
+	} else {
+		(0, 0) // CPUID does not support "Extended Features"
+	};
+
+	let (_xsave_xcr0_high, xsave_xcr0_low) = if proc_info_ecx & (1 << 26) != 0 {
+		let CpuidResult { eax, edx, .. } = unsafe { __cpuid_count(0x0000_000d_u32, 0) };
+		(edx, eax)
+	} else {
+		(0, 0)
+	};
+
+	let CpuidResult {
+		eax: extended_max_basic_leaf,
+		..
+	} = unsafe { __cpuid(0x8000_0000_u32) };
+
+	let (extended_proc_info_ecx, extended_proc_info_edx) = if extended_max_basic_leaf >= 1 {
+		let CpuidResult { ecx, edx, .. } = unsafe { __cpuid(0x8000_0001_u32) };
+		(ecx, edx)
+	} else {
+		(0, 0)
+	};
+
+	let paging_features_ebx = if extended_max_basic_leaf >= 8 {
+		let CpuidResult { ebx, .. } = unsafe { __cpuid(0x8000_0008_u32) };
+		ebx
+	} else {
+		0
+	};
+
+	{
+		let mut enable = |value: u32, bit: u32, feature: Feature| {
+			if value & (1 << bit) != 0 {
+				initializer.set(feature);
+			}
+		};
+
+		enable(proc_info_edx, 4, Feature::tsc);
+		enable(proc_info_edx, 5, Feature::msr);
+		enable(proc_info_edx, 9, Feature::apic);
+		enable(proc_info_ecx, 13, Feature::cx16);
+		enable(proc_info_ecx, 17, Feature::pcid);
+		enable(proc_info_ecx, 21, Feature::x2apic);
+		enable(proc_info_ecx, 24, Feature::tsc_deadline);
+		enable(proc_info_ecx, 26, Feature::xsave);
+		enable(proc_info_ecx, 31, Feature::hypervisor);
+		enable(thermal_power_eax, 2, Feature::arat);
+		enable(thermal_power_eax, 23, Feature::intel_thread_director);
+		enable(extended_features_ebx, 0, Feature::fsgsbase);
+		enable(extended_features_ebx, 1, Feature::tsc_adjust);
+		enable(extended_features_ebx, 7, Feature::smep);
+		enable(extended_features_ebx, 10, Feature::invpcid);
+		enable(extended_features_ebx, 20, Feature::smap);
+		enable(extended_features_ecx, 16, Feature::la57);
+		enable(extended_features_ecx, 22, Feature::rdpid);
+		enable(extended_features_edx, 15, Feature::hybrid);
+		enable(extended_features_1_eax, 6, Feature::lass);
+		enable(extended_features_1_eax, 20, Feature::nmi_src);
+		enable(extended_features_1_ecx, 4, Feature::sipi64);
+		enable(xsave_xcr0_low, 0, Feature::xsave_x87);
+		enable(xsave_xcr0_low, 1, Feature::xsave_sse);
+		enable(xsave_xcr0_low, 2, Feature::xsave_avx);
+		enable(xsave_xcr0_low, 3, Feature::xsave_mpx_bounds);
+		enable(xsave_xcr0_low, 4, Feature::xsave_mpx_cfg_status);
+		enable(xsave_xcr0_low, 5, Feature::xsave_avx512_opmask);
+		enable(xsave_xcr0_low, 6, Feature::xsave_avx512_zmm_hi256);
+		enable(xsave_xcr0_low, 7, Feature::xsave_avx512_zmm_hi16);
+		enable(xsave_xcr0_low, 9, Feature::xsave_pkru);
+		enable(xsave_xcr0_low, 17, Feature::xsave_amx_cfg);
+		enable(xsave_xcr0_low, 18, Feature::xsave_amx_tile_data);
+		enable(xsave_xcr0_low, 19, Feature::xsave_apx_gpr);
+		enable(extended_proc_info_edx, 20, Feature::nx);
+		enable(extended_proc_info_edx, 26, Feature::pdpe1gb);
+		enable(extended_proc_info_edx, 27, Feature::rdtscp);
+		enable(extended_proc_info_ecx, 3, Feature::extapic);
+		enable(paging_features_ebx, 3, Feature::invlpgb);
+	}
+
+	initializer
+}

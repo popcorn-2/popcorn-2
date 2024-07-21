@@ -40,3 +40,6 @@ pub mod ptr;
 
 #[cfg(all(not(feature = "use_std"), feature = "full"))]
 pub mod time;
+
+#[cfg(all(not(feature = "use_std"), feature = "full"))]
+pub mod detect;
