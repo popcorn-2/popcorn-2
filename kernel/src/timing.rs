@@ -3,6 +3,7 @@ use core::arch::asm;
 use core::arch::x86_64::{__cpuid, CpuidResult};
 use core::num::NonZero;
 use bit_field::BitField;
+use kernel_api::is_x86_feature_detected;
 use kernel_api::sync::OnceLock;
 
 static TSC_MULTIPLIER: OnceLock<(u128, NonZero<u128>)> = OnceLock::new();
@@ -30,7 +31,7 @@ pub(crate) fn tsc_to_nanos() -> (u128, NonZero<u128>) {
 				multiplier = Some((1000000000 * u128::from(denom), num.checked_mul(freq).unwrap()));
 			}
 		} else {
-			let is_virtualised = (unsafe { __cpuid(0x1) }.ecx & (1 << 31)) != 0;
+			let is_virtualised = is_x86_feature_detected!("hypervisor");
 			if is_virtualised {
 				debug!("[TSC] Is virtualized");
 				let max_leaf = unsafe { __cpuid(0x40000000) }.eax;

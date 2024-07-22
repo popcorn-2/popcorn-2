@@ -52,6 +52,7 @@
 #![feature(kernel_physical_allocator_location)]
 #![feature(kernel_ptr)]
 #![feature(kernel_time)]
+#![feature(kernel_feature_detect)]
 
 #![no_std]
 #![no_main]
