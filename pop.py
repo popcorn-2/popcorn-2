@@ -51,7 +51,7 @@ def run_cargo_command(subcommand: str, *cargo_args: [str], env: dict[str, str] |
     if args.verbose >= 1:
         print(env, " ".join(command), file=sys.stderr)
 
-    result = subprocess.run(command, env={**os.environ, **env}, capture_output=True, text=True)
+    result = subprocess.run(command, env={**os.environ, **env}, stdout=subprocess.PIPE, text=True)
     if result.returncode != 0:
         print("-- stdout --")
         for line in result.stdout.strip().split("\n"):
