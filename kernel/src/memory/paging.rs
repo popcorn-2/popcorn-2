@@ -3,7 +3,7 @@
 use core::ops::DerefMut;
 use kernel_api::sync::RwSpinlock;
 
-use crate::hal::paging2::KTableTy;
+use crate::hal::KTableTy;
 use crate::sync::late_init::LateInit;
 
 static KERNEL_PAGE_TABLE: LateInit<RwSpinlock<KTableTy>> = LateInit::new();
@@ -19,7 +19,8 @@ pub fn ktable() -> impl DerefMut<Target = KTableTy> {
 
 #[cfg(test)]
 mod tests {
-	use crate::hal::paging2::{TTable, TTableTy};
+	use crate::hal::paging2::TTable;
+	use crate::hal::TTableTy;
 	use crate::memory::physical::highmem;
 	use super::*;
 

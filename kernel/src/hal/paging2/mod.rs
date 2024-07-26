@@ -3,15 +3,8 @@
 use core::fmt::Debug;
 use kernel_api::bridge::paging::MapPageError;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
-use crate::{Hal, HalTy};
+use super::KTableTy;
 use kernel_api::memory::allocator::{PhysicalAllocator};
-
-pub type KTableTy = <HalTy as crate::Hal>::KTableTy;
-pub type TTableTy = <HalTy as crate::Hal>::TTableTy;
-
-pub unsafe fn construct_tables() -> (KTableTy, TTableTy) {
-	<HalTy as crate::Hal>::construct_tables()
-}
 
 pub trait KTable: Debug + Sized {
 	fn translate_page(&self, page: Page) -> Option<Frame>;
@@ -28,8 +21,6 @@ pub trait KTable: Debug + Sized {
 }
 
 pub trait TTable: KTable + Sized {
-	type KTableTy: KTable;
-
 	/// # Safety
 	///
 	/// Page table must be alive until unloaded
@@ -39,25 +30,25 @@ pub trait TTable: KTable + Sized {
 	/// Figure out a better signature involving `Arc` or something
 	unsafe fn load(&self);
 
-	fn new(ktable: &Self::KTableTy, allocator: &'static dyn PhysicalAllocator) -> Result<Self, AllocError>;
+	fn new(ktable: &KTableTy, allocator: &'static dyn PhysicalAllocator) -> Result<Self, AllocError>;
 }
 
 #[export_name = "__popcorn_paging_ktable_translate_page"]
-fn translate_page(this: &<HalTy as Hal>::KTableTy, page: Page) -> Option<Frame> {
-	<<HalTy as Hal>::KTableTy as KTable>::translate_page(this, page)
+fn translate_page(this: &KTableTy, page: Page) -> Option<Frame> {
+	<KTableTy as KTable>::translate_page(this, page)
 }
 
 #[export_name = "__popcorn_paging_ktable_translate_address"]
-fn translate_address(this: &<HalTy as Hal>::KTableTy, addr: VirtualAddress) -> Option<PhysicalAddress> {
-	<<HalTy as Hal>::KTableTy as KTable>::translate_address(this, addr)
+fn translate_address(this: &KTableTy, addr: VirtualAddress) -> Option<PhysicalAddress> {
+	<KTableTy as KTable>::translate_address(this, addr)
 }
 
 #[export_name = "__popcorn_paging_ktable_map_page"]
-fn map_page(this: &mut <HalTy as Hal>::KTableTy, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
-	<<HalTy as Hal>::KTableTy as KTable>::map_page(this, page, frame, reason)
+fn map_page(this: &mut KTableTy, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
+	<KTableTy as KTable>::map_page(this, page, frame, reason)
 }
 
 #[export_name = "__popcorn_paging_ktable_unmap_page"]
-fn unmap_page(this: &mut <HalTy as Hal>::KTableTy, page: Page) -> Result<(), ()> {
-	<<HalTy as Hal>::KTableTy as KTable>::unmap_page(this, page)
+fn unmap_page(this: &mut KTableTy, page: Page) -> Result<(), ()> {
+	<KTableTy as KTable>::unmap_page(this, page)
 }

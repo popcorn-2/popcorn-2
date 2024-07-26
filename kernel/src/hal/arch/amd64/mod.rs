@@ -3,7 +3,7 @@ use core::arch::asm;
 use core::mem::{MaybeUninit, offset_of};
 use core::num::NonZero;
 use crate::hal::ArgTuple;
-use crate::hal::{Hal, SaveState, ThreadControlBlock};
+use crate::hal::{Hal, SaveStateTr, ThreadControlBlock};
 use crate::hal::arch::amd64::interrupts::handler::InterruptStackFrame;
 
 mod gdt;
@@ -16,8 +16,7 @@ mod paging2;
 pub(crate) mod paging;
 mod pic;
 
-#[derive(Hal)]
-struct Amd64Hal;
+pub struct Amd64Hal;
 
 unsafe impl Hal for Amd64Hal {
 	type SerialOut = serial::HalWriter;
@@ -140,15 +139,15 @@ unsafe impl Hal for Amd64Hal {
 
 			"ret",
 
-			const offset_of!(Amd64SaveState, rbx) + offset_of!(ThreadControlBlock, save_state),
-			const offset_of!(Amd64SaveState, rsp) + offset_of!(ThreadControlBlock, save_state),
-			const offset_of!(Amd64SaveState, rbp) + offset_of!(ThreadControlBlock, save_state),
-			const offset_of!(Amd64SaveState, r12) + offset_of!(ThreadControlBlock, save_state),
-			const offset_of!(Amd64SaveState, r13) + offset_of!(ThreadControlBlock, save_state),
-			const offset_of!(Amd64SaveState, r14) + offset_of!(ThreadControlBlock, save_state),
-			const offset_of!(Amd64SaveState, r15) + offset_of!(ThreadControlBlock, save_state),
-			const offset_of!(Amd64SaveState, rflags) + offset_of!(ThreadControlBlock, save_state),
-			const offset_of!(paging2::Amd64TTable, pml4) + offset_of!(ThreadControlBlock, ttable),
+			const offset_of!(ThreadControlBlock, save_state.rbx),
+			const offset_of!(ThreadControlBlock, save_state.rsp),
+			const offset_of!(ThreadControlBlock, save_state.rbp),
+			const offset_of!(ThreadControlBlock, save_state.r12),
+			const offset_of!(ThreadControlBlock, save_state.r13),
+			const offset_of!(ThreadControlBlock, save_state.r14),
+			const offset_of!(ThreadControlBlock, save_state.r15),
+			const offset_of!(ThreadControlBlock, save_state.rflags),
+			const offset_of!(ThreadControlBlock, ttable.pml4),
 			options(noreturn)
 		);
 	}
@@ -158,7 +157,7 @@ unsafe impl Hal for Amd64Hal {
 }
 
 #[derive(Debug)]
-struct Amd64SaveState {
+pub struct Amd64SaveState {
 	pub rbx: MaybeUninit<usize>,
 	pub rsp: MaybeUninit<usize>,
 	pub rbp: MaybeUninit<usize>,
@@ -184,7 +183,7 @@ impl Default for Amd64SaveState {
 	}
 }
 
-impl SaveState for Amd64SaveState {
+impl SaveStateTr for Amd64SaveState {
 	fn new<Args: ArgTuple>(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: [MaybeUninit<usize>; 4]) -> Self {
 		let stack = &mut tcb.kernel_stack;
 		let stack_start = unsafe {

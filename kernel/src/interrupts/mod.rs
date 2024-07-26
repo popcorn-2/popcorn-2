@@ -14,7 +14,7 @@ pub macro irq_handler {
 	) => {
 	    $($vis fn $name() {
 		    $main_block
-		    <$crate::hal::HalTy as $crate::hal::Hal>::get_and_disable_interrupts();
+		    $crate::hal::get_and_disable_interrupts();
 		    $eoi_block
 	    })*
 	},
@@ -27,7 +27,7 @@ pub macro irq_handler {
 	) => {
 		|| {
 			$main_block
-		    <$crate::hal::HalTy as $crate::hal::Hal>::get_and_disable_interrupts();
+		    $crate::hal::get_and_disable_interrupts();
 		    $eoi_block
 		}
 	},
@@ -40,7 +40,7 @@ pub macro irq_handler {
 	) => {
 		move || {
 			$main_block
-		    <$crate::hal::HalTy as $crate::hal::Hal>::get_and_disable_interrupts();
+		    $crate::hal::get_and_disable_interrupts();
 		    $eoi_block
 		}
 	},

@@ -182,8 +182,6 @@ impl KTable for Amd64KTable {
 }
 
 impl TTable for Amd64TTable {
-	type KTableTy = Amd64KTable;
-
 	unsafe fn load(&self) {
 		let addr = self.pml4.0.start().addr;
 		unsafe { asm!("mov cr3, {}", in(reg) addr); }
