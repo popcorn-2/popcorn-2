@@ -38,6 +38,7 @@
 #![feature(build_hasher_default_const_new)]
 #![feature(min_specialization)]
 #![feature(doc_auto_cfg)]
+#![feature(offset_of_nested)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -78,7 +79,7 @@ use core::cmp::{max, min};
 use core::num::NonZero;
 use core::task::{Poll, Waker};
 use core::time::Duration;
-use hal::{HalTy, Hal, ThreadControlBlock};
+use hal::ThreadControlBlock;
 use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
 use kernel_api::memory::{Frame};
@@ -87,9 +88,9 @@ use kernel_api::memory::mapping::{Mapping, self};
 use kernel_api::memory::physical::highmem;
 use kernel_api::memory::r#virtual::Global;
 use kernel_api::time::Instant;
-use crate::hal::paging2::{construct_tables, TTable, TTableTy};
 use utils::handoff::MemoryType;
 use crate::hal::exception::Ty;
+use crate::hal::paging2::TTable;
 use crate::memory::paging::ktable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::task::executor::Executor;
@@ -241,13 +242,13 @@ mod handoff_protection {
 	use core::fmt::{Debug, Formatter};
 	use core::ops::Deref;
 	use derive_more::Constructor;
-	use crate::hal::{Hal, HalTy};
+	use crate::hal;
 
 	#[derive(Constructor)]
-	pub struct HandoffWrapper(&'static utils::handoff::Data, <HalTy as Hal>::TTableTy);
+	pub struct HandoffWrapper(&'static utils::handoff::Data, hal::TTableTy);
 
 	impl HandoffWrapper {
-		pub fn to_empty_ttable(self) -> <HalTy as Hal>::TTableTy {
+		pub fn to_empty_ttable(self) -> hal::TTableTy {
 			// todo!("empty the ttable");
 			self.1
 		}
@@ -275,7 +276,7 @@ extern "sysv64" fn kstart(handoff_data: &'static utils::handoff::Data) -> ! {
 	let ttable = unsafe {
 		use memory::paging::init_page_table;
 
-		let (ktable, ttable) = construct_tables();
+		let (ktable, ttable) = hal::construct_tables();
 
 		init_page_table(ktable);
 		ttable
@@ -307,7 +308,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 	trace!("Handoff data:\n{handoff_data:x?}");
 
-	HalTy::early_init();
+	hal::early_init();
 
 	let usable_memory = handoff_data.memory.map.iter().filter(|entry|
 		entry.ty == MemoryType::Free || entry.ty == MemoryType::BootloaderCode
@@ -505,7 +506,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		let tls_self_ptr = tls.as_ptr().byte_add(tls_size - mem::size_of::<*mut u8>());
 		info!("Placing pointer to self at {tls_self_ptr:p}");
 		tls_self_ptr.cast::<*mut u8>().write(tls_self_ptr);
-		HalTy::load_tls(tls_self_ptr);
+		hal::load_tls(tls_self_ptr);
 	}
 
 	let x = get_foo();
@@ -515,7 +516,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		unsafe { hal::arch::hpet::Hpet::init(hpet, hal::acpi::Handler::new(&hal::acpi::Allocator)); }
 	}
 
-	<HalTy as Hal>::post_acpi_init();
+	hal::post_acpi_init();
 
 	let init_thread = unsafe { threading::init(handoff_data) };
 	debug!("{init_thread:x?}");
@@ -537,7 +538,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 			let update_line_parts = (update_line as *mut dyn FnMut()).to_raw_parts();
 
 			{
-				let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
+				let ttable = hal::TTableTy::new(&*ktable(), highmem()).unwrap();
 				let task = ThreadControlBlock::new(
 					Cow::Borrowed("Boot animation"),
 					ttable,
@@ -585,7 +586,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 				debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, a.as_ptr() as _, a.len(), 0, 0));
 				threading::exit(0)
 			}
-			let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
+			let ttable = hal::TTableTy::new(&*ktable(), highmem()).unwrap();
 			let task = ThreadControlBlock::new(
 				Cow::Borrowed("foo"),
 				ttable,
@@ -638,11 +639,7 @@ fn panic_handler(info: &PanicInfo) -> ! {
 	}
 	sprintln!("\u{001b}[0m");
 
-	if let Some(message) = info.message() {
-		sprintln!("{}", *message);
-	} else if let Some(payload) = info.payload().downcast_ref::<&'static str>() {
-		sprintln!("{}", payload);
-	}
+	sprintln!("{}", info.message());
 
 	panicking::do_panic()
 }

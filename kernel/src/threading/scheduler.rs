@@ -10,12 +10,12 @@ use core::mem::{ManuallyDrop, MaybeUninit};
 use core::num::NonZero;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
-use crate::hal::{HalTy, Hal, ThreadControlBlock, ThreadState};
+use crate::hal::{self, ThreadControlBlock, ThreadState};
 use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(feature = "preemptive")] use core::time::Duration;
 use kernel_api::memory::physical::highmem;
 use kernel_api::time::Instant;
-use crate::hal::paging2::{TTable, TTableTy};
+use crate::hal::paging2::TTable;
 use crate::hal::timing::{Timer, Eoi};
 use crate::interrupts::irq_handler;
 use crate::memory::paging::ktable;
@@ -41,7 +41,7 @@ impl<T: ?Sized> IrqCell<T> {
 		// Unsafety: is this actually needed?
 		if self.state.get().is_some() { panic!("IrqCell cannot be borrowed multiple times"); }
 
-		self.state.set(Some(HalTy::get_and_disable_interrupts()));
+		self.state.set(Some(hal::get_and_disable_interrupts()));
 		IrqGuard { cell: self, _phantom_not_send: PhantomData }
 	}
 
@@ -54,7 +54,7 @@ impl<T: ?Sized> IrqCell<T> {
 
 	pub unsafe fn unlock(&self) {
 		let old_state = self.state.take();
-		HalTy::set_interrupts(old_state.unwrap());
+		hal::set_interrupts(old_state.unwrap());
 	}
 }
 
@@ -202,7 +202,7 @@ impl Scheduler {
 	fn wake_and_reset_timer(&mut self) {
 		#[cfg(feature = "log.scheduler")] debug!("event queue: {:#?}", self.event_queue);
 
-		let mut local_timer = <HalTy as Hal>::LocalTimer::get();
+		let mut local_timer = hal::LocalTimer::get();
 		let tick_period = local_timer.get_time_period_picos().unwrap() * 4;
 
 		let now = Instant::now();
@@ -253,7 +253,7 @@ impl Scheduler {
 	pub fn init(&mut self, tid0: ThreadControlBlock) {
 		assert!(self.tasks.insert(Tid(0), tid0).is_none(), "Cannot init scheduler multiple times");
 		
-		let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
+		let ttable = hal::TTableTy::new(&*ktable(), highmem()).unwrap();
 		self.add_task(ThreadControlBlock::new(
 			Cow::Borrowed("Thread cleanup"),
 			ttable,
@@ -262,7 +262,7 @@ impl Scheduler {
 			(),
 		));
 
-		let mut local_timer = <HalTy as Hal>::LocalTimer::get();
+		let mut local_timer = hal::LocalTimer::get();
 		local_timer.set_irq_number(0x40).unwrap();
 		local_timer.set_divisor(4).unwrap();
 
@@ -332,7 +332,7 @@ impl Scheduler {
 			#[cfg(feature = "log.scheduler")] debug!("[scheduler] switch {old_tid:?} -> {new_tid:?}");
 
 			unsafe {
-				HalTy::switch_thread(old_tcb, new_tcb);
+				hal::switch_thread(old_tcb, new_tcb);
 			}
 		} else {
 			#[cfg(feature = "log.scheduler")] debug!("no other tasks to run");
