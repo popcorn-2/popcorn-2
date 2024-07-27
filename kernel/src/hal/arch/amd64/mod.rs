@@ -121,9 +121,9 @@ unsafe impl Hal for Amd64Hal {
 			"mov rax, [rsi + {8}]",
 			"mov rcx, cr3",
 			"cmp rax, rcx",
-			"je 1f",
+			"je 2f",
 			"mov cr3, rax",
-			"1:",
+			"2:",
 
 			// todo: adjust RSP0 in TSS
 			"mov rbx, [rdi + {7}]",
