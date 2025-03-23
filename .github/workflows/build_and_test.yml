@@ -28,7 +28,7 @@ jobs:
         env:
           CC: clang
           CXX: C++
-          CFLAGS: -I deps/edk2-libc/StdLib/Include
+          CFLAGS: -I deps/edk2-libc/StdLib/Include -v
         run: |
           ./pop.py build --arch x86_64 -v ${{ github.ref == 'refs/heads/trunk' && '--release' || '' }} --kernel-features="${{ matrix.logging }} ${{ matrix.preemptive }}"
       - name: 'Archive live ISO'
