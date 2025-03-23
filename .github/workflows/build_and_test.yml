@@ -22,14 +22,13 @@ jobs:
     steps:
       - name: 'Check out'
         uses: actions/checkout@v4
-      - name: 'Install multilib'
-        run: |
-          sudo apt update
-          sudo apt install -y gcc-multilib
+        with:
+          submodules: 'recursive'
       - name: 'Build'
         env:
           CC: clang
           CXX: C++
+          CFLAGS: -I deps/edk2-libc/StdLib/Include
         run: |
           ./pop.py build --arch x86_64 -v ${{ github.ref == 'refs/heads/trunk' && '--release' || '' }} --kernel-features="${{ matrix.logging }} ${{ matrix.preemptive }}"
       - name: 'Archive live ISO'
@@ -46,14 +45,17 @@ jobs:
     steps:
       - name: 'Check out'
         uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
       - name: 'Install multilib and qemu'
         run: |
           sudo apt update
-          sudo apt install -y gcc-multilib qemu-system-x86 ovmf
+          sudo apt install -y qemu-system-x86 ovmf
       - name: 'Run tests'
         env:
           CC: clang
           CXX: C++
+          CFLAGS: -I deps/edk2-libc/StdLib/Include
         run: |
           cp /usr/share/OVMF/OVMF_CODE.fd ./OVMF_CODE.fd
           cp /usr/share/OVMF/OVMF_VARS.fd ./OVMF_VARS.fd
