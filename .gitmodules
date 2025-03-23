@@ -1,3 +1,6 @@
 [submodule "deps/edk2-libc"]
 	path = deps/edk2-libc
 	url = https://github.com/tianocore/edk2-libc.git
+[submodule "deps/edk2"]
+	path = deps/edk2
+	url = https://github.com/tianocore/edk2
