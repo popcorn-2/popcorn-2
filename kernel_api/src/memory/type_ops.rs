@@ -274,9 +274,14 @@ impl Sub<Frame> for Frame {
 
 #[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Step for Frame {
-    fn steps_between(start: &Self, end: &Self) -> Option<usize> {
-        end.base.addr.checked_sub(start.base.addr)
-            .map(|diff| diff / PAGE_SIZE)
+    fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
+        let steps = end.base.addr.checked_sub(start.base.addr)
+            .map(|diff| diff / PAGE_SIZE);
+        match steps {
+            Some(s) => (s, Some(s)),
+            None => (0, None),
+            // Never need to return `(usize::MAX, None)` as difference between two `usize`s inside `PhysicalAddress` can't be bigger than `usize::MAX`
+        }
     }
 
     fn forward_checked(start: Self, count: usize) -> Option<Self> {
@@ -300,9 +305,13 @@ impl Step for Frame {
 
 #[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Step for Page {
-    fn steps_between(start: &Self, end: &Self) -> Option<usize> {
-        end.base.addr.checked_sub(start.base.addr)
-            .map(|diff| diff / PAGE_SIZE)
+    fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
+        let steps = end.base.addr.checked_sub(start.base.addr)
+            .map(|diff| diff / PAGE_SIZE);
+        match steps {
+            Some(s) => (s, Some(s)),
+            None => (0, None),
+        }
     }
 
     fn forward_checked(start: Self, count: usize) -> Option<Self> {

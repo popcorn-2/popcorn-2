@@ -1,5 +1,5 @@
 #[allow(unused_imports)] use crate::prelude::*;
-use core::arch::{asm, global_asm};
+use core::arch::{asm, global_asm, naked_asm};
 use core::num::NonZero;
 use core::ops::{Index, IndexMut};
 
@@ -350,7 +350,7 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 
 #[naked]
 unsafe extern "C-unwind" fn amd64_syscall_handler() {
-	asm!("ud2", options(noreturn));
+	naked_asm!("ud2");
 }
 
 global_asm!(include_str!("interrupts.asm"), options(raw));
@@ -362,10 +362,9 @@ mod handlers {
 			    #[naked]
 			    #[allow(dead_code)]
 		        pub(super) unsafe extern "C-unwind" fn [<amd64_irq_handler_ $num>]() {
-					::core::arch::asm!(
+					::core::arch::naked_asm!(
 						concat!("push ", stringify!($num)),
-						"jmp amd64_global_irq_handler",
-					options(noreturn));
+						"jmp amd64_global_irq_handler");
 			    }
 		    }
 	    };
@@ -375,11 +374,10 @@ mod handlers {
 			    #[naked]
 			    #[allow(dead_code)]
 		        pub(super) unsafe extern "C-unwind" fn [<amd64_irq_handler_ $num>]() {
-					::core::arch::asm!(
+					::core::arch::naked_asm!(
 						"push 0",
 						concat!("push ", stringify!($num)),
-						"jmp amd64_global_irq_handler",
-					options(noreturn));
+						"jmp amd64_global_irq_handler");
 			    }
 		    }
 	    };

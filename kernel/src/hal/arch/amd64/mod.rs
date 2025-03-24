@@ -1,5 +1,5 @@
 #[allow(unused_imports)] use crate::prelude::*;
-use core::arch::asm;
+use core::arch::{asm, naked_asm};
 use core::mem::{MaybeUninit, offset_of};
 use core::num::NonZero;
 use crate::hal::ArgTuple;
@@ -106,7 +106,7 @@ unsafe impl Hal for Amd64Hal {
 
 	#[naked]
 	unsafe extern "C" fn switch_thread(from: &mut ThreadControlBlock, to: &ThreadControlBlock) {
-		asm!(
+		naked_asm!(
 			"mov [rdi + {0}], rbx",
 			"mov [rdi + {1}], rsp",
 			"mov [rdi + {2}], rbp",
@@ -148,7 +148,6 @@ unsafe impl Hal for Amd64Hal {
 			const offset_of!(ThreadControlBlock, save_state.r15),
 			const offset_of!(ThreadControlBlock, save_state.rflags),
 			const offset_of!(ThreadControlBlock, ttable.pml4),
-			options(noreturn)
 		);
 	}
 

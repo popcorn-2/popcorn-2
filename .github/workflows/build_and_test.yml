@@ -22,19 +22,18 @@ jobs:
     steps:
       - name: 'Check out'
         uses: actions/checkout@v4
-      - name: 'Install multilib'
-        run: |
-          sudo apt update
-          sudo apt install -y gcc-multilib
+        with:
+          submodules: 'recursive'
       - name: 'Build'
         env:
           CC: clang
           CXX: C++
+          CFLAGS: -I${{ github.workspace }}/deps/edk2/MdePkg/Include -I${{ github.workspace }}/deps/edk2-libc/StdLib/Include -I${{ github.workspace }}/deps/edk2-libc/StdLib/Include/X64 -v
         run: |
           ./pop.py build --arch x86_64 -v ${{ github.ref == 'refs/heads/trunk' && '--release' || '' }} --kernel-features="${{ matrix.logging }} ${{ matrix.preemptive }}"
       - name: 'Archive live ISO'
         if: success() && github.ref == 'refs/heads/trunk'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Live ISO
           path: |
@@ -46,14 +45,17 @@ jobs:
     steps:
       - name: 'Check out'
         uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
       - name: 'Install multilib and qemu'
         run: |
           sudo apt update
-          sudo apt install -y gcc-multilib qemu-system-x86 ovmf
+          sudo apt install -y qemu-system-x86 ovmf
       - name: 'Run tests'
         env:
           CC: clang
           CXX: C++
+          CFLAGS: -I${{ github.workspace }}/deps/edk2/MdePkg/Include -I${{ github.workspace }}/deps/edk2-libc/StdLib/Include -I${{ github.workspace }}/deps/edk2-libc/StdLib/Include/X64
         run: |
           cp /usr/share/OVMF/OVMF_CODE.fd ./OVMF_CODE.fd
           cp /usr/share/OVMF/OVMF_VARS.fd ./OVMF_VARS.fd
@@ -67,7 +69,7 @@ jobs:
           output: "tests.md"
       - name: 'Archive results'
         if: success() || failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Test results
           path: |
@@ -83,7 +85,7 @@ jobs:
           cat tests.md >> $GITHUB_STEP_SUMMARY
       - name: 'Archive coverage'
         if: success() || failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Test coverage
           path: |

@@ -1,16 +1,12 @@
 #![feature(ptr_metadata)]
 #![feature(try_blocks)]
 #![feature(let_chains)]
-#![feature(new_uninit)]
 #![feature(split_array)]
-#![feature(slice_ptr_len)]
 #![feature(slice_ptr_get)]
-#![feature(inline_const)]
 #![feature(arbitrary_self_types)]
 #![feature(concat_bytes)]
 #![feature(allocator_api)]
 #![feature(iter_collect_into)]
-#![feature(noop_waker)]
 #![feature(kernel_memory_addr_access)]
 #![feature(kernel_address_alignment_runtime)]
 #![feature(kernel_ptr)]
@@ -27,6 +23,7 @@ use alloc::vec::Vec;
 use core::{fmt, mem};
 use core::arch::asm;
 use core::fmt::Write;
+use core::ops::Deref;
 use core::panic::PanicInfo;
 use core::ptr::{NonNull, slice_from_raw_parts};
 use core::time::Duration;
@@ -39,13 +36,14 @@ use uefi::{Char16, CStr16, Event, Guid};
 use uefi::data_types::{Align, Identify};
 use uefi::fs::{FileSystem, Path};
 use uefi::prelude::*;
-use uefi::proto::console::gop::{GraphicsOutput, PixelFormat};
+use uefi::proto::console::gop::{BltOp, BltPixel, BltRegion, GraphicsOutput, PixelFormat};
 use uefi::proto::console::pointer::Pointer;
 use uefi::proto::console::serial::Serial;
 use uefi::proto::console::text::{Input, Key, ScanCode};
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::fs::SimpleFileSystem;
 use uefi::proto::media::partition::PartitionInfo;
+use uefi::proto::unsafe_protocol;
 use uefi::table::boot::{AllocateType, EventType, MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams, PAGE_SIZE, SearchType, TimerTrigger, Tpl};
 use uefi::table::cfg;
 use uefi::table::runtime::ResetType;
@@ -53,27 +51,12 @@ use uefi_services::system_table;
 
 use kernel_api::memory::{PhysicalAddress, VirtualAddress, Frame as KFrame, Page as KPage};
 use kernel_api::ptr::Unique;
-use lvgl2::font::Font;
-use lvgl2::input::{encoder, pointer};
-use lvgl2::input::encoder::ButtonUpdate;
-use lvgl2::input::pointer::Update;
-use lvgl2::misc::Color;
-use lvgl2::object::{Object, style, Widget};
-use lvgl2::object::button::Button;
-use lvgl2::object::group::Group;
-use lvgl2::object::image::{Image, ImageSource};
-use lvgl2::object::label::Label;
-use lvgl2::object::layout::{flex, Layout};
-use lvgl2::object::style::{ExternalStyle, Opacity, Part, State, Style};
 use utils::handoff;
 use utils::handoff::{ColorMask, MemoryMapEntry, Range};
 
 use crate::config::Config;
-use crate::framebuffer::Gui;
-use crate::logging::LvglLogger;
 use crate::paging::{Frame, Page, TableEntryFlags};
 
-mod framebuffer;
 mod config;
 mod paging;
 mod logging;
@@ -91,6 +74,21 @@ impl<T: Write, U: Write> Write for DualWriter<T, U> {
         a?;
         b?;
         Ok(())
+    }
+}
+
+#[repr(C)]
+#[unsafe_protocol("bd8c1056-9f36-44ec-92a8-a6337f817986")]
+pub struct ActiveEdid {
+    edid_size: u32,
+    edid_data: *const u8
+}
+
+impl Deref for ActiveEdid {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*slice_from_raw_parts(self.edid_data, self.edid_size.try_into().unwrap()) }
     }
 }
 
@@ -182,8 +180,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         }
     };
 
-    let size_mm = if let Ok(edid_handle) = services.get_handle_for_protocol::<framebuffer::ActiveEdid>()
-            && let Ok(edid) = services.open_protocol_exclusive::<framebuffer::ActiveEdid>(edid_handle)
+    let size_mm = if let Ok(edid_handle) = services.get_handle_for_protocol::<ActiveEdid>()
+            && let Ok(edid) = services.open_protocol_exclusive::<ActiveEdid>(edid_handle)
             && edid.len() > 71 {
 
         const DTD_OFFSET: usize = 54;
@@ -256,257 +254,32 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         (dpmm_width + dpmm_height) / 2
     }).unwrap_or(50 /* 130 dpi */);
 
-    trace!("initalising lvgl");
-    let mut ui = Gui::new(&mut gop);
+    let fb = (gop.frame_buffer().as_mut_ptr(), gop.frame_buffer().size(), gop.current_mode_info());
+    
+    const BOOTIMAGE_WIDTH: usize = 345;
+    const BOOTIMAGE_HEIGHT: usize = 199;
+    let bootimage = &include_bytes!("../../graphics/bootimage.bmp")[0x36..0x36+(4*BOOTIMAGE_WIDTH*BOOTIMAGE_HEIGHT)];
 
-    let mut screen = ui.display.active_screen();
-    let mut style = screen.inline_style(Part::Main, State::DEFAULT);
-    style.set_bg_color(Color::from_rgb(0x33, 0x33, 0x33));
-    style.set_text_color(Color::from_rgb(0xee, 0xee, 0xee));
-    style.set_bg_opa(Opacity::OPA_100);
-    style.set_border_width(0);
-    style.set_radius(0);
-    let open_sans_48 = unsafe {
-        Font::new(&lvgl_sys::open_sans_48)
-    };
-    style.set_text_font(open_sans_48);
-
-    let mut flex_box = Object::new(Some(screen));
-    let mut style = flex_box.inline_style(Part::Main, State::DEFAULT);
-    style.set_layout(Layout::flex());
-    style.set_flex_flow(flex::Flow::COLUMN);
-    style.set_flex_main_place(flex::Align::START);
-    style.set_flex_cross_place(flex::Align::CENTER);
-    style.set_flex_track_place(flex::Align::CENTER);
-    style.set_pad_row(12);
-
-    let menu_width = if aspect < 1.8 { lvgl2::misc::pct(90) }
-    else {
-        /* ultra-wide screen - 90% of 16×9 area */
-        i16::try_from(height).unwrap() * 16 / 10
+    let buffer: &[BltPixel] = unsafe {
+        // SAFETY: alpha channel is 0 in BMP to comply with UEFI reserved byte requirements
+        // TODO: memory layout of BltPixel and LVGL Color is identical
+        &*slice_from_raw_parts(
+            bootimage.as_ptr().cast(),
+            bootimage.len() / 4,
+        )
     };
 
-    style.set_size(menu_width, lvgl2::misc::pct(90));
-    style.set_align(lvgl2::object::style::Align::TopMid);
-
-    let mut label = Label::new(Some(flex_box.as_mut()));
-    label.set_text(c"popcorn");
-    let quicksand_200 = unsafe {
-        Font::new(&lvgl_sys::quicksand_200)
-    };
-    label.inline_style(Part::Main, State::DEFAULT).set_text_font(quicksand_200);
-
-    let mut item_style = {
-        let mut item_style = ExternalStyle::new();
-        item_style.set_bg_color(Color::from_rgb(0xef, 0xbb, 0x40));
-        item_style.set_text_color(Color::from_rgb(0, 0, 0));
-        item_style.set_outline_color(Color::from_rgb(0x1c, 0x8a, 0xeb));
-        item_style.set_bg_opa(Opacity::OPA_100);
-        item_style.set_pad_bottom(8);
-        item_style.set_pad_top(8);
-        item_style.set_pad_left(8);
-        item_style.set_pad_right(8);
-        item_style
+    let blt_op = BltOp::BufferToVideo {
+        buffer,
+        src: BltRegion::Full,
+        dest: (10, 10),
+        dims: (345, 199),
     };
 
-    let mut item_style_hover = {
-        let mut item_style = ExternalStyle::new();
-        item_style.set_bg_color(Color::from_rgb(0x1c, 0x8a, 0xeb));
-        item_style
-    };
-
-    let mut item_style_focus = {
-        let mut item_style = ExternalStyle::new();
-        item_style.set_outline_pad(2);
-        item_style.set_outline_width(2);
-        item_style
-    };
-
-    let mut button_group = Group::new();
-
-    for i in 0..1 {
-        
-        let mut btn = Button::new_with_callback(Some(flex_box.as_mut()), move || {
-            
-        });
-        btn.inline_style(Part::Main, State::DEFAULT)
-                .set_width(lvgl2::misc::pct(98));
-        btn.add_style(Part::Main, State::DEFAULT, &mut item_style);
-        btn.add_style(Part::Main, State::PRESSED, &mut item_style_hover);
-        btn.add_style(Part::Main, State::FOCUSED, &mut item_style_focus);
-
-        let mut label = Label::new(Some(btn.upcast_mut()));
-
-        let text = match i {
-            0 => "Boot popcorn2".to_owned(),
-            _ => format!("Boot option {i}")
-        };
-        let text = CString::new(text).unwrap().into_boxed_c_str();
-        label.set_text(Box::leak(text));
-
-        button_group.add_object(btn.upcast_mut());
-
-        mem::forget(btn);
-        mem::forget(label);
-    }
-
-    let mut power_options = {
-        let mut power_options = Object::new(Some(flex_box.as_mut()));
-        let mut style = power_options.inline_style(Part::Main, State::DEFAULT);
-        style.set_flex_flow(flex::Flow::ROW);
-        style.set_flex_main_place(flex::Align::START);
-        style.set_flex_cross_place(flex::Align::CENTER);
-        style.set_flex_track_place(flex::Align::CENTER);
-        style.set_pad_column(12);
-        style.set_width(lvgl2::misc::pct(100));
-        style.set_align(lvgl2::object::style::Align::Center);
-        power_options
-    };
-
-    let power_style = {
-        let mut power_style = ExternalStyle::new();
-        power_style
-    };
-
-    let sf_pro = unsafe { Font::new(&lvgl_sys::sf_symbols_48) };
-
-    let mut button_reboot = Button::new_with_callback(Some(screen), || {
-        info!("rebooting");
-        system_table.runtime_services().reset(ResetType::WARM, Status::SUCCESS, None);
-    });
-    button_reboot.add_style(Part::Main, State::DEFAULT, &mut item_style);
-    button_reboot.add_style(Part::Main, State::PRESSED, &mut item_style_hover);
-    button_reboot.add_style(Part::Main, State::FOCUSED, &mut item_style_focus);
-    let mut s = button_reboot.inline_style(Part::Main, State::DEFAULT);
-    s.set_radius(lvgl2::misc::pct(100));
-    unsafe { lvgl_sys::lv_obj_align(button_reboot.upcast_mut().raw, style::Align::TopRight.into(), -(48*3), 48); }
-    let mut label = Label::new(Some(button_reboot.upcast_mut()));
-    label.set_text(c"􀅈");
-    label.inline_style(Part::Main, State::DEFAULT).set_text_font(sf_pro);
-    button_group.add_object(button_reboot.upcast_mut());
-
-    let mut button_off = Button::new_with_callback(Some(screen), || {
-        info!("shutting down");
-        system_table.runtime_services().reset(ResetType::SHUTDOWN, Status::SUCCESS, None);
-    });
-    button_off.add_style(Part::Main, State::DEFAULT, &mut item_style);
-    button_off.add_style(Part::Main, State::PRESSED, &mut item_style_hover);
-    button_off.add_style(Part::Main, State::FOCUSED, &mut item_style_focus);
-    let mut s = button_off.inline_style(Part::Main, State::DEFAULT);
-    s.set_radius(lvgl2::misc::pct(100));
-    unsafe { lvgl_sys::lv_obj_align(button_off.upcast_mut().raw, style::Align::TopRight.into(), -48, 48); }
-    let mut label = Label::new(Some(button_off.upcast_mut()));
-    label.set_text(c"􀆨");
-    label.inline_style(Part::Main, State::DEFAULT).set_text_font(sf_pro);
-    button_group.add_object(button_off.upcast_mut());
-
-    if let Some(size_mm) = size_mm {
-        let mut label = Label::new(Some(flex_box.as_mut()));
-        let text = CString::new(format!("Physical size {size_mm:?}")).unwrap().into_boxed_c_str();
-        label.set_text(Box::leak(text));
-
-        mem::forget(label);
-    }
-
-    let mut log = Label::new(Some(flex_box.as_mut()));
-    let mut style = log.inline_style(Part::Main, State::DEFAULT);
-    style.set_bg_color(Color::from_rgb(0, 0, 0));
-    style.set_text_color(Color::from_rgb(255, 255, 255));
-    style.set_border_width(2);
-    style.set_width(lvgl2::misc::pct(80));
-    style.set_height(512);
-    style.set_bg_opa(Opacity::OPA_COVER);
-    log.set_recolor(true);
-    log.set_text(c"Hello world!\n#ff0000 ERROR#: This is a test");
-    let mut logger = LvglLogger {
-        label: log,
-        current_color: Color::from_rgb(255, 255, 255),
-        buffer: Default::default(),
-    };
-    unsafe { logging::add_ui(&mut logger); }
-
-    let mut cursor = Image::new(Some(screen));
-    {
-        let cursor_src = ImageSource::new(unsafe { &lvgl_sys::cursor });
-        cursor.set_source(cursor_src);
-    }
-
-    let mut touch_point = (
-        width as f32 / 2f32,
-        height as f32 / 2f32
-    );
-    let mut left_button = false;
-    let pointer_mode = *mouse.mode();
-
-    let pointer_update = || {
-        match mouse.read_state() {
-            Ok(Some(event)) => {
-                info!("mouse event: {event:?}");
-                if pointer_mode.resolution[0] != 0 {
-                    touch_point.0 += (event.relative_movement[0] as f32) / (pointer_mode.resolution[0] as f32);
-                }
-                if pointer_mode.resolution[1] != 0 {
-                    touch_point.1 += (event.relative_movement[1] as f32) / (pointer_mode.resolution[1] as f32);
-                }
-                left_button = pointer_mode.has_button[0] && event.button[0];
-            },
-            Err(e) => error!("mouse error: {e:?}"),
-            _ => {}
-        }
-
-        Update {
-            pressed: left_button,
-            location: (touch_point.0 as i16, touch_point.1 as i16)
-        }
-    };
-
-    let mut pointer_driver = pointer::Driver::new(pointer_update);
-    let mut pointer = lvgl2::input::Input::new(&mut pointer_driver);
-    pointer.set_cursor(cursor.upcast_mut());
-
-    let keyboard_update = || {
-        const CHAR16_SPACE: Char16 = unsafe { Char16::from_u16_unchecked(b' ' as u16) };
-        const CHAR16_ENTER: Char16 = unsafe { Char16::from_u16_unchecked(b'\r' as u16) };
-
-        match keyboard.read_key() {
-            Ok(Some(event)) => {
-                info!("keyboard event: {event:?}");
-
-                match event {
-                    Key::Special(ScanCode::LEFT | ScanCode::UP) => {
-                        ButtonUpdate::Left
-                    },
-                    Key::Special(ScanCode::RIGHT | ScanCode::DOWN) => {
-                        ButtonUpdate::Right
-                    },
-                    Key::Printable(CHAR16_SPACE | CHAR16_ENTER) => ButtonUpdate::Click,
-                    _ => ButtonUpdate::Released
-                }
-            },
-            Err(e) => {
-                error!("keyboard error: {e:?}");
-                ButtonUpdate::Released
-            },
-            _ => ButtonUpdate::Released
-        }
-    };
-
-    let mut keyboard_driver = encoder::Driver::new_buttons(keyboard_update);
-    //let mut keyboard2 = lvgl2::input::Input::new(&mut keyboard_driver);
-    //keyboard2.set_group(button_group);
+    gop.blt(blt_op).expect("Failed to flush display");
 
     services.set_watchdog_timer(0, 0x10000, None).unwrap();
-
-    const LVGL_TICK_DELAY: Duration = Duration::from_millis(30);
-
-    extern "efiapi" fn timer_callback(_: Event, _: Option<NonNull<core::ffi::c_void>>) {
-        lvgl2::timer_handler();
-        lvgl2::tick_increment(LVGL_TICK_DELAY);
-    }
-
-    let timer_event = unsafe { services.create_event(EventType::TIMER | EventType::NOTIFY_SIGNAL, Tpl::CALLBACK, Some(timer_callback), None) }.unwrap();
-    services.set_timer(&timer_event, TimerTrigger::Periodic((LVGL_TICK_DELAY.as_millis() * 10).try_into().unwrap())).unwrap();
-
+    
     if let Ok(image) = services.open_protocol_exclusive::<LoadedImage>(image_handle) {
         debug!("Loaded at base addr {:p}", image.info().0);
     }
@@ -617,12 +390,12 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let framebuffer_info: Option<handoff::Framebuffer> = try {
         use uefi::proto::console::gop::PixelBitmask;
 
-        let mode_info = ui.fb.2;
-        let page_count = (ui.fb.1 + PAGE_SIZE - 1) / PAGE_SIZE;
+        let mode_info = fb.2;
+        let page_count = (fb.1 + PAGE_SIZE - 1) / PAGE_SIZE;
         address_range.start = (address_range.start - page_count * PAGE_SIZE).align_down();
         let fb_start = address_range.start;
 
-        let framebuffer_addr = ui.fb.0 as usize;
+        let framebuffer_addr = fb.0 as usize;
 
         page_table.try_map_range_with::<(), _>(
             Page(fb_start.addr.try_into().unwrap()),
@@ -785,16 +558,6 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let kernel_entry = kernel.entrypoint();
     debug!("Handover to kernel with entrypoint at {:#x}", kernel_entry);
 
-
-    services.close_event(timer_event).unwrap();
-    drop(ui);
-
-    drop(button_reboot);
-    drop(button_off);
-    drop(pointer);
-    //drop(keyboard2);
-    drop(pointer_driver);
-    drop(keyboard_driver);
     drop(gop);
     drop(fs);
     drop(uart);
