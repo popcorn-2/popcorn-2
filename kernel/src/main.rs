@@ -11,7 +11,6 @@
 #![feature(generic_arg_infer)]
 #![feature(panic_info_message)]
 #![feature(gen_blocks)]
-#![feature(maybe_uninit_uninit_array)]
 #![feature(type_changing_struct_update)]
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(inherent_associated_types)]
