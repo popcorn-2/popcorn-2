@@ -78,7 +78,7 @@ mod hal_impl {
 	#[export_name = "__popcorn_set_irq"] pub fn set_interrupts(old_state: usize) { <arch::Arch as Hal>::set_interrupts(old_state) }
 	pub unsafe fn load_tls(ptr: *mut u8) { <arch::Arch as Hal>::load_tls(ptr) }
 	pub unsafe fn construct_tables() -> (KTableTy, TTableTy) { <arch::Arch as Hal>::construct_tables() }
-	pub unsafe extern "C" fn switch_thread(from: &mut ThreadControlBlock, to: &ThreadControlBlock) { <arch::Arch as Hal>::switch_thread(from, to) }
+	pub unsafe extern "C" fn switch_thread(from: &PointerView, to: &PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve { <arch::Arch as Hal>::switch_thread(from, to, preserve) }
 
 	pub const MIN_IRQ_NUM: usize = <arch::Arch as Hal>::MIN_IRQ_NUM;
 	pub const MAX_IRQ_NUM: usize = <arch::Arch as Hal>::MAX_IRQ_NUM;
@@ -97,19 +97,4 @@ macro_rules! sprint {
 		use $crate::hal::FormatWriter;
 		$crate::hal::SerialOut::print(format_args!($($arg)*))
 	}}
-}
-
-#[export_name = "__popcorn_enable_irq"]
-fn enable_interrupts() {
-	<HalTy as Hal>::enable_interrupts()
-}
-
-#[export_name = "__popcorn_disable_irq"]
-fn get_and_disable_interrupts() -> usize {
-	<HalTy as Hal>::get_and_disable_interrupts()
-}
-
-#[export_name = "__popcorn_set_irq"]
-fn set_interrupts(old_state: usize) {
-	<HalTy as Hal>::set_interrupts(old_state)
 }

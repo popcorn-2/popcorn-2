@@ -2,7 +2,7 @@ use core::mem::ManuallyDrop;
 use core::ptr;
 use core::ptr::addr_of;
 use log::debug;
-use crate::hal::{ContextSwitchPreserve, Hal, HalTy};
+use crate::hal::{ContextSwitchPreserve, self};
 use super::{scheduler, WakeReason, ThreadState, scheduler::Scheduler};
 
 /// Adds a pending thread switch that will switch threads once all nested interrupts are handled.
@@ -12,7 +12,7 @@ use super::{scheduler, WakeReason, ThreadState, scheduler::Scheduler};
 /// # Interrupt safety
 /// This function **is** interrupt safe, and will immediately return
 pub fn yield_defer() {
-	crate::hal::arch::apic::send_self_ipi(0x30);
+	hal::arch::apic::send_self_ipi(0x30);
 }
 
 /// Immediately invokes the scheduler to switch threads.
@@ -49,7 +49,7 @@ pub fn yield_now() -> Option<WakeReason> {
 	// From the CPU's perspective during a context switch, `from` is no longer the same `ThreadPointer`
 	// as the stack has been changed. Instead, we replace it with the `ThreadPointer` that `switch_thread`
 	// preserves across the function call
-	let ContextSwitchPreserve(mut from, reason) = unsafe { <HalTy as Hal>::switch_thread(&from_view, &to_view, ContextSwitchPreserve(ptr::read(from_ptr), reason)) };
+	let ContextSwitchPreserve(mut from, reason) = unsafe { hal::switch_thread(&from_view, &to_view, ContextSwitchPreserve(ptr::read(from_ptr), reason)) };
 
 	{
 		let tcb = from.tcb_mut();

@@ -128,12 +128,12 @@ unsafe impl Hal for Amd64Hal {
 			"pop rbx",
 			"mov [rdi + {rflags_offset}], rbx",
 
-			"mov r12, [rsi + {pml4_offset}]",
-			"mov r13, cr3",
-			"cmp r12, r13",
-			"je 2f",
-			"mov cr3, r12",
-			"2:",
+			//todo: "mov r12, [rsi + {pml4_offset}]",
+			//"mov r13, cr3",
+			//"cmp r12, r13",
+			//"je 2f",
+			//"mov cr3, r12",
+			//"2:",
 
 			// todo: adjust RSP0 in TSS
 			"mov rbx, [rdi + {rflags_offset}]",
@@ -153,15 +153,15 @@ unsafe impl Hal for Amd64Hal {
 			"ret",
 
 			save_state_ptr_offset = const offset_of!(PointerView, save_state),
-			rbx_offset = const offset_of!(ThreadControlBlock, save_state.rbx),
-			rsp_offset = const offset_of!(ThreadControlBlock, save_state.rsp),
-			rbp_offset = const offset_of!(ThreadControlBlock, save_state.rbp),
-			r12_offset = const offset_of!(ThreadControlBlock, save_state.r12),
-			r13_offset = const offset_of!(ThreadControlBlock, save_state.r13),
-			r14_offset = const offset_of!(ThreadControlBlock, save_state.r14),
-			r15_offset = const offset_of!(ThreadControlBlock, save_state.r15),
-			rflags_offset = const offset_of!(ThreadControlBlock, save_state.rflags),
-			pml4_offset = const offset_of!(ThreadControlBlock, ttable.pml4),
+			rbx_offset = const offset_of!(Amd64SaveState, rbx),
+			rsp_offset = const offset_of!(Amd64SaveState, rsp),
+			rbp_offset = const offset_of!(Amd64SaveState, rbp),
+			r12_offset = const offset_of!(Amd64SaveState, r12),
+			r13_offset = const offset_of!(Amd64SaveState, r13),
+			r14_offset = const offset_of!(Amd64SaveState, r14),
+			r15_offset = const offset_of!(Amd64SaveState, r15),
+			rflags_offset = const offset_of!(Amd64SaveState, rflags),
+			//pml4_offset = const offset_of!(PointerView, ttable.pml4),
 		);
 	}
 

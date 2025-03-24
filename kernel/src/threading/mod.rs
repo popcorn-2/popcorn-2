@@ -49,7 +49,6 @@ use kernel_api::memory::r#virtual::{Global, OwnedPages};
 use kernel_api::sync::Spinlock;
 use crate::{hashmap_new, non_zero};
 use scheduler::Scheduler;
-use crate::hal::paging2::{TTable, TTableTy};
 use crate::memory::paging::ktable;
 
 mod cleanup;
@@ -65,6 +64,8 @@ pub use pointers::{Thread, ThreadPointer};
 pub use sleeping::{sleep, sleep_until};
 pub use thread_control_block::{ThreadState, ThreadControlBlock, PointerView, OwnedView, SharedView};
 pub use yielding::{yield_now, yield_defer};
+use crate::hal::paging2::TTable;
+use crate::hal::TTableTy;
 
 const INIT_THREAD_NUM: usize = 1;
 const INIT_THREAD_ID: ThreadId = ThreadId { id: non_zero!(INIT_THREAD_NUM) };

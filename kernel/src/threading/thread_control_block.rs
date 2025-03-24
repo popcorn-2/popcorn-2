@@ -6,9 +6,9 @@ use core::num::NonZeroUsize;
 use kernel_api::memory::mapping;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::r#virtual::Global;
-use crate::hal::{Hal, HalTy, SaveState};
-use crate::hal::paging2::TTableTy;
+use crate::hal::{self, SaveState, TTableTy};
 use super::{parking::ParkGaurd, ThreadId, WakeReason};
+use crate::hal::SaveStateTr;
 
 #[doc(hidden)]
 macro_rules! __tcb_gen_field {
@@ -110,7 +110,7 @@ tcb_views! {
 		/// The page table for the thread
 		ttable: TTableTy,
 		/// The saved CPU state
-		#mut(Pointer) save_state: <HalTy as Hal>::SaveState,
+		#mut(Pointer) save_state: SaveState,
 		/// The user-facing name of the thread
 		name: Cow<'static, str>,
 		/// The stack that kernel code runs on inside the thread
