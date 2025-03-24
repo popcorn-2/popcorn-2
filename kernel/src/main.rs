@@ -32,6 +32,7 @@
 #![feature(str_from_raw_parts)]
 #![feature(min_specialization)]
 #![feature(doc_auto_cfg)]
+#![feature(btree_cursors)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -296,8 +297,9 @@ extern "sysv64" fn kstart(handoff_data: &'static utils::handoff::Data) -> ! {
 fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let _ = logging::init();
 
-	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| &*ptr.as_ptr().byte_add(0xffff_8000_0000_0000)) };
-	*panicking::SYMBOL_MAP.write() = map;
+	if let Some(map) = handoff_data.log.symbol_map {
+		panicking::SYMBOL_MAP.get_or_init(|| unsafe { map.byte_add(0xffff_8000_0000_0000).as_ref() });
+	}
 
 	trace!("Handoff data:\n{handoff_data:x?}");
 
@@ -384,6 +386,8 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 		*memory::r#virtual::GLOBAL_VIRTUAL_ALLOCATOR.write() = Box::leak(Box::new(btree_alloc));
 	}
+
+	let _ = panicking::construct_symbol_tree();
 
 	unsafe {
 		hal::acpi::init_tables(handoff_data.rsdp.addr);

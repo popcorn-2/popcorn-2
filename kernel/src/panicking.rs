@@ -2,12 +2,16 @@
 use core::any::Any;
 use core::ptr;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use core::ops::Bound;
+use core::iter;
 use unwinding::abi::UnwindReasonCode;
 use unwinding::panic::catch_unwind as catch_unwind_impl;
-use kernel_api::sync::RwSpinlock;
+use kernel_api::sync::OnceLock;
+use alloc::collections::btree_map::BTreeMap;
 
 static PANIC_COUNT: AtomicUsize = AtomicUsize::new(0);
-pub static SYMBOL_MAP: RwSpinlock<Option<&'static [u8]>> = RwSpinlock::new(None);
+pub static SYMBOL_MAP: OnceLock<&'static [u8]> = OnceLock::new();
+static SYMBOL_TREE: OnceLock<BTreeMap<usize, Symbol>> = OnceLock::new();
 
 pub fn catch_unwind<R, F: FnOnce() -> R + core::panic::UnwindSafe>(f: F) -> Result<R, Box<dyn Any + Send>> {
 	let res = catch_unwind_impl(f);
@@ -15,54 +19,80 @@ pub fn catch_unwind<R, F: FnOnce() -> R + core::panic::UnwindSafe>(f: F) -> Resu
 	res
 }
 
+#[derive(Copy, Clone)]
 pub struct Symbol {
 	pub name: &'static str,
 	pub file: &'static str,
 }
 
-pub fn get_symbol_from_ip(ip: usize) -> Symbol {
-	struct SymbolMapIterator {
-		index: usize,
-		str: &'static [u8]
+impl Symbol {
+	const UNKNOWN: Symbol = Symbol { name: "[unknown]", file: "[unknown]" };
+}
+
+struct SymbolMapIterator {
+	index: usize,
+	str: &'static [u8]
+}
+
+impl Iterator for SymbolMapIterator {
+	type Item = (usize, Symbol);
+
+	fn next(&mut self) -> Option<Self::Item> {
+		let original_idx = self.index;
+		if original_idx == self.str.len() { return None; }
+
+		let mut idx = original_idx;
+		while self.str[idx] != b'\n' { idx += 1; }
+
+		let data = core::str::from_utf8(&self.str[original_idx..idx]).ok()?;
+		let addr = &data[0..16];
+		let (name, file) = (&data[19..]).split_once('\t')?;
+		let file = match file.split_once(':') {
+			Some((file, _)) => file,
+			None => file
+		};
+		let addr = usize::from_str_radix(addr, 16).ok()?;
+
+		self.index = idx + 1;
+
+		Some((addr, Symbol { name, file }))
 	}
-
-	impl Iterator for SymbolMapIterator {
-		type Item = (usize, &'static str, &'static str);
-
-		fn next(&mut self) -> Option<Self::Item> {
-			let original_idx = self.index;
-			if original_idx == self.str.len() { return None; }
-
-			let mut idx = original_idx;
-			while self.str[idx] != b'\n' { idx += 1; }
-
-			let data = core::str::from_utf8(&self.str[original_idx..idx]).ok()?;
-			let addr = &data[0..16];
-			let (name, filename) = (&data[19..]).split_once('\t')?;
-			let filename = match filename.split_once(':') {
-				Some((filename, _)) => filename,
-				None => filename
-			};
-			let addr = usize::from_str_radix(addr, 16).ok()?;
-
-			self.index = idx + 1;
-
-			Some((addr, name, filename))
-		}
+	
+	fn size_hint(&self) -> (usize, Option<usize>) {
+		let len = self.str.iter().filter(|c| **c == b'\n').count();
+		(len, Some(len))
 	}
+}
 
-	let Some(map) = *SYMBOL_MAP.read() else { return Symbol { name: "[no symbols]", file: "" }; };
+pub struct EmptySymbolMapError;
+pub fn construct_symbol_tree() -> Result<(), EmptySymbolMapError> {
+	let Some(map) = SYMBOL_MAP.get() else { return Err(EmptySymbolMapError); };
 	let iter = SymbolMapIterator {
 		index: 0,
 		str: map
 	};
-	let mut sym_name = "[unknown]";
-	let mut sym_file = "[unknown]";
-	for (sym_addr, name, file) in iter {
-		if sym_addr > ip { break; }
-		else if sym_addr != 0 { sym_name = name; sym_file = file; }
+	SYMBOL_TREE.get_or_init(|| BTreeMap::from_iter(iter::once((0, Symbol::UNKNOWN)).chain(iter)));
+	Ok(())
+}
+
+pub fn get_symbol_from_ip(ip: usize) -> Symbol {
+	if let Some(symbol_tree) = SYMBOL_TREE.get() {
+		return *symbol_tree.upper_bound(Bound::Included(&ip)).peek_prev()
+			.expect("upper_bound returns a Cursor pointing to the gap after an element, so prev cannot be None unless the tree is empty").1;
 	}
-	Symbol { name: sym_name, file: sym_file }
+
+	let Some(map) = SYMBOL_MAP.get() else { return Symbol { name: "[no symbols]", file: "" }; };
+	let iter = SymbolMapIterator {
+		index: 0,
+		str: map
+	};
+	
+	let mut last_sym = Symbol::UNKNOWN;
+	for (sym_addr, sym) in iter {
+		if sym_addr > ip { break; }
+		last_sym = sym;
+	}
+	return last_sym;
 }
 
 pub fn stack_trace_iter<F: FnMut(usize, Symbol)>(mut f: F) {
