@@ -296,7 +296,7 @@ extern "sysv64" fn kstart(handoff_data: &'static utils::handoff::Data) -> ! {
 fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let _ = logging::init();
 
-	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| &*ptr.as_ptr().byte_add(0xffff_8000_0000_0000)) };
+	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| &*ptr.as_ptr().wrapping_byte_add(0xffff_8000_0000_0000)) };
 	*panicking::SYMBOL_MAP.write() = map;
 
 	trace!("Handoff data:\n{handoff_data:x?}");
