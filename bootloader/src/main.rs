@@ -458,6 +458,16 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         let size = size.map_size + size.entry_size * 16;
         vec![0u8; size]
     };
+
+    // Allocate handoff upfront so it's in the memory map
+    let handoff = Box::leak(Box::<handoff::Data>::new_uninit());
+    debug!("Allocated handoff structure at {handoff:#p} -> {:#p}", handoff.as_ptr().wrapping_offset(1));
+    debug!(
+        "Allocated memmap structure at {:#p} -> {:#p}",
+        memory_map_buffer.as_ptr(),
+        memory_map_buffer.as_ptr().wrapping_byte_offset(memory_map_buffer.len() as isize)
+    );
+    
     let mut memory_map = services.memory_map(
         MemoryDescriptor::align_buf(&mut memory_map_buffer).unwrap()
     ).unwrap();
@@ -573,7 +583,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         panic!("No RSDP found");
     };
 
-    let handoff = Box::leak(Box::new(handoff::Data {
+    let handoff = handoff.write(handoff::Data {
         framebuffer: framebuffer_info,
         memory: handoff::Memory {
             map: kernel_mem_map,
@@ -592,7 +602,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         },
         tls: (Range(kernel_tls.0.start, kernel_tls.0.end), kernel_tls.1),
         rsdp
-    }));
+    });
 
     let _ = system_table.exit_boot_services();
 
