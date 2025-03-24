@@ -1,6 +1,6 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
-use core::arch::asm;
+use core::arch::{asm, naked_asm};
 use core::cmp::Ordering;
 use core::num::NonZero;
 use core::time::Duration;
@@ -138,23 +138,25 @@ pub unsafe extern "C" fn thread_startup() {
 		}
 	}
 
-	asm!(
-	".cfi_def_cfa rsp, 48",
-	".cfi_offset rip, -48",
-	"pop rbp", // aligns to 16 bytes
-	".cfi_def_cfa rsp, 40",
-	".cfi_register rip, rbp",
-	"call {}",
-	"pop rdi", // pop args off stack
-	".cfi_def_cfa rsp, 32",
-	"pop rsi",
-	".cfi_def_cfa rsp, 24",
-	"pop rdx",
-	".cfi_def_cfa rsp, 16",
-	"pop rcx",
-	".cfi_def_cfa rsp, 8",
-	"ret",
-	sym thread_startup_inner, options(noreturn));
+	naked_asm!(
+		".cfi_startproc simple",
+		".cfi_def_cfa rsp, 48",
+		".cfi_offset rip, -48",
+		"pop rbp", // aligns to 16 bytes
+		".cfi_def_cfa rsp, 40",
+		".cfi_register rip, rbp",
+		"call {}",
+		"pop rdi", // pop args off stack
+		".cfi_def_cfa rsp, 32",
+		"pop rsi",
+		".cfi_def_cfa rsp, 24",
+		"pop rdx",
+		".cfi_def_cfa rsp, 16",
+		"pop rcx",
+		".cfi_def_cfa rsp, 8",
+		"ret",
+		".cfi_endproc",
+	sym thread_startup_inner);
 }
 
 pub fn defer_schedule() {
