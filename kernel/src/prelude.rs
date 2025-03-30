@@ -10,3 +10,5 @@ pub use alloc::format;
 pub use log::{error, warn, info, debug, trace};
 pub use crate::{sprint, sprintln, yeet};
 // todo: thread_local!
+
+pub use crate::io_ext::IoExt as _;

@@ -32,6 +32,10 @@
 #![feature(str_from_raw_parts)]
 #![feature(min_specialization)]
 #![feature(doc_auto_cfg)]
+#![feature(integer_atomics)]
+#![feature(arbitrary_self_types_pointers)]
+#![feature(inline_const_pat)]
+#![feature(macro_metavar_expr_concat)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -105,6 +109,7 @@ mod mmio;
 mod interrupts;
 mod ipc;
 mod prelude;
+mod io_ext;
 
 #[cfg(test)]
 pub mod test_harness;
