@@ -164,6 +164,8 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 	);
 	
 	let core = scheduler::create_scheduler_for_current_core(ptr);
+	
+	crate::hal::enable_interrupts();
 
 	(INIT_THREAD_ID, core)
 }
