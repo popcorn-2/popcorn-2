@@ -108,7 +108,8 @@ impl WakeTrigger {
 
 			match global_thread.1 {
 				PointerState::InScheduler => {
-					todo!()
+					// todo(smp): actually get the right scheduler instead of the current core
+					scheduler::local_scheduler().lock().unpark(tid, reason);
 				},
 				PointerState::GloballyParked(_) => {
 					let PointerState::GloballyParked(mut ptr) = mem::replace(&mut global_thread.1, PointerState::InScheduler) else { unreachable!() };

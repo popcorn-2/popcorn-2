@@ -72,6 +72,8 @@ pub trait Scheduler: Debug {
 		let _ = thread;
 		todo!("");
 	}
+
+	fn unpark(&mut self, thread_id: ThreadId, reason: WakeReason);
 }
 
 pub(super) fn create_scheduler_for_current_core(running_thread: ThreadPointer) -> CoreId {
