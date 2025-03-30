@@ -9,6 +9,7 @@ use kernel_api::sync::OnceLock;
 static TSC_MULTIPLIER: OnceLock<(u128, NonZero<u128>)> = OnceLock::new();
 
 #[inline(always)]
+#[export_name = "__popcorn_system_time"]
 pub(crate) fn tsc() -> u128 {
 	let low: u32;
 	let high: u32;
@@ -18,6 +19,7 @@ pub(crate) fn tsc() -> u128 {
 	(low as u128) | (high as u128) << 32
 }
 
+#[export_name = "__popcorn_system_time_scale"]
 pub(crate) fn tsc_to_nanos() -> (u128, NonZero<u128>) {
 	*TSC_MULTIPLIER.get_or_init(|| {
 		let mut multiplier = None::<(u128, NonZero<u128>)>;
