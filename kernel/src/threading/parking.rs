@@ -89,6 +89,12 @@ pub struct WakeTrigger {
 	park_guard: Weak<ParkGaurd>,
 }
 
+impl PartialEq for WakeTrigger {
+	fn eq(&self, other: &Self) -> bool {
+		self.park_guard.ptr_eq(&other.park_guard)
+	}
+}
+
 impl WakeTrigger {
 	pub fn wake(&self, reason: WakeReason) {
 		if let Some(state) = self.park_guard.upgrade() {

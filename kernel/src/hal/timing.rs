@@ -1,18 +1,56 @@
+use core::cell::OnceCell;
 #[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::Debug;
+use kernel_api::time::Instant;
+use crate::hal::interrupts_v2::Vector;
 
-pub trait Timer {
-	fn get() -> Self;
-	fn set_irq_number(&mut self, irq: usize) -> Result<(), impl Debug>;
-	fn get_time_period_picos(&self) -> Result<u64, impl Debug>;
-	fn get_divisors(&self) -> impl IntoIterator<Item = u64>;
-	fn set_divisor(&mut self, divisor: u64) -> Result<(), impl Debug>;
-	fn set_oneshot_time(&mut self, ticks: u128) -> Result<(), impl Debug>;
-	fn start_periodic(&mut self, ticks: u128) -> Result<(), impl Debug>;
-	fn stop_periodic(&mut self);
-	fn eoi_handle(&mut self) -> impl Eoi + 'static;
+#[thread_local]
+static LOCAL_TIMER: OnceCell<TimerMeta> = OnceCell::new();
+
+pub(super) fn init_local_timer(timer: TimerMeta) {
+	match LOCAL_TIMER.try_insert(timer) {
+		Ok(_) => {},
+		Err(_) => panic!("`LOCAL_TIMER` already initialised"),
+	}
 }
 
-pub trait Eoi: Clone + Copy {
-	fn send(self);
+pub fn local_timer() -> &'static TimerMeta {
+	unsafe { core::mem::transmute::<_, &'static _>(LOCAL_TIMER.get().expect("`local_timer` not yet initialised")) }
+}
+
+pub trait Timer3 {
+	fn mask(&self, masked: bool);
+	fn set_deadline(&self, time: Instant) -> Result<(), ()>;
+}
+
+pub struct TimerMeta {
+	vector: Vector,
+	mask: fn(*const (), bool),
+	set_deadline: fn(*const (), Instant) -> Result<(), ()>,
+	data: *const (),
+}
+
+impl TimerMeta {
+	pub const fn new<T: Timer3>(vector: Vector, interface: &'static T) -> Self {
+		Self {
+			vector,
+			mask: unsafe { core::mem::transmute(T::mask as fn(&T, bool)) },
+			set_deadline: unsafe { core::mem::transmute(T::set_deadline as fn(&T, Instant) -> Result<(), ()>) },
+			data: interface as *const T as _
+		}
+	}
+	
+	pub const fn vector(&self) -> Vector { self.vector }
+	
+	pub fn mask(&self, masked: bool) {
+		(self.mask)(self.data, masked)
+	}
+
+	pub fn set_deadline(&self, time: Instant) -> Result<(), ()> {
+		(self.set_deadline)(self.data, time)
+	}
+	
+	pub fn data(&self) -> *const () {
+		self.data
+	}
 }

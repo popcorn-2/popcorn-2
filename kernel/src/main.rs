@@ -52,7 +52,7 @@
 #![feature(kernel_time)]
 #![feature(kernel_feature_detect)]
 #![feature(kernel_irq_cell)]
-
+#![feature(once_cell_try_insert)]
 #![no_std]
 #![no_main]
 
@@ -535,9 +535,9 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let x = get_foo();
 	assert_eq!(x, 6, "TLS value should be 6");
 
-	if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(hal::acpi::tables()) {
+	/*if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(hal::acpi::tables()) {
 		unsafe { hal::arch::hpet::Hpet::init(hpet, hal::acpi::Handler::new(&hal::acpi::Allocator)); }
-	}
+	}*/
 
 	hal::post_acpi_init();
 

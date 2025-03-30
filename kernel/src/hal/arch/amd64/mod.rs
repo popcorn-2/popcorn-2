@@ -4,9 +4,11 @@ use core::fmt::{Debug, Formatter};
 use core::mem::{MaybeUninit, offset_of};
 use core::num::NonZero;
 use kernel_api::memory::mapping::Stack;
-use crate::hal::ContextSwitchPreserve;
+use crate::hal::{ContextSwitchPreserve, IpiTarget};
 use crate::hal::{Hal, SaveStateTr, ThreadControlBlock};
 use crate::hal::arch::amd64::interrupts::handler::InterruptStackFrame;
+use crate::hal::interrupts_v2::Vector;
+use crate::hal::timing::TimerMeta;
 use crate::threading::{ThreadPointer, PointerView};
 
 mod gdt;
@@ -26,7 +28,6 @@ unsafe impl Hal for Amd64Hal {
 	type KTableTy = paging2::Amd64KTable;
 	type TTableTy = paging2::Amd64TTable;
 	type SaveState = Amd64SaveState;
-	type LocalTimer = super::apic::LapicTimer;
 
 	fn breakpoint() { unsafe { asm!("int3"); } }
 
@@ -66,7 +67,7 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	fn post_acpi_init() {
-		super::apic::init(0xff);
+		super::apic::init();
 	}
 
 	fn enable_interrupts() {
@@ -165,8 +166,17 @@ unsafe impl Hal for Amd64Hal {
 		);
 	}
 
-	const MIN_IRQ_NUM: usize = 48; // 0-32 for exceptions, 32-48 for masked pic
-	const MAX_IRQ_NUM: usize = 255; // 255 for spurious apic
+	fn send_ipi(target: IpiTarget) -> Result<(), ()> {
+		todo!()
+	}
+	
+	fn send_local_eoi(vector: Vector) {
+		let xapic = unsafe { &*crate::hal::timing::local_timer().data().cast::<crate::hal::arch::apic::lapic::xapic::XApicTimer>() };
+		xapic.0.eoi(vector);
+	}
+
+	const IPI_VECTOR: Vector = Vector(0x30);
+	const SPURIOUS_VECTOR: Vector = Vector(0xFF);
 }
 
 pub struct Amd64SaveState {

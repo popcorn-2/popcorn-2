@@ -4,18 +4,14 @@ pub mod paging2;
 pub mod exception;
 pub mod acpi;
 pub mod timing;
+pub mod interrupts_v2;
 
 #[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::Debug;
-use core::mem::MaybeUninit;
-use kernel_api::memory::mapping;
-use kernel_api::memory::mapping::Stack;
-use kernel_api::memory::r#virtual::Global;
 pub(crate) use macros::Hal;
 use paging2::{KTable, TTable};
 use crate::threading::{ThreadControlBlock, ThreadPointer, WakeReason, PointerView};
-use core::num::NonZero;
-use crate::non_zero;
+use crate::hal::interrupts_v2::Vector;
 
 pub enum Result { Success, Failure }
 
@@ -31,7 +27,6 @@ pub unsafe trait Hal {
 	type KTableTy: KTable + Send + Sync;
 	type TTableTy: TTable;
 	type SaveState: SaveStateTr;
-	type LocalTimer: timing::Timer;
 
 	fn breakpoint();
 	fn exit(result: Result) -> !;
@@ -45,11 +40,18 @@ pub unsafe trait Hal {
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
 	unsafe extern "C" fn switch_thread(from: &PointerView, to: &PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve;
 
-	const MIN_IRQ_NUM: usize;
-	const MAX_IRQ_NUM: usize;
+	fn send_ipi(target: IpiTarget) -> ::core::result::Result<(), ()>;
+	fn send_local_eoi(vector: Vector);
+
+	const IPI_VECTOR: Vector;
+	const SPURIOUS_VECTOR: Vector;
 }
 
 const _: () = if align_of::<KTableTy>() != 8 { panic!("for... reasons... KTables must be 8 byte aligned"); };
+
+pub enum IpiTarget {
+	SelfIpi,
+}
 
 pub trait FormatWriter {
 	fn print(fmt: core::fmt::Arguments);
@@ -66,8 +68,7 @@ mod hal_impl {
 	pub type KTableTy = <arch::Arch as Hal>::KTableTy;
 	pub type TTableTy = <arch::Arch as Hal>::TTableTy;
 	pub type SaveState = <arch::Arch as Hal>::SaveState;
-	pub type LocalTimer = <arch::Arch as Hal>::LocalTimer;
-
+	
 	pub fn breakpoint() { <arch::Arch as Hal>::breakpoint() }
 	pub fn exit(result: Result) -> ! { <arch::Arch as Hal>::exit(result) }
 	pub fn debug_output(data: &[u8]) -> core::result::Result<(), ()> { <arch::Arch as Hal>::debug_output(data) }
@@ -80,8 +81,12 @@ mod hal_impl {
 	pub unsafe fn construct_tables() -> (KTableTy, TTableTy) { <arch::Arch as Hal>::construct_tables() }
 	pub unsafe extern "C" fn switch_thread(from: &PointerView, to: &PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve { <arch::Arch as Hal>::switch_thread(from, to, preserve) }
 
-	pub const MIN_IRQ_NUM: usize = <arch::Arch as Hal>::MIN_IRQ_NUM;
-	pub const MAX_IRQ_NUM: usize = <arch::Arch as Hal>::MAX_IRQ_NUM;
+	pub fn send_ipi(target: IpiTarget) -> ::core::result::Result<(), ()> { <arch::Arch as Hal>::send_ipi(target) }
+	
+	pub fn send_local_eoi(vector: Vector) { <arch::Arch as Hal>::send_local_eoi(vector) }
+
+	pub const IPI_VECTOR: Vector = <arch::Arch as Hal>::IPI_VECTOR;
+	pub const SPURIOUS_VECTOR: Vector = <arch::Arch as Hal>::SPURIOUS_VECTOR;
 }
 pub use hal_impl::*;
 

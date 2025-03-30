@@ -135,6 +135,7 @@ use kernel_api::sync::OnceLock;
 use crate::hal::arch::amd64::Amd64Hal;
 use crate::hal::arch::amd64::interrupts::entry::Type;
 use crate::hal::exception::{DebugTy, Exception, ExceptionRegisters, PageFault, Ty};
+use crate::hal::interrupts_v2::Vector;
 use crate::non_zero;
 
 #[repr(C, align(16))]
@@ -242,16 +243,14 @@ impl ExceptionRegisters for Amd64RegisterDump<'_> {
 
 #[no_mangle]
 extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
-	#[cfg(feature = "log.scheduler")] debug!("[amd64] vector {:#x}", data.num);
+	info!("[amd64] vector {:#x}", data.num);
 	
-	use crate::hal::Hal;
-	
-	const MIN_IRQ: u8 = Amd64Hal::MIN_IRQ_NUM as u8;
-	const MAX_IRQ: u8 = Amd64Hal::MAX_IRQ_NUM as u8;
+	const MIN_IRQ: u8 = 0x30;
+	const MAX_IRQ: u8 = 0xFF;
 	
 	#[allow(non_contiguous_range_endpoints)]
-	if let MIN_IRQ..MAX_IRQ = data.num as u8 {
-		crate::interrupts::global_irq_handler(data.num as usize);
+	if let MIN_IRQ.. = data.num as u8 {
+		crate::interrupts::global_irq_handler(Vector(data.num as usize));
 		return;
 	}
 	
@@ -339,11 +338,7 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 			warn!("Spurious PIC irq - vector {}", e - 32);
 			return;
 		},
-		MIN_IRQ..MAX_IRQ => unreachable!(),
-		255 => {
-			warn!("Spurious APIC irq");
-			return;
-		},
+		MIN_IRQ.. => unreachable!(),
 	};
 	crate::exception_handler(&mut exception_payload);
 }

@@ -20,8 +20,6 @@ use crate::hal;
 use kernel_api::sync::{IrqCell, IrqGuard, Spinlock};
 use kernel_api::time::Instant;
 use crate::hal::paging2::TTable;
-use crate::hal::timing::{Timer, Eoi};
-use crate::interrupts::irq_handler;
 use crate::memory::paging::ktable;
 use crate::{hashmap_new, non_zero, assert_unsafe_precondition};
 use crate::threading::{CoreId, Thread, ThreadId, ThreadPointer, WakeReason};
