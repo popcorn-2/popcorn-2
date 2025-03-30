@@ -1,8 +1,8 @@
 use core::mem::ManuallyDrop;
 use core::ptr;
 use core::ptr::addr_of;
-use log::debug;
-use crate::hal::{ContextSwitchPreserve, self};
+use log::{debug, trace};
+use crate::hal::{ContextSwitchPreserve, self, IpiTarget};
 use super::{scheduler, WakeReason, ThreadState, scheduler::Scheduler};
 
 /// Adds a pending thread switch that will switch threads once all nested interrupts are handled.
@@ -12,7 +12,7 @@ use super::{scheduler, WakeReason, ThreadState, scheduler::Scheduler};
 /// # Interrupt safety
 /// This function **is** interrupt safe, and will immediately return
 pub fn yield_defer() {
-	hal::arch::apic::send_self_ipi(0x30);
+	hal::send_ipi(IpiTarget::SelfIpi).expect("Failed to yield");
 }
 
 /// Immediately invokes the scheduler to switch threads.
@@ -39,7 +39,7 @@ pub fn yield_now() -> Option<WakeReason> {
 	// is safe
 	let from_view = from.tcb_mut();
 
-	debug!("[a] switch from `{:?}` to `{:?}`", from_view.thread_id, to_view.thread_id);
+	#[cfg(feature = "log.scheduler")] trace!("[a] switch from `{:?}` to `{:?}`", from_view.thread_id, to_view.thread_id);
 
 	assert!(to_view.state.is_ready());
 	let reason = to_view.state.wake_reason();
@@ -53,7 +53,7 @@ pub fn yield_now() -> Option<WakeReason> {
 
 	{
 		let tcb = from.tcb_mut();
-		debug!("[b] switch from `{:?}` to current, old blocked in state {:?}, new woken due to {reason:?}", tcb.thread_id, tcb.state);
+		#[cfg(feature = "log.scheduler")] trace!("[b] switch from `{:?}` to current, old blocked in state {:?}, new woken due to {reason:?}", tcb.thread_id, tcb.state);
 	}
 
 	// Then we pass the old `ThreadPointer` back to the scheduler for it to enqueue
