@@ -236,3 +236,31 @@ impl SaveStateTr for Amd64SaveState {
 extern "x86-interrupt" fn breakpoint(frame: InterruptStackFrame) {
 	warn!("BREAKPOINT: {frame:#x?}");
 }
+
+pub(super) mod msr {
+	use core::arch::asm;
+
+	pub struct ModelSpecificRegister(usize);
+
+	pub const IA32_APIC_BASE: ModelSpecificRegister = ModelSpecificRegister(0x1B);
+	pub const IA32_TSC_DEADLINE: ModelSpecificRegister = ModelSpecificRegister(0x6e0);
+
+	// fixme: is this always safe?
+	pub fn rdmsr(msr: ModelSpecificRegister) -> u64 {
+		let (low, high): (u32, u32);
+		unsafe {
+			asm!("rdmsr", in("ecx") msr.0, out("eax") low, out("edx") high, options(nostack, nomem, preserves_flags));
+		}
+
+		u64::from(low) | u64::from(high) << 32
+	}
+
+	// fixme: is this always safe?
+	pub fn wrmsr(msr: ModelSpecificRegister, val: u64) {
+		let low = val as u32;
+		let high = (val >> 32) as u32;
+		unsafe {
+			asm!("wrmsr", in("rcx") msr.0, in("eax") low, in("edx") high, options(nostack, nomem, preserves_flags));
+		}
+	}
+}
