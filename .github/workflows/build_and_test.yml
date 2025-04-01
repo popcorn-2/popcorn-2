@@ -35,7 +35,7 @@ jobs:
         if: success() && github.ref == 'refs/heads/trunk'
         uses: actions/upload-artifact@v4
         with:
-          name: Live ISO
+          name: Live ISO - ${{ matrix.logging }} ${{ matrix.preemptive }}
           path: |
             target/release/popcorn2.iso
   test:
