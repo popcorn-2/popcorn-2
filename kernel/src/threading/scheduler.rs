@@ -120,5 +120,7 @@ pub fn enqueue(mut thread: ThreadPointer) {
 	let injector_idx = CORE_NUM.fetch_add(1, Ordering::Relaxed) % injectors.len();
 	let injector = &injectors[injector_idx];
 	debug!("Inject into core {injector_idx}");
+
+	// fixme: this needs to send an IPI to the corresponding core in case it's idling and needs waking up
 	injector.enqueue(thread);
 }

@@ -26,7 +26,6 @@ pub struct Injector {
 impl super::Injector for Injector {
 	fn enqueue(&self, thread: ThreadPointer) {
 		let queue = match self.queue.upgrade() {
-			// fixme: this needs to send an IPI to the corresponding core in case it's idling and needs waking up
 			Some(queue) => queue,
 			None => {
 				warn!("Attempted to inject into dead task queue");
