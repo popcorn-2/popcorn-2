@@ -46,7 +46,7 @@ macro_rules! features_macro {
 
         #[doc(hidden)]
         #[allow(non_camel_case_types)]
-        #[derive(Copy, Clone)]
+        #[derive(Copy, Clone, Debug)]
         #[repr(u32)]
         #[cfg($cfg)]
         pub(crate) enum Feature {

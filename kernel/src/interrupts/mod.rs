@@ -1,75 +1,30 @@
 #[allow(unused_imports)] use crate::prelude::*;
-use alloc::collections::BTreeMap;
 use core::cell::OnceCell;
-use kernel_api::sync::{Spinlock, SpinlockGuard};
-
-pub mod vm;
-
-pub macro irq_handler {
-	(
-	    $($vis:vis fn $name:ident() {
-	        main => $main_block:block
-	        eoi => $eoi_block:block
-	    })*
-	) => {
-	    $($vis fn $name() {
-		    $main_block
-		    $crate::hal::get_and_disable_interrupts();
-		    $eoi_block
-	    })*
-	},
-
-	(
-		|| {
-			main => $main_block:block
-	        eoi => $eoi_block:block
-		}
-	) => {
-		|| {
-			$main_block
-		    $crate::hal::get_and_disable_interrupts();
-		    $eoi_block
-		}
-	},
-
-	(
-		move || {
-			main => $main_block:block
-	        eoi => $eoi_block:block
-		}
-	) => {
-		move || {
-			$main_block
-		    $crate::hal::get_and_disable_interrupts();
-		    $eoi_block
-		}
-	},
-}
-
-#[thread_local]
-static IRQ_HANDLES: Spinlock<BTreeMap<usize, Box<dyn FnMut() /* + Send ???*/>>> = Spinlock::new(BTreeMap::new());
+use crate::hal;
+use crate::hal::interrupts_v2::Vector;
 
 #[thread_local]
 static DEFER_IRQ: OnceCell<Box<dyn Fn()>> = OnceCell::new();
 
-pub fn global_irq_handler(vector: usize) {
-	use kernel_api::sync::SpinlockGuardExt as _;
-	
-	if vector == 0x30 { (DEFER_IRQ.get().unwrap())(); return; }
-	
-	let mut guard = IRQ_HANDLES.lock();
-	if let Some(f) = guard.get_mut(&vector) {
-		(*f)();
+pub fn global_irq_handler(vector: Vector) {
+	if vector == hal::IPI_VECTOR {
+		// todo: check actual IPI cause instead of blindly assuming self-ipi defer
+		DEFER_IRQ.get().expect("No defer irq handler")();
+		hal::get_and_disable_interrupts();
+		hal::send_local_eoi(vector);
+	} else if vector == hal::SPURIOUS_VECTOR {
+		warn!("Spurious interrupt");
+	} else if vector == hal::timing::local_timer().vector() { // todo: can this be nicer?
+		crate::timing::local_timer_queue_irq_handler();
+		hal::get_and_disable_interrupts();
+		hal::send_local_eoi(vector);
 	} else {
-		warn!("Unhandled IRQ: vector {vector}");
+		warn!("Unhandled IRQ: vector {:#x}", vector.0);
 	}
-	SpinlockGuard::unlock_no_interrupts(guard);
+	// todo: extint
 }
 
-pub fn insert_handler(vector: usize, f: impl FnMut() + 'static) -> Result<(), ()> {
-	IRQ_HANDLES.lock().try_insert(vector, Box::new(f)).map(|_| ()).map_err(|_| ())
-}
-
+// todo: no
 pub fn set_defer_irq(f: impl Fn() + 'static) {
 	DEFER_IRQ.set(Box::new(f)).unwrap_or_else(|_| panic!());
 }

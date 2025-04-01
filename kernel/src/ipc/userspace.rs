@@ -1,16 +1,16 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use crossbeam_queue::SegQueue;
 use utils::better_cow::Cow;
-use crate::hal::ThreadState;
+use crate::threading::ThreadState;
 use crate::ipc::Error;
 use crate::ipc::server::Server;
 use crate::threading;
-use crate::threading::scheduler::Tid;
+use crate::threading::ThreadId;
 
 #[derive(Debug)]
 pub(crate) struct UserspaceServer {
 	pending_queue: SegQueue<Packet>,
-	pid: Tid,
+	pid: ThreadId,
 	processed_queue: (),
 }
 
@@ -18,7 +18,7 @@ impl UserspaceServer {
 	pub(crate) fn new_current_thread() -> Self {
 		Self {
 			pending_queue: SegQueue::new(),
-			pid: threading::current_thread(),
+			pid: threading::current_thread().expect("Cannot be caled while idling"),
 			processed_queue: (),
 		}
 	}
@@ -34,7 +34,7 @@ impl Server for UserspaceServer {
 		};
 		debug!("`UserpsaceServer{{ pid: {:?} }}` add packet `{packet:#?}`", self.pid);
 		self.pending_queue.push(packet); // FIXME(panic): fallible OOM
-		threading::block(ThreadState::Blocked);
+		threading::park(&[]);
 		unimplemented!()
 	}
 }

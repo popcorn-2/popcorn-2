@@ -60,7 +60,7 @@ impl Debug for Capabilities {
 			fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 				let mut d = f.debug_set();
 
-				for bit_idx in 0..core::mem::size_of_val(&self.0) {
+				for bit_idx in 0..size_of_val(&self.0) {
 					let bit = self.0.get_bit(bit_idx);
 					if bit { d.entry(&bit_idx); }
 				}

@@ -4,30 +4,29 @@ pub mod paging2;
 pub mod exception;
 pub mod acpi;
 pub mod timing;
+pub mod interrupts_v2;
 
 #[allow(unused_imports)] use crate::prelude::*;
-use alloc::borrow::Cow;
 use core::fmt::Debug;
-use core::mem::MaybeUninit;
-use kernel_api::memory::mapping;
-use kernel_api::memory::mapping::Stack;
-use kernel_api::memory::r#virtual::Global;
+pub(crate) use macros::Hal;
 use paging2::{KTable, TTable};
-use core::num::NonZero;
-use crate::non_zero;
+use crate::threading::{ThreadControlBlock, ThreadPointer, WakeReason, PointerView};
+use crate::hal::interrupts_v2::Vector;
 
 pub enum Result { Success, Failure }
 
 pub trait SaveStateTr: Debug + Default {
-	fn new<Args: ArgTuple>(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: [MaybeUninit<usize>; 4]) -> Self;
+	fn new(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, args: usize) -> Self;
 }
+
+#[repr(C)]
+pub struct ContextSwitchPreserve(pub ThreadPointer, pub Option<WakeReason>);
 
 pub unsafe trait Hal {
 	type SerialOut: FormatWriter;
 	type KTableTy: KTable + Send + Sync;
 	type TTableTy: TTable;
 	type SaveState: SaveStateTr;
-	type LocalTimer: timing::Timer;
 
 	fn breakpoint();
 	fn exit(result: Result) -> !;
@@ -39,13 +38,21 @@ pub unsafe trait Hal {
 	fn set_interrupts(old_state: usize);
 	unsafe fn load_tls(ptr: *mut u8);
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
-	unsafe extern "C" fn switch_thread(from: &mut ThreadControlBlock, to: &ThreadControlBlock);
+	unsafe extern "C" fn switch_thread(from: &PointerView, to: &PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve;
 
-	const MIN_IRQ_NUM: usize;
-	const MAX_IRQ_NUM: usize;
+	fn send_ipi(target: IpiTarget) -> ::core::result::Result<(), ()>;
+	fn send_local_eoi(vector: Vector);
+	fn wait_for_interrupt();
+
+	const IPI_VECTOR: Vector;
+	const SPURIOUS_VECTOR: Vector;
 }
 
 const _: () = if align_of::<KTableTy>() != 8 { panic!("for... reasons... KTables must be 8 byte aligned"); };
+
+pub enum IpiTarget {
+	SelfIpi,
+}
 
 pub trait FormatWriter {
 	fn print(fmt: core::fmt::Arguments);
@@ -57,13 +64,12 @@ pub trait InterruptTable {
 
 mod hal_impl {
 	use super::*;
-	
+
 	pub type SerialOut = <arch::Arch as Hal>::SerialOut;
 	pub type KTableTy = <arch::Arch as Hal>::KTableTy;
 	pub type TTableTy = <arch::Arch as Hal>::TTableTy;
 	pub type SaveState = <arch::Arch as Hal>::SaveState;
-	pub type LocalTimer = <arch::Arch as Hal>::LocalTimer;
-
+	
 	pub fn breakpoint() { <arch::Arch as Hal>::breakpoint() }
 	pub fn exit(result: Result) -> ! { <arch::Arch as Hal>::exit(result) }
 	pub fn debug_output(data: &[u8]) -> core::result::Result<(), ()> { <arch::Arch as Hal>::debug_output(data) }
@@ -74,10 +80,15 @@ mod hal_impl {
 	#[export_name = "__popcorn_set_irq"] pub fn set_interrupts(old_state: usize) { <arch::Arch as Hal>::set_interrupts(old_state) }
 	pub unsafe fn load_tls(ptr: *mut u8) { <arch::Arch as Hal>::load_tls(ptr) }
 	pub unsafe fn construct_tables() -> (KTableTy, TTableTy) { <arch::Arch as Hal>::construct_tables() }
-	pub unsafe extern "C" fn switch_thread(from: &mut ThreadControlBlock, to: &ThreadControlBlock) { <arch::Arch as Hal>::switch_thread(from, to) }
+	pub unsafe extern "C" fn switch_thread(from: &PointerView, to: &PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve { <arch::Arch as Hal>::switch_thread(from, to, preserve) }
 
-	pub const MIN_IRQ_NUM: usize = <arch::Arch as Hal>::MIN_IRQ_NUM;
-	pub const MAX_IRQ_NUM: usize = <arch::Arch as Hal>::MAX_IRQ_NUM;
+	pub fn send_ipi(target: IpiTarget) -> ::core::result::Result<(), ()> { <arch::Arch as Hal>::send_ipi(target) }
+	
+	pub fn send_local_eoi(vector: Vector) { <arch::Arch as Hal>::send_local_eoi(vector) }
+	pub fn wait_for_interrupt() { <arch::Arch as Hal>::wait_for_interrupt() }
+
+	pub const IPI_VECTOR: Vector = <arch::Arch as Hal>::IPI_VECTOR;
+	pub const SPURIOUS_VECTOR: Vector = <arch::Arch as Hal>::SPURIOUS_VECTOR;
 }
 pub use hal_impl::*;
 
@@ -93,83 +104,4 @@ macro_rules! sprint {
 		use $crate::hal::FormatWriter;
 		$crate::hal::SerialOut::print(format_args!($($arg)*))
 	}}
-}
-
-trait ArgTuple {
-	fn as_array(self) -> [MaybeUninit<usize>; 4];
-}
-
-impl ArgTuple for () {
-	fn as_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()]
-	}
-}
-
-impl ArgTuple for (usize,) {
-	fn as_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::new(self.0), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()]
-	}
-}
-
-impl ArgTuple for (usize,usize) {
-	fn as_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::new(self.0), MaybeUninit::new(self.1), MaybeUninit::uninit(), MaybeUninit::uninit()]
-	}
-}
-
-/*impl ArgTuple for (usize,usize,usize) {
-	fn as_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::new(self.0), MaybeUninit::new(self.1), MaybeUninit::new(self.2), MaybeUninit::uninit()]
-	}
-}
-
-impl ArgTuple for (usize,usize,usize,usize) {
-	fn as_array(self) -> [MaybeUninit<usize>; 4] {
-		[MaybeUninit::new(self.0), MaybeUninit::new(self.1), MaybeUninit::new(self.2), MaybeUninit::new(self.3)]
-	}
-}*/
-
-#[derive(Debug)]
-pub struct ThreadControlBlock {
-	pub ttable: TTableTy,
-	pub save_state: SaveState,
-	pub name: Cow<'static, str>,
-	pub kernel_stack: Stack<'static, Global>,
-	pub state: ThreadState,
-}
-
-impl ThreadControlBlock {
-	pub fn new<Args: ArgTuple>(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(Args) -> !, args: Args) -> Self {
-		let new_stack = Stack::new(
-			mapping::Config::<Global>::new(non_zero!(32)),
-			crate::paging_codes::THREAD_KERNEL_STACK,
-		).unwrap();
-
-		let mut new_thread = ThreadControlBlock {
-			ttable,
-			save_state: Default::default(),
-			name,
-			kernel_stack: new_stack,
-			state: ThreadState::Ready,
-		};
-		let save_state = SaveState::new(&mut new_thread, startup, main, args.as_array());
-		new_thread.save_state = save_state;
-
-		new_thread
-	}
-}
-
-impl Drop for ThreadControlBlock {
-	fn drop(&mut self) {
-		assert_ne!(self.state, ThreadState::Running, "Cannot drop currently running thread as this would remove the current stack");
-	}
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum ThreadState {
-	Ready,
-	Running,
-	Blocked,
-	Sleeping,
-	AwaitingDeletion,
 }

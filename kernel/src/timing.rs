@@ -1,14 +1,21 @@
+use alloc::collections::BinaryHeap;
 #[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
 use core::arch::x86_64::{__cpuid, CpuidResult};
+use core::cmp::{Ordering, Reverse};
 use core::num::NonZero;
 use bit_field::BitField;
 use kernel_api::is_x86_feature_detected;
-use kernel_api::sync::OnceLock;
+use kernel_api::sync::{IrqCell, IrqGuard, OnceLock};
+use kernel_api::time::Instant;
+use crate::{hal, non_zero};
+use crate::hal::timing::TimerMeta;
+use crate::threading::{Waker, WakeReason, WakeTrigger};
 
 static TSC_MULTIPLIER: OnceLock<(u128, NonZero<u128>)> = OnceLock::new();
 
 #[inline(always)]
+#[export_name = "__popcorn_system_time"]
 pub(crate) fn tsc() -> u128 {
 	let low: u32;
 	let high: u32;
@@ -18,6 +25,7 @@ pub(crate) fn tsc() -> u128 {
 	(low as u128) | (high as u128) << 32
 }
 
+#[export_name = "__popcorn_system_time_scale"]
 pub(crate) fn tsc_to_nanos() -> (u128, NonZero<u128>) {
 	*TSC_MULTIPLIER.get_or_init(|| {
 		let mut multiplier = None::<(u128, NonZero<u128>)>;
@@ -118,10 +126,107 @@ pub(crate) fn tsc_to_nanos() -> (u128, NonZero<u128>) {
 	})
 }
 
-#[export_name = "__popcorn_system_time"]
-pub(crate) fn system_time() -> u128 {
-	let tsc_val = tsc();
-	let (num, denom) = tsc_to_nanos();
+#[thread_local]
+pub static LOCAL_TIMER_QUEUE: TimerQueue = TimerQueue::new();
 
-	tsc_val * num / denom.get()
+pub fn local_timer_queue_irq_handler() {
+	LOCAL_TIMER_QUEUE.handle_irq();
+}
+
+pub struct TimerQueue {
+	heap: IrqCell<BinaryHeap<Reverse<TimerEvent>>>
+}
+
+impl TimerQueue {
+	const fn new() -> Self {
+		Self {
+			heap: IrqCell::new(BinaryHeap::new()),
+		}
+	}
+	
+	fn fixup_timer(mut heap: IrqGuard<BinaryHeap<Reverse<TimerEvent>>>) {
+		let timer = hal::timing::local_timer();
+		if let Some(Reverse(next_timer_event)) = heap.peek() {
+			// Interrupts disabled here so won't get interrupted as soon as we set the timer
+			timer.set_deadline(next_timer_event.time).expect("Could not set timer");
+			timer.mask(false);
+			
+			// By the time we set the timer, system time may have passed the wakeup time without triggering an interrupt
+			// Checking the time here will catch it, but there may already be a pending interrupt that gets triggered once we leave
+			// this function, so the IRQ handler checks the next event actually is in the past too
+			if next_timer_event.time <= Instant::now() {
+				let Reverse(event) = heap.pop().expect("Just peeked this so it must exist");
+				event.waker.wake(WakeReason::Timeout);
+			}
+		} else {
+			timer.mask(true);
+		}
+	}
+	
+	fn append(&self, event: TimerEvent) {
+		if event.time <= Instant::now() {
+			debug!("Waking just pushed timer event ({event:?})");
+			event.waker.wake(WakeReason::Timeout);
+			return;
+		}
+		
+		let mut guard = self.heap.lock();
+		guard.push(
+			Reverse(event)
+		);
+
+		Self::fixup_timer(guard);
+	}
+	
+	fn handle_irq(&self) {
+		let mut guard = self.heap.lock();
+		if let Some(Reverse(next_timer_event)) = guard.peek() {
+			if next_timer_event.time <= Instant::now() {
+				let Reverse(event) = guard.pop().expect("Just peeked this so it must exist");
+				event.waker.wake(WakeReason::Timeout);
+			}
+		}
+		Self::fixup_timer(guard);
+	}
+	
+	pub fn waker_for(&self, time: Instant) -> impl Waker + '_ {
+		struct W<'a>(&'a TimerQueue, Instant);
+
+		impl<'a> Waker for W<'a> {
+			fn add_wake_trigger(&self, waker: WakeTrigger) {
+				self.0.append(TimerEvent {
+					time: self.1,
+					waker,
+				})
+			}
+		}
+		
+		W(self, time)
+	}
+}
+
+#[derive(Debug)]
+struct TimerEvent {
+	time: Instant,
+	waker: WakeTrigger,
+}
+
+impl PartialEq for TimerEvent {
+	fn eq(&self, other: &Self) -> bool {
+		self.time.eq(&other.time)
+	}
+}
+
+impl Eq for TimerEvent {}
+
+impl Ord for TimerEvent {
+	fn cmp(&self, other: &Self) -> Ordering {
+		self.time.cmp(&other.time)
+	}
+}
+
+impl PartialOrd for TimerEvent {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		Some(self.cmp(other))
+	}
 }

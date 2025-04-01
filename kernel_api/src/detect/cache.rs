@@ -36,7 +36,7 @@ fn detect_and_initialize() {
 }
 
 pub fn test(feature: Feature) -> bool {
-	let cache = CACHE.load(Ordering::Relaxed);
+	let mut cache = CACHE.load(Ordering::Relaxed);
 	let feature = feature as usize;
 
 	debug_assert!(
@@ -44,6 +44,9 @@ pub fn test(feature: Feature) -> bool {
 		"Too many features",
 	);
 	
-	if cache & INIT_MASK == 0 { detect_and_initialize(); }
-	cache & feature != 0
+	if cache & INIT_MASK == 0 {
+		detect_and_initialize();
+		cache = CACHE.load(Ordering::Relaxed);
+	}
+	cache & (1 << feature) != 0
 }

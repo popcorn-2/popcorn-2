@@ -32,6 +32,10 @@
 #![feature(str_from_raw_parts)]
 #![feature(min_specialization)]
 #![feature(doc_auto_cfg)]
+#![feature(integer_atomics)]
+#![feature(arbitrary_self_types_pointers)]
+#![feature(inline_const_pat)]
+#![feature(macro_metavar_expr_concat)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -47,7 +51,8 @@
 #![feature(kernel_ptr)]
 #![feature(kernel_time)]
 #![feature(kernel_feature_detect)]
-
+#![feature(kernel_irq_cell)]
+#![feature(once_cell_try_insert)]
 #![no_std]
 #![no_main]
 
@@ -70,9 +75,9 @@ use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
 use core::{future, mem, ptr};
 use core::cmp::{max, min};
 use core::num::NonZero;
-use core::task::{Poll, Waker};
+use core::task::{Poll};
 use core::time::Duration;
-use hal::ThreadControlBlock;
+use crate::threading::ThreadControlBlock;
 use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
 use kernel_api::memory::{Frame};
@@ -87,6 +92,7 @@ use crate::hal::paging2::TTable;
 use crate::memory::paging::ktable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::task::executor::Executor;
+use crate::threading::{WakeTrigger, WakeReason};
 
 mod sync;
 mod memory;
@@ -103,6 +109,7 @@ mod mmio;
 mod interrupts;
 mod ipc;
 mod prelude;
+mod io_ext;
 
 #[cfg(test)]
 pub mod test_harness;
@@ -136,12 +143,35 @@ macro_rules! yeet {
 
 #[macro_export]
 macro_rules! non_zero {
-    ($lit:literal) => {
+    ($num:tt) => {
         const {
-            match NonZero::new($lit) {
+            match NonZero::new($num) {
                 Some(x) => x,
                 None => panic!("Cannot use `0` as a NonZero constant"),
             }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! hashmap_new {
+    () => { HashMap::with_hasher(::hashbrown::hash_map::DefaultHashBuilder::new()) };
+}
+
+#[macro_export]
+macro_rules! assert_unsafe_precondition {
+    ($message:expr, ($($name:ident:$ty:ty = $arg:expr),*$(,)?) => $e:expr $(,)?) => {
+        #[cfg(debug_assertions)] {
+            #[inline]
+            /* todo: const */ fn precondition_check($($name:$ty),*) {
+                if !$e {
+                    panic!(
+                        concat!("unsafe precondition(s) violated: ", $message)
+                    );
+                }
+            }
+
+            precondition_check($($arg,)*);
         }
     };
 }
@@ -505,58 +535,30 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let x = get_foo();
 	assert_eq!(x, 6, "TLS value should be 6");
 
-	if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(hal::acpi::tables()) {
+	/*if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(hal::acpi::tables()) {
 		unsafe { hal::arch::hpet::Hpet::init(hpet, hal::acpi::Handler::new(&hal::acpi::Allocator)); }
-	}
+	}*/
 
 	hal::post_acpi_init();
 
 	let init_thread = unsafe { threading::init(handoff_data) };
-	debug!("{init_thread:x?}");
+	debug!("Init running on {init_thread:?}");
 
-	{
-		let update_line = update_line.as_mut().map(|f| f as &mut dyn FnMut());
-
-		if let Some(update_line) = update_line {
-			extern "C" fn animation_task((data, meta): (usize, usize)) -> ! {
-				let update_line = unsafe { &mut *ptr::from_raw_parts_mut::<dyn FnMut()>(data as *mut (), mem::transmute(meta)) };
-				let mut next_time = Instant::now();
-				loop {
-					next_time += Duration::from_nanos(1302083);
-					update_line();
-					threading::sleep_until(next_time);
-				}
+	if let Some(mut update_line) = update_line {
+		let animation = move || {
+			let mut next_time = Instant::now();
+			loop {
+				next_time += Duration::from_nanos(1302083);
+				update_line();
+				threading::sleep_until(next_time);
 			}
+		};
 
-			let update_line_parts = (update_line as *mut dyn FnMut()).to_raw_parts();
-
-			{
-				let ttable = hal::TTableTy::new(&*ktable(), highmem()).unwrap();
-				let task = ThreadControlBlock::new(
-					Cow::Borrowed("Boot animation"),
-					ttable,
-					threading::thread_startup,
-					animation_task,
-					(update_line_parts.0 as _, unsafe { mem::transmute(update_line_parts.1) })
-				);
-				let mut guard = threading::scheduler::SCHEDULER.lock();
-				guard.add_task(task);
-			}
-		}
+		let task = threading::spawn_with(animation, Cow::Borrowed("Boot animation"));
+		debug!("Boot animation running on {task:?}");
 	}
-
-	/*{
-		let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
-		let task = ThreadControlBlock::new(
-			Cow::Borrowed("PS/2 driver"),
-			ttable,
-			threading::thread_startup,
-			drivers::i8042::main,
-			()
-		);
-		let mut guard = threading::scheduler::SCHEDULER.lock();
-		guard.add_task(task);
-	}*/
+	threading::debug();
+	threading::exit(0);
 
 	{
 		const CORE_SOCKET_OPEN: u128 = 0;
@@ -574,53 +576,21 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, 0xdeadbeef, 10, 0, 0));
 		shim(":core.input.mouse@");
 		{
-			extern "C" fn f(_: ()) -> ! {
+			let f = || {
 				let a = "core.input.mouse@:mouse".as_bytes();
 				debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, a.as_ptr() as _, a.len(), 0, 0));
-				threading::exit(0)
-			}
-			let ttable = hal::TTableTy::new(&*ktable(), highmem()).unwrap();
-			let task = ThreadControlBlock::new(
-				Cow::Borrowed("foo"),
-				ttable,
-				threading::thread_startup,
-				f,
-				()
-			);
-			let mut guard = threading::scheduler::SCHEDULER.lock();
-			guard.add_task(task);
+			};
+
+			threading::spawn_with(f, Cow::Borrowed("foo"));
 		}
-		threading::thread_yield();
+		threading::debug();
+		threading::yield_now();
 		debug!("{:#?}", &*ipc::server::servers());
 	}
 
 	loop {
-		threading::thread_yield();
+		threading::yield_now();
 	}
-
-	let mut executor = Executor::new();
-	static mut WAKER: Option<Waker> = None;
-
-	executor.spawn(|| async {
-		sprintln!("inside async fn, about to wait");
-
-		let mut x = 0;
-		let waiter = future::poll_fn(|ctx| {
-			unsafe { WAKER = Some(ctx.waker().clone()); }
-			if x < 5 { sprintln!("{x}"); x += 1; Poll::Pending }
-			else { Poll::Ready(()) }
-		});
-		waiter.await;
-
-		sprintln!("async fn back");
-	});
-
-	executor.spawn(|| async { for _ in 0..5 {
-		sprintln!("Inside other async fn");
-		unsafe { WAKER.as_ref().unwrap().wake_by_ref(); }
-	}});
-
-	executor.run();
 }
 
 #[cfg(not(test))]

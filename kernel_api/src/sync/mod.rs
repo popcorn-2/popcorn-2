@@ -27,6 +27,10 @@ pub use rwlock::{RwSpinlock, RwReadGuard, RwUpgradableReadGuard, RwWriteGuard};
 pub use parking_lot::{RwLock as RwSpinlock, RwLockReadGuard as RwReadGuard, RwLockUpgradableReadGuard as RwUpgradableReadGuard, RwLockWriteGuard as RwWriteGuard};
 
 #[cfg(not(feature = "use_std"))]
+#[unstable(feature = "kernel_irq_cell", issue = "none")]
+pub use irq_cell::{IrqCell, IrqGuard};
+
+#[cfg(not(feature = "use_std"))]
 mod mutex;
 
 #[cfg(not(feature = "use_std"))]
@@ -34,6 +38,9 @@ pub(crate) mod rwlock;
 
 #[cfg(not(feature = "use_std"))]
 mod once;
+
+#[cfg(not(feature = "use_std"))]
+mod irq_cell;
 
 #[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub struct Syncify<T>(T);

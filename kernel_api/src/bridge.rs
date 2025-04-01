@@ -83,8 +83,13 @@ pub mod memory {
 }
 
 pub mod time {
+	use core::num::NonZero;
+
 	extern "Rust" {
 		#[link_name = "__popcorn_system_time"]
 		pub fn system_time() -> u128;
+
+		#[link_name = "__popcorn_system_time_scale"]
+		pub fn system_time_to_nanos() -> (u128, NonZero<u128>);
 	}
 }
