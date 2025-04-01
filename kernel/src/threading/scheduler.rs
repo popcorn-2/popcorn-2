@@ -67,10 +67,7 @@ pub trait Scheduler: Debug {
 	///
 	/// This may be called if enqueuing a thread from the same core the scheduler is on, as optimizations
 	/// to reduce locking may be possible
-	fn enqueue(&mut self, thread: ThreadPointer) {
-		let _ = thread;
-		todo!("");
-	}
+	fn enqueue(&mut self, thread: ThreadPointer);
 
 	fn unpark(&mut self, thread_id: ThreadId, reason: WakeReason);
 }
