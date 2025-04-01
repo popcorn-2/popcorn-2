@@ -267,13 +267,6 @@ pub fn exit(_exit_code: i8) -> ! {
 
 #[naked]
 pub unsafe extern "C" fn thread_startup() {
-	extern "C" fn thread_startup_inner(previous_thread: ThreadPointer) {
-		let guard = unsafe { scheduler::local_scheduler().make_guard_unchecked() };
-		debug!("[b] switch from `{:?}` to current", previous_thread.tcb_ref().thread_id,);
-		guard.switch_thread_post(previous_thread);
-		debug!("thread_startup");
-	}
-
 	naked_asm!(
 		".cfi_startproc simple",
 		".cfi_def_cfa rsp, 32",
@@ -290,7 +283,7 @@ pub unsafe extern "C" fn thread_startup() {
 		".cfi_def_cfa rsp, 8",
 		"ret",
 		".cfi_endproc",
-	sym thread_startup_inner);
+	sym yielding::post_switch_cleanup);
 }
 
 #[doc(hidden)]

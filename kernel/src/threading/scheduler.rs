@@ -53,16 +53,15 @@ pub trait Scheduler: Debug {
 	fn current_thread(&mut self) -> Option<PointerView<'_>>;
 
 	/// Prepares to switch threads
-	///
-	/// Returns an owned [`ThreadPointer`] to the currently running thread, and a [`PointerView`] to the thread to switch to.
-	/// Ownership of the [`ThreadPointer`] will be given back to the scheduler in [`Scheduler::switch_thread_post()`].
-	fn switch_thread_pre(&mut self) -> (ThreadPointer, PointerView<'_>);
+	fn switch_thread_pre(&mut self) -> SchedulerSwitchState<'_>;
 
 	/// Called after switching threads, including during startup of a new thread
 	///
 	/// `previous_thread` is the thread that was running before the context switch took place,
 	/// and should be placed back on the run-list if it is not blocked.
-	fn switch_thread_post(self: IrqGuard<Self>, previous_thread: ThreadPointer); // do we want to dispatch on `IrqGuard`? - it's supposed to enforce proper usage of switch_thread
+	/// 
+	/// A [`PointerView`] to the thread is returned
+	fn switch_thread_post(&mut self, previous_thread: ThreadPointer);
 
 	/// Enqueues the passed `thread`
 	///
@@ -74,6 +73,24 @@ pub trait Scheduler: Debug {
 	}
 
 	fn unpark(&mut self, thread_id: ThreadId, reason: WakeReason);
+}
+
+pub enum SchedulerSwitchState<'a> {
+	Switch {
+		/// The previously running thread, which will be passed back to the scheduler in [`Scheduler::switch_thread_post()`]
+		/// after the context switch occurs
+		old_thread: ThreadPointer,
+		/// The new thread to switch to
+		new_thread: PointerView<'a>,
+	},
+	/// No new threads to run, and the current thread has blocked
+	Idle {
+		/// The previously running thread
+		old_thread: ThreadPointer,
+	},
+	/// No new threads to run but the previously running thread is still in a running state
+	NoSwitch,
+	SwitchFromIdle { new_thread: PointerView<'a> },
 }
 
 pub(super) fn create_scheduler_for_current_core(running_thread: ThreadPointer) -> CoreId {

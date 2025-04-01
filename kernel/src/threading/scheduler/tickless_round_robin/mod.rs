@@ -2,7 +2,7 @@
 use alloc::collections::VecDeque;
 use alloc::sync::{Arc, Weak};
 use core::fmt::Debug;
-use crate::threading::scheduler::Scheduler;
+use crate::threading::scheduler::{Scheduler, SchedulerSwitchState};
 use crate::threading::{ThreadPointer, WakeReason};
 use event::{Queue, Event};
 use kernel_api::sync::{IrqGuard, Spinlock};
@@ -26,6 +26,7 @@ pub struct Injector {
 impl super::Injector for Injector {
 	fn enqueue(&self, thread: ThreadPointer) {
 		let queue = match self.queue.upgrade() {
+			// fixme: this needs to send an IPI to the corresponding core in case it's idling and needs waking up
 			Some(queue) => queue,
 			None => {
 				warn!("Attempted to inject into dead task queue");
@@ -63,24 +64,42 @@ impl Scheduler for TicklessRoundRobin {
 		    .map(|t| t.tcb_mut())
 	}
 
-	fn switch_thread_pre(&mut self) -> (ThreadPointer, PointerView<'_>) {
+	fn switch_thread_pre(&mut self) -> SchedulerSwitchState<'_> {
 		if let Some(new_thread) = self.run_queue.lock().pop_front() {
-			let old_thread = self.current_thread.replace(new_thread)
-			                     .expect("Must be currently running on a thread");
-
-			let new_tcb = self.current_thread.as_mut()
-			                  .expect("Just added a new thread")
-			                  .tcb_mut();
+			let old_thread = self.current_thread.replace(new_thread);
 			
-			(old_thread, new_tcb)
+			let new_thread = self.current_thread.as_mut()
+			                     .expect("Just added a new thread")
+			                     .tcb_mut();
+
+			if let Some(old_thread) = old_thread {
+				SchedulerSwitchState::Switch {
+					old_thread,
+					new_thread
+				}
+			} else {
+				SchedulerSwitchState::SwitchFromIdle {
+					new_thread
+				}
+			}
 		} else {
 			#[cfg(feature = "log.scheduler")] debug!("No other tasks");
-
-			todo!()
+			match self.current_thread.as_mut() {
+				Some(current_tcb) => if current_tcb.tcb_mut().state.is_running() {
+					#[cfg(feature = "log.scheduler")] debug!("Can keep running existing thread");
+					SchedulerSwitchState::NoSwitch
+				} else {
+					#[cfg(feature = "log.scheduler")] debug!("Idling");
+					let old_thread = self.current_thread.take()
+					                     .expect("Must be currently running on a thread");
+					SchedulerSwitchState::Idle { old_thread }
+				},
+				None => SchedulerSwitchState::NoSwitch,
+			}
 		}
 	}
 
-	fn switch_thread_post(mut self: IrqGuard<Self>, mut old_thread: ThreadPointer) {
+	fn switch_thread_post(&mut self, mut old_thread: ThreadPointer) {
 		debug_assert!(!old_thread.tcb_mut().state.is_running());
 		match *old_thread.tcb_mut().state {
 			ThreadState::Parked(_) => threading::move_to_global_parking_lot(old_thread),
