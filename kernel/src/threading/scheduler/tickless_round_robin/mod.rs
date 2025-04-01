@@ -84,7 +84,7 @@ impl Scheduler for TicklessRoundRobin {
 		} else {
 			#[cfg(feature = "log.scheduler")] debug!("No other tasks");
 			match self.current_thread.as_mut() {
-				Some(current_tcb) => if current_tcb.tcb_mut().state.is_running() {
+				Some(current_tcb) => if current_tcb.tcb_mut().state.is_running() || current_tcb.tcb_mut().state.is_ready() {
 					#[cfg(feature = "log.scheduler")] debug!("Can keep running existing thread");
 					SchedulerSwitchState::NoSwitch
 				} else {
@@ -112,6 +112,7 @@ impl Scheduler for TicklessRoundRobin {
 	}
 
 	fn unpark(&mut self, thread_id: ThreadId, reason: WakeReason) {
+		debug!("scheduler local unpark of {thread_id:?} for {reason:?}");
 		let t = self.current_thread.as_mut().expect("`tickless_round_robin` globally parks all threads so unpark a local thread must be the current thread");
 		assert_eq!(*t.tcb_ref().thread_id, thread_id);
 		debug_assert!(t.tcb_mut().state.is_parked() || t.tcb_mut().state.is_just_unparked());
