@@ -32,8 +32,8 @@ jobs:
         uses: actions/configure-pages@v4
       - name: Build docs
         run: |
-          cargo rustdoc -p kernel_api -- --document-private-items
-          cargo rustdoc -p kernel -- --document-private-items
+          cargo rustdoc -p kernel_api --target x86_64-unknown-popcorn.json -Zbuild-std=core,alloc -- --document-private-items
+          cargo rustdoc -p kernel --target x86_64-unknown-popcorn.json -Zbuild-std=core,alloc -- --document-private-items
           echo "" > target/doc/index.html
       - name: Fix permissions
         run: |
