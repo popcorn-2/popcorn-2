@@ -558,7 +558,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		debug!("Boot animation running on {task:?}");
 	}
 	threading::debug();
-	threading::park(&[]).expect("Failed to park main thread");
+	threading::exit(0);
 
 	{
 		const CORE_SOCKET_OPEN: u128 = 0;

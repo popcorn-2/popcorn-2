@@ -262,7 +262,10 @@ fn move_to_global_parking_lot(mut thread: ThreadPointer) {
 }
 
 pub fn exit(_exit_code: i8) -> ! {
-	todo!()
+	debug!("Exit thread with code {_exit_code}");
+	let _ = park(&[]);
+	// todo: send this to a cleaner thread
+	unreachable!("Failed to exit thread");
 }
 
 #[naked]
