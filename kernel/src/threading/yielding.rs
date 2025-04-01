@@ -92,8 +92,13 @@ pub fn yield_now() -> Option<WakeReason> {
 	match scheduler.switch_thread_pre() {
 		SchedulerSwitchState::Switch { old_thread, new_thread } => do_thread_switch(old_thread, new_thread),
 		SchedulerSwitchState::NoSwitch => {
-			// No changes occur to scheduler so just return back to thread
-			None
+			// No changes occur to scheduler so just return back to thread, but make sure scheduler gets unlocked
+			// as well since that would normally be done by the thread switch
+			let mut scheduler = ManuallyDrop::into_inner(scheduler);
+			match scheduler.current_thread().expect("must be running a thread").state {
+				ThreadState::JustUnparked(reason) => Some(*reason),
+				_ => None,
+			}
 		},
 		SchedulerSwitchState::Idle { old_thread } => {
 			// Switch to the idle task
