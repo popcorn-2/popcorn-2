@@ -175,6 +175,16 @@ unsafe impl Hal for Amd64Hal {
 		xapic.0.eoi(vector);
 	}
 
+	fn wait_for_interrupt() {
+		unsafe {
+			asm!(
+				"sti",
+				"hlt",
+				options(nostack, preserves_flags)
+			);
+		}
+	}
+
 	const IPI_VECTOR: Vector = Vector(0x30);
 	const SPURIOUS_VECTOR: Vector = Vector(0xFF);
 }

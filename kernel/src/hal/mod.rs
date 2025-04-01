@@ -42,6 +42,7 @@ pub unsafe trait Hal {
 
 	fn send_ipi(target: IpiTarget) -> ::core::result::Result<(), ()>;
 	fn send_local_eoi(vector: Vector);
+	fn wait_for_interrupt();
 
 	const IPI_VECTOR: Vector;
 	const SPURIOUS_VECTOR: Vector;
@@ -84,6 +85,7 @@ mod hal_impl {
 	pub fn send_ipi(target: IpiTarget) -> ::core::result::Result<(), ()> { <arch::Arch as Hal>::send_ipi(target) }
 	
 	pub fn send_local_eoi(vector: Vector) { <arch::Arch as Hal>::send_local_eoi(vector) }
+	pub fn wait_for_interrupt() { <arch::Arch as Hal>::wait_for_interrupt() }
 
 	pub const IPI_VECTOR: Vector = <arch::Arch as Hal>::IPI_VECTOR;
 	pub const SPURIOUS_VECTOR: Vector = <arch::Arch as Hal>::SPURIOUS_VECTOR;
