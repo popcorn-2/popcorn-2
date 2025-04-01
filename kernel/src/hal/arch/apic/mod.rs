@@ -1,6 +1,6 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use acpi::madt::MadtEntry;
-use crate::hal::timing::Timer3;
+use crate::hal::timing::Timer;
 use crate::hal;
 //use crate::hal::arch::apic::ioapic::{ActiveLevel, TriggerMode};
 use kernel_api::time::Instant;

@@ -1,6 +1,5 @@
 use core::cell::OnceCell;
 #[allow(unused_imports)] use crate::prelude::*;
-use core::fmt::Debug;
 use kernel_api::time::Instant;
 use crate::hal::interrupts_v2::Vector;
 
@@ -18,7 +17,7 @@ pub fn local_timer() -> &'static TimerMeta {
 	unsafe { core::mem::transmute::<_, &'static _>(LOCAL_TIMER.get().expect("`local_timer` not yet initialised")) }
 }
 
-pub trait Timer3 {
+pub trait Timer {
 	fn mask(&self, masked: bool);
 	fn set_deadline(&self, time: Instant) -> Result<(), ()>;
 }
@@ -31,7 +30,7 @@ pub struct TimerMeta {
 }
 
 impl TimerMeta {
-	pub const fn new<T: Timer3>(vector: Vector, interface: &'static T) -> Self {
+	pub const fn new<T: Timer>(vector: Vector, interface: &'static T) -> Self {
 		Self {
 			vector,
 			mask: unsafe { core::mem::transmute(T::mask as fn(&T, bool)) },
@@ -49,7 +48,7 @@ impl TimerMeta {
 	pub fn set_deadline(&self, time: Instant) -> Result<(), ()> {
 		(self.set_deadline)(self.data, time)
 	}
-	
+
 	pub fn data(&self) -> *const () {
 		self.data
 	}

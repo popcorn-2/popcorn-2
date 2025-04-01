@@ -13,7 +13,7 @@ use crate::hal;
 use crate::hal::arch::apic::lapic::{DeliveryMode, LvtState, Registers};
 use crate::hal::arch::amd64::msr;
 use crate::hal::interrupts_v2::Vector;
-use crate::hal::timing::{Timer3, TimerMeta};
+use crate::hal::timing::{Timer, TimerMeta};
 
 pub(in crate::hal) struct XApicInner {
 	mmap: Arc<Mapping<'static>>,
@@ -112,7 +112,7 @@ impl XApicInner {
 	}
 }
 
-impl Timer3 for XApicTimer {
+impl Timer for XApicTimer {
 	fn mask(&self, masked: bool) {
 		let registers = self.0.registers();
 		unsafe {
