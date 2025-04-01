@@ -118,7 +118,7 @@ pub(crate) fn tsc_to_nanos() -> (u128, NonZero<u128>) {
 			NonZero::<u128>::new(freq_khz).map(|val| (1000000, val))
 		};
 
-		let multiplier = multiplier.or_else(intel_msr).or(Some((1000000, non_zero!(2304000))));
+		let multiplier = multiplier.or_else(intel_msr);
 
 		debug!("multiplier is {multiplier:?}");
 
