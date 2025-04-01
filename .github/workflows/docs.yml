@@ -37,13 +37,13 @@ jobs:
           echo "" > target/doc/index.html
       - name: Fix permissions
         run: |
-          chmod -c -R +rX "target/doc/" | while read line; do
+          chmod -c -R +rX "target/x86_64-unknown-popcorn/doc/" | while read line; do
             echo "::warning title=Invalid file permissions automatically fixed::$line"
           done
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'target/doc'
+          path: 'target/x86_64-unknown-popcorn/doc'
           
   deploy:
     environment:
