@@ -636,17 +636,27 @@ pub unsafe extern "Rust" fn __popcorn_module_is_panicking() -> bool { panicking:
 
 
 mod allocator {
-	use core::alloc::{GlobalAlloc, Layout};
+	use core::alloc::{AllocError, GlobalAlloc, Layout};
 	use core::ptr;
 	use core::ptr::NonNull;
 	use log::debug;
+
+	extern "Rust" {
+		fn __popcorn_kernel_heap_allocate(layout: Layout) -> Result<NonNull<u8>, AllocError>;
+		fn __popcorn_kernel_heap_deallocate(ptr: NonNull<u8>, layout: Layout);
+		fn __popcorn_kernel_heap_reallocate(ptr: NonNull<u8>, layout: Layout, new_size: usize) -> Result<NonNull<u8>, AllocError>;
+	}
+	
+	mod private {
+		extern crate kernel_default_heap;
+	}
 
 	struct HookAllocator;
 
 	unsafe impl GlobalAlloc for HookAllocator {
 		unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
 			debug!("alloc({layout:?})");
-			match kernel_default_heap::__popcorn_kernel_heap_allocate(layout) {
+			match __popcorn_kernel_heap_allocate(layout) {
 				Ok(ptr) => ptr.as_ptr(),
 				Err(_) => ptr::null_mut()
 			}
@@ -654,7 +664,7 @@ mod allocator {
 
 		unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
 			match NonNull::new(ptr) {
-				Some(ptr) => kernel_default_heap::__popcorn_kernel_heap_deallocate(ptr, layout),
+				Some(ptr) => __popcorn_kernel_heap_deallocate(ptr, layout),
 				None => {}
 			}
 		}
