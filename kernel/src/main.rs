@@ -35,6 +35,7 @@
 #![feature(integer_atomics)]
 #![feature(arbitrary_self_types_pointers)]
 #![feature(macro_metavar_expr_concat)]
+#![feature(linkage)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -648,7 +649,24 @@ mod allocator {
 	}
 	
 	mod private {
+		use core::ptr::NonNull;
+		use core::alloc::{AllocError, Layout};
+		use core::ptr;
+		use super::{__popcorn_kernel_heap_allocate, __popcorn_kernel_heap_deallocate};
+		
 		extern crate kernel_default_heap;
+
+		#[no_mangle]
+		#[linkage = "weak"]
+		fn __popcorn_kernel_heap_reallocate(ptr: NonNull<u8>, layout: Layout, new_size: usize) -> Result<NonNull<u8>, AllocError> {
+			let new_layout = unsafe { Layout::from_size_align_unchecked(new_size, layout.align()) };
+			
+			let new_ptr = unsafe { __popcorn_kernel_heap_allocate(new_layout)? };
+			unsafe { ptr::copy_nonoverlapping(ptr.as_ptr(), new_ptr.as_ptr(), core::cmp::min(layout.size(), new_size)); }
+			unsafe { __popcorn_kernel_heap_deallocate(ptr, layout); }
+			
+			Ok(new_ptr)
+		}
 	}
 
 	struct HookAllocator;
@@ -666,6 +684,19 @@ mod allocator {
 			match NonNull::new(ptr) {
 				Some(ptr) => __popcorn_kernel_heap_deallocate(ptr, layout),
 				None => {}
+			}
+		}
+
+		unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+			debug!("realloc({layout:?},{new_size})");
+			match NonNull::new(ptr) {
+				Some(ptr) => {
+					match __popcorn_kernel_heap_reallocate(ptr, layout, new_size) {
+						Ok(ptr) => ptr.as_ptr(),
+						Err(_) => ptr::null_mut()
+					}
+				},
+				None => ptr::null_mut(),
 			}
 		}
 	}
