@@ -9,13 +9,15 @@ const _: () = {
 pub struct ChunkHeader {
 	next: NextPtr,
 	prev: Option<NonNull<ChunkHeader>>,
+	size: usize,
 }
 
 impl ChunkHeader {
-	pub fn new() -> Self {
+	pub fn new(size: usize) -> Self {
 		Self {
 			next: NextPtr(ptr::null_mut()),
 			prev: None,
+			size,
 		}
 	}
 }
