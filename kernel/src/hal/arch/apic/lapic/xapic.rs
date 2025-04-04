@@ -44,7 +44,7 @@ impl XApic {
 			let upper_addr: PhysicalAddress<4096> = PhysicalAddress::<1>::new(physical_addr + size_of::<Registers>()).align_up();
 			let actual_size = NonZero::<usize>::new(upper_addr - lower_addr).expect("Cannot map zero size physical region");
 			let page_count = unsafe { NonZero::<usize>::new_unchecked(actual_size.get().div_ceil(4096)) };
-			let config = Config::<Global>::new(page_count)
+			let config = Config::new(page_count)
 					.physical_location(Location::At(Frame::new(lower_addr)))
 					.physical_allocator(&hal::acpi::Allocator);
 			(

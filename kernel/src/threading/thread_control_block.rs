@@ -157,7 +157,7 @@ impl ThreadControlBlock {
 	/// ```
 	pub fn new(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, arg: usize) -> (Self, ThreadId) {
 		let new_stack = Stack::new(
-			mapping::Config::<Global>::new(NonZeroUsize::new(32).unwrap()),
+			mapping::Config::new(NonZeroUsize::new(32).unwrap()),
 			crate::paging_codes::THREAD_KERNEL_STACK,
 		).unwrap();
 		
