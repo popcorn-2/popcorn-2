@@ -108,9 +108,9 @@ pub struct Config<'physical_allocator, A: VirtualAllocator> {
 	_protection: Protection,
 }
 
-impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
+impl Config<'static, Global> {
 	/// Creates a new [mapping](self) configuration with default options
-	/// 
+	///
 	/// `length` is specified in pages
 	///
 	/// The default options are not guaranteed, but at the moment are:
@@ -120,7 +120,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	/// - Global virtual allocator
 	/// - Readable, writable and executable
 	#[stable(feature = "kernel_mmap", since = "1.1.0")]
-	pub fn new(length: NonZero<usize>) -> Config<'static, Global> {
+	pub fn new(length: NonZero<usize>) -> Self {
 		Config {
 			physical_location: Location::Any,
 			_virtual_location: Location::Any,
@@ -131,7 +131,9 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 			_protection: Protection::RWX,
 		}
 	}
+}
 
+impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	/// Set the physical allocator to use
 	///
 	/// This is used for both the underlying memory and any page tables that need creating
