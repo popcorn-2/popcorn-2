@@ -514,7 +514,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	// Is this always correctly aligned?
 	#[warn(deprecated)]
 	let tls = Mapping::new(
-			mapping::Config::<Global>::new(
+			mapping::Config::new(
 				NonZero::new(tls_size.div_ceil(4096)).unwrap()
 			),
 			paging_codes::TLS,

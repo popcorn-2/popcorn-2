@@ -73,7 +73,7 @@ impl Heap for SyncHeap {
             start
         } else {
             let page_count = NonZero::new(size.get().div_ceil(4096)).unwrap();
-            let mapping = Mapping::new(Config::<Global>::new(page_count), 25)?;
+            let mapping = Mapping::new(Config::new(page_count), 25)?;
             let start = mapping.virtual_start().start().align_up::<1>();
             guard.mapping = Some(mapping);
             start
