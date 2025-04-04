@@ -34,7 +34,6 @@
 #![feature(doc_auto_cfg)]
 #![feature(integer_atomics)]
 #![feature(arbitrary_self_types_pointers)]
-#![feature(inline_const_pat)]
 #![feature(macro_metavar_expr_concat)]
 
 #![feature(kernel_heap)]
