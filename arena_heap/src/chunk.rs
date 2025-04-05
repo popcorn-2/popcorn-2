@@ -9,20 +9,28 @@ const _: () = {
 pub struct ChunkHeader {
 	next: NextPtr,
 	prev: Option<NonNull<ChunkHeader>>,
-	size: usize,
 }
 
 impl ChunkHeader {
-	pub fn new(size: usize) -> Self {
+	pub fn new(next: Option<NonNull<ChunkHeader>>, prev: Option<NonNull<ChunkHeader>>) -> Self {
+		let next = match next {
+			Some(ptr) => NextPtr(ptr.as_ptr().map_addr(|p| p & !1)),
+			None => NextPtr(ptr::null_mut()),
+		};
 		Self {
-			next: NextPtr(ptr::null_mut()),
-			prev: None,
-			size,
+			next,
+			prev,
 		}
 	}
-	
+
 	pub fn busy(&self) -> bool { self.next.busy() }
-	pub fn size(&self) -> usize { self.size }
+	
+	pub fn size(&self) -> usize {
+		let next = self.next.ptr().expect("cannot get size of end node").addr().get();
+		let this = (self as *const Self).addr();
+		
+		next - this - size_of::<Self>()
+	}
 }
 
 struct NextPtr(*mut ChunkHeader);
