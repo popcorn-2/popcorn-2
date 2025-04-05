@@ -20,6 +20,9 @@ impl ChunkHeader {
 			size,
 		}
 	}
+	
+	pub fn busy(&self) -> bool { self.next.busy() }
+	pub fn size(&self) -> usize { self.size }
 }
 
 struct NextPtr(*mut ChunkHeader);
