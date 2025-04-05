@@ -4,7 +4,7 @@ use kernel_api::memory::AllocError;
 use kernel_api::memory::mapping::{Mapping, Config};
 use crate::chunk::ChunkHeader;
 
-struct Arena {
+pub struct Arena {
 	mapping: Mapping<'static>,
 }
 
