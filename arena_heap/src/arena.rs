@@ -15,9 +15,14 @@ impl Arena {
 	const GROW_FACTOR: usize = 2;
 	const MINIMUM_USABLE_ALLOC: usize = size_of::<usize>();
 	
-	pub fn new() -> Result<Self, AllocError> {
+	pub fn with_capacity(capacity: usize) -> Result<Self, AllocError> {
+		let page_count = core::cmp::max(
+			Self::INITIAL_AREA_PAGE_COUNT,
+			(capacity + 2*size_of::<ChunkHeader>()).div_ceil(4096),
+		);
+		
 		let mapping = Mapping::new(
-			Config::new(NonZero::new(Self::INITIAL_AREA_PAGE_COUNT).unwrap()),
+			Config::new(NonZero::new(page_count).unwrap()),
 			25
 		)?;
 		
