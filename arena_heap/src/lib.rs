@@ -10,6 +10,7 @@ use kernel_api::memory::mapping::Mapping;
 
 mod chunk;
 mod arena;
+mod mapped_vec;
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn __popcorn_kernel_heap_allocate(layout: Layout) -> Result<NonNull<u8>, AllocError> {
