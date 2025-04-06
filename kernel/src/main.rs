@@ -654,7 +654,7 @@ mod allocator {
 		use core::ptr;
 		use super::{__popcorn_kernel_heap_allocate, __popcorn_kernel_heap_deallocate};
 		
-		extern crate kernel_default_heap;
+		extern crate arena_heap;
 
 		#[no_mangle]
 		#[linkage = "weak"]
@@ -681,6 +681,7 @@ mod allocator {
 		}
 
 		unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+			debug!("dealloc({layout:?})");
 			match NonNull::new(ptr) {
 				Some(ptr) => __popcorn_kernel_heap_deallocate(ptr, layout),
 				None => {}
