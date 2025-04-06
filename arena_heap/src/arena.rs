@@ -2,6 +2,7 @@ use core::alloc::Layout;
 use core::num::NonZero;
 use core::ptr::NonNull;
 use log::debug;
+use kernel_api::dbg;
 use kernel_api::memory::AllocError;
 use kernel_api::memory::mapping::{Mapping, Config};
 use crate::chunk::ChunkHeader;
@@ -55,68 +56,99 @@ impl Arena {
 		let ptr = self.mapping.virtual_start().as_ptr().cast::<ChunkHeader>();
 		NonNull::new(ptr).expect("arena mapping should not be null")
 	}
+	
+	fn alloc_in(chunk: &mut ChunkHeader, layout: Layout) -> Result<NonNull<u8>, AllocError> {
+		let size = layout.size();
+		let align = layout.align();
+		
+		assert!(chunk.size() >= size);
+		assert!(!chunk.busy());
+
+		let start_pointer = chunk.start();
+		let end_pointer = chunk.end();
+
+		let align_offset = start_pointer.align_offset(align);
+
+		if align_offset == 0 {
+			// split the allocation if possible (defined as having leftover space big enough for
+			// `MINIMUM_USABLE_ALLOC` plus an aligned header
+
+			// SAFETY: the chunk is large enough to contain an allocation of `size`, so `start + size` is either
+			// within the chunk, or one past the end
+			let split_point = unsafe { start_pointer.byte_add(size) };
+
+			// do all these calculations in terms of usize to ensure we never go out of bounds of the allocation
+			let new_end = split_point.addr()
+			                         .checked_add(split_point.align_offset(align_of::<ChunkHeader>()))
+			                         .map(|val| val.checked_add(size_of::<ChunkHeader>() + Self::MINIMUM_USABLE_ALLOC))
+			                         .flatten();
+
+			if let Some(new_end) = new_end && new_end < end_pointer.addr() {
+				debug!("insert new chunk at {new_end:#x}");
+
+				// provenance of `start_pointer` covers the entire chunk and we just checked that `new_end..(new_end + aligned<ChunkHeader>)`
+				// is within the chunk
+				let new_end = start_pointer.with_addr(new_end);
+
+				let new_chunk = unsafe { ChunkHeader::new(
+					chunk.next(),
+					Some(NonNull::from(&mut *chunk))
+				) };
+
+				unsafe { new_end.cast().write(new_chunk); }
+
+				unsafe {
+					chunk.next().expect("cannot be allocating sentinel chunk")
+					     .as_mut()
+					     .set_prev(Some(new_end.cast()));
+				}
+
+				chunk.set_next(Some(new_end.cast()));
+
+			}
+
+			chunk.set_busy(true);
+
+			// provenance-exposition: reduce bounds on this to only cover `start_pointer..end_pointer`
+			return Ok(start_pointer);
+		} else {
+			todo!("handle alignment")
+		}
+	}
 
 	pub fn try_alloc(&mut self, layout: Layout) -> Result<NonNull<u8>, AllocError> {
 		let size = layout.size();
-		let align = layout.align();
 
-		for chunk in self {
+		for chunk in &mut *self {
 			if chunk.size() < size { continue; }
 			if chunk.busy() { continue; }
 
-			let start_pointer = chunk.start();
-			let end_pointer = chunk.end();
-
-			let align_offset = start_pointer.align_offset(align);
-
-			if align_offset == 0 {
-				// split the allocation if possible (defined as having leftover space big enough for
-				// `MINIMUM_USABLE_ALLOC` plus an aligned header
-				
-				// SAFETY: the chunk is large enough to contain an allocation of `size`, so `start + size` is either
-				// within the chunk, or one past the end
-				let split_point = unsafe { start_pointer.byte_add(size) };
-				
-				// do all these calculations in terms of usize to ensure we never go out of bounds of the allocation
-				let new_end = split_point.addr()
-						.checked_add(split_point.align_offset(align_of::<ChunkHeader>()))
-						.map(|val| val.checked_add(size_of::<ChunkHeader>() + Self::MINIMUM_USABLE_ALLOC))
-						.flatten();
-				
-				if let Some(new_end) = new_end && new_end < end_pointer.addr() {
-					debug!("insert new chunk at {new_end:#x}");
-					
-					// provenance of `start_pointer` covers the entire chunk and we just checked that `new_end..(new_end + aligned<ChunkHeader>)`
-					// is within the chunk
-					let new_end = start_pointer.with_addr(new_end);
-					
-					let new_chunk = unsafe { ChunkHeader::new(
-						chunk.next(),
-						Some(NonNull::from(&mut *chunk))
-					) };
-					
-					unsafe { new_end.cast().write(new_chunk); }
-					
-					unsafe {
-						chunk.next().expect("cannot be allocating sentinel chunk")
-						     .as_mut()
-						     .set_prev(Some(new_end.cast()));
-					}
-					
-					chunk.set_next(Some(new_end.cast()));
-					
-				}
-
-				chunk.set_busy(true);
-				
-				// provenance-exposition: reduce bounds on this to only cover `start_pointer..end_pointer`
-				return Ok(start_pointer);
-			} else {
-				todo!("handle alignment")
-			}
+			if let Ok(res) = Self::alloc_in(chunk, layout) { return Ok(res); }
 		}
+		
+		// if no space in the existing chunks, 
+		let min_expansion = self.mapping.physical_len().checked_mul(NonZero::new(Self::GROW_FACTOR - 1).unwrap()).ok_or(AllocError)?;
+		let alloc_expansion = (size + 2*size_of::<ChunkHeader>()).div_ceil((4096 * 2) / 3);
+		let expansion = core::cmp::max(alloc_expansion, min_expansion.get());
+		
+		let alloc_start = self.mapping.virtual_end().as_ptr();
+		let old_sentinel = unsafe { &mut *alloc_start.cast::<ChunkHeader>().offset(-1) };
+		
+		dbg!(expansion, min_expansion, alloc_expansion);
 
-		Err(AllocError)
+		dbg!(self.mapping.resize_in_place(self.mapping.physical_len().checked_add(expansion).ok_or(AllocError)?))?;
+		
+		let new_sentinel = unsafe { self.mapping.virtual_end().as_ptr().cast::<ChunkHeader>().offset(-1) };
+		
+		unsafe {
+			new_sentinel.write(ChunkHeader::new(
+				None,
+				Some(NonNull::from(&mut *old_sentinel)),
+			));
+		}
+		old_sentinel.set_next(Some(NonNull::new(new_sentinel).expect("mmap should not end at null")));
+		
+		Self::alloc_in(old_sentinel, layout)
 	}
 }
 
