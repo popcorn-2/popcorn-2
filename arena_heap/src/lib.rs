@@ -6,12 +6,13 @@
 #![feature(let_chains)]
 
 use core::alloc::{AllocError, Layout};
+use core::ops::Range;
 use core::ptr::NonNull;
 use log::debug;
 use arena::Arena;
 use chunk::ChunkHeader;
 use kernel_api::dbg;
-use kernel_api::sync::{RwSpinlock, Spinlock};
+use kernel_api::sync::{RwSpinlock, Spinlock, Syncify};
 use crate::mapped_vec::MappedVec;
 
 mod chunk;
@@ -38,12 +39,12 @@ static HEAP: Heap = Heap {
 };
 
 struct Heap {
-	arenas: RwSpinlock<MappedVec<Spinlock<Arena>>>,
+	arenas: RwSpinlock<MappedVec<(Syncify<Range<NonNull<u8>>>, Spinlock<Arena>)>>,
 }
 
 impl Heap {
 	fn alloc(&self, layout: Layout) -> Result<NonNull<u8>, AllocError> {
-		for arena in &*self.arenas.read() {
+		for (_, arena) in &*self.arenas.read() {
 			let mut arena = arena.lock();
 			match arena.try_alloc(layout) {
 				Ok(ptr) => return Ok(ptr),
@@ -54,7 +55,10 @@ impl Heap {
 		debug!("allocating new arena");
 		let mut new_arena = Arena::with_capacity(layout.size()).map_err(|_| AllocError)?;
 		let ptr = dbg!(new_arena.try_alloc(layout).map_err(|_| AllocError))?;
-		self.arenas.write().push(Spinlock::new(new_arena));
+		self.arenas.write().push((
+			unsafe { Syncify::new(new_arena.bounds()) },
+			Spinlock::new(new_arena)
+		));
 		
 		Ok(ptr)
 	}
