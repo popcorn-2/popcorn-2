@@ -1,5 +1,6 @@
 use core::alloc::Layout;
 use core::num::NonZero;
+use core::ops::Range;
 use core::ptr::NonNull;
 use log::debug;
 use kernel_api::dbg;
@@ -149,6 +150,13 @@ impl Arena {
 		old_sentinel.set_next(Some(NonNull::new(new_sentinel).expect("mmap should not end at null")));
 		
 		Self::alloc_in(old_sentinel, layout)
+	}
+	
+	pub fn bounds(&self) -> Range<NonNull<u8>> {
+		Range {
+			start: NonNull::new(self.mapping.virtual_start().as_ptr()).expect("arena should not be at null"),
+			end: NonNull::new(self.mapping.virtual_end().as_ptr()).expect("arena should not be at null"),
+		}
 	}
 }
 
