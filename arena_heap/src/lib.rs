@@ -2,6 +2,7 @@
 
 #![feature(allocator_api)]
 #![feature(kernel_mmap_to_parts)]
+#![feature(let_chains)]
 
 use core::alloc::{AllocError, Layout};
 use core::ptr::NonNull;
