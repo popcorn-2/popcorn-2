@@ -19,7 +19,7 @@ impl Arena {
 	pub fn with_capacity(capacity: usize) -> Result<Self, AllocError> {
 		let page_count = core::cmp::max(
 			Self::INITIAL_AREA_PAGE_COUNT,
-			(capacity + 2*size_of::<ChunkHeader>()).div_ceil(4096),
+			(capacity + 2*size_of::<ChunkHeader>()).div_ceil((4096 * 2) / 3), // add a bit of extra space
 		);
 		
 		let mapping = Mapping::new(
@@ -28,7 +28,7 @@ impl Arena {
 		)?;
 		
 		let start = mapping.virtual_start().as_ptr().cast::<ChunkHeader>();
-		let end = unsafe { mapping.virtual_end().as_ptr().byte_sub(size_of::<ChunkHeader>()) }.cast::<ChunkHeader>();
+		let end = unsafe { mapping.virtual_end().as_ptr().cast::<ChunkHeader>().offset(-1) };
 
 		// SAFETY: Pointer returned by Mapping::new is guaranteed to be valid for RW access for 16 KiB
 		// start - pointer returned by Mapping::new is 4K aligned which is greater than `align_of::<ChunkHeader>()`
