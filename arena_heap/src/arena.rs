@@ -79,32 +79,34 @@ impl Arena {
 			let split_point = unsafe { start_pointer.byte_add(size) };
 
 			// do all these calculations in terms of usize to ensure we never go out of bounds of the allocation
-			let new_end = split_point.addr()
-			                         .checked_add(split_point.align_offset(align_of::<ChunkHeader>()))
+			let new_header = split_point.addr()
+					.checked_add(split_point.align_offset(align_of::<ChunkHeader>()));
+			let new_end = new_header
 			                         .map(|val| val.checked_add(size_of::<ChunkHeader>() + Self::MINIMUM_USABLE_ALLOC))
 			                         .flatten();
 
 			if let Some(new_end) = new_end && new_end < end_pointer.addr() {
-				debug!("insert new chunk at {new_end:#x}");
+				let new_header = new_header.unwrap();
+				debug!("insert new chunk at {new_header:#x}");
 
 				// provenance of `start_pointer` covers the entire chunk and we just checked that `new_end..(new_end + aligned<ChunkHeader>)`
 				// is within the chunk
-				let new_end = start_pointer.with_addr(new_end);
+				let new_header = start_pointer.with_addr(new_header);
 
 				let new_chunk = unsafe { ChunkHeader::new(
 					chunk.next(),
 					Some(NonNull::from(&mut *chunk))
 				) };
 
-				unsafe { new_end.cast().write(new_chunk); }
+				unsafe { new_header.cast().write(new_chunk); }
 
 				unsafe {
 					chunk.next().expect("cannot be allocating sentinel chunk")
 					     .as_mut()
-					     .set_prev(Some(new_end.cast()));
+					     .set_prev(Some(new_header.cast()));
 				}
 
-				chunk.set_next(Some(new_end.cast()));
+				chunk.set_next(Some(new_header.cast()));
 
 			}
 
