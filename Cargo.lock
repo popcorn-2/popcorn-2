@@ -73,6 +73,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "arena_heap"
+version = "0.1.0"
+dependencies = [
+ "kernel_api",
+ "log",
+]
+
+[[package]]
 name = "auto_impl"
 version = "1.1.0"
 source = "git+https://github.com/popcorn-2/auto_impl.git#5a5366cb0a15bc590c55c6d758ea004868369c60"
@@ -438,6 +446,7 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "acpi",
+ "arena_heap",
  "bit_field",
  "bitflags 2.4.2",
  "bitmap_allocator",
@@ -446,7 +455,6 @@ dependencies = [
  "enum_dispatch",
  "hashbrown 0.14.5",
  "kernel_api",
- "kernel_default_heap",
  "log",
  "macros",
  "minicov",

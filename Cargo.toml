@@ -24,6 +24,7 @@ members = [
 	"bitmap_allocator",
 	"test_harness",
 	"ranged_btree_allocator",
+	"arena_heap",
 ]
 
 [profile.release]

@@ -35,6 +35,7 @@
 #![feature(integer_atomics)]
 #![feature(arbitrary_self_types_pointers)]
 #![feature(macro_metavar_expr_concat)]
+#![feature(linkage)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -636,26 +637,74 @@ pub unsafe extern "Rust" fn __popcorn_module_is_panicking() -> bool { panicking:
 
 
 mod allocator {
-	use core::alloc::{GlobalAlloc, Layout};
+	use core::alloc::{AllocError, GlobalAlloc, Layout};
 	use core::ptr;
 	use core::ptr::NonNull;
 	use log::debug;
+
+	extern "Rust" {
+		fn __popcorn_kernel_heap_allocate(layout: Layout) -> Result<NonNull<u8>, AllocError>;
+		fn __popcorn_kernel_heap_deallocate(ptr: NonNull<u8>, layout: Layout);
+		fn __popcorn_kernel_heap_reallocate(ptr: NonNull<u8>, layout: Layout, new_size: usize) -> Result<NonNull<u8>, AllocError>;
+	}
+	
+	mod private {
+		use core::ptr::NonNull;
+		use core::alloc::{AllocError, Layout};
+		use core::ptr;
+		use super::{__popcorn_kernel_heap_allocate, __popcorn_kernel_heap_deallocate};
+		
+		extern crate arena_heap;
+
+		#[no_mangle]
+		#[linkage = "weak"]
+		fn __popcorn_kernel_heap_reallocate(ptr: NonNull<u8>, layout: Layout, new_size: usize) -> Result<NonNull<u8>, AllocError> {
+			let new_layout = unsafe { Layout::from_size_align_unchecked(new_size, layout.align()) };
+			
+			let new_ptr = unsafe { __popcorn_kernel_heap_allocate(new_layout)? };
+			unsafe { ptr::copy_nonoverlapping(ptr.as_ptr(), new_ptr.as_ptr(), core::cmp::min(layout.size(), new_size)); }
+			unsafe { __popcorn_kernel_heap_deallocate(ptr, layout); }
+			
+			Ok(new_ptr)
+		}
+	}
 
 	struct HookAllocator;
 
 	unsafe impl GlobalAlloc for HookAllocator {
 		unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
 			debug!("alloc({layout:?})");
-			match kernel_default_heap::__popcorn_kernel_heap_allocate(layout) {
-				Ok(ptr) => ptr.as_ptr(),
+			match __popcorn_kernel_heap_allocate(layout) {
+				Ok(ptr) => {
+					assert_unsafe_precondition!(
+						"pointer returned by `alloc` not valid for layout",
+						(ptr: *mut u8 = ptr.as_ptr(), layout: Layout = layout) => ptr.align_offset(layout.align()) == 0,
+					);
+
+					ptr.as_ptr()
+				},
 				Err(_) => ptr::null_mut()
 			}
 		}
 
 		unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+			debug!("dealloc({layout:?})");
 			match NonNull::new(ptr) {
-				Some(ptr) => kernel_default_heap::__popcorn_kernel_heap_deallocate(ptr, layout),
+				Some(ptr) => __popcorn_kernel_heap_deallocate(ptr, layout),
 				None => {}
+			}
+		}
+
+		unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+			debug!("realloc({layout:?},{new_size})");
+			match NonNull::new(ptr) {
+				Some(ptr) => {
+					match __popcorn_kernel_heap_reallocate(ptr, layout, new_size) {
+						Ok(ptr) => ptr.as_ptr(),
+						Err(_) => ptr::null_mut()
+					}
+				},
+				None => ptr::null_mut(),
 			}
 		}
 	}
