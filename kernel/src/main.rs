@@ -675,7 +675,14 @@ mod allocator {
 		unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
 			debug!("alloc({layout:?})");
 			match __popcorn_kernel_heap_allocate(layout) {
-				Ok(ptr) => ptr.as_ptr(),
+				Ok(ptr) => {
+					assert_unsafe_precondition!(
+						"pointer returned by `alloc` not valid for layout",
+						(ptr: *mut u8 = ptr.as_ptr(), layout: Layout = layout) => ptr.align_offset(layout.align()) == 0,
+					);
+
+					ptr.as_ptr()
+				},
 				Err(_) => ptr::null_mut()
 			}
 		}
