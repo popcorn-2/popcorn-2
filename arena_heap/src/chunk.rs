@@ -5,7 +5,7 @@ const _: () = {
 	assert!(align_of::<ChunkHeader>() >= 2, "chunks must be aligned to at least 2 bytes to allow for pointer tagging");	
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 // Invariant: memory from self to next is valid and, if marked as free, unaliased
 // Invariant: chunks form a valid doubly linked list in memory order
 pub struct ChunkHeader {
@@ -68,6 +68,7 @@ impl ChunkHeader {
 	}
 }
 
+#[derive(Clone)]
 struct NextPtr(*mut ChunkHeader);
 
 impl NextPtr {
