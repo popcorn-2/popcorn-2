@@ -28,10 +28,7 @@ members = [
 ]
 
 [profile.release]
-lto = "thin"
-
-[profile.release-debug]
-inherits = "release"
+lto = "off"
 debug = "full"
 
 [patch.crates-io]
