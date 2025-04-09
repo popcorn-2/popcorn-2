@@ -182,9 +182,6 @@ fn syscall_handler() {
 
 #[inline]
 fn exception_handler(exception: &mut hal::exception::Exception) {
-	// todo: update this to signal userspace
-	let is_kernel_mode = true;
-	
 	let backtrace = || {
 		sprintln!("---");
 		sprintln!("{:#x?}", exception.registers);
@@ -198,7 +195,7 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 	match &exception.ty {
 		// Signalling exceptions
 		ty @ (Ty::FloatingPoint | Ty::IllegalInstruction | Ty::BusFault | Ty::Generic(_)) => {
-			if is_kernel_mode {
+			if !exception.user_mode {
 				error!("Kernel exception occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
 				backtrace();
 				loop {}
@@ -208,7 +205,7 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 		},
 		ty @ Ty::PageFault(_) => {
 			// todo: check for CoW etc.
-			if is_kernel_mode {
+			if !exception.user_mode {
 				error!("Kernel page fault occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
 				backtrace();
 
@@ -246,16 +243,16 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 		ty @ (Ty::Nmi | Ty::Panic) => {
 			// todo: BSOD equivalent?
 			error!("Unhandled exception occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
-			if is_kernel_mode { backtrace(); }
+			if !exception.user_mode { backtrace(); }
 			loop {}
 		},
 		ty @ Ty::Debug(DebugTy::Breakpoint) => {
 			warn!("Breakpoint: {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
-			if is_kernel_mode { backtrace(); }
+			if !exception.user_mode { backtrace(); }
 		},
 		ty @ Ty::Unknown(_) => {
 			warn!("Ignoring exception at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
-			if is_kernel_mode { backtrace(); }
+			if !exception.user_mode { backtrace(); }
 		},
 	}
 }

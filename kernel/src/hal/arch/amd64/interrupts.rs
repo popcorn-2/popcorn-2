@@ -270,18 +270,23 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 		gs_kernel: u64::MAX,
 	};
 	
+	let user_mode = reg_dump.stack_frame.cs > 0x10;
+	
 	let mut exception_payload = match reg_dump.stack_frame.num as u8 {
 		0 | 16 | 19 => Exception {
 			ty: Ty::FloatingPoint,
 			registers: &mut reg_dump,
+			user_mode,
 		},
 		1 | 3 => Exception {
 			ty: Ty::Debug(DebugTy::Breakpoint),
 			registers: &mut reg_dump,
+			user_mode,
 		},
 		6 => Exception {
 			ty: Ty::IllegalInstruction,
 			registers: &mut reg_dump,
+			user_mode,
 		},
 		14 => {
 			let cr2: usize;
@@ -289,19 +294,23 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 			Exception {
 				ty: Ty::PageFault(PageFault { access_addr: cr2, meta: reg_dump.stack_frame.error.try_into().unwrap() }),
 				registers: &mut reg_dump,
+				user_mode,
 			}
 		},
 		7 | 17 => Exception {
 			ty: Ty::BusFault,
 			registers: &mut reg_dump,
+			user_mode,
 		},
 		2 => Exception {
 			ty: Ty::Nmi,
 			registers: &mut reg_dump,
+			user_mode,
 		},
 		8 => Exception {
 			ty: Ty::Panic,
 			registers: &mut reg_dump,
+			user_mode,
 		},
 		e @ (4 | 5 | 9..= 13 | 15 | 18 | 21..=27 | 31) => {
 			let reason = match e {
@@ -319,6 +328,7 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 			Exception {
 				ty: Ty::Generic(reason),
 				registers: &mut reg_dump,
+				user_mode,
 			}
 		},
 		e @ (20 | 28..=30) => {
@@ -332,6 +342,7 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 			Exception {
 				ty: Ty::Unknown(reason),
 				registers: &mut reg_dump,
+				user_mode,
 			}
 		},
 		e @ 32..48 => {
