@@ -55,7 +55,7 @@ pub fn yield_defer() {
 /// # Interrupt safety
 /// This function is **not** interrupt safe, and will block any pending interrupts
 pub fn yield_now() -> Option<WakeReason> {
-	fn do_thread_switch(from: ThreadPointer, to_view: PointerView) -> Option<WakeReason> {
+	fn do_thread_switch(from: ThreadPointer, mut to_view: PointerView) -> Option<WakeReason> {
 		// We need to duplicate the `ThreadPointer` so we can pass it to `switch_thread` while it is borrowed
 		// so wrap the first copy in a `ManuallyDrop` to prevent a double free
 		let mut from = ManuallyDrop::new(from);
@@ -65,7 +65,7 @@ pub fn yield_now() -> Option<WakeReason> {
 		// The `PointerView` does not borrow the contents of the `ThreadPointer` - it only requires the
 		// `ThreadPointer` to exist 'somewhere', so holding this borrow while moving the underlying `ThreadPointer`
 		// is safe
-		let from_view = from.tcb_mut();
+		let mut from_view = from.tcb_mut();
 
 		#[cfg(feature = "log.scheduler")] trace!("[a] switch from `{:?}` to `{:?}`", from_view.thread_id, to_view.thread_id);
 
@@ -77,7 +77,7 @@ pub fn yield_now() -> Option<WakeReason> {
 		// From the CPU's perspective during a context switch, `from` is no longer the same `ThreadPointer`
 		// as the stack has been changed. Instead, we replace it with the `ThreadPointer` that `switch_thread`
 		// preserves across the function call
-		let ContextSwitchPreserve(from, reason) = unsafe { hal::switch_thread(&from_view, &to_view, ContextSwitchPreserve(ptr::read(from_ptr), reason)) };
+		let ContextSwitchPreserve(from, reason) = unsafe { hal::switch_thread(&mut from_view, &mut to_view, ContextSwitchPreserve(ptr::read(from_ptr), reason)) };
 
 		post_switch_cleanup(from);
 		

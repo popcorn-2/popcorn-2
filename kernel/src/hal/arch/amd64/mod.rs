@@ -100,63 +100,70 @@ unsafe impl Hal for Amd64Hal {
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy) {
 		paging2::construct_tables()
 	}
-
-	#[naked]
-	unsafe extern "C" fn switch_thread(from: &PointerView, to: &PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
-		// rdi: from
-		// rsi: to
-		// rdx: preserve.0 -> rax
-		// rcx: preserve.1 -> rdx
-		naked_asm!(
-			"mov rdi, [rdi + {save_state_ptr_offset}]", // load pointer to `from` save-state into `rdi`
-			"mov rsi, [rsi + {save_state_ptr_offset}]", // load pointer to `to` save-state into `rsi`
-
-			"mov [rdi + {rbx_offset}], rbx",
-			"mov [rdi + {rsp_offset}], rsp",
-			"mov [rdi + {rbp_offset}], rbp",
-			"mov [rdi + {r12_offset}], r12",
-			"mov [rdi + {r13_offset}], r13",
-			"mov [rdi + {r14_offset}], r14",
-			"mov [rdi + {r15_offset}], r15",
-			"pushf",
-			"pop rbx",
-			"mov [rdi + {rflags_offset}], rbx",
-
-			//todo: "mov r12, [rsi + {pml4_offset}]",
-			//"mov r13, cr3",
-			//"cmp r12, r13",
-			//"je 2f",
-			//"mov cr3, r12",
-			//"2:",
-
-			// todo: adjust RSP0 in TSS
-			"mov rbx, [rdi + {rflags_offset}]",
-			"push rbx",
-			"popf",
-			"mov rbx, [rsi + {rbx_offset}]",
-			"mov rsp, [rsi + {rsp_offset}]",
-			"mov rbp, [rsi + {rbp_offset}]",
-			"mov r12, [rsi + {r12_offset}]",
-			"mov r13, [rsi + {r13_offset}]",
-			"mov r14, [rsi + {r14_offset}]",
-			"mov r15, [rsi + {r15_offset}]",
-
-			"mov rax, rdx",
-			"mov rdx, rcx",
-
-			"ret",
-
-			save_state_ptr_offset = const offset_of!(PointerView, save_state),
-			rbx_offset = const offset_of!(Amd64SaveState, rbx),
-			rsp_offset = const offset_of!(Amd64SaveState, rsp),
-			rbp_offset = const offset_of!(Amd64SaveState, rbp),
-			r12_offset = const offset_of!(Amd64SaveState, r12),
-			r13_offset = const offset_of!(Amd64SaveState, r13),
-			r14_offset = const offset_of!(Amd64SaveState, r14),
-			r15_offset = const offset_of!(Amd64SaveState, r15),
-			rflags_offset = const offset_of!(Amd64SaveState, rflags),
-			//pml4_offset = const offset_of!(PointerView, ttable.pml4),
-		);
+	
+	unsafe extern "C" fn switch_thread(from: &mut PointerView, to: &mut PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
+		// currently in kernel mode so even if we get an interrupt on the new TSS.privilege_stack_table[0] value
+		// the CPU won't pay attention to it
+		tss::TSS.get().expect("TSS should be initialised")
+				.set_rsp0(to.kernel_stack.virtual_end().end().align_down());
+		
+		return inner(from.save_state, to.save_state, preserve);
+		
+		#[naked]
+		unsafe extern "C" fn inner(from: &mut Amd64SaveState, to: &Amd64SaveState, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
+			// rdi: from
+			// rsi: to
+			// rdx: preserve.0 -> rax
+			// rcx: preserve.1 -> rdx
+			naked_asm!(
+				// save all registers into `from` Amd64SaveState struct
+				"mov [rdi + {rbx_offset}], rbx",
+				"mov [rdi + {rsp_offset}], rsp",
+				"mov [rdi + {rbp_offset}], rbp",
+				"mov [rdi + {r12_offset}], r12",
+				"mov [rdi + {r13_offset}], r13",
+				"mov [rdi + {r14_offset}], r14",
+				"mov [rdi + {r15_offset}], r15",
+				"pushf",
+				"pop rbx",
+				"mov [rdi + {rflags_offset}], rbx",
+	
+				//todo: "mov r12, [rsi + {pml4_offset}]",
+				//"mov r13, cr3",
+				//"cmp r12, r13",
+				//"je 2f",
+				//"mov cr3, r12",
+				//"2:",
+	
+				// restore all registers from `to` Amd64SaveState struct
+				"mov rbx, [rdi + {rflags_offset}]",
+				"push rbx",
+				"popf",
+				"mov rbx, [rsi + {rbx_offset}]",
+				"mov rsp, [rsi + {rsp_offset}]",
+				"mov rbp, [rsi + {rbp_offset}]",
+				"mov r12, [rsi + {r12_offset}]",
+				"mov r13, [rsi + {r13_offset}]",
+				"mov r14, [rsi + {r14_offset}]",
+				"mov r15, [rsi + {r15_offset}]",
+				
+				// move data from `ContextSwitchPreserve` into return registers
+				"mov rax, rdx",
+				"mov rdx, rcx",
+	
+				"ret",
+	
+				rbx_offset = const offset_of!(Amd64SaveState, rbx),
+				rsp_offset = const offset_of!(Amd64SaveState, rsp),
+				rbp_offset = const offset_of!(Amd64SaveState, rbp),
+				r12_offset = const offset_of!(Amd64SaveState, r12),
+				r13_offset = const offset_of!(Amd64SaveState, r13),
+				r14_offset = const offset_of!(Amd64SaveState, r14),
+				r15_offset = const offset_of!(Amd64SaveState, r15),
+				rflags_offset = const offset_of!(Amd64SaveState, rflags),
+				//pml4_offset = const offset_of!(PointerView, ttable.pml4),
+			);
+		}
 	}
 
 	fn send_ipi(target: IpiTarget) -> Result<(), ()> {
