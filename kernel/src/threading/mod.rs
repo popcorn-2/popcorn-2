@@ -154,6 +154,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		ThreadState::Running,
 		INIT_THREAD_ID,
 	);
+	crate::hal::first_thread_init(&tcb);
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
 
 	assert!(

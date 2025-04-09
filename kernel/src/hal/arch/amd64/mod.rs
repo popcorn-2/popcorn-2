@@ -178,6 +178,11 @@ unsafe impl Hal for Amd64Hal {
 		}
 	}
 
+	fn first_thread_init(tcb: &ThreadControlBlock) {
+		let tss_rsp0 = tcb.kernel_stack.virtual_end().end();
+		tss::TSS.get().expect("no TSS").set_rsp0(tss_rsp0.align_down());
+	}
+
 	const IPI_VECTOR: Vector = Vector(0x30);
 	const SPURIOUS_VECTOR: Vector = Vector(0xFF);
 }
