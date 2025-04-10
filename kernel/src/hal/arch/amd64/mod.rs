@@ -281,6 +281,10 @@ pub(super) mod msr {
 
 	pub const IA32_APIC_BASE: ModelSpecificRegister = ModelSpecificRegister(0x1B);
 	pub const IA32_TSC_DEADLINE: ModelSpecificRegister = ModelSpecificRegister(0x6e0);
+	pub const STAR: ModelSpecificRegister = ModelSpecificRegister(0xC0000081);
+	pub const LSTAR: ModelSpecificRegister = ModelSpecificRegister(0xC0000082);
+	pub const CSTAR: ModelSpecificRegister = ModelSpecificRegister(0xC0000083);
+	pub const SFMASK: ModelSpecificRegister = ModelSpecificRegister(0xC0000084);
 	pub const GSBase: ModelSpecificRegister = ModelSpecificRegister(0xc0000101);
 
 	// fixme: is this always safe?
