@@ -355,7 +355,7 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 }
 
 #[naked]
-unsafe extern "C-unwind" fn amd64_syscall_handler() {
+pub unsafe extern "C-unwind" fn amd64_syscall_handler() {
 	naked_asm!("ud2");
 }
 

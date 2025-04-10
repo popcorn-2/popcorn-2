@@ -61,6 +61,20 @@ unsafe impl Hal for Amd64Hal {
 		gdt.load();
 		gdt.load_tss();
 
+		msr::wrmsr(
+			msr::STAR,
+			((24 | 0b11) << 48) | (8 << 48),
+		);
+		msr::wrmsr(
+			msr::LSTAR,
+			interrupts::amd64_syscall_handler as u64,
+		);
+		msr::wrmsr(
+			msr::SFMASK,
+			0xED5, // IF - disabled
+			       // OF, DF, SF, ZF, AF, PF, CF = 0 as required by SysV
+		);
+
 		interrupts::init_idt();
 		pic::init();
 
