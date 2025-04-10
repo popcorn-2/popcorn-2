@@ -142,7 +142,7 @@ impl KTable for Amd64TTable {
 
 impl KTable for Amd64KTable {
 	fn translate_page(&self, page: Page) -> Option<Frame> {
-		assert!(page.start().addr < 0xffff_8000_0000_0000, "TTable only handles lower half addresses");
+		assert!(page.start().addr >= 0xffff_8000_0000_0000, "KTable only handles lower half addresses");
 
 		let pdpt = &self.tables.tables()[page.pml4_index() - 256];
 		let pd = pdpt.child_table(page.pdpt_index())?;
