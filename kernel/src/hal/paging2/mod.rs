@@ -31,6 +31,9 @@ pub trait TTable: KTable + Sized {
 	unsafe fn load(&self);
 
 	fn new(ktable: &KTableTy, allocator: &'static dyn PhysicalAllocator) -> Result<Self, AllocError>;
+
+	fn map_page(&self, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
+	fn unmap_page(&self, page: Page) -> Result<(), ()>;
 }
 
 #[export_name = "__popcorn_paging_ktable_translate_page"]

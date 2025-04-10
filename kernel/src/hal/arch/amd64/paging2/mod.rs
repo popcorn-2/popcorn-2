@@ -1,10 +1,12 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
 use core::fmt::{Debug, Formatter};
+use core::ops::DerefMut;
 use kernel_api::bridge::paging::MapPageError;
 use kernel_api::memory::allocator::{PhysicalAllocator};
 use kernel_api::memory::{Frame, Page, PhysicalAddress, AllocError};
 use kernel_api::memory::physical::highmem;
+use kernel_api::sync::{Spinlock, SpinlockGuard};
 use table::{Table, PDPT, PML4, PageIndices};
 use crate::hal::arch::amd64::paging::Amd64Entry;
 use crate::hal::paging2::{KTable, TTable};
@@ -62,19 +64,30 @@ impl Debug for Amd64KTable {
 	}
 }
 
-#[repr(transparent)]
-pub(super) struct TTablePtr(pub(super) Frame); // points to a Table<PML4>
+#[repr(C)]
+pub(super) struct TTablePtr {
+	pub(super) pml4: Frame, // points to a Table<PML4>
+	lock: Spinlock<()>,
+}
 
 impl TTablePtr {
 	fn pml4(&self) -> &Table<PML4> {
 		unsafe {
-			&*self.0.to_page().as_ptr().cast()
+			&*self.pml4.to_page().as_ptr().cast()
 		}
+	}
+
+	fn pml4_lock_mut(&self) -> impl DerefMut<Target = Table<PML4>> + '_ {
+		let guard = self.lock.lock();
+		let table = unsafe {
+			&mut *self.pml4.to_page().as_ptr().cast()
+		};
+		SpinlockGuard::map(guard, move |_| table)
 	}
 
 	fn pml4_mut(&mut self) -> &mut Table<PML4> {
 		unsafe {
-			&mut *self.0.to_page().as_ptr().cast()
+			&mut *self.pml4.to_page().as_ptr().cast()
 		}
 	}
 }
@@ -87,7 +100,10 @@ pub struct Amd64TTable {
 impl Amd64TTable {
 	pub unsafe fn new_unchecked(pml4: Frame) -> Self {
 		Self {
-			pml4: TTablePtr(pml4),
+			pml4: TTablePtr {
+				pml4,
+				lock: Spinlock::new(()),
+			},
 			allocator: highmem()
 		}
 	}
@@ -99,29 +115,20 @@ impl Debug for Amd64TTable {
 	}
 }
 
-impl KTable for Amd64TTable {
-	fn translate_page(&self, page: Page) -> Option<Frame> {
+impl Amd64TTable {
+	fn do_map(pml4: &mut Table<PML4>, page: Page, frame: Frame, reason: u16, allocator: &'static dyn PhysicalAllocator) -> Result<(), MapPageError> {
 		assert!(page.start().addr < 0xffff_8000_0000_0000, "TTable only handles lower half addresses");
 
-		let pdpt = self.pml4.pml4().child_table(page.pml4_index())?;
-		let pd = pdpt.child_table(page.pdpt_index())?;
-		let pt = pd.child_table(page.pd_index())?;
-		pt.entries[page.pt_index()].pointed_frame()
-	}
-
-	fn map_page(&mut self, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
-		assert!(page.start().addr < 0xffff_8000_0000_0000, "TTable only handles lower half addresses");
-
-		let pdpt = self.pml4.pml4_mut().child_table_or_new(page.pml4_index(), &self.allocator)?;
-		let pd = pdpt.child_table_or_new(page.pdpt_index(), &self.allocator)?;
-		let pt = pd.child_table_or_new(page.pd_index(), &self.allocator)?;
+		let pdpt = pml4.child_table_or_new(page.pml4_index(), &allocator)?;
+		let pd = pdpt.child_table_or_new(page.pdpt_index(), &allocator)?;
+		let pt = pd.child_table_or_new(page.pd_index(), &allocator)?;
 		pt.entries[page.pt_index()].point_to_frame(frame, reason).map_err(|e| MapPageError::AlreadyMapped(e))
 	}
-
-	fn unmap_page(&mut self, page: Page) -> Result<(), ()> {
+	
+	fn do_unmap(pml4: &mut Table<PML4>, page: Page) -> Result<(), ()> {
 		assert!(page.start().addr < 0xffff_8000_0000_0000, "TTable only handles lower half addresses");
 
-		let pdpt = self.pml4.pml4_mut().child_table_mut(page.pml4_index()).ok_or(())?;
+		let pdpt = pml4.child_table_mut(page.pml4_index()).ok_or(())?;
 		let pd = pdpt.child_table_mut(page.pdpt_index()).ok_or(())?;
 		let pt = pd.child_table_mut(page.pd_index()).ok_or(())?;
 		let entry = &mut pt.entries[page.pt_index()];
@@ -137,6 +144,31 @@ impl KTable for Amd64TTable {
 			},
 			(false, _) => Err(())
 		}
+	}
+}
+
+impl KTable for Amd64TTable {
+	fn translate_page(&self, page: Page) -> Option<Frame> {
+		assert!(page.start().addr < 0xffff_8000_0000_0000, "TTable only handles lower half addresses");
+
+		let pdpt = self.pml4.pml4().child_table(page.pml4_index())?;
+		let pd = pdpt.child_table(page.pdpt_index())?;
+		let pt = pd.child_table(page.pd_index())?;
+		pt.entries[page.pt_index()].pointed_frame()
+	}
+
+	fn map_page(&mut self, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
+		Self::do_map(
+			self.pml4.pml4_mut(),
+			page,
+			frame,
+			reason,
+			self.allocator,
+		)
+	}
+
+	fn unmap_page(&mut self, page: Page) -> Result<(), ()> {
+		Self::do_unmap(self.pml4.pml4_mut(), page)
 	}
 }
 
@@ -183,7 +215,7 @@ impl KTable for Amd64KTable {
 
 impl TTable for Amd64TTable {
 	unsafe fn load(&self) {
-		let addr = self.pml4.0.start().addr;
+		let addr = self.pml4.pml4.start().addr;
 		unsafe { asm!("mov cr3, {}", in(reg) addr); }
 	}
 
@@ -200,8 +232,28 @@ impl TTable for Amd64TTable {
 		}
 
 		Ok(Self {
-			pml4: TTablePtr(pml4_frame),
+			pml4: TTablePtr {
+				pml4: pml4_frame,
+				lock: Spinlock::new(()),
+			},
 			allocator
 		})
+	}
+
+	fn map_page(&self, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
+		Self::do_map(
+			&mut *self.pml4.pml4_lock_mut(),
+			page,
+			frame,
+			reason,
+			self.allocator
+		)
+	}
+
+	fn unmap_page(&self, page: Page) -> Result<(), ()> {
+		Self::do_unmap(
+			&mut *self.pml4.pml4_lock_mut(),
+			page,
+		)
 	}
 }
