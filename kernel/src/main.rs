@@ -322,7 +322,8 @@ extern "sysv64" fn kstart(handoff_data: &'static utils::handoff::Data) -> ! {
 fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let _ = logging::init();
 
-	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| &*ptr.as_ptr().wrapping_byte_add(0xffff_8000_0000_0000)) };
+	// fixme: lifetime here is wrong and when `handoff_data` gets dropped the symbol map is useless
+	let map = handoff_data.log.symbol_map;
 	*panicking::SYMBOL_MAP.write() = map;
 
 	trace!("Handoff data:\n{handoff_data:x?}");

@@ -443,7 +443,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         }
     };
 
-    let symbol_map = symbol_map.map(|m| Box::leak(m.into_boxed_slice()));
+    let symbol_map = symbol_map.map(|m| &*Box::leak(m.into_boxed_slice()));
 
     info!("new stack at {:#x?}", stack);
 
@@ -562,7 +562,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         if let Some(item) = last_item {
             kernel_mem_map.push(item);
         };
-        kernel_mem_map
+        Vec::leak(kernel_mem_map)
     };
 
     let kernel_entry = kernel.entrypoint();
@@ -595,7 +595,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         },
         log: handoff::Logging {
-            symbol_map: symbol_map.map(NonNull::from)
+            symbol_map,
         },
         test: handoff::Testing {
             module_func: unsafe { mem::transmute(1usize) }
