@@ -94,14 +94,7 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	unsafe fn load_tls(ptr: *mut u8) {
-		let tls_self_ptr_low = ptr as usize as u32;
-		let tls_self_ptr_high = ((ptr as usize) >> 32) as u32;
-		unsafe {
-			asm!(
-				"wrmsr",
-				in("edx") tls_self_ptr_high, in("eax") tls_self_ptr_low, in("ecx") 0xc0000100u32 // FSBase MSR
-			);
-		}
+		msr::wrmsr(msr::GSBase, ptr.addr() as _);
 	}
 
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy) {
@@ -264,6 +257,7 @@ pub(super) mod msr {
 
 	pub const IA32_APIC_BASE: ModelSpecificRegister = ModelSpecificRegister(0x1B);
 	pub const IA32_TSC_DEADLINE: ModelSpecificRegister = ModelSpecificRegister(0x6e0);
+	pub const GSBase: ModelSpecificRegister = ModelSpecificRegister(0xc0000101);
 
 	// fixme: is this always safe?
 	pub fn rdmsr(msr: ModelSpecificRegister) -> u64 {

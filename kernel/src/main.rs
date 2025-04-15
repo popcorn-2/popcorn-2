@@ -15,7 +15,6 @@
 #![feature(inherent_associated_types)]
 #![feature(pointer_like_trait)]
 #![feature(int_roundings)]
-#![feature(thread_local)]
 #![feature(vec_into_raw_parts)]
 #![feature(strict_provenance_atomic_ptr)]
 #![feature(maybe_uninit_uninit_array_transpose)]
@@ -115,11 +114,10 @@ mod percpu;
 #[cfg(test)]
 pub mod test_harness;
 
-#[thread_local]
-static FOO: UnsafeCell<usize> = UnsafeCell::new(6);
+percpu!(static FOO: UnsafeCell<usize> = UnsafeCell::new(6));
 
 fn get_foo() -> usize {
-	unsafe { *FOO.get() }
+	unsafe { *FOO().get() }
 }
 
 #[macro_export]

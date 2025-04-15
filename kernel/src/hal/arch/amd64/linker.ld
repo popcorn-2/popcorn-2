@@ -9,7 +9,7 @@ PHDRS {
     dynamic PT_DYNAMIC ;
     gnu_eh_frame 0x6474E550 FLAGS(0x4) ;
     lazy PT_LOAD FLAGS(0x20006) ;
-    tls PT_TLS FLAGS(0x406) ;
+    percpu PT_TLS FLAGS(0x406) ;
 }
 
 SECTIONS {
@@ -133,15 +133,12 @@ SECTIONS {
 	} :data :dynamic
 
     . = ALIGN(4K);
-	.tdata :
+	.percpu :
 	{
-	    *(.tdata .tdata.*)
-	} :tls
-
-	.tbss :
-	{
-	    *(.tbss .tbss.*)
-	}
+	    __percpu_start = .;
+	    *(.percpu .percpu.*)
+	    __percpu_end = .;
+	} :percpu
 
 	. = ALIGN(4K);
 	PROVIDE(__popcorn_vmem_bootstrap_start = .);

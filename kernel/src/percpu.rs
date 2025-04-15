@@ -1,5 +1,5 @@
 macro_rules! percpu {
-    ($vis:vis static $ident:ident: $ty:ty = $init:expr) => {
+    ($vis:vis static $ident:ident: $ty:ty = $init:expr $(;)?) => {
         #[inline(always)]
         $vis fn $ident() -> &'static $ty {
             #[repr(transparent)]

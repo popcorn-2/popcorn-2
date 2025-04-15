@@ -3,18 +3,17 @@ use core::cell::OnceCell;
 use kernel_api::time::Instant;
 use crate::hal::interrupts_v2::Vector;
 
-#[thread_local]
-static LOCAL_TIMER: OnceCell<TimerMeta> = OnceCell::new();
+percpu!(static LOCAL_TIMER: OnceCell<TimerMeta> = OnceCell::new());
 
 pub(super) fn init_local_timer(timer: TimerMeta) {
-	match LOCAL_TIMER.try_insert(timer) {
+	match LOCAL_TIMER().try_insert(timer) {
 		Ok(_) => {},
 		Err(_) => panic!("`LOCAL_TIMER` already initialised"),
 	}
 }
 
 pub fn local_timer() -> &'static TimerMeta {
-	unsafe { core::mem::transmute::<_, &'static _>(LOCAL_TIMER.get().expect("`local_timer` not yet initialised")) }
+	LOCAL_TIMER().get().expect("`local_timer` not yet initialised")
 }
 
 pub trait Timer {

@@ -126,11 +126,10 @@ pub(crate) fn tsc_to_nanos() -> (u128, NonZero<u128>) {
 	})
 }
 
-#[thread_local]
-pub static LOCAL_TIMER_QUEUE: TimerQueue = TimerQueue::new();
+percpu!(pub static LOCAL_TIMER_QUEUE: TimerQueue = TimerQueue::new());
 
 pub fn local_timer_queue_irq_handler() {
-	LOCAL_TIMER_QUEUE.handle_irq();
+	LOCAL_TIMER_QUEUE().handle_irq();
 }
 
 pub struct TimerQueue {
