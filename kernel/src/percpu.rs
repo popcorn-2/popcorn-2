@@ -16,14 +16,13 @@ macro_rules! percpu {
             let val: *mut $ty;
             unsafe {
                 ::core::arch::asm!(
-                    "mov {}, gs:[{}]",
+                    "mov {}, gs:[0]",
                     out(reg) val,
-                    const { ::core::ptr::addr_of!(__percpu_end).offset_from(::core::ptr::addr_of!(PERCPU).cast::<u8>()) },
                     options(nostack, preserves_flags)
                 );
             }
             unsafe {
-                &*val
+                &*val.byte_offset(::core::ptr::addr_of!(__percpu_end).offset_from(::core::ptr::addr_of!(PERCPU).cast::<u8>()))
             }
         }
     };
