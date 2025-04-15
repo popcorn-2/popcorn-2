@@ -110,6 +110,7 @@ mod interrupts;
 mod ipc;
 mod prelude;
 mod io_ext;
+mod percpu;
 
 #[cfg(test)]
 pub mod test_harness;
