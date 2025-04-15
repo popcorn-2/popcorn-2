@@ -637,7 +637,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
             "mov eax, 0xead10ca1",
             "mov edx, 0xd", // edx:eax = 0xdead10cal
-            "mov ecx, 0xc0000100", // ecx = FSBase MSR
+            "mov ecx, 0xc0000101", // ecx = GSBase MSR
             "wrmsr",
 
             "jmp rsi",
