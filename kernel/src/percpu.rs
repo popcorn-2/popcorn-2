@@ -22,7 +22,7 @@ macro_rules! percpu {
                 );
             }
             unsafe {
-                &*val.byte_offset(::core::ptr::addr_of!(__percpu_end).offset_from(::core::ptr::addr_of!(PERCPU).cast::<u8>()))
+                &*val.byte_offset(::core::ptr::addr_of!(PERCPU).byte_offset_from(::core::ptr::addr_of!(__percpu_end)))
             }
         }
     };
