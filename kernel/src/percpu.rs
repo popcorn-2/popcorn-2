@@ -55,6 +55,7 @@ percpu_gen! {
         pub scheduler: OnceCell<IrqCell<crate::threading::SchedulerTy>> = OnceCell::new(),
         pub idle_thread: LazyCell<(ThreadId, Thread, UnsafeCell<ThreadPointer>)> = LazyCell::new(crate::threading::create_idle_thread),
         pub local_timer: OnceCell<crate::hal::timing::TimerMeta> = OnceCell::new(),
+        pub current_thread: Option<crate::threading::ThreadPointer> = None,
     }
 }
 
