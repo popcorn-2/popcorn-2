@@ -363,7 +363,7 @@ pub unsafe extern "C-unwind" fn amd64_syscall_handler() {
 		"mov r12, rcx", // save rcx (for sysret)
 		"mov r13, r11", // save r11 (for sysret)
 		
-		"mov rsp, gs:[-8]", // load kernel stack from [TLS - 8] - see hal::switch_thread for notes
+		"mov rsp, gs:[{rsp0_offset}]", // load kernel stack from [TLS - 8] - see hal::switch_thread for notes
 		"sti", // can take interrupts now that stack is sorted
 			   // todo: fix for NMI stuff
 		
@@ -385,6 +385,7 @@ pub unsafe extern "C-unwind" fn amd64_syscall_handler() {
 		"swapgs",
 		"sysretq",
 		sym crate::syscall_handler,
+		rsp0_offset = const core::mem::offset_of!(crate::percpu::Percpu, kernel_stack_top),
 	);
 }
 

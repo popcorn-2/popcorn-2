@@ -28,9 +28,6 @@ use crate::threading::{PointerView, SharedView, ThreadControlBlock, ThreadState}
 #[doc(hidden)]
 mod tickless_round_robin;
 
-/// The [`Scheduler`] for the current core
-percpu!(static SCHEDULER: OnceCell<IrqCell<tickless_round_robin::TicklessRoundRobin>> = OnceCell::new());
-
 /// [`Injector`]s to add new threads to each core
 static SCHEDULER_INJECTORS: Spinlock<Vec<Box<dyn Injector>>> = Spinlock::new(vec![]);
 
@@ -89,10 +86,10 @@ pub enum SchedulerSwitchState<'a> {
 	SwitchFromIdle { new_thread: PointerView<'a> },
 }
 
+#[define_opaque(super::SchedulerTy)]
 pub(super) fn create_scheduler_for_current_core(running_thread: ThreadPointer) -> CoreId {
-	debug_assert!(SCHEDULER().get().is_none(), "Scheduler already initialised");
 	let (scheduler, injector, _stealer) = <tickless_round_robin::TicklessRoundRobin as Scheduler>::new(running_thread);
-	SCHEDULER().set(IrqCell::new(scheduler))
+	percpu_v2!(scheduler).set(IrqCell::new(scheduler))
 			.expect("Scheduler already initialised");
 	let mut guard = SCHEDULER_INJECTORS.lock();
 	guard.push(injector);
@@ -100,7 +97,7 @@ pub(super) fn create_scheduler_for_current_core(running_thread: ThreadPointer) -
 }
 
 pub(super) fn local_scheduler() -> &'static IrqCell<impl Scheduler + Debug> {
-	SCHEDULER().get()
+	percpu_v2!(scheduler).get()
 			.expect("Scheduler not yet initialised")
 }
 

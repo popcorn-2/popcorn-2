@@ -9,6 +9,6 @@ pub use alloc::format;
 // Commonly used kernel imports
 pub use log::{error, warn, info, debug, trace};
 pub use crate::{sprint, sprintln, yeet};
-pub(crate) use crate::percpu::percpu;
+pub(crate) use crate::percpu::percpu_v2;
 
 pub use crate::io_ext::IoExt as _;

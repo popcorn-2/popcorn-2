@@ -63,9 +63,11 @@ pub use parking::{park, ParkError, WakeReason, WakeTrigger, Waker};
 pub use pointers::{Thread, ThreadPointer};
 pub use sleeping::{sleep, sleep_until};
 pub use thread_control_block::{ThreadState, ThreadControlBlock, PointerView, OwnedView, SharedView};
-pub use yielding::{yield_now, yield_defer};
+pub use yielding::{yield_now, yield_defer, create_idle_thread};
 use crate::hal::paging2::TTable;
 use crate::hal::TTableTy;
+
+pub type SchedulerTy = impl Scheduler;
 
 const INIT_THREAD_NUM: usize = 1;
 const INIT_THREAD_ID: ThreadId = ThreadId { id: non_zero!(INIT_THREAD_NUM) };

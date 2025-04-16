@@ -122,14 +122,11 @@ unsafe impl Hal for Amd64Hal {
 	}
 	
 	unsafe extern "C" fn switch_thread(from: &mut PointerView, to: &mut PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
-		// used by syscall entry function which assumes it's at the end of TLS block, so force it to be .percpu.z_...
-		percpu!(static RSP0: AtomicUsize => "z_RSP0" = AtomicUsize::new(0));
-		
 		// currently in kernel mode so even if we get an interrupt on the new TSS.privilege_stack_table[0] value
 		// the CPU won't pay attention to it
 		let ptr = tss::TSS.get().expect("TSS should be initialised")
 				.set_rsp0(to.kernel_stack.virtual_end().end().align_down());
-		RSP0().store(to.kernel_stack.virtual_end().end().addr, Ordering::Relaxed);
+		percpu_v2!(kernel_stack_top).store(to.kernel_stack.virtual_end().end().addr, Ordering::Relaxed);
 		
 		return inner(from.save_state, to.save_state, preserve, to.ttable.pml4.pml4);
 

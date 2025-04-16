@@ -114,10 +114,8 @@ mod percpu;
 #[cfg(test)]
 pub mod test_harness;
 
-percpu!(static FOO: UnsafeCell<usize> = UnsafeCell::new(6));
-
 fn get_foo() -> usize {
-	unsafe { *FOO().get() }
+	unsafe { *percpu_v2!(foo).get() }
 }
 
 #[macro_export]
