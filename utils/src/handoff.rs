@@ -13,7 +13,8 @@ pub struct Data {
 	pub log: Logging,
 	pub test: Testing,
 	pub tls: (Range<VirtualAddress>, usize),
-	pub rsdp: PhysicalAddress
+	pub rsdp: PhysicalAddress,
+	pub init_exec: &'static [u8],
 }
 
 #[repr(C)]
