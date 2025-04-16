@@ -136,7 +136,8 @@ SECTIONS {
 	.percpu :
 	{
 	    __percpu_start = .;
-	    *(.percpu .percpu.*)
+	    *(.percpu)
+	    *(SORT_BY_NAME(.percpu.*))
 	    __percpu_end = .;
 	} :percpu
 
