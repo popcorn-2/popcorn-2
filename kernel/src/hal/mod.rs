@@ -91,8 +91,8 @@ mod hal_impl {
 	
 	pub fn send_local_eoi(vector: Vector) { <arch::Arch as Hal>::send_local_eoi(vector) }
 	pub fn wait_for_interrupt() { <arch::Arch as Hal>::wait_for_interrupt() }
-	#[inline] pub extern "C" fn switch_to_userspace_at(addr: VirtualAddress) -> ! { <arch::Arch as Hal>::switch_to_userspace_at(addr) }
 	#[inline] pub fn first_thread_init(tcb: &ThreadControlBlock) { <arch::Arch as Hal>::first_thread_init(tcb) }
+	#[inline] pub fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! { <arch::Arch as Hal>::switch_to_userspace_at(addr, stack_top) }
 
 	pub const IPI_VECTOR: Vector = <arch::Arch as Hal>::IPI_VECTOR;
 	pub const SPURIOUS_VECTOR: Vector = <arch::Arch as Hal>::SPURIOUS_VECTOR;

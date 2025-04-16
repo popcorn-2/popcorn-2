@@ -209,13 +209,15 @@ unsafe impl Hal for Amd64Hal {
 		tss::TSS.get().expect("no TSS").set_rsp0(tss_rsp0.align_down());
 	}
 
-	#[naked]
-	extern "C" fn switch_to_userspace_at(addr: VirtualAddress) -> ! {
+	extern "C" fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! {
 		unsafe {
-			naked_asm!(
-					"mov rcx, rdi", // return address from argument
+			asm!(
+					"mov rsp, {}", // return address from argument
 					"mov r11, 0x202",
-					"sysretq"
+					"sysretq",
+					in(reg) stack_top.addr,
+					in("rcx") addr.addr, // return address from argument
+					options(noreturn)
 			)
 		}
 	}
