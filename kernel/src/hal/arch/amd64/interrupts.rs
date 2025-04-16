@@ -356,7 +356,36 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 
 #[naked]
 pub unsafe extern "C-unwind" fn amd64_syscall_handler() {
-	naked_asm!("ud2");
+	naked_asm!(
+		"swapgs",
+		
+		"mov rbx, rsp", // save userspace stack pointer
+		"mov r12, rcx", // save rcx (for sysret)
+		"mov r13, r11", // save r11 (for sysret)
+		
+		"mov rsp, gs:[-8]", // load kernel stack from [TLS - 8] - see hal::switch_thread for notes
+		"sti", // can take interrupts now that stack is sorted
+			   // todo: fix for NMI stuff
+		
+		"mov r9, rdx",
+		"mov rcx, rdi",
+		"mov r8, rsi",
+		"movq rdi, xmm0",
+		"punpckhqdq xmm0, xmm0", // broadcast the high half of xmm0 to both halves
+		"movq rsi, xmm0",
+		"mov rdx, rax",
+		
+		"call {}", // extern C function so return val already in rax
+		
+		"cli",
+		"mov r11, r13", // restore registers to userspace state
+		"mov rcx, r12",
+		"mov rsp, rbx",
+		
+		"swapgs",
+		"sysretq",
+		sym crate::syscall_handler,
+	);
 }
 
 global_asm!(include_str!("interrupts.asm"), options(raw));

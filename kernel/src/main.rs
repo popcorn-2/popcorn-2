@@ -176,7 +176,9 @@ macro_rules! assert_unsafe_precondition {
 }
 
 #[inline]
-fn syscall_handler() {
+extern "C" fn syscall_handler(num_low: u64, num_high: u64, a: u64, b: u64, c: u64, d: u64) -> i64 {
+	debug!("syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x})");
+	todo!()
 
 }
 
