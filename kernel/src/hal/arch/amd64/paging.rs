@@ -77,7 +77,7 @@ impl Entry for Amd64Entry {
 
 		let reason = u64::from(reason);
 		let low = (reason & 7) << 9;
-		let high = (reason & 0x7ff8) << (52 - 3);
+		let high = (reason & 0x3ff8) << (52 - 3);
 		let split_reason = low | high;
 		let masked_addr = u64::try_from(frame.start().addr).unwrap() & Self::ADDRESS.0;
 		// FIXME: HACK

@@ -27,6 +27,7 @@ pub(crate) unsafe fn construct_tables() -> (Amd64KTable, Amd64TTable) {
 
 	let ktable_base = ttable.pml4.pml4().entries[256].pointed_frame()
 			.expect("Invalid TTable");
+	
 	let ktable = Amd64KTable {
 		tables: KTablePtr(ktable_base),
 		allocator: highmem()
