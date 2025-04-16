@@ -23,23 +23,31 @@ impl From<u32> for StringIndex {
 	}
 }
 
-impl<'a> super::File<'a> {
-	pub fn dynamic_string_table(&self) -> Option<StringTable<'_>> {
-		let string_table_addr = self.dynamic_table().find_map(|entry| match entry {
-			DynamicTableEntry::StringTable(addr) => Some(addr),
-			_ => None
-		})?;
-
-		let string_table_length = self.dynamic_table().find_map(|entry| match entry {
-			DynamicTableEntry::StringTableSize(len) => Some(len),
-			_ => None
-		})?;
-
-		let string_table = {
-			let string_table_ptr = self.data_at_address(string_table_addr).unwrap();
-			unsafe { &*slice_from_raw_parts(string_table_ptr.cast::<ffi::c_char>(), usize::try_from(string_table_length).unwrap()) }
-		};
-
-		Some(StringTable(string_table))
-	}
+macro_rules! string_tab {
+    ($ty:ident) => {
+		impl<'a> $ty <'a> {
+			pub fn dynamic_string_table(&self) -> Option<StringTable<'_>> {
+				let string_table_addr = self.dynamic_table().find_map(|entry| match entry {
+					DynamicTableEntry::StringTable(addr) => Some(addr),
+					_ => None
+				})?;
+		
+				let string_table_length = self.dynamic_table().find_map(|entry| match entry {
+					DynamicTableEntry::StringTableSize(len) => Some(len),
+					_ => None
+				})?;
+		
+				let string_table = {
+					let string_table_ptr = self.data_at_address(string_table_addr).unwrap();
+					unsafe { &*slice_from_raw_parts(string_table_ptr.cast::<ffi::c_char>(), usize::try_from(string_table_length).unwrap()) }
+				};
+		
+				Some(StringTable(string_table))
+			}
+		}
+    };
 }
+
+use super::{File, FileMut};
+string_tab!(File);
+string_tab!(FileMut);

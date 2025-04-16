@@ -123,14 +123,22 @@ impl<'a> Iterator for DynamicTableIter<'a> {
 	}
 }
 
-impl<'a> super::File<'a> {
-	pub fn dynamic_table(&self) -> impl Iterator<Item = DynamicTableEntry> + '_ {
-		let Some(dynamic_segment) = self.segments().find(|segment| segment.segment_type == SegmentType::DYNAMIC) else {
-			panic!("can't find _DYNAMIC")
-		};
-
-		DynamicTableIter::new(self.index_data(dynamic_segment.file_location()))
-				.filter_map(Result::ok)
-				.map(|entry| unsafe { entry.relocate(self.base) })
-	}
+macro_rules! file_dyn_table {
+    ($ty:ident) => {
+		impl<'a> $ty <'a> {
+			pub fn dynamic_table(&self) -> impl Iterator<Item = DynamicTableEntry> + '_ {
+				let Some(dynamic_segment) = self.segments().find(|segment| segment.segment_type == SegmentType::DYNAMIC) else {
+					panic!("can't find _DYNAMIC")
+				};
+		
+				DynamicTableIter::new(self.index_data(dynamic_segment.file_location()))
+						.filter_map(Result::ok)
+						.map(|entry| unsafe { entry.relocate(self.base) })
+			}
+		}
+    };
 }
+
+use super::{File, FileMut};
+file_dyn_table!(File);
+file_dyn_table!(FileMut);
