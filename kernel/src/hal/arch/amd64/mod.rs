@@ -210,8 +210,10 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	extern "C" fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! {
+		crate::hal::get_and_disable_interrupts(); // so we can switch stack without getting interrupted before we get to userspace
 		unsafe {
 			asm!(
+					"swapgs",
 					"mov rsp, {}", // return address from argument
 					"mov r11, 0x202",
 					"sysretq",
