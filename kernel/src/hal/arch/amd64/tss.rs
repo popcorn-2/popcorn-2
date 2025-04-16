@@ -45,6 +45,7 @@ impl Tss {
         }
     }
     
+    #[inline]
     pub extern "C" fn set_rsp0(&self, addr: VirtualAddress) {
         unsafe {
             asm!("lock xchg qword ptr [{}], {}", in(reg) addr_of!(self.privilege_stack_table[0]), inout(reg) addr.addr => _);
