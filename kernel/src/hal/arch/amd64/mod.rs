@@ -131,14 +131,15 @@ unsafe impl Hal for Amd64Hal {
 				.set_rsp0(to.kernel_stack.virtual_end().end().align_down());
 		RSP0().store(to.kernel_stack.virtual_end().end().addr, Ordering::Relaxed);
 		
-		return inner(from.save_state, to.save_state, preserve);
-		
-		#[naked]
-		unsafe extern "C" fn inner(from: &mut Amd64SaveState, to: &Amd64SaveState, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
+		return inner(from.save_state, to.save_state, preserve, to.ttable.pml4.pml4);
+
+		#[naked] // todo: convert to normal inline asm
+		unsafe extern "C" fn inner(from: &mut Amd64SaveState, to: &Amd64SaveState, preserve: ContextSwitchPreserve, cr3: Frame) -> ContextSwitchPreserve {
 			// rdi: from
 			// rsi: to
 			// rdx: preserve.0 -> rax
 			// rcx: preserve.1 -> rdx
+			// r8: cr3
 			naked_asm!(
 				// save all registers into `from` Amd64SaveState struct
 				"mov [rdi + {rbx_offset}], rbx",
@@ -151,13 +152,13 @@ unsafe impl Hal for Amd64Hal {
 				"pushf",
 				"pop rbx",
 				"mov [rdi + {rflags_offset}], rbx",
-	
-				//todo: "mov r12, [rsi + {pml4_offset}]",
-				//"mov r13, cr3",
-				//"cmp r12, r13",
-				//"je 2f",
-				//"mov cr3, r12",
-				//"2:",
+
+				// swap page table if needed
+				"mov r13, cr3",
+				"cmp r8, r13",
+				"je 2f",
+				"mov cr3, r8",
+				"2:",
 	
 				// restore all registers from `to` Amd64SaveState struct
 				"mov rbx, [rdi + {rflags_offset}]",
@@ -185,7 +186,6 @@ unsafe impl Hal for Amd64Hal {
 				r14_offset = const offset_of!(Amd64SaveState, r14),
 				r15_offset = const offset_of!(Amd64SaveState, r15),
 				rflags_offset = const offset_of!(Amd64SaveState, rflags),
-				//pml4_offset = const offset_of!(PointerView, ttable.pml4),
 			);
 		}
 	}
