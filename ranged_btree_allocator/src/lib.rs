@@ -67,6 +67,9 @@ impl VirtualAllocator for RangedBtreeAllocator {
     }
 
     fn allocate_contiguous_at(&self, at: Page, len: usize) -> Result<Page, AllocError> {
+        if at < self.range.start { return Err(AllocError); }
+        if (at + len) > self.range.end { return Err(AllocError); }
+        
         let mut guard = self.map.lock();
         match guard.insert(at..(at + len), Meta { len }) {
             Ok(_) => Ok(at),
