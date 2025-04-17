@@ -4,6 +4,7 @@ use core::fmt::{Debug, Formatter};
 use core::mem::{MaybeUninit, offset_of};
 use core::num::NonZero;
 use kernel_api::memory::mapping::Stack;
+use kernel_api::memory::VirtualAddress;
 use crate::hal::{ContextSwitchPreserve, IpiTarget};
 use crate::hal::{Hal, SaveStateTr, ThreadControlBlock};
 use crate::hal::arch::amd64::interrupts::handler::InterruptStackFrame;
@@ -188,6 +189,17 @@ unsafe impl Hal for Amd64Hal {
 	fn first_thread_init(tcb: &ThreadControlBlock) {
 		let tss_rsp0 = tcb.kernel_stack.virtual_end().end();
 		tss::TSS.get().expect("no TSS").set_rsp0(tss_rsp0.align_down());
+	}
+
+	#[naked]
+	extern "C" fn switch_to_userspace_at(addr: VirtualAddress) -> ! {
+		unsafe {
+			naked_asm!(
+					"mov rcx, rdi", // return address from argument
+					"mov r11, 0x202",
+					"sysretq"
+			)
+		}
 	}
 
 	const IPI_VECTOR: Vector = Vector(0x30);
