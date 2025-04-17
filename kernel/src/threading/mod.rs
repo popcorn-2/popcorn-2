@@ -239,7 +239,7 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 /// 
 /// Returns `None` if the core is idle
 pub fn current_thread() -> Option<ThreadId> {
-	scheduler::local_scheduler().lock().current_thread().map(|t| *t.thread_id)
+	percpu_v2!(current_thread).read().as_ref().map(|t| *t.tcb_ref().thread_id)
 }
 
 fn move_to_global_parking_lot(mut thread: ThreadPointer) {
@@ -293,4 +293,6 @@ pub unsafe extern "C" fn thread_startup() {
 }
 
 #[doc(hidden)]
-pub fn debug() { debug!("{:#?}", scheduler::local_scheduler()); }
+pub fn debug() {
+	debug!("current_thread = {:?}\n{:#?}", *percpu_v2!(current_thread).read(), scheduler::local_scheduler());
+}

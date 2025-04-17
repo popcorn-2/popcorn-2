@@ -2,6 +2,7 @@ use alloc::sync::{Arc, Weak};
 use core::mem;
 use core::num::NonZeroU16;
 use log::{debug, warn};
+use crate::prelude::percpu_v2;
 use super::{current_thread, scheduler, ThreadId, yield_now, scheduler::Scheduler, ThreadState, PointerState};
 
 /// Park the current thread until it is woken up
@@ -58,8 +59,8 @@ pub fn park(wakers: &[&dyn Waker]) -> Result<WakeReason, ParkError> {
 	let id = current_thread();
 	debug!("Parking thread {:?}", id.unwrap());
 	let weak_ptr = {
-		let mut guard = scheduler::local_scheduler().lock();
-		let thread = guard.current_thread().expect("Cannot park when not running a thread");
+		let mut guard = percpu_v2!(current_thread).write();
+		let thread = guard.as_mut().expect("Cannot park when not running a thread").tcb_mut();
 		let park_state = Arc::new(ParkGaurd { thread_id: *thread.thread_id });
 		let weak_ptr = Arc::downgrade(&park_state);
 		*thread.state = ThreadState::Parked(park_state);
