@@ -284,7 +284,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         debug!("Loaded at base addr {:p}", image.info().0);
     }
 
-    let (mut kernel, symbol_map) = locate_kernel(&image_handle, &services);
+    let (mut kernel, symbol_map, test_program) = locate_kernel(&image_handle, &services);
 
 
     // =========== test code using kernel from efi part ===========
@@ -443,7 +443,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         }
     };
 
-    let symbol_map = symbol_map.map(|m| Box::leak(m.into_boxed_slice()));
+    let symbol_map = symbol_map.map(|m| &*Box::leak(m.into_boxed_slice()));
+    let test_program = &*Box::leak(test_program.into_boxed_slice());
 
     info!("new stack at {:#x?}", stack);
 
@@ -562,7 +563,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         if let Some(item) = last_item {
             kernel_mem_map.push(item);
         };
-        kernel_mem_map
+        Vec::leak(kernel_mem_map)
     };
 
     let kernel_entry = kernel.entrypoint();
@@ -595,13 +596,14 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         },
         log: handoff::Logging {
-            symbol_map: symbol_map.map(NonNull::from)
+            symbol_map,
         },
         test: handoff::Testing {
             module_func: unsafe { mem::transmute(1usize) }
         },
         tls: (Range(kernel_tls.0.start, kernel_tls.0.end), kernel_tls.1),
-        rsdp
+        rsdp,
+        init_exec: test_program,
     });
 
     let _ = system_table.exit_boot_services();
@@ -645,7 +647,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     }
 }
 
-fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Option<Vec<u8>>) {
+fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Option<Vec<u8>>, Vec<u8>) {
     // FIXME: this doesn't check which disk is being used so it'll happily load popcorn from any random disk
 
     let mut root_partition_handle: Option<Handle> = None;
@@ -671,6 +673,7 @@ fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Op
 
     // TODO: versioning
     let symbol_map = fs.read(Path::new(cstr16!(r"\kernel\kernel.map"))).ok();
+    let test_program = fs.read(Path::new(cstr16!(r"\user\init.exec"))).expect("Could not find `init`");
     let kernel_data = fs.read(Path::new(cstr16!(r"\kernel\kernel.exec"))).expect("Unable to find a bootable kernel");
 
     /*
@@ -681,7 +684,7 @@ fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Op
         unsafe { NonNull::new_unchecked(p) }
     });
      */
-    (kernel_data, symbol_map)
+    (kernel_data, symbol_map, test_program)
 }
 
 #[panic_handler]

@@ -59,85 +59,96 @@ pub struct RelocationWithAddend {
 	pub addend: i64
 }
 
-impl<'a> super::File<'a> {
-	pub fn relocations(&self) -> impl Iterator<Item = RelocationTableEntry> + '_ {
-		let rel_table_addresses = self.dynamic_table().filter_map(|entry| match entry {
-			DynamicTableEntry::RelTableAddress(addr) => Some(addr),
-			_ => None
-		});
+macro_rules! reloc {
+    ($ty:ident) => {
+	    impl<'a> $ty <'a> {
+			pub fn relocations(&self) -> impl Iterator<Item = RelocationTableEntry> + '_ {
+				let rel_table_addresses = self.dynamic_table().filter_map(|entry| match entry {
+					DynamicTableEntry::RelTableAddress(addr) => Some(addr),
+					_ => None
+				});
+		
+				let rel_table_lengths = self.dynamic_table().filter_map(|entry| match entry {
+					DynamicTableEntry::RelTableSize(len) => Some(len),
+					_ => None
+				});
+		
+				let rel_tables = zip(rel_table_addresses, rel_table_lengths);
+				let rel_tables = rel_tables.map(|(start, length)| {
+					let rel_table_ptr = self.data_at_address(start).unwrap();
+					let slice = unsafe { &*slice_from_raw_parts(rel_table_ptr.cast::<Relocation>(), usize::try_from(length).unwrap() / mem::size_of::<Relocation>()) };
+					slice.iter()
+					     .map(|entry| RelocationTableEntry::Rel(*entry))
+				});
+		
+				let rela_table_addresses = self.dynamic_table().filter_map(|entry| match entry {
+					DynamicTableEntry::RelaTableAddress(addr) => Some(addr),
+					_ => None
+				});
+		
+				let rela_table_lengths = self.dynamic_table().filter_map(|entry| match entry {
+					DynamicTableEntry::RelaTableSize(len) => Some(len),
+					_ => None
+				});
+		
+				let rela_tables = zip(rela_table_addresses, rela_table_lengths);
+				let rela_tables = rela_tables.map(|(start, length)| {
+					let rela_table_ptr = self.data_at_address(start).unwrap();
+					let slice = unsafe { &*slice_from_raw_parts(rela_table_ptr.cast::<RelocationWithAddend>(), usize::try_from(length).unwrap() / mem::size_of::<RelocationWithAddend>()) };
+					slice.iter()
+					     .map(|entry| RelocationTableEntry::Rela(*entry))
+				});
+		
+				rel_tables.flatten().chain(rela_tables.flatten())
+			}
+		
+			pub fn jumptable_relocations(&self) -> Option<impl Iterator<Item = RelocationTableEntry> +'_> {
+				let table_address = self.dynamic_table().find_map(|entry| match entry {
+					DynamicTableEntry::JumptableRelocations(addr) => Some(addr),
+					_ => None
+				})?;
+		
+				let table_length = self.dynamic_table().find_map(|entry| match entry {
+					DynamicTableEntry::PltRelocationTableSize(len) => Some(len),
+					_ => None
+				})?;
+		
+				let table_entry_type = self.dynamic_table().find_map(|entry| match entry {
+					DynamicTableEntry::PltRelType(7) => Some(RelocationEntryType::Rela),
+					DynamicTableEntry::PltRelType(17) => Some(RelocationEntryType::Rel),
+					_ => None
+				})?;
+		
+				let table_pointer = self.data_at_address(table_address).unwrap();
+		
+				let a = if table_entry_type == RelocationEntryType::Rel {
+					let slice = unsafe { &*slice_from_raw_parts(
+						table_pointer.cast::<Relocation>(),
+						usize::try_from(table_length).unwrap() / size_of::<Relocation>()
+					) };
+					Some(slice.iter().map(|entry| RelocationTableEntry::Rel(*entry)))
+				} else { None };
+		
+				let b = if table_entry_type == RelocationEntryType::Rela {
+					let slice = unsafe { &*slice_from_raw_parts(
+						table_pointer.cast::<RelocationWithAddend>(),
+						usize::try_from(table_length).unwrap() / size_of::<RelocationWithAddend>()
+					) };
+					Some(slice.iter().map(|entry| RelocationTableEntry::Rela(*entry)))
+				} else { None };
+		
+				Some(a.into_iter().flatten().chain(b.into_iter().flatten()))
+			}
+		}
+    };
+}
 
-		let rel_table_lengths = self.dynamic_table().filter_map(|entry| match entry {
-			DynamicTableEntry::RelTableSize(len) => Some(len),
-			_ => None
-		});
+use super::{File, FileMut};
 
-		let rel_tables = zip(rel_table_addresses, rel_table_lengths);
-		let rel_tables = rel_tables.map(|(start, length)| {
-			let rel_table_ptr = self.data_at_address(start).unwrap();
-			let slice = unsafe { &*slice_from_raw_parts(rel_table_ptr.cast::<Relocation>(), usize::try_from(length).unwrap() / mem::size_of::<Relocation>()) };
-			slice.iter()
-			     .map(|entry| RelocationTableEntry::Rel(*entry))
-		});
+reloc!(File);
+reloc!(FileMut);
 
-		let rela_table_addresses = self.dynamic_table().filter_map(|entry| match entry {
-			DynamicTableEntry::RelaTableAddress(addr) => Some(addr),
-			_ => None
-		});
-
-		let rela_table_lengths = self.dynamic_table().filter_map(|entry| match entry {
-			DynamicTableEntry::RelaTableSize(len) => Some(len),
-			_ => None
-		});
-
-		let rela_tables = zip(rela_table_addresses, rela_table_lengths);
-		let rela_tables = rela_tables.map(|(start, length)| {
-			let rela_table_ptr = self.data_at_address(start).unwrap();
-			let slice = unsafe { &*slice_from_raw_parts(rela_table_ptr.cast::<RelocationWithAddend>(), usize::try_from(length).unwrap() / mem::size_of::<RelocationWithAddend>()) };
-			slice.iter()
-			     .map(|entry| RelocationTableEntry::Rela(*entry))
-		});
-
-		rel_tables.flatten().chain(rela_tables.flatten())
-	}
-
-	pub fn jumptable_relocations(&self) -> Option<impl Iterator<Item = RelocationTableEntry> +'_> {
-		let table_address = self.dynamic_table().find_map(|entry| match entry {
-			DynamicTableEntry::JumptableRelocations(addr) => Some(addr),
-			_ => None
-		})?;
-
-		let table_length = self.dynamic_table().find_map(|entry| match entry {
-			DynamicTableEntry::PltRelocationTableSize(len) => Some(len),
-			_ => None
-		})?;
-
-		let table_entry_type = self.dynamic_table().find_map(|entry| match entry {
-			DynamicTableEntry::PltRelType(7) => Some(RelocationEntryType::Rela),
-			DynamicTableEntry::PltRelType(17) => Some(RelocationEntryType::Rel),
-			_ => None
-		})?;
-
-		let table_pointer = self.data_at_address(table_address).unwrap();
-
-		let a = if table_entry_type == RelocationEntryType::Rel {
-			let slice = unsafe { &*slice_from_raw_parts(
-				table_pointer.cast::<Relocation>(),
-				usize::try_from(table_length).unwrap() / size_of::<Relocation>()
-			) };
-			Some(slice.iter().map(|entry| RelocationTableEntry::Rel(*entry)))
-		} else { None };
-
-		let b = if table_entry_type == RelocationEntryType::Rela {
-			let slice = unsafe { &*slice_from_raw_parts(
-				table_pointer.cast::<RelocationWithAddend>(),
-				usize::try_from(table_length).unwrap() / size_of::<RelocationWithAddend>()
-			) };
-			Some(slice.iter().map(|entry| RelocationTableEntry::Rela(*entry)))
-		} else { None };
-
-		Some(a.into_iter().flatten().chain(b.into_iter().flatten()))
-	}
-
+impl<'a> FileMut<'a> {
 	pub fn relocate(&mut self, base: u64) {
 		let relocs = self.relocations().collect::<alloc::vec::Vec<_>>();
 		for reloc in relocs {

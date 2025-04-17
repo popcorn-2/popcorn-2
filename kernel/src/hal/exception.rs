@@ -4,7 +4,8 @@ use derive_more::Display;
 
 pub struct Exception<'a> {
 	pub ty: Ty,
-	pub registers: &'a mut dyn ExceptionRegisters
+	pub registers: &'a mut dyn ExceptionRegisters,
+	pub user_mode: bool,
 }
 
 pub trait ExceptionRegisters: Debug {

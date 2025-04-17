@@ -28,9 +28,6 @@ use crate::threading::{PointerView, SharedView, ThreadControlBlock, ThreadState}
 #[doc(hidden)]
 mod tickless_round_robin;
 
-/// The [`Scheduler`] for the current core
-percpu!(static SCHEDULER: OnceCell<IrqCell<tickless_round_robin::TicklessRoundRobin>> = OnceCell::new());
-
 /// [`Injector`]s to add new threads to each core
 static SCHEDULER_INJECTORS: Spinlock<Vec<Box<dyn Injector>>> = Spinlock::new(vec![]);
 
@@ -44,15 +41,10 @@ pub trait Stealer: Send + Sync {}
 /// A scheduler implementation
 pub trait Scheduler: Debug {
 	/// Creates a new instance of the scheduler
-	fn new(running_thread: ThreadPointer) -> (Self, Box<dyn Injector>, Arc<dyn Stealer>) where Self: Sized;
-
-	/// Returns the [`ThreadId`] for the currently running thread
-	///
-	/// Returns `None` if idle
-	fn current_thread(&mut self) -> Option<PointerView<'_>>;
+	fn new() -> (Self, Box<dyn Injector>, Arc<dyn Stealer>) where Self: Sized;
 
 	/// Prepares to switch threads
-	fn switch_thread_pre(&mut self) -> SchedulerSwitchState<'_>;
+	fn get_next_thread(&mut self) -> Option<ThreadPointer>;
 
 	/// Called after switching threads, including during startup of a new thread
 	///
@@ -71,36 +63,19 @@ pub trait Scheduler: Debug {
 	fn unpark(&mut self, thread_id: ThreadId, reason: WakeReason);
 }
 
-pub enum SchedulerSwitchState<'a> {
-	Switch {
-		/// The previously running thread, which will be passed back to the scheduler in [`Scheduler::switch_thread_post()`]
-		/// after the context switch occurs
-		old_thread: ThreadPointer,
-		/// The new thread to switch to
-		new_thread: PointerView<'a>,
-	},
-	/// No new threads to run, and the current thread has blocked
-	Idle {
-		/// The previously running thread
-		old_thread: ThreadPointer,
-	},
-	/// No new threads to run but the previously running thread is still in a running state
-	NoSwitch,
-	SwitchFromIdle { new_thread: PointerView<'a> },
-}
-
+#[define_opaque(super::SchedulerTy)]
 pub(super) fn create_scheduler_for_current_core(running_thread: ThreadPointer) -> CoreId {
-	debug_assert!(SCHEDULER().get().is_none(), "Scheduler already initialised");
-	let (scheduler, injector, _stealer) = <tickless_round_robin::TicklessRoundRobin as Scheduler>::new(running_thread);
-	SCHEDULER().set(IrqCell::new(scheduler))
+	let (scheduler, injector, _stealer) = <tickless_round_robin::TicklessRoundRobin as Scheduler>::new();
+	percpu_v2!(scheduler).set(IrqCell::new(scheduler))
 			.expect("Scheduler already initialised");
+	*percpu_v2!(current_thread).write() = Some(running_thread);
 	let mut guard = SCHEDULER_INJECTORS.lock();
 	guard.push(injector);
 	CoreId { id: guard.len() - 1 }
 }
 
 pub(super) fn local_scheduler() -> &'static IrqCell<impl Scheduler + Debug> {
-	SCHEDULER().get()
+	percpu_v2!(scheduler).get()
 			.expect("Scheduler not yet initialised")
 }
 

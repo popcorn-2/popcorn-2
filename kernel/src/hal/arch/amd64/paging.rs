@@ -46,6 +46,8 @@ bitflags! {
 			const AVL_HIGH = 0x7ff0_0000_0000_0000;
 			const PWT = 1<<3;
 			const PCD = 1<<4;
+			const USER = 1<<2;
+			const NX = 1<<63;
 		}
 	}
 
@@ -77,7 +79,7 @@ impl Entry for Amd64Entry {
 
 		let reason = u64::from(reason);
 		let low = (reason & 7) << 9;
-		let high = (reason & 0x7ff8) << (52 - 3);
+		let high = (reason & 0x3ff8) << (52 - 3);
 		let split_reason = low | high;
 		let masked_addr = u64::try_from(frame.start().addr).unwrap() & Self::ADDRESS.0;
 		// FIXME: HACK
@@ -89,12 +91,16 @@ impl Entry for Amd64Entry {
 
 impl Debug for Amd64Entry {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		let mut builder = f.debug_tuple("Amd64Entry");
-		if let Some(f) = self.pointed_frame() {
-			builder.field(&f);
+		write!(f, "Amd64Entry(")?;
+		if let Some(frame) = self.pointed_frame() {
+			Debug::fmt(&frame, &mut *f)?;
 		} else {
-			builder.field(&"<unmapped>");
+			write!(f, "--")?
 		}
-		builder.finish()
+		write!(f, ", ")?;
+		if self.contains(Amd64Entry::USER) { write!(f, "U")?; } else { write!(f, "S")?; }
+		if self.contains(Amd64Entry::WRITABLE) { write!(f, "W")?; } else { write!(f, "R")?; }
+		if self.contains(Amd64Entry::NX) { write!(f, "X")?; } else { write!(f, "E")?; }
+		write!(f, ")")
 	}
 }

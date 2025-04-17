@@ -114,10 +114,8 @@ mod percpu;
 #[cfg(test)]
 pub mod test_harness;
 
-percpu!(static FOO: UnsafeCell<usize> = UnsafeCell::new(6));
-
 fn get_foo() -> usize {
-	unsafe { *FOO().get() }
+	unsafe { *percpu_v2!(foo).get() }
 }
 
 #[macro_export]
@@ -176,15 +174,14 @@ macro_rules! assert_unsafe_precondition {
 }
 
 #[inline]
-fn syscall_handler() {
+extern "C" fn syscall_handler(num_low: u64, num_high: u64, a: u64, b: u64, c: u64, d: u64) -> i64 {
+	debug!("syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x})");
+	todo!()
 
 }
 
 #[inline]
 fn exception_handler(exception: &mut hal::exception::Exception) {
-	// todo: update this to signal userspace
-	let is_kernel_mode = true;
-	
 	let backtrace = || {
 		sprintln!("---");
 		sprintln!("{:#x?}", exception.registers);
@@ -198,7 +195,7 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 	match &exception.ty {
 		// Signalling exceptions
 		ty @ (Ty::FloatingPoint | Ty::IllegalInstruction | Ty::BusFault | Ty::Generic(_)) => {
-			if is_kernel_mode {
+			if !exception.user_mode {
 				error!("Kernel exception occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
 				backtrace();
 				loop {}
@@ -208,7 +205,7 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 		},
 		ty @ Ty::PageFault(_) => {
 			// todo: check for CoW etc.
-			if is_kernel_mode {
+			if !exception.user_mode {
 				error!("Kernel page fault occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
 				backtrace();
 
@@ -246,16 +243,16 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 		ty @ (Ty::Nmi | Ty::Panic) => {
 			// todo: BSOD equivalent?
 			error!("Unhandled exception occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
-			if is_kernel_mode { backtrace(); }
+			if !exception.user_mode { backtrace(); }
 			loop {}
 		},
 		ty @ Ty::Debug(DebugTy::Breakpoint) => {
 			warn!("Breakpoint: {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
-			if is_kernel_mode { backtrace(); }
+			if !exception.user_mode { backtrace(); }
 		},
 		ty @ Ty::Unknown(_) => {
 			warn!("Ignoring exception at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
-			if is_kernel_mode { backtrace(); }
+			if !exception.user_mode { backtrace(); }
 		},
 	}
 }
@@ -325,7 +322,8 @@ extern "sysv64" fn kstart(handoff_data: &'static utils::handoff::Data) -> ! {
 fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let _ = logging::init();
 
-	let map = unsafe { handoff_data.log.symbol_map.map(|ptr| &*ptr.as_ptr().wrapping_byte_add(0xffff_8000_0000_0000)) };
+	// fixme: lifetime here is wrong and when `handoff_data` gets dropped the symbol map is useless
+	let map = handoff_data.log.symbol_map;
 	*panicking::SYMBOL_MAP.write() = map;
 
 	trace!("Handoff data:\n{handoff_data:x?}");

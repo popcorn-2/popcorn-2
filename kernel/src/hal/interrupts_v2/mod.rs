@@ -14,8 +14,6 @@ pub struct Vector(pub usize);
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Line(pub usize);
 
-percpu!(static LOCAL_INTERRUPT_CONTROLLER: OnceCell<LocalInterruptControllerMeta> = OnceCell::new());
-
 trait LocalInterruptController {
 	
 }

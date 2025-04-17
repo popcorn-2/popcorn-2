@@ -5,6 +5,12 @@ amd64_global_irq_handler:
     .cfi_def_cfa rsp, 56 # CFA = rsp + 7*8 (top of interrupt frame)
     .cfi_offset rip, -40 # %RA = CFA - 5*8 (offset of rip in stack frame)
     .cfi_offset rsp, -16 # %RSP = CFA - 2*8 (offset of rsp in stack frame)
+
+    cmp byte ptr [rsp + 24], 0x8 # check if CS == kernel CS (24 because CS is at 8, and then we also have error code + vector)
+    je 2f
+    swapgs # if not, we come from userspace, so swap GS and kernel GS
+    2:
+
     push rax
     .cfi_def_cfa_offset 64
     .cfi_offset rax, -64
@@ -32,7 +38,6 @@ amd64_global_irq_handler:
     push r11
     .cfi_def_cfa_offset 128
     .cfi_offset r11, -128
-    # TODO: `swapgs`
     mov rdi, rsp
     sti
     call amd64_handler2
@@ -65,6 +70,12 @@ amd64_global_irq_handler:
     .cfi_same_value rax
     add rsp, 16
     .cfi_def_cfa_offset 40
+
+    cmp byte ptr [rsp + 8], 0x8 # check if CS == kernel CS (already popped vector num and error code so only +8)
+    je 3f
+    swapgs # if not, we come from userspace, so swap GS and kernel GS
+    3:
+
     iretq
     .cfi_endproc
     .size amd64_global_irq_handler, .-amd64_global_irq_handler

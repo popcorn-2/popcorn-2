@@ -126,10 +126,8 @@ pub(crate) fn tsc_to_nanos() -> (u128, NonZero<u128>) {
 	})
 }
 
-percpu!(pub static LOCAL_TIMER_QUEUE: TimerQueue = TimerQueue::new());
-
 pub fn local_timer_queue_irq_handler() {
-	LOCAL_TIMER_QUEUE().handle_irq();
+	percpu_v2!(local_timer_queue).handle_irq();
 }
 
 pub struct TimerQueue {
@@ -137,7 +135,7 @@ pub struct TimerQueue {
 }
 
 impl TimerQueue {
-	const fn new() -> Self {
+	pub const fn new() -> Self {
 		Self {
 			heap: IrqCell::new(BinaryHeap::new()),
 		}

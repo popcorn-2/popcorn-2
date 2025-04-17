@@ -12,6 +12,7 @@ pub(crate) use macros::Hal;
 use paging2::{KTable, TTable};
 use crate::threading::{ThreadControlBlock, ThreadPointer, WakeReason, PointerView};
 use crate::hal::interrupts_v2::Vector;
+use kernel_api::memory::VirtualAddress;
 
 pub enum Result { Success, Failure }
 
@@ -37,12 +38,15 @@ pub unsafe trait Hal {
 	fn get_and_disable_interrupts() -> usize;
 	fn set_interrupts(old_state: usize);
 	unsafe fn load_tls(ptr: *mut u8);
+	unsafe fn load_user_tls(ptr: *mut u8);
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
-	unsafe extern "C" fn switch_thread(from: &PointerView, to: &PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve;
+	unsafe extern "C" fn switch_thread(from: &mut PointerView, to: &mut PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve;
 
 	fn send_ipi(target: IpiTarget) -> ::core::result::Result<(), ()>;
 	fn send_local_eoi(vector: Vector);
 	fn wait_for_interrupt();
+	fn first_thread_init(tcb: &ThreadControlBlock);
+	extern "C" fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> !;
 
 	const IPI_VECTOR: Vector;
 	const SPURIOUS_VECTOR: Vector;
@@ -80,12 +84,15 @@ mod hal_impl {
 	#[export_name = "__popcorn_set_irq"] pub fn set_interrupts(old_state: usize) { <arch::Arch as Hal>::set_interrupts(old_state) }
 	pub unsafe fn load_tls(ptr: *mut u8) { <arch::Arch as Hal>::load_tls(ptr) }
 	pub unsafe fn construct_tables() -> (KTableTy, TTableTy) { <arch::Arch as Hal>::construct_tables() }
-	pub unsafe extern "C" fn switch_thread(from: &PointerView, to: &PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve { <arch::Arch as Hal>::switch_thread(from, to, preserve) }
+	#[inline] pub unsafe fn load_user_tls(ptr: *mut u8) { <arch::Arch as Hal>::load_user_tls(ptr) }
+	#[inline] pub unsafe extern "C" fn switch_thread(from: &mut PointerView, to: &mut PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve { <arch::Arch as Hal>::switch_thread(from, to, preserve) }
 
 	pub fn send_ipi(target: IpiTarget) -> ::core::result::Result<(), ()> { <arch::Arch as Hal>::send_ipi(target) }
 	
 	pub fn send_local_eoi(vector: Vector) { <arch::Arch as Hal>::send_local_eoi(vector) }
 	pub fn wait_for_interrupt() { <arch::Arch as Hal>::wait_for_interrupt() }
+	#[inline] pub fn first_thread_init(tcb: &ThreadControlBlock) { <arch::Arch as Hal>::first_thread_init(tcb) }
+	#[inline] pub fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! { <arch::Arch as Hal>::switch_to_userspace_at(addr, stack_top) }
 
 	pub const IPI_VECTOR: Vector = <arch::Arch as Hal>::IPI_VECTOR;
 	pub const SPURIOUS_VECTOR: Vector = <arch::Arch as Hal>::SPURIOUS_VECTOR;

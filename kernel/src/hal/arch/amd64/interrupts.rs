@@ -270,18 +270,23 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 		gs_kernel: u64::MAX,
 	};
 	
+	let user_mode = reg_dump.stack_frame.cs > 0x10;
+	
 	let mut exception_payload = match reg_dump.stack_frame.num as u8 {
 		0 | 16 | 19 => Exception {
 			ty: Ty::FloatingPoint,
 			registers: &mut reg_dump,
+			user_mode,
 		},
 		1 | 3 => Exception {
 			ty: Ty::Debug(DebugTy::Breakpoint),
 			registers: &mut reg_dump,
+			user_mode,
 		},
 		6 => Exception {
 			ty: Ty::IllegalInstruction,
 			registers: &mut reg_dump,
+			user_mode,
 		},
 		14 => {
 			let cr2: usize;
@@ -289,19 +294,23 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 			Exception {
 				ty: Ty::PageFault(PageFault { access_addr: cr2, meta: reg_dump.stack_frame.error.try_into().unwrap() }),
 				registers: &mut reg_dump,
+				user_mode,
 			}
 		},
 		7 | 17 => Exception {
 			ty: Ty::BusFault,
 			registers: &mut reg_dump,
+			user_mode,
 		},
 		2 => Exception {
 			ty: Ty::Nmi,
 			registers: &mut reg_dump,
+			user_mode,
 		},
 		8 => Exception {
 			ty: Ty::Panic,
 			registers: &mut reg_dump,
+			user_mode,
 		},
 		e @ (4 | 5 | 9..= 13 | 15 | 18 | 21..=27 | 31) => {
 			let reason = match e {
@@ -319,6 +328,7 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 			Exception {
 				ty: Ty::Generic(reason),
 				registers: &mut reg_dump,
+				user_mode,
 			}
 		},
 		e @ (20 | 28..=30) => {
@@ -332,6 +342,7 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 			Exception {
 				ty: Ty::Unknown(reason),
 				registers: &mut reg_dump,
+				user_mode,
 			}
 		},
 		e @ 32..48 => {
@@ -344,8 +355,38 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 }
 
 #[naked]
-unsafe extern "C-unwind" fn amd64_syscall_handler() {
-	naked_asm!("ud2");
+pub unsafe extern "C-unwind" fn amd64_syscall_handler() {
+	naked_asm!(
+		"swapgs",
+		
+		"mov rbx, rsp", // save userspace stack pointer
+		"mov r12, rcx", // save rcx (for sysret)
+		"mov r13, r11", // save r11 (for sysret)
+		
+		"mov rsp, gs:[{rsp0_offset}]", // load kernel stack from [TLS - 8] - see hal::switch_thread for notes
+		"sti", // can take interrupts now that stack is sorted
+			   // todo: fix for NMI stuff
+		
+		"mov r9, rdx",
+		"mov rcx, rdi",
+		"mov r8, rsi",
+		"movq rdi, xmm0",
+		"punpckhqdq xmm0, xmm0", // broadcast the high half of xmm0 to both halves
+		"movq rsi, xmm0",
+		"mov rdx, rax",
+		
+		"call {}", // extern C function so return val already in rax
+		
+		"cli",
+		"mov r11, r13", // restore registers to userspace state
+		"mov rcx, r12",
+		"mov rsp, rbx",
+		
+		"swapgs",
+		"sysretq",
+		sym crate::syscall_handler,
+		rsp0_offset = const core::mem::offset_of!(crate::percpu::Percpu, kernel_stack_top),
+	);
 }
 
 global_asm!(include_str!("interrupts.asm"), options(raw));

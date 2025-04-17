@@ -13,7 +13,8 @@ pub struct Data {
 	pub log: Logging,
 	pub test: Testing,
 	pub tls: (Range<VirtualAddress>, usize),
-	pub rsdp: PhysicalAddress
+	pub rsdp: PhysicalAddress,
+	pub init_exec: &'static [u8],
 }
 
 #[repr(C)]
@@ -53,7 +54,7 @@ impl ColorMask {
 #[derive(Debug)]
 #[repr(C)]
 pub struct Memory {
-	pub map: Vec<MemoryMapEntry>,
+	pub map: &'static [MemoryMapEntry],
 	pub used: Range<VirtualAddress<4096>>,
 	#[deprecated = "Use HAL methods to construct page tables directly"]
 	pub page_table_root: Frame,
@@ -123,7 +124,7 @@ impl Debug for Modules {
 #[derive(Debug)]
 #[repr(C)]
 pub struct Logging {
-	pub symbol_map: Option<NonNull<[u8]>>
+	pub symbol_map: Option<&'static [u8]>
 }
 
 #[repr(C)]

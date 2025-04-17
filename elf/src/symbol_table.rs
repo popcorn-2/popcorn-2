@@ -33,49 +33,57 @@ impl SymbolInfo {
 	fn get_type(&self) -> u8 { self.0 >> 4 }
 }
 
-impl<'a> super::File<'a> {
-	pub fn dynamic_symbol_table(&self) -> Option<&[SymbolTableEntry]> {
-		let symbol_table_addr = self.dynamic_table().find_map(|entry| match entry {
-			DynamicTableEntry::SymbolTable(addr) => Some(addr),
-			_ => None
-		})?;
-
-		let hash_table_addr = self.dynamic_table().find_map(|entry| match entry {
-			DynamicTableEntry::HashTable(addr) => Some(addr),
-			_ => None
-		})?;
-
-		let hashtable_length = unsafe { *self.data_at_address(hash_table_addr).unwrap().cast::<u32>().offset(1) };
-		let symbol_table = {
-			let symbol_table_ptr = self.data_at_address(symbol_table_addr).unwrap();
-			unsafe { &*slice_from_raw_parts(symbol_table_ptr.cast::<SymbolTableEntry>(), usize::try_from(hashtable_length).unwrap()) }
-		};
-
-		Some(symbol_table)
-	}
-
-	pub fn exported_symbols(&self) -> SymbolMap<'_> {
-		let mut map = SymbolMap::new();
-
-		if let Some(symbol_table) = self.dynamic_symbol_table() {
-			let string_table = self.dynamic_string_table().unwrap();
-
-			for symbol in symbol_table {
-				if symbol.section_table_index != 0 && !symbol.info.is_local() {
-					let name = string_table.get_string(symbol.name.unwrap());
-					debug!("{name:?} : {symbol:?}");
-					// SAFETY: using correct base for this file
-					let symbol =
-							if symbol.info.is_weak() { ExportedSymbol::new_weak(unsafe { symbol.value.relocate(self.base) }, symbol.size) }
-							else { ExportedSymbol::new_strong(unsafe { symbol.value.relocate(self.base) }, symbol.size) };
-					map.insert(name, symbol);
+macro_rules! sym {
+    ($ty:ident) => {
+		impl<'a> $ty <'a> {
+			pub fn dynamic_symbol_table(&self) -> Option<&[SymbolTableEntry]> {
+				let symbol_table_addr = self.dynamic_table().find_map(|entry| match entry {
+					DynamicTableEntry::SymbolTable(addr) => Some(addr),
+					_ => None
+				})?;
+		
+				let hash_table_addr = self.dynamic_table().find_map(|entry| match entry {
+					DynamicTableEntry::HashTable(addr) => Some(addr),
+					_ => None
+				})?;
+		
+				let hashtable_length = unsafe { *self.data_at_address(hash_table_addr).unwrap().cast::<u32>().offset(1) };
+				let symbol_table = {
+					let symbol_table_ptr = self.data_at_address(symbol_table_addr).unwrap();
+					unsafe { &*slice_from_raw_parts(symbol_table_ptr.cast::<SymbolTableEntry>(), usize::try_from(hashtable_length).unwrap()) }
+				};
+		
+				Some(symbol_table)
+			}
+		
+			pub fn exported_symbols(&self) -> SymbolMap<'_> {
+				let mut map = SymbolMap::new();
+		
+				if let Some(symbol_table) = self.dynamic_symbol_table() {
+					let string_table = self.dynamic_string_table().unwrap();
+		
+					for symbol in symbol_table {
+						if symbol.section_table_index != 0 && !symbol.info.is_local() {
+							let name = string_table.get_string(symbol.name.unwrap());
+							debug!("{name:?} : {symbol:?}");
+							// SAFETY: using correct base for this file
+							let symbol =
+									if symbol.info.is_weak() { ExportedSymbol::new_weak(unsafe { symbol.value.relocate(self.base) }, symbol.size) }
+									else { ExportedSymbol::new_strong(unsafe { symbol.value.relocate(self.base) }, symbol.size) };
+							map.insert(name, symbol);
+						}
+					}
 				}
+		
+				map
 			}
 		}
-
-		map
-	}
+	};
 }
+
+use super::{FileMut, File};
+sym!(File);
+sym!(FileMut);
 
 #[derive(Debug, Clone)]
 pub struct SymbolMap<'a>(HashMap<&'a CStr, ExportedSymbol>);

@@ -63,9 +63,11 @@ pub use parking::{park, ParkError, WakeReason, WakeTrigger, Waker};
 pub use pointers::{Thread, ThreadPointer};
 pub use sleeping::{sleep, sleep_until};
 pub use thread_control_block::{ThreadState, ThreadControlBlock, PointerView, OwnedView, SharedView};
-pub use yielding::{yield_now, yield_defer};
+pub use yielding::{yield_now, yield_defer, create_idle_thread};
 use crate::hal::paging2::TTable;
 use crate::hal::TTableTy;
+
+pub type SchedulerTy = impl Scheduler;
 
 const INIT_THREAD_NUM: usize = 1;
 const INIT_THREAD_ID: ThreadId = ThreadId { id: non_zero!(INIT_THREAD_NUM) };
@@ -154,6 +156,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		ThreadState::Running,
 		INIT_THREAD_ID,
 	);
+	crate::hal::first_thread_init(&tcb);
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
 
 	assert!(
@@ -236,7 +239,7 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 /// 
 /// Returns `None` if the core is idle
 pub fn current_thread() -> Option<ThreadId> {
-	scheduler::local_scheduler().lock().current_thread().map(|t| *t.thread_id)
+	percpu_v2!(current_thread).read().as_ref().map(|t| *t.tcb_ref().thread_id)
 }
 
 fn move_to_global_parking_lot(mut thread: ThreadPointer) {
@@ -290,4 +293,6 @@ pub unsafe extern "C" fn thread_startup() {
 }
 
 #[doc(hidden)]
-pub fn debug() { debug!("{:#?}", scheduler::local_scheduler()); }
+pub fn debug() {
+	debug!("current_thread = {:?}\n{:#?}", *percpu_v2!(current_thread).read(), scheduler::local_scheduler());
+}

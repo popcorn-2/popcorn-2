@@ -3,7 +3,9 @@ use core::arch::{asm, naked_asm};
 use core::fmt::{Debug, Formatter};
 use core::mem::{MaybeUninit, offset_of};
 use core::num::NonZero;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use kernel_api::memory::mapping::Stack;
+use kernel_api::memory::{Frame, VirtualAddress};
 use crate::hal::{ContextSwitchPreserve, IpiTarget};
 use crate::hal::{Hal, SaveStateTr, ThreadControlBlock};
 use crate::hal::arch::amd64::interrupts::handler::InterruptStackFrame;
@@ -60,6 +62,20 @@ unsafe impl Hal for Amd64Hal {
 		gdt.load();
 		gdt.load_tss();
 
+		msr::wrmsr(
+			msr::STAR,
+			((24 | 0b11) << 48) | (8 << 48),
+		);
+		msr::wrmsr(
+			msr::LSTAR,
+			interrupts::amd64_syscall_handler as u64,
+		);
+		msr::wrmsr(
+			msr::SFMASK,
+			0xED5, // IF - disabled
+			       // OF, DF, SF, ZF, AF, PF, CF = 0 as required by SysV
+		);
+
 		interrupts::init_idt();
 		pic::init();
 
@@ -94,69 +110,81 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	unsafe fn load_tls(ptr: *mut u8) {
-		msr::wrmsr(msr::GSBase, ptr.addr() as _);
+		msr::wrmsr(msr::GS_BASE, ptr.addr() as _);
+	}
+
+	unsafe fn load_user_tls(ptr: *mut u8) {
+		msr::wrmsr(msr::FS_BASE, ptr.addr() as _);
 	}
 
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy) {
 		paging2::construct_tables()
 	}
+	
+	unsafe extern "C" fn switch_thread(from: &mut PointerView, to: &mut PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
+		// currently in kernel mode so even if we get an interrupt on the new TSS.privilege_stack_table[0] value
+		// the CPU won't pay attention to it
+		let ptr = tss::TSS.get().expect("TSS should be initialised")
+				.set_rsp0(to.kernel_stack.virtual_end().end().align_down());
+		percpu_v2!(kernel_stack_top).store(to.kernel_stack.virtual_end().end().addr, Ordering::Relaxed);
+		
+		return inner(from.save_state, to.save_state, preserve, to.ttable.pml4.pml4);
 
-	#[naked]
-	unsafe extern "C" fn switch_thread(from: &PointerView, to: &PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
-		// rdi: from
-		// rsi: to
-		// rdx: preserve.0 -> rax
-		// rcx: preserve.1 -> rdx
-		naked_asm!(
-			"mov rdi, [rdi + {save_state_ptr_offset}]", // load pointer to `from` save-state into `rdi`
-			"mov rsi, [rsi + {save_state_ptr_offset}]", // load pointer to `to` save-state into `rsi`
+		#[naked] // todo: convert to normal inline asm
+		unsafe extern "C" fn inner(from: &mut Amd64SaveState, to: &Amd64SaveState, preserve: ContextSwitchPreserve, cr3: Frame) -> ContextSwitchPreserve {
+			// rdi: from
+			// rsi: to
+			// rdx: preserve.0 -> rax
+			// rcx: preserve.1 -> rdx
+			// r8: cr3
+			naked_asm!(
+				// save all registers into `from` Amd64SaveState struct
+				"mov [rdi + {rbx_offset}], rbx",
+				"mov [rdi + {rsp_offset}], rsp",
+				"mov [rdi + {rbp_offset}], rbp",
+				"mov [rdi + {r12_offset}], r12",
+				"mov [rdi + {r13_offset}], r13",
+				"mov [rdi + {r14_offset}], r14",
+				"mov [rdi + {r15_offset}], r15",
+				"pushf",
+				"pop rbx",
+				"mov [rdi + {rflags_offset}], rbx",
 
-			"mov [rdi + {rbx_offset}], rbx",
-			"mov [rdi + {rsp_offset}], rsp",
-			"mov [rdi + {rbp_offset}], rbp",
-			"mov [rdi + {r12_offset}], r12",
-			"mov [rdi + {r13_offset}], r13",
-			"mov [rdi + {r14_offset}], r14",
-			"mov [rdi + {r15_offset}], r15",
-			"pushf",
-			"pop rbx",
-			"mov [rdi + {rflags_offset}], rbx",
-
-			//todo: "mov r12, [rsi + {pml4_offset}]",
-			//"mov r13, cr3",
-			//"cmp r12, r13",
-			//"je 2f",
-			//"mov cr3, r12",
-			//"2:",
-
-			// todo: adjust RSP0 in TSS
-			"mov rbx, [rdi + {rflags_offset}]",
-			"push rbx",
-			"popf",
-			"mov rbx, [rsi + {rbx_offset}]",
-			"mov rsp, [rsi + {rsp_offset}]",
-			"mov rbp, [rsi + {rbp_offset}]",
-			"mov r12, [rsi + {r12_offset}]",
-			"mov r13, [rsi + {r13_offset}]",
-			"mov r14, [rsi + {r14_offset}]",
-			"mov r15, [rsi + {r15_offset}]",
-
-			"mov rax, rdx",
-			"mov rdx, rcx",
-
-			"ret",
-
-			save_state_ptr_offset = const offset_of!(PointerView, save_state),
-			rbx_offset = const offset_of!(Amd64SaveState, rbx),
-			rsp_offset = const offset_of!(Amd64SaveState, rsp),
-			rbp_offset = const offset_of!(Amd64SaveState, rbp),
-			r12_offset = const offset_of!(Amd64SaveState, r12),
-			r13_offset = const offset_of!(Amd64SaveState, r13),
-			r14_offset = const offset_of!(Amd64SaveState, r14),
-			r15_offset = const offset_of!(Amd64SaveState, r15),
-			rflags_offset = const offset_of!(Amd64SaveState, rflags),
-			//pml4_offset = const offset_of!(PointerView, ttable.pml4),
-		);
+				// swap page table if needed
+				"mov r13, cr3",
+				"cmp r8, r13",
+				"je 2f",
+				"mov cr3, r8",
+				"2:",
+	
+				// restore all registers from `to` Amd64SaveState struct
+				"mov rbx, [rdi + {rflags_offset}]",
+				"push rbx",
+				"popf",
+				"mov rbx, [rsi + {rbx_offset}]",
+				"mov rsp, [rsi + {rsp_offset}]",
+				"mov rbp, [rsi + {rbp_offset}]",
+				"mov r12, [rsi + {r12_offset}]",
+				"mov r13, [rsi + {r13_offset}]",
+				"mov r14, [rsi + {r14_offset}]",
+				"mov r15, [rsi + {r15_offset}]",
+				
+				// move data from `ContextSwitchPreserve` into return registers
+				"mov rax, rdx",
+				"mov rdx, rcx",
+	
+				"ret",
+	
+				rbx_offset = const offset_of!(Amd64SaveState, rbx),
+				rsp_offset = const offset_of!(Amd64SaveState, rsp),
+				rbp_offset = const offset_of!(Amd64SaveState, rbp),
+				r12_offset = const offset_of!(Amd64SaveState, r12),
+				r13_offset = const offset_of!(Amd64SaveState, r13),
+				r14_offset = const offset_of!(Amd64SaveState, r14),
+				r15_offset = const offset_of!(Amd64SaveState, r15),
+				rflags_offset = const offset_of!(Amd64SaveState, rflags),
+			);
+		}
 	}
 
 	fn send_ipi(target: IpiTarget) -> Result<(), ()> {
@@ -170,11 +198,38 @@ unsafe impl Hal for Amd64Hal {
 
 	fn wait_for_interrupt() {
 		unsafe {
+			let val: u64;
 			asm!(
-				"sti",
-				"hlt",
-				options(nostack, preserves_flags)
+				"pushfq",
+				"pop {}",
+				out(reg) val,
+				options(preserves_flags, pure, nomem)
 			);
+			debug_assert!(val & 0x200 != 0, "should not `wfi` with interrupts disabled");
+			asm!(
+				"hlt",
+				options(nostack, preserves_flags, nomem)
+			);
+		}
+	}
+
+	fn first_thread_init(tcb: &ThreadControlBlock) {
+		let tss_rsp0 = tcb.kernel_stack.virtual_end().end();
+		tss::TSS.get().expect("no TSS").set_rsp0(tss_rsp0.align_down());
+	}
+
+	extern "C" fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! {
+		crate::hal::get_and_disable_interrupts(); // so we can switch stack without getting interrupted before we get to userspace
+		unsafe {
+			asm!(
+					"swapgs",
+					"mov rsp, {}", // return address from argument
+					"mov r11, 0x202",
+					"sysretq",
+					in(reg) stack_top.addr,
+					in("rcx") addr.addr, // return address from argument
+					options(noreturn)
+			)
 		}
 	}
 
@@ -257,7 +312,13 @@ pub(super) mod msr {
 
 	pub const IA32_APIC_BASE: ModelSpecificRegister = ModelSpecificRegister(0x1B);
 	pub const IA32_TSC_DEADLINE: ModelSpecificRegister = ModelSpecificRegister(0x6e0);
-	pub const GSBase: ModelSpecificRegister = ModelSpecificRegister(0xc0000101);
+	pub const STAR: ModelSpecificRegister = ModelSpecificRegister(0xC0000081);
+	pub const LSTAR: ModelSpecificRegister = ModelSpecificRegister(0xC0000082);
+	pub const CSTAR: ModelSpecificRegister = ModelSpecificRegister(0xC0000083);
+	pub const SFMASK: ModelSpecificRegister = ModelSpecificRegister(0xC0000084);
+	pub const FS_BASE: ModelSpecificRegister = ModelSpecificRegister(0xC0000100);
+	pub const GS_BASE: ModelSpecificRegister = ModelSpecificRegister(0xC0000101);
+	pub const KERNEL_GS_BASE: ModelSpecificRegister = ModelSpecificRegister(0xC0000102);
 
 	// fixme: is this always safe?
 	pub fn rdmsr(msr: ModelSpecificRegister) -> u64 {
