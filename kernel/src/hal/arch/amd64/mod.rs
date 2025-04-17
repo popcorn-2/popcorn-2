@@ -198,10 +198,17 @@ unsafe impl Hal for Amd64Hal {
 
 	fn wait_for_interrupt() {
 		unsafe {
+			let val: u64;
 			asm!(
-				"sti",
+				"pushfq",
+				"pop {}",
+				out(reg) val,
+				options(preserves_flags, pure, nomem)
+			);
+			debug_assert!(val & 0x200 != 0, "should not `wfi` with interrupts disabled");
+			asm!(
 				"hlt",
-				options(nostack, preserves_flags)
+				options(nostack, preserves_flags, nomem)
 			);
 		}
 	}
