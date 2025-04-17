@@ -114,7 +114,7 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	unsafe fn load_user_tls(ptr: *mut u8) {
-		msr::wrmsr(msr::KERNEL_GS_BASE, ptr.addr() as _);
+		msr::wrmsr(msr::FS_BASE, ptr.addr() as _);
 	}
 
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy) {
@@ -309,6 +309,7 @@ pub(super) mod msr {
 	pub const LSTAR: ModelSpecificRegister = ModelSpecificRegister(0xC0000082);
 	pub const CSTAR: ModelSpecificRegister = ModelSpecificRegister(0xC0000083);
 	pub const SFMASK: ModelSpecificRegister = ModelSpecificRegister(0xC0000084);
+	pub const FS_BASE: ModelSpecificRegister = ModelSpecificRegister(0xC0000100);
 	pub const GS_BASE: ModelSpecificRegister = ModelSpecificRegister(0xC0000101);
 	pub const KERNEL_GS_BASE: ModelSpecificRegister = ModelSpecificRegister(0xC0000102);
 
