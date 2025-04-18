@@ -2,7 +2,8 @@
 use core::ptr::{addr_of, NonNull};
 use core::sync::atomic::{AtomicPtr, Ordering};
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
-use kernel_api::memory::r#virtual::{VirtualAllocator, AddressSpaceInner};
+use kernel_api::memory::r#virtual::VirtualAllocator;
+use kernel_api::bridge::paging::AddressSpaceInner;
 use kernel_api::sync::RwSpinlock;
 
 #[export_name = "__popcorn_memory_virtual_kernel_global"]

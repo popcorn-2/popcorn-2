@@ -6,6 +6,7 @@ use core::num::NonZero;
 use core::ptr;
 use auto_impl::auto_impl;
 use log::debug;
+use crate::bridge::paging::AddressSpaceInner;
 use crate::memory::Page;
 use crate::sync::RwSpinlock;
 use super::AllocError;
@@ -92,12 +93,6 @@ impl<A: VirtualAllocator> Drop for OwnedPages<A> {
 	fn drop(&mut self) {
 		self.allocator.deallocate_contiguous(self.base, self.len.get());
 	}
-}
-
-#[unstable(feature = "kernel_internals", issue = "none")]
-pub struct AddressSpaceInner {
-	allocator: (),
-	page_table: crate::bridge::paging::TTable,
 }
 
 pub struct AddressSpace(Arc<AddressSpaceInner>);

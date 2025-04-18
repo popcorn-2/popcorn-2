@@ -3,7 +3,7 @@ use crate::ptr::impls;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::ptr::NonNull;
-use crate::memory::r#virtual::AddressSpaceInner;
+use crate::bridge::paging::AddressSpaceInner;
 
 pub enum PointerError {
 	InvalidAddress,
