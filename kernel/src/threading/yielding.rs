@@ -5,6 +5,7 @@ use core::ptr;
 use core::ptr::addr_of;
 use log::{debug, trace};
 use kernel_api::memory::physical::highmem;
+use kernel_api::memory::r#virtual::AddressSpace;
 use kernel_api::sync::{IrqCell, IrqGuard};
 use crate::hal::{ContextSwitchPreserve, self, IpiTarget, TTableTy};
 use crate::hal::paging2::TTable;
@@ -20,9 +21,11 @@ pub fn create_idle_thread() -> (ThreadId, Thread, UnsafeCell<ThreadPointer>) {
 	}
 
 	let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
+	let address_space = AddressSpace::new();
+	
 	let (tcb, id) = ThreadControlBlock::new(
 		"<idle>".into(),
-		ttable,
+		address_space,
 		crate::threading::thread_startup,
 		idle_loop,
 		0,

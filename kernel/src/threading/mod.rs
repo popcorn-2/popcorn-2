@@ -45,7 +45,7 @@ use core::sync::atomic::AtomicUsize;
 use hashbrown::HashMap;
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
-use kernel_api::memory::r#virtual::{Global, OwnedPages};
+use kernel_api::memory::r#virtual::{AddressSpace, Global, OwnedPages};
 use kernel_api::sync::Spinlock;
 use crate::{hashmap_new, non_zero};
 use scheduler::Scheduler;
@@ -129,7 +129,7 @@ pub struct CoreId {
 /// [`ThreadControlBlock`].
 pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 	let stack = handoff_data.memory.stack;
-	let ttable = handoff_data.to_empty_ttable();
+	let address_space = AddressSpace::new();
 
 	// fixme: is highmem always correct?
 	let stack_phys_len = stack.top_virt - stack.bottom_virt - 1;
@@ -149,7 +149,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 	};
 
 	let tcb = ThreadControlBlock::new_inner(
-		ttable,
+		address_space,
 		Default::default(),
 		Cow::Borrowed("init"),
 		unsafe { Stack::from_contiguous_raw_parts(stack_frames, stack_pages) },
@@ -216,9 +216,11 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 	let boxed = Box::into_raw(Box::new(boxed));
 
 	let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
+	let address_space = AddressSpace::new();
+	
 	let (tcb, id) = ThreadControlBlock::new(
 		name,
-		ttable,
+		address_space,
 		thread_startup,
 		main,
 		boxed as usize,

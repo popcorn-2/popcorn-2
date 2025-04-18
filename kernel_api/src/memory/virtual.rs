@@ -1,9 +1,11 @@
 #![unstable(feature = "kernel_virtual_memory", issue = "none")]
 
 use alloc::sync::Arc;
+use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::num::NonZero;
 use core::ptr;
+use core::ptr::NonNull;
 use auto_impl::auto_impl;
 use log::debug;
 use crate::bridge::paging::AddressSpaceInner;
@@ -96,3 +98,18 @@ impl<A: VirtualAllocator> Drop for OwnedPages<A> {
 }
 
 pub struct AddressSpace(Arc<AddressSpaceInner>);
+
+impl AddressSpace {
+	pub fn new() -> Self { todo!() }
+	pub fn as_ptr(&self) -> NonNull<AddressSpaceInner> {
+		// SAFETY: pointer returned by Arc must be non-null
+		unsafe { NonNull::new_unchecked(Arc::as_ptr(&self.0).cast_mut()) }
+	}
+}
+
+impl Debug for AddressSpace {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		f.debug_tuple("AddressSpace")
+				.finish_non_exhaustive()
+	}
+}
