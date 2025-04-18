@@ -12,8 +12,6 @@ pub enum PointerError {
 //#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct User<T>(T, NonNull<AddressSpaceInner>);
 
-fn __current_address_space() -> NonNull<AddressSpaceInner> { todo!("get current address space from percpu") }
-
 macro_rules! user_ptr_impl_unsized {
 	($ty: ident) => {
 		pub fn new_in(from: * $ty T, address_space: &AddressSpace) -> Self {
