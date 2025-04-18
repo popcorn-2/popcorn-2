@@ -1,24 +1,29 @@
 use core::mem::MaybeUninit;
 use crate::ptr::impls;
 use alloc::boxed::Box;
+use alloc::sync::Weak;
+use crate::memory::r#virtual::AddressSpaceInner;
 
 pub enum PointerError {
 	InvalidAddress,
 }
 
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub struct User<T>(T); // TODO: should this have some kind debug-only address space 'provenance'
+//#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub struct User<T>(T, Weak<AddressSpaceInner>);
+
+fn __current_address_space() -> Weak<AddressSpaceInner> { todo!("get current address space from percpu") }
 
 macro_rules! user_ptr_impl_unsized {
 	($ty: ident) => {
-		pub fn new(from: * $ty T) -> Self { Self(from) }
+		pub fn new(from: * $ty T) -> Self { Self(from, __current_address_space()) }
+		pub fn new_in(from: * $ty T, address_space: Weak<AddressSpaceInner>) -> Self { Self(from, address_space) }
 		
 		pub fn is_null(self) -> bool {
 		    self.0.is_null()
 	    }
 
 	    pub fn cast<U>(self) -> User<* $ty U> {
-		    User(self.0.cast())
+		    User(self.0.cast(), self.1)
 	    }
 
 	    /*pub unsafe fn byte_offset(self, count: isize) -> Self {
@@ -35,6 +40,7 @@ macro_rules! user_ptr_impl_unsized {
 	};
 }
 
+// todo: more of this should be unsafe because of type validity
 macro_rules! user_ptr_impl_sized {
     ($ty: ident) => {
 	    /*pub unsafe fn offset(self, count: isize) -> Self {
@@ -50,7 +56,13 @@ macro_rules! user_ptr_impl_sized {
 	    }*/
 
 	    pub fn read(self) -> Result<T, PointerError> {
-		    match ::core::mem::size_of::<T>() {
+		    unsafe {
+			    assert!(
+				    crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				    "Address space of User<*> should match current address space",
+			    );
+		    }
+		    match size_of::<T>() {
 			    1 => unsafe {
 				    impls::checked_read_1(self.0.cast())
 				        .map(|val| (&val as *const MaybeUninit<u8>).cast::<T>().read())
@@ -76,14 +88,36 @@ macro_rules! user_ptr_impl_sized {
 	    }
 
 	    pub fn read_unaligned(self) -> Result<T, PointerError> {
+		    unsafe {
+			    assert!(
+				    crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				    "Address space of User<*> should match current address space",
+			    );
+		    }
 		    todo!()
 	    }
 
 	    pub fn copy_to_nonoverlapping(self, dest: *mut T, count: usize) -> Result<(), PointerError> {
-		    impls::checked_memcpy(self.0.cast(), dest.cast(), ::core::mem::size_of::<T>() * count).ok_or(PointerError::InvalidAddress)
+		    unsafe {
+			    assert!(
+				    crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				    "Address space of User<*> should match current address space",
+			    );
+		    }
+		    impls::checked_memcpy(self.0.cast(), dest.cast(), size_of::<T>() * count).ok_or(PointerError::InvalidAddress)
 	    }
 
-	    pub fn copy_to_user(self, _dest: User<*mut T>, _count: usize) -> Result<(), PointerError> {
+	    pub fn copy_to_user(self, dest: User<*mut T>, _count: usize) -> Result<(), PointerError> {
+		    unsafe {
+			    assert!(
+				    crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				    "Address space of User<*> should match current address space",
+			    );
+			    assert!(
+				    crate::bridge::memory::__popcorn_check_address_space(&dest.1),
+				    "Address space of User<*> should match current address space",
+			    );
+		    }
 		    todo!()
 	    }
     };
@@ -92,6 +126,12 @@ macro_rules! user_ptr_impl_sized {
 macro_rules! user_ptr_impl_slice {
     ($ty: ident) => {
 	    pub unsafe fn read_to_buffer(self) -> Result<Box<[T]>, PointerError> {
+		    unsafe {
+			    assert!(
+				    crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				    "Address space of User<*> should match current address space",
+			    );
+		    }
 		    let len = self.0.len();
 		    let mut buf = Box::new_uninit_slice(len);
 		    self.cast::<T>().copy_to_nonoverlapping(buf.as_mut_ptr().cast(), len)
@@ -112,7 +152,7 @@ impl<T: ?Sized> User<*const T> {
 	user_ptr_impl_unsized!(const);
 
 	pub fn cast_mut(self) -> User<*mut T> {
-		User(self.0.cast_mut())
+		User(self.0.cast_mut(), self.1)
 	}
 }
 
@@ -120,7 +160,7 @@ impl<T: ?Sized> User<*mut T> {
 	user_ptr_impl_unsized!(mut);
 
 	pub fn cast_const(self) -> User<*const T> {
-		User(self.0.cast_const())
+		User(self.0.cast_const(), self.1)
 	}
 }
 
@@ -132,7 +172,13 @@ impl<T> User<*mut T> {
 	user_ptr_impl_sized!(mut);
 
 	pub fn write(self, val: T) -> Result<(), PointerError> {
-		match ::core::mem::size_of::<T>() {
+		unsafe {
+			assert!(
+				crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				"Address space of User<*> should match current address space",
+			);
+		}
+		match size_of::<T>() {
 			1 => unsafe {
 				impls::checked_write_1(self.0.cast(), (&val as *const T).cast::<MaybeUninit<u8>>().read())
 			},
@@ -152,11 +198,23 @@ impl<T> User<*mut T> {
 	}
 
 	pub unsafe fn write_unaligned(self, _val: T) -> Result<(), PointerError> {
+		unsafe {
+			assert!(
+				crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				"Address space of User<*> should match current address space",
+			);
+		}
 		todo!()
 	}
 
 	pub fn copy_from_nonoverlapping(self, src: *const T, count: usize) -> Result<(), PointerError> {
-		impls::checked_memcpy( src.cast(), self.0.cast(),::core::mem::size_of::<T>() * count).ok_or(PointerError::InvalidAddress)
+		unsafe {
+			assert!(
+				crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				"Address space of User<*> should match current address space",
+			);
+		}
+		impls::checked_memcpy( src.cast(), self.0.cast(),size_of::<T>() * count).ok_or(PointerError::InvalidAddress)
 	}
 
 	pub fn copy_from_user(self, src: User<*const T>, count: usize) -> Result<(), PointerError> {
@@ -173,9 +231,9 @@ impl<T> User<*mut [T]> {
 }
 
 pub fn slice_from_raw_parts<T>(data: User<*const T>, len: usize) -> User<*const [T]> {
-	User(core::ptr::slice_from_raw_parts(data.0, len))
+	User(core::ptr::slice_from_raw_parts(data.0, len), data.1)
 }
 
 pub fn slice_from_raw_parts_mut<T>(data: User<*mut T>, len: usize) -> User<*mut [T]> {
-	User(core::ptr::slice_from_raw_parts_mut(data.0, len))
+	User(core::ptr::slice_from_raw_parts_mut(data.0, len), data.1)
 }

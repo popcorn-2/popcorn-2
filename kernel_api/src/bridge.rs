@@ -72,7 +72,9 @@ pub mod paging {
 }
 
 pub mod memory {
+	use alloc::sync::Weak;
 	use crate::memory::physical::GlobalAllocator;
+	use crate::memory::r#virtual::AddressSpaceInner;
 
 	extern "Rust" {
 		#[link_name = "__popcorn_memory_physical_highmem"]
@@ -80,6 +82,8 @@ pub mod memory {
 
 		#[link_name = "__popcorn_memory_physical_dmamem"]
 		pub static GLOBAL_DMA: GlobalAllocator;
+		
+		pub fn __popcorn_check_address_space(to_check: &Weak<AddressSpaceInner>) -> bool;
 	}
 }
 

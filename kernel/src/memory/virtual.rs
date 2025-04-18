@@ -1,12 +1,18 @@
+use alloc::sync::Weak;
 #[allow(unused_imports)] use crate::prelude::*;
 use core::ptr::addr_of;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
-use kernel_api::memory::r#virtual::VirtualAllocator;
+use kernel_api::memory::r#virtual::{VirtualAllocator, AddressSpaceInner};
 use kernel_api::sync::RwSpinlock;
 
 #[export_name = "__popcorn_memory_virtual_kernel_global"]
 pub static GLOBAL_VIRTUAL_ALLOCATOR: RwSpinlock<&'static dyn VirtualAllocator> = RwSpinlock::new(&BOOTSTRAP);
+
+#[no_mangle]
+fn __popcorn_check_address_space(to_check: &Weak<AddressSpaceInner>) -> bool {
+	false
+}
 
 extern "C" {
 	static __popcorn_vmem_bootstrap_start: u8;
