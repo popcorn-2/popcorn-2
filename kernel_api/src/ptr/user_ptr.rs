@@ -1,9 +1,9 @@
 use core::mem::MaybeUninit;
 use crate::ptr::impls;
 use alloc::boxed::Box;
-use alloc::sync::Arc;
 use core::ptr::NonNull;
 use crate::bridge::paging::AddressSpaceInner;
+use crate::memory::r#virtual::AddressSpace;
 
 pub enum PointerError {
 	InvalidAddress,
@@ -16,13 +16,8 @@ fn __current_address_space() -> NonNull<AddressSpaceInner> { todo!("get current 
 
 macro_rules! user_ptr_impl_unsized {
 	($ty: ident) => {
-		pub fn new(from: * $ty T) -> Self { Self(from, __current_address_space()) }
-		pub fn new_in(from: * $ty T, address_space: &Arc<AddressSpaceInner>) -> Self {
-			Self(
-				from,
-				// SAFETY: Pointer is given by Arc which must be non-null
-				unsafe { NonNull::new_unchecked(Arc::as_ptr(address_space).cast_mut()) }
-			)
+		pub fn new_in(from: * $ty T, address_space: &AddressSpace) -> Self {
+			Self(from, address_space.as_ptr())
 		}
 		
 		pub fn is_null(self) -> bool {
