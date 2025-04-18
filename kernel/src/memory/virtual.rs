@@ -12,11 +12,6 @@ use ranged_btree_allocator::RangedBtreeAllocator;
 #[export_name = "__popcorn_memory_virtual_kernel_global"]
 pub static GLOBAL_VIRTUAL_ALLOCATOR: RwSpinlock<&'static dyn VirtualAllocator> = RwSpinlock::new(&BOOTSTRAP);
 
-#[no_mangle]
-fn __popcorn_check_address_space(to_check: NonNull<AddressSpaceInner>) -> bool {
-	false
-}
-
 extern "C" {
 	static __popcorn_vmem_bootstrap_start: u8;
 	static __popcorn_vmem_bootstrap_end: u8;
@@ -114,4 +109,13 @@ impl AddressSpaceInner {
 #[no_mangle]
 unsafe fn __popcorn_address_space_load(this: &AddressSpaceInner) {
 	unsafe { this.ttable.load(); }
+}
+
+#[no_mangle]
+fn __popcorn_check_address_space(to_check: NonNull<AddressSpaceInner>) -> bool {
+	let guard = percpu_v2!(current_thread).read();
+	let address_space = &guard
+			.as_ref().expect("cannot use User<*> from idle thread")
+			.tcb_ref().address_space.0;
+	core::ptr::eq(Arc::as_ptr(address_space).cast(), to_check.as_ptr().cast_const())
 }
