@@ -1,7 +1,8 @@
 use core::mem::MaybeUninit;
 use crate::ptr::impls;
 use alloc::boxed::Box;
-use alloc::sync::Weak;
+use alloc::sync::Arc;
+use core::ptr::NonNull;
 use crate::memory::r#virtual::AddressSpaceInner;
 
 pub enum PointerError {
@@ -9,14 +10,20 @@ pub enum PointerError {
 }
 
 //#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub struct User<T>(T, Weak<AddressSpaceInner>);
+pub struct User<T>(T, NonNull<AddressSpaceInner>);
 
-fn __current_address_space() -> Weak<AddressSpaceInner> { todo!("get current address space from percpu") }
+fn __current_address_space() -> NonNull<AddressSpaceInner> { todo!("get current address space from percpu") }
 
 macro_rules! user_ptr_impl_unsized {
 	($ty: ident) => {
 		pub fn new(from: * $ty T) -> Self { Self(from, __current_address_space()) }
-		pub fn new_in(from: * $ty T, address_space: Weak<AddressSpaceInner>) -> Self { Self(from, address_space) }
+		pub fn new_in(from: * $ty T, address_space: &Arc<AddressSpaceInner>) -> Self {
+			Self(
+				from,
+				// SAFETY: Pointer is given by Arc which must be non-null
+				unsafe { NonNull::new_unchecked(Arc::as_ptr(address_space).cast_mut()) }
+			)
+		}
 		
 		pub fn is_null(self) -> bool {
 		    self.0.is_null()
@@ -58,7 +65,7 @@ macro_rules! user_ptr_impl_sized {
 	    pub fn read(self) -> Result<T, PointerError> {
 		    unsafe {
 			    assert!(
-				    crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				    crate::bridge::memory::__popcorn_check_address_space(self.1),
 				    "Address space of User<*> should match current address space",
 			    );
 		    }
@@ -90,7 +97,7 @@ macro_rules! user_ptr_impl_sized {
 	    pub fn read_unaligned(self) -> Result<T, PointerError> {
 		    unsafe {
 			    assert!(
-				    crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				    crate::bridge::memory::__popcorn_check_address_space(self.1),
 				    "Address space of User<*> should match current address space",
 			    );
 		    }
@@ -100,7 +107,7 @@ macro_rules! user_ptr_impl_sized {
 	    pub fn copy_to_nonoverlapping(self, dest: *mut T, count: usize) -> Result<(), PointerError> {
 		    unsafe {
 			    assert!(
-				    crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				    crate::bridge::memory::__popcorn_check_address_space(self.1),
 				    "Address space of User<*> should match current address space",
 			    );
 		    }
@@ -110,11 +117,11 @@ macro_rules! user_ptr_impl_sized {
 	    pub fn copy_to_user(self, dest: User<*mut T>, _count: usize) -> Result<(), PointerError> {
 		    unsafe {
 			    assert!(
-				    crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				    crate::bridge::memory::__popcorn_check_address_space(self.1),
 				    "Address space of User<*> should match current address space",
 			    );
 			    assert!(
-				    crate::bridge::memory::__popcorn_check_address_space(&dest.1),
+				    crate::bridge::memory::__popcorn_check_address_space(dest.1),
 				    "Address space of User<*> should match current address space",
 			    );
 		    }
@@ -128,7 +135,7 @@ macro_rules! user_ptr_impl_slice {
 	    pub unsafe fn read_to_buffer(self) -> Result<Box<[T]>, PointerError> {
 		    unsafe {
 			    assert!(
-				    crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				    crate::bridge::memory::__popcorn_check_address_space(self.1),
 				    "Address space of User<*> should match current address space",
 			    );
 		    }
@@ -174,7 +181,7 @@ impl<T> User<*mut T> {
 	pub fn write(self, val: T) -> Result<(), PointerError> {
 		unsafe {
 			assert!(
-				crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				crate::bridge::memory::__popcorn_check_address_space(self.1),
 				"Address space of User<*> should match current address space",
 			);
 		}
@@ -200,7 +207,7 @@ impl<T> User<*mut T> {
 	pub unsafe fn write_unaligned(self, _val: T) -> Result<(), PointerError> {
 		unsafe {
 			assert!(
-				crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				crate::bridge::memory::__popcorn_check_address_space(self.1),
 				"Address space of User<*> should match current address space",
 			);
 		}
@@ -210,7 +217,7 @@ impl<T> User<*mut T> {
 	pub fn copy_from_nonoverlapping(self, src: *const T, count: usize) -> Result<(), PointerError> {
 		unsafe {
 			assert!(
-				crate::bridge::memory::__popcorn_check_address_space(&self.1),
+				crate::bridge::memory::__popcorn_check_address_space(self.1),
 				"Address space of User<*> should match current address space",
 			);
 		}

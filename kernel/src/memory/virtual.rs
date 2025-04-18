@@ -1,6 +1,5 @@
-use alloc::sync::Weak;
 #[allow(unused_imports)] use crate::prelude::*;
-use core::ptr::addr_of;
+use core::ptr::{addr_of, NonNull};
 use core::sync::atomic::{AtomicPtr, Ordering};
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
 use kernel_api::memory::r#virtual::{VirtualAllocator, AddressSpaceInner};
@@ -10,7 +9,7 @@ use kernel_api::sync::RwSpinlock;
 pub static GLOBAL_VIRTUAL_ALLOCATOR: RwSpinlock<&'static dyn VirtualAllocator> = RwSpinlock::new(&BOOTSTRAP);
 
 #[no_mangle]
-fn __popcorn_check_address_space(to_check: &Weak<AddressSpaceInner>) -> bool {
+fn __popcorn_check_address_space(to_check: NonNull<AddressSpaceInner>) -> bool {
 	false
 }
 
