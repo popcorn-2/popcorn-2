@@ -412,6 +412,8 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		*memory::r#virtual::GLOBAL_VIRTUAL_ALLOCATOR.write() = Box::leak(Box::new(btree_alloc));
 	}
 
+	percpu::Percpu::init();
+
 	unsafe {
 		hal::acpi::init_tables(handoff_data.rsdp.addr);
 	}
@@ -495,40 +497,6 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		(Some(update_line), Some(picos_per_tick))
 	} else { (None, None) };
 
-	let tls_data_size = handoff_data.tls.0.end() - handoff_data.tls.0.start();
-	let tls_data_aligned_size = {
-		let align = handoff_data.tls.1;
-		assert!(align.is_power_of_two(), "TLS alignment must be a power of 2");
-		let mask = align - 1;
-		let tls_aligned_data_size =
-				if (tls_data_size & mask) == 0 { tls_data_size }
-				else {
-					(tls_data_size | mask) + 1
-				};
-		tls_aligned_data_size
-	};
-	let tls_size = tls_data_aligned_size + mem::size_of::<*mut u8>();
-	// Is this always correctly aligned?
-	#[warn(deprecated)]
-	let tls = Mapping::new(
-			mapping::Config::new(
-				NonZero::new(tls_size.div_ceil(4096)).unwrap()
-			),
-			paging_codes::TLS,
-	).expect("Unable to allocate TLS area");
-	let (frames, tls) = tls.into_contiguous_raw_parts().unwrap();
-	mem::forget(frames);
-	let (tls, _, _) = tls.into_raw_parts();
-	debug!("TLS starts at {tls:x?}");
-	debug!("TLS size is {tls_data_size:#x};{tls_size:#x}");
-	unsafe {
-		ptr::copy_nonoverlapping(handoff_data.tls.0.start().as_ptr(), tls.as_ptr(), tls_data_size);
-		let tls_self_ptr = tls.as_ptr().byte_add(tls_size - mem::size_of::<*mut u8>());
-		info!("Placing pointer to self at {tls_self_ptr:p}");
-		tls_self_ptr.cast::<*mut u8>().write(tls_self_ptr);
-		hal::load_tls(tls_self_ptr);
-	}
-
 	let x = get_foo();
 	assert_eq!(x, 6, "TLS value should be 6");
 
@@ -538,7 +506,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 	hal::post_acpi_init();
 
-	let init_thread = unsafe { threading::init(handoff_data) };
+	let init_thread = threading::init(handoff_data);
 	debug!("Init running on {init_thread:?}");
 
 	if let Some(mut update_line) = update_line {
@@ -551,7 +519,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 			}
 		};
 
-		let task = threading::spawn_with(animation, Cow::Borrowed("Boot animation"));
+		let task = threading::spawn_with(animation, Cow::Borrowed("Boot animation")).unwrap();
 		debug!("Boot animation running on {task:?}");
 	}
 	threading::debug();

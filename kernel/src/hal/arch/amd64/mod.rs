@@ -128,10 +128,10 @@ unsafe impl Hal for Amd64Hal {
 				.set_rsp0(to.kernel_stack.virtual_end().end().align_down());
 		percpu_v2!(kernel_stack_top).store(to.kernel_stack.virtual_end().end().addr, Ordering::Relaxed);
 		
-		return inner(from.save_state, to.save_state, preserve, to.ttable.pml4.pml4);
+		return inner(from.save_state, to.save_state, preserve);
 
 		#[naked] // todo: convert to normal inline asm
-		unsafe extern "C" fn inner(from: &mut Amd64SaveState, to: &Amd64SaveState, preserve: ContextSwitchPreserve, cr3: Frame) -> ContextSwitchPreserve {
+		unsafe extern "C" fn inner(from: &mut Amd64SaveState, to: &Amd64SaveState, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
 			// rdi: from
 			// rsi: to
 			// rdx: preserve.0 -> rax
@@ -149,13 +149,6 @@ unsafe impl Hal for Amd64Hal {
 				"pushf",
 				"pop rbx",
 				"mov [rdi + {rflags_offset}], rbx",
-
-				// swap page table if needed
-				"mov r13, cr3",
-				"cmp r8, r13",
-				"je 2f",
-				"mov cr3, r8",
-				"2:",
 	
 				// restore all registers from `to` Amd64SaveState struct
 				"mov rbx, [rdi + {rflags_offset}]",

@@ -69,7 +69,11 @@ fn syscall(proto_method: u128, a: usize, b: usize, _c: usize, _d: usize) -> Resu
 		// more generic
 
 		let ptr = {
-			let endpoint_ptr = User::<*const u8>::new(a as _);
+			let endpoint_ptr = User::<*const u8>::new_in(
+				a as _,
+				percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
+						.tcb_ref().address_space,
+			);
 			slice_from_raw_parts(endpoint_ptr, b)
 		};
 

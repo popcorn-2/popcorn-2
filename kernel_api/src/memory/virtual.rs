@@ -1,10 +1,14 @@
 #![unstable(feature = "kernel_virtual_memory", issue = "none")]
 
+use alloc::sync::Arc;
+use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::num::NonZero;
 use core::ptr;
+use core::ptr::NonNull;
 use auto_impl::auto_impl;
 use log::debug;
+use crate::bridge::paging::AddressSpaceInner;
 use crate::memory::Page;
 use crate::sync::RwSpinlock;
 use super::AllocError;
@@ -90,5 +94,28 @@ impl<A: VirtualAllocator> OwnedPages<A> {
 impl<A: VirtualAllocator> Drop for OwnedPages<A> {
 	fn drop(&mut self) {
 		self.allocator.deallocate_contiguous(self.base, self.len.get());
+	}
+}
+
+pub struct AddressSpace(#[unstable(feature = "kernel_internals", issue = "none")] pub Arc<AddressSpaceInner>);
+
+impl AddressSpace {
+	pub fn as_ptr(&self) -> NonNull<AddressSpaceInner> {
+		// SAFETY: pointer returned by Arc must be non-null
+		unsafe { NonNull::new_unchecked(Arc::as_ptr(&self.0).cast_mut()) }
+	}
+	
+	/// # Safety
+	/// 
+	/// The AddressSpace must stay alive until a new AddressSpace gets loaded
+	pub unsafe fn load(&self) {
+		unsafe { crate::bridge::paging::__popcorn_address_space_load(&self.0); }
+	}
+}
+
+impl Debug for AddressSpace {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		f.debug_tuple("AddressSpace")
+				.finish_non_exhaustive()
 	}
 }

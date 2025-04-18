@@ -32,20 +32,27 @@ pub mod hal {
 pub mod paging {
 	use core::marker::PhantomData;
 	use core::ops::DerefMut;
+	use alloc::sync::Arc;
 	use crate::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
 	use crate::sync::RwWriteGuard;
+	use crate::memory::allocator::PhysicalAllocator;
 
 	// FIXME: replace with extern type when alignment can be specified
 	#[repr(align(8))]
 	pub struct KTable((), PhantomData<KTableInner>);
 
+	#[repr(align(8))]
+	pub struct AddressSpaceInner((), PhantomData<_AddressSpaceInner>);
+
 	extern "Rust" {
 		type KTableInner;
+		type _AddressSpaceInner;
 
 		pub fn __popcorn_paging_ktable_translate_page(this: &KTable, page: Page) -> Option<Frame>;
 		pub fn __popcorn_paging_ktable_translate_address(this: &KTable, addr: VirtualAddress) -> Option<PhysicalAddress>;
 		pub fn __popcorn_paging_ktable_map_page(this: &mut KTable, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
 		pub fn __popcorn_paging_ktable_unmap_page(this: &mut KTable, page: Page) -> Result<(), ()>;
+		pub fn __popcorn_address_space_load(this: &AddressSpaceInner);
 	}
 
 	pub unsafe fn __popcorn_paging_get_ktable() -> impl DerefMut<Target = KTable> {
@@ -71,7 +78,9 @@ pub mod paging {
 }
 
 pub mod memory {
+	use core::ptr::NonNull;
 	use crate::memory::physical::GlobalAllocator;
+	use crate::bridge::paging::AddressSpaceInner;
 
 	extern "Rust" {
 		#[link_name = "__popcorn_memory_physical_highmem"]
@@ -79,6 +88,8 @@ pub mod memory {
 
 		#[link_name = "__popcorn_memory_physical_dmamem"]
 		pub static GLOBAL_DMA: GlobalAllocator;
+		
+		pub fn __popcorn_check_address_space(to_check: NonNull<AddressSpaceInner>) -> bool;
 	}
 }
 

@@ -5,7 +5,7 @@ use core::cell::UnsafeCell;
 use core::num::NonZeroUsize;
 use kernel_api::memory::mapping;
 use kernel_api::memory::mapping::Stack;
-use kernel_api::memory::r#virtual::Global;
+use kernel_api::memory::r#virtual::{AddressSpace, Global};
 use crate::hal::{self, SaveState, TTableTy};
 use super::{parking::ParkGaurd, ThreadId, WakeReason};
 use crate::hal::SaveStateTr;
@@ -107,8 +107,8 @@ macro_rules! tcb_views {
 
 tcb_views! {
 	pub struct ThreadControlBlock {
-		/// The page table for the thread
-		ttable: TTableTy,
+		/// The address space for the thread
+		address_space: AddressSpace,
 		/// The saved CPU state
 		#mut(Pointer) save_state: SaveState,
 		/// The user-facing name of the thread
@@ -155,7 +155,7 @@ impl ThreadControlBlock {
 	/// 
 	/// enqueue_new(tcb);
 	/// ```
-	pub fn new(name: Cow<'static, str>, ttable: TTableTy, startup: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, arg: usize) -> (Self, ThreadId) {
+	pub fn new(name: Cow<'static, str>, address_space: AddressSpace, startup: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, arg: usize) -> (Self, ThreadId) {
 		let new_stack = Stack::new(
 			mapping::Config::new(NonZeroUsize::new(32).unwrap()),
 			crate::paging_codes::THREAD_KERNEL_STACK,
@@ -163,7 +163,7 @@ impl ThreadControlBlock {
 		
 		let id = ThreadId::new();
 		let mut new_thread = ThreadControlBlock::new_inner(
-			ttable,
+			address_space,
 			Default::default(),
 			name,
 			new_stack,
