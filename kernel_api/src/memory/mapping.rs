@@ -94,9 +94,9 @@ pub enum Laziness { Lazy, Prefault }
 
 /// Configuration for creating a [mapping](self)
 ///
-/// By default, it will allocate memory anywhere that is valid, using the kernel [`VirtualAllocator`], and the
+/// By default, it will allocate memory anywhere that is valid, using the kernel [`AddressSpace`], and the
 /// `highmem` [`physical allocator`](PhysicalAllocator). It will lazily allocate physical memory, and map it
-/// with read and write permissions only.
+/// with read, write and execute permissions.
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub struct Config<'physical_allocator, A: VirtualAllocator> {
 	physical_location: Location<Frame>,
@@ -117,7 +117,7 @@ impl Config<'static, Global> {
 	/// - physical and virtual locations: anywhere
 	/// - lazily allocated
 	/// - Highmem physical allocator
-	/// - Global virtual allocator
+	/// - Kernel address space
 	/// - Readable, writable and executable
 	#[stable(feature = "kernel_mmap", since = "1.1.0")]
 	pub fn new(length: NonZero<usize>) -> Self {
