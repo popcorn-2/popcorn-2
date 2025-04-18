@@ -42,7 +42,6 @@ macro_rules! user_ptr_impl_unsized {
 	};
 }
 
-// todo: more of this should be unsafe because of type validity
 macro_rules! user_ptr_impl_sized {
     ($ty: ident) => {
 	    /*pub unsafe fn offset(self, count: isize) -> Self {
@@ -56,8 +55,11 @@ macro_rules! user_ptr_impl_sized {
 	    pub unsafe fn offset_from(self, origin: Self) -> isize {
 		    self.0.offset_from(origin.0)
 	    }*/
-
-	    pub fn read(self) -> Result<T, PointerError> {
+		
+	    /// # Safety
+	    /// 
+	    /// The memory pointed to must be valid for a read of `T`
+	    pub unsafe fn read(self) -> Result<T, PointerError> {
 		    unsafe {
 			    assert!(
 				    crate::bridge::memory::__popcorn_check_address_space(self.1),
@@ -89,7 +91,10 @@ macro_rules! user_ptr_impl_sized {
 		    }.ok_or(PointerError::InvalidAddress)
 	    }
 
-	    pub fn read_unaligned(self) -> Result<T, PointerError> {
+	    /// # Safety
+	    ///
+	    /// The memory pointed to must be valid for a read of `T`
+	    pub unsafe fn read_unaligned(self) -> Result<T, PointerError> {
 		    unsafe {
 			    assert!(
 				    crate::bridge::memory::__popcorn_check_address_space(self.1),
@@ -99,7 +104,12 @@ macro_rules! user_ptr_impl_sized {
 		    todo!()
 	    }
 
-	    pub fn copy_to_nonoverlapping(self, dest: *mut T, count: usize) -> Result<(), PointerError> {
+	    /// # Safety
+	    ///
+	    /// The memory pointed to must be valid for a read of `T`
+	    /// 
+	    /// `dest` must be valid to write to as defined by [`core::ptr::write`]
+	    pub unsafe fn copy_to_nonoverlapping(self, dest: *mut T, count: usize) -> Result<(), PointerError> {
 		    unsafe {
 			    assert!(
 				    crate::bridge::memory::__popcorn_check_address_space(self.1),
@@ -127,6 +137,9 @@ macro_rules! user_ptr_impl_sized {
 
 macro_rules! user_ptr_impl_slice {
     ($ty: ident) => {
+	    /// # Safety
+	    ///
+	    /// The memory pointed to must be valid for a read of `[T]`
 	    pub unsafe fn read_to_buffer(self) -> Result<Box<[T]>, PointerError> {
 		    unsafe {
 			    assert!(
@@ -199,7 +212,7 @@ impl<T> User<*mut T> {
 		}.ok_or(PointerError::InvalidAddress)
 	}
 
-	pub unsafe fn write_unaligned(self, _val: T) -> Result<(), PointerError> {
+	pub fn write_unaligned(self, _val: T) -> Result<(), PointerError> {
 		unsafe {
 			assert!(
 				crate::bridge::memory::__popcorn_check_address_space(self.1),
@@ -209,6 +222,9 @@ impl<T> User<*mut T> {
 		todo!()
 	}
 
+	/// # Safety
+	///
+	/// `src` must be valid for a read of `T` as defined by [`core::ptr::read`]
 	pub fn copy_from_nonoverlapping(self, src: *const T, count: usize) -> Result<(), PointerError> {
 		unsafe {
 			assert!(
