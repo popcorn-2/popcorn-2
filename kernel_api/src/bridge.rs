@@ -41,6 +41,7 @@ pub mod paging {
 
 	extern "Rust" {
 		type KTableInner;
+		pub type TTable;
 
 		pub fn __popcorn_paging_ktable_translate_page(this: &KTable, page: Page) -> Option<Frame>;
 		pub fn __popcorn_paging_ktable_translate_address(this: &KTable, addr: VirtualAddress) -> Option<PhysicalAddress>;

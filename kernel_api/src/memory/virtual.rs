@@ -1,5 +1,6 @@
 #![unstable(feature = "kernel_virtual_memory", issue = "none")]
 
+use alloc::sync::Arc;
 use core::mem::ManuallyDrop;
 use core::num::NonZero;
 use core::ptr;
@@ -92,3 +93,11 @@ impl<A: VirtualAllocator> Drop for OwnedPages<A> {
 		self.allocator.deallocate_contiguous(self.base, self.len.get());
 	}
 }
+
+#[unstable(feature = "kernel_internals", issue = "none")]
+pub struct AddressSpaceInner {
+	allocator: (),
+	page_table: crate::bridge::paging::TTable,
+}
+
+pub struct AddressSpace(Arc<AddressSpaceInner>);
