@@ -41,8 +41,10 @@ use alloc::borrow::Cow;
 use core::arch::{asm, naked_asm};
 use core::fmt::Debug;
 use core::num::NonZero;
+use core::ops::Range;
 use core::sync::atomic::AtomicUsize;
 use hashbrown::HashMap;
+use kernel_api::memory::{AllocError, Page, VirtualAddress};
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
 use kernel_api::memory::r#virtual::{AddressSpace, Global, OwnedPages};
@@ -61,11 +63,13 @@ mod yielding;
 
 pub use parking::{park, ParkError, WakeReason, WakeTrigger, Waker};
 pub use pointers::{Thread, ThreadPointer};
+use ranged_btree_allocator::RangedBtreeAllocator;
 pub use sleeping::{sleep, sleep_until};
 pub use thread_control_block::{ThreadState, ThreadControlBlock, PointerView, OwnedView, SharedView};
 pub use yielding::{yield_now, yield_defer, create_idle_thread};
 use crate::hal::paging2::TTable;
 use crate::hal::TTableTy;
+use crate::memory::r#virtual::AddressSpaceInner;
 
 pub type SchedulerTy = impl Scheduler;
 
@@ -129,7 +133,14 @@ pub struct CoreId {
 /// [`ThreadControlBlock`].
 pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 	let stack = handoff_data.memory.stack;
-	let address_space = AddressSpace::new();
+
+	let address_space = AddressSpaceInner::new(
+		handoff_data.to_empty_ttable(),
+		RangedBtreeAllocator::new(Range { // todo: make this a bit nicer
+			start: Page::new(VirtualAddress::new(0x200000)),
+			end: Page::new(VirtualAddress::new(0x8000_0000_0000)),
+		}),
+	);
 
 	// fixme: is highmem always correct?
 	let stack_phys_len = stack.top_virt - stack.bottom_virt - 1;
@@ -205,7 +216,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 /// // TODO: get the exit state of the thread
 /// ```
 /// 
-pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) -> ThreadId {
+pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) -> Result<ThreadId, AllocError> {
 	extern "C" fn main(ptr: usize) -> ! {
 		let boxed = unsafe { Box::<Box<dyn FnOnce()>>::from_raw(ptr as *mut _) };
 		boxed();
@@ -215,8 +226,7 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 	let boxed = Box::new(f) as Box<dyn FnOnce()>;
 	let boxed = Box::into_raw(Box::new(boxed));
 
-	let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
-	let address_space = AddressSpace::new();
+	let address_space = AddressSpaceInner::empty()?;
 	
 	let (tcb, id) = ThreadControlBlock::new(
 		name,
@@ -234,7 +244,7 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 
 	scheduler::enqueue(ptr);
 
-	id
+	Ok(id)
 }
 
 /// Gets the [`ThreadId`] for the thread currently running on this core

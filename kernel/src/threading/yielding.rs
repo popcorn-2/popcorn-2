@@ -10,6 +10,7 @@ use kernel_api::sync::{IrqCell, IrqGuard};
 use crate::hal::{ContextSwitchPreserve, self, IpiTarget, TTableTy};
 use crate::hal::paging2::TTable;
 use crate::memory::paging::ktable;
+use crate::memory::r#virtual::AddressSpaceInner;
 use super::{scheduler, WakeReason, ThreadState, scheduler::Scheduler, ThreadPointer, PointerView, Thread, ThreadControlBlock, ThreadId};
 
 pub fn create_idle_thread() -> (ThreadId, Thread, UnsafeCell<ThreadPointer>) {
@@ -20,9 +21,8 @@ pub fn create_idle_thread() -> (ThreadId, Thread, UnsafeCell<ThreadPointer>) {
 		}
 	}
 
-	let ttable = TTableTy::new(&*ktable(), highmem()).unwrap();
-	let address_space = AddressSpace::new();
-	
+	let address_space = AddressSpaceInner::empty().expect("Could not create idle thread");
+
 	let (tcb, id) = ThreadControlBlock::new(
 		"<idle>".into(),
 		address_space,
@@ -73,6 +73,11 @@ pub fn yield_now() -> Option<WakeReason> {
 		let reason = to_view.state.wake_reason();
 		*to_view.state = ThreadState::Running;
 		if from_view.state.is_running() { *from_view.state = ThreadState::Ready; }
+
+		// SAFETY: The AddressSpace is owned by the thread, and thread is always alive while running
+		unsafe {
+			to_view.address_space.load();
+		}
 
 		// From the CPU's perspective during a context switch, `from` is no longer the same `ThreadPointer`
 		// as the stack has been changed. Instead, we replace it with the `ThreadPointer` that `switch_thread`

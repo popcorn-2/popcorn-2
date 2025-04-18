@@ -52,6 +52,7 @@ pub unsafe trait Hal {
 	const SPURIOUS_VECTOR: Vector;
 }
 
+// Alignment of the extern type version must be known, so ensure it's the same value here
 const _: () = if align_of::<KTableTy>() != 8 { panic!("for... reasons... KTables must be 8 byte aligned"); };
 
 pub enum IpiTarget {

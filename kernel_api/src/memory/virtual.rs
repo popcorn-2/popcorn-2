@@ -97,13 +97,19 @@ impl<A: VirtualAllocator> Drop for OwnedPages<A> {
 	}
 }
 
-pub struct AddressSpace(Arc<AddressSpaceInner>);
+pub struct AddressSpace(#[unstable(feature = "kernel_internals", issue = "none")] pub Arc<AddressSpaceInner>);
 
 impl AddressSpace {
-	pub fn new() -> Self { todo!() }
 	pub fn as_ptr(&self) -> NonNull<AddressSpaceInner> {
 		// SAFETY: pointer returned by Arc must be non-null
 		unsafe { NonNull::new_unchecked(Arc::as_ptr(&self.0).cast_mut()) }
+	}
+	
+	/// # Safety
+	/// 
+	/// The AddressSpace must stay alive until a new AddressSpace gets loaded
+	pub unsafe fn load(&self) {
+		unsafe { crate::bridge::paging::__popcorn_address_space_load(&self.0); }
 	}
 }
 

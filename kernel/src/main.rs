@@ -506,7 +506,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 	hal::post_acpi_init();
 
-	let init_thread = unsafe { threading::init(handoff_data) };
+	let init_thread = threading::init(handoff_data);
 	debug!("Init running on {init_thread:?}");
 
 	if let Some(mut update_line) = update_line {
@@ -519,7 +519,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 			}
 		};
 
-		let task = threading::spawn_with(animation, Cow::Borrowed("Boot animation"));
+		let task = threading::spawn_with(animation, Cow::Borrowed("Boot animation")).unwrap();
 		debug!("Boot animation running on {task:?}");
 	}
 	threading::debug();
