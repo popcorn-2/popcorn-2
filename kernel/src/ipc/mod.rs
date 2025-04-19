@@ -15,6 +15,7 @@ use kernel_api::sync::RwSpinlock;
 use crate::ipc::handle::Handle;
 use crate::ipc::protocol::Method;
 use server::Server as _;
+use crate::memory::r#virtual::AddressSpaceInner;
 
 static METHODS: RwSpinlock<HashMap<u128, Method>> = RwSpinlock::new(HashMap::with_hasher(hashbrown::hash_map::DefaultHashBuilder::new()));
 
@@ -71,8 +72,10 @@ fn syscall(proto_method: u128, a: usize, b: usize, _c: usize, _d: usize) -> Resu
 		let ptr = {
 			let endpoint_ptr = User::<*const u8>::new_in(
 				a as _,
-				percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
-						.tcb_ref().address_space,
+				AddressSpaceInner::to_api(
+					percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
+							.tcb_ref().address_space
+				),
 			);
 			slice_from_raw_parts(endpoint_ptr, b)
 		};

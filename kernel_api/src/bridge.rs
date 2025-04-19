@@ -34,18 +34,14 @@ pub mod paging {
 	use core::ops::DerefMut;
 	use crate::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
 	use crate::sync::RwWriteGuard;
-	use crate::memory::allocator::PhysicalAllocator;
+	use crate::memory::r#virtual::address_space::AddressSpaceInner;
 
 	// FIXME: replace with extern type when alignment can be specified
 	#[repr(align(8))]
 	pub struct KTable((), PhantomData<KTableInner>);
 
-	#[repr(align(8))]
-	pub struct AddressSpaceInner((), PhantomData<_AddressSpaceInner>);
-
 	extern "Rust" {
 		type KTableInner;
-		type _AddressSpaceInner;
 
 		pub fn __popcorn_paging_ktable_translate_page(this: &KTable, page: Page) -> Option<Frame>;
 		pub fn __popcorn_paging_ktable_translate_address(this: &KTable, addr: VirtualAddress) -> Option<PhysicalAddress>;
@@ -83,8 +79,8 @@ pub mod paging {
 pub mod memory {
 	use core::ptr::NonNull;
 	use crate::memory::physical::GlobalAllocator;
-	use crate::bridge::paging::AddressSpaceInner;
 	use crate::memory::{AllocError, Page};
+	use crate::memory::r#virtual::address_space::AddressSpaceInner;
 
 	extern "Rust" {
 		#[link_name = "__popcorn_memory_physical_highmem"]

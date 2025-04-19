@@ -5,7 +5,6 @@ use core::ptr;
 use core::ptr::addr_of;
 use log::{debug, trace};
 use kernel_api::memory::physical::highmem;
-use kernel_api::memory::r#virtual::AddressSpace;
 use kernel_api::sync::{IrqCell, IrqGuard};
 use crate::hal::{ContextSwitchPreserve, self, IpiTarget, TTableTy};
 use crate::hal::paging2::TTable;
@@ -76,7 +75,7 @@ pub fn yield_now() -> Option<WakeReason> {
 
 		// SAFETY: The AddressSpace is owned by the thread, and thread is always alive while running
 		unsafe {
-			to_view.address_space.load();
+			AddressSpaceInner::to_api(to_view.address_space).load();
 		}
 
 		// From the CPU's perspective during a context switch, `from` is no longer the same `ThreadPointer`

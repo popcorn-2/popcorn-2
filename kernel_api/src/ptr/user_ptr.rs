@@ -2,8 +2,7 @@ use core::mem::MaybeUninit;
 use crate::ptr::impls;
 use alloc::boxed::Box;
 use core::ptr::NonNull;
-use crate::bridge::paging::AddressSpaceInner;
-use crate::memory::r#virtual::AddressSpace;
+use crate::memory::r#virtual::address_space::{AddressSpace, AddressSpaceInner};
 
 pub enum PointerError {
 	InvalidAddress,

@@ -20,7 +20,8 @@ use log::debug;
 use crate::memory::allocator::{PhysicalAllocator, SpecificLocation};
 use crate::memory::{AllocError, Frame, Page};
 use crate::memory::physical::{OwnedFrames, highmem};
-use crate::memory::r#virtual::{AddressSpace, AddressSpaceTy, Kernel, OwnedPages, Userspace, VirtualAllocator};
+use crate::memory::r#virtual::{AddressSpaceTy, Kernel, OwnedPages, Userspace, VirtualAllocator};
+use crate::memory::r#virtual::address_space::{Weak, AddressSpace};
 
 /// Basic operations to decide how to map memory together.
 ///
@@ -145,14 +146,14 @@ impl Config<'static, Userspace> {
 	/// - Highmem physical allocator
 	/// - Readable, writable and executable
 	#[stable(feature = "kernel_mmap", since = "1.1.0")]
-	pub fn new_in(length: NonZero<usize>, address_space: AddressSpace) -> Self {
+	pub fn new_in(length: NonZero<usize>, address_space: &AddressSpace) -> Self {
 		Config {
 			physical_location: Location::Any,
 			_virtual_location: Location::Any,
 			_laziness: Laziness::Lazy,
 			length,
 			physical_allocator: highmem(),
-			address_space: Userspace(address_space),
+			address_space: Userspace(AddressSpace::downgrade(address_space)),
 			_protection: Protection::RWX,
 		}
 	}
@@ -296,8 +297,9 @@ impl<'phys_alloc, R: Mappable> RawMapping<'phys_alloc, R, Userspace> {
 	/// If the page tables already contained a mapping for the newly allocated virtual memory.
 	#[stable(feature = "kernel_mmap", since = "1.1.0")]
 	pub fn new_in(config: Config<'phys_alloc, Userspace>, reason: u16) -> Result<Self, AllocError> {
+		let Some(address_space) = Weak::upgrade(&config.address_space.0) else { return Err(AllocError) };
 		let virtual_len = R::physical_length_to_virtual_length(config.length);
-		let virtual_mem = OwnedPages::new_in(virtual_len, &config.address_space.0)?;
+		let virtual_mem = OwnedPages::new_in(virtual_len, &address_space)?;
 
 		Self::new_at(config, reason, virtual_mem)
 	}

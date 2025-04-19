@@ -1,12 +1,14 @@
 use alloc::sync::Arc;
+use core::fmt::{Debug, Formatter};
 use core::ops::Range;
 #[allow(unused_imports)] use crate::prelude::*;
 use core::ptr::{addr_of, NonNull};
 use core::sync::atomic::{AtomicPtr, Ordering};
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
+use kernel_api::memory::mapping::{Mapping, RawMapping};
 use kernel_api::memory::physical::highmem;
-use kernel_api::memory::r#virtual::{AddressSpace, VirtualAllocator};
-use kernel_api::sync::RwSpinlock;
+use kernel_api::memory::r#virtual::{address_space::AddressSpace, Userspace, VirtualAllocator};
+use kernel_api::sync::{RwSpinlock, Spinlock};
 use ranged_btree_allocator::RangedBtreeAllocator;
 
 #[export_name = "__popcorn_memory_virtual_kernel_global"]
@@ -77,24 +79,29 @@ use crate::memory::paging::ktable;
 pub(crate) struct AddressSpaceInner {
 	ttable: TTableTy,
 	allocator: RangedBtreeAllocator,
+	maps: Spinlock<Vec<(&'static str, Mapping<'static, Userspace>)>>,
+}
+
+impl Debug for AddressSpaceInner {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		writeln!(f, "AddressSpaceInner {{")?;
+		for (name, map) in &*self.maps.lock() {
+			writeln!(f, "    {:x}-{:x} {}", map.virtual_start().as_ptr().addr(), map.virtual_end().as_ptr().addr(), name)?;
+		}
+		writeln!(f, "}}")?;
+		Ok(())
+	}
 }
 
 // Alignment of the extern type version must be known, so ensure it's the same value here
 const _: () = { assert!(align_of::<AddressSpaceInner>() == 8); };
 
 impl AddressSpaceInner {
-	pub fn new(ttable: TTableTy, allocator: RangedBtreeAllocator) -> AddressSpace {
-		let arc = Arc::new(Self { ttable, allocator });
-		// can't use cast here because it requires `U: Sized` in case of metadata,
-		// but we have `U: !Sized` but `U: Thin` so there isn't any metadata
-		// additionally, `Arc::from_raw` calculates the offset back to the counts
-		// internally calling align_of, which isn't valid on extern types
-		// SAFETY: `kernel_api::AddressSpaceInner` is an extern type so it can refer to any other type
-		let arc = unsafe { core::mem::transmute::<_, Arc<kernel_api::bridge::paging::AddressSpaceInner>>(arc) };
-		AddressSpace(arc)
+	pub fn new(ttable: TTableTy, allocator: RangedBtreeAllocator) -> Arc<AddressSpaceInner> {
+		Arc::new(Self { ttable, allocator, maps: Spinlock::new(vec![]) })
 	}
 	
-	pub fn empty() -> Result<AddressSpace, AllocError> {
+	pub fn empty() -> Result<Arc<AddressSpaceInner>, AllocError> {
 		Ok(Self::new(
 			TTableTy::new(&*ktable(), highmem())?,
 			RangedBtreeAllocator::new(Range {
@@ -105,6 +112,23 @@ impl AddressSpaceInner {
 	}
 
 	pub fn ttable(&self) -> &TTableTy { &self.ttable }
+
+	pub fn to_api(this: &Arc<Self>) -> &AddressSpace {
+		// can't use cast here because it requires `U: Sized` in case of metadata,
+		// but we have `U: !Sized` but `U: Thin` so there isn't any metadata
+		// additionally, `Arc::from_raw` calculates the offset back to the counts
+		// internally calling align_of, which isn't valid on extern types
+		// SAFETY: `kernel_api::AddressSpaceInner` is an extern type so it can refer to any other type
+		unsafe { core::mem::transmute::<_, &AddressSpace>(this) }
+	}
+
+	pub fn from_api(this: &AddressSpace) -> &Arc<Self> {
+		unsafe { core::mem::transmute::<_, &Arc<Self>>(this) }
+	}
+	
+	pub fn add_mapping(&self, name: &'static str, map: Mapping<'static, Userspace>) {
+		self.maps.lock().push((name, map));
+	}
 }
 
 #[no_mangle]
@@ -115,10 +139,10 @@ unsafe fn __popcorn_address_space_load(this: &AddressSpaceInner) {
 #[no_mangle]
 fn __popcorn_check_address_space(to_check: NonNull<AddressSpaceInner>) -> bool {
 	let guard = percpu_v2!(current_thread).read();
-	let address_space = &guard
+	let address_space = guard
 			.as_ref().expect("cannot use User<*> from idle thread")
-			.tcb_ref().address_space.0;
-	core::ptr::eq(Arc::as_ptr(address_space).cast(), to_check.as_ptr().cast_const())
+			.tcb_ref().address_space;
+	core::ptr::eq(Arc::as_ptr(address_space), to_check.as_ptr().cast_const())
 }
 
 #[no_mangle]

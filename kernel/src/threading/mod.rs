@@ -47,11 +47,10 @@ use hashbrown::HashMap;
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
-use kernel_api::memory::r#virtual::{AddressSpace, Kernel, OwnedPages};
+use kernel_api::memory::r#virtual::{Kernel, OwnedPages};
 use kernel_api::sync::Spinlock;
 use crate::{hashmap_new, non_zero};
 use scheduler::Scheduler;
-use crate::memory::paging::ktable;
 
 mod cleanup;
 mod parking;
@@ -227,7 +226,7 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 	let boxed = Box::into_raw(Box::new(boxed));
 
 	let address_space = AddressSpaceInner::empty()?;
-	
+
 	let (tcb, id) = ThreadControlBlock::new(
 		name,
 		address_space,
