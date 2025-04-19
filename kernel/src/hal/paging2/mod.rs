@@ -3,8 +3,9 @@
 use core::fmt::Debug;
 use kernel_api::bridge::paging::MapPageError;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
-use super::KTableTy;
+use super::{KTableTy, TTableTy};
 use kernel_api::memory::allocator::{PhysicalAllocator};
+use crate::memory::r#virtual::AddressSpaceInner;
 
 pub trait KTable: Debug + Sized {
 	fn translate_page(&self, page: Page) -> Option<Frame>;
@@ -36,22 +37,42 @@ pub trait TTable: KTable + Sized {
 	fn unmap_page(&self, page: Page) -> Result<(), ()>;
 }
 
-#[export_name = "__popcorn_paging_ktable_translate_page"]
-fn translate_page(this: &KTableTy, page: Page) -> Option<Frame> {
+#[no_mangle]
+fn __popcorn_paging_ktable_translate_page(this: &KTableTy, page: Page) -> Option<Frame> {
 	<KTableTy as KTable>::translate_page(this, page)
 }
 
-#[export_name = "__popcorn_paging_ktable_translate_address"]
-fn translate_address(this: &KTableTy, addr: VirtualAddress) -> Option<PhysicalAddress> {
+#[no_mangle]
+fn __popcorn_paging_ktable_translate_address(this: &KTableTy, addr: VirtualAddress) -> Option<PhysicalAddress> {
 	<KTableTy as KTable>::translate_address(this, addr)
 }
 
-#[export_name = "__popcorn_paging_ktable_map_page"]
-fn map_page(this: &mut KTableTy, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
+#[no_mangle]
+fn __popcorn_paging_ktable_map_page(this: &mut KTableTy, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
 	<KTableTy as KTable>::map_page(this, page, frame, reason)
 }
 
-#[export_name = "__popcorn_paging_ktable_unmap_page"]
-fn unmap_page(this: &mut KTableTy, page: Page) -> Result<(), ()> {
+#[no_mangle]
+fn __popcorn_paging_ktable_unmap_page(this: &mut KTableTy, page: Page) -> Result<(), ()> {
 	<KTableTy as KTable>::unmap_page(this, page)
+}
+
+#[no_mangle]
+fn __popcorn_paging_ttable_translate_page(this: &AddressSpaceInner, page: Page) -> Option<Frame> {
+	<TTableTy as KTable>::translate_page(this.ttable(), page)
+}
+
+#[no_mangle]
+fn __popcorn_paging_ttable_translate_address(this: &AddressSpaceInner, addr: VirtualAddress) -> Option<PhysicalAddress> {
+	<TTableTy as KTable>::translate_address(this.ttable(), addr)
+}
+
+#[no_mangle]
+fn __popcorn_paging_ttable_map_page(this: &AddressSpaceInner, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
+	<TTableTy as TTable>::map_page(this.ttable(), page, frame, reason)
+}
+
+#[no_mangle]
+fn __popcorn_paging_ttable_unmap_page(this: &AddressSpaceInner, page: Page) -> Result<(), ()> {
+	<TTableTy as TTable>::unmap_page(this.ttable(), page)
 }

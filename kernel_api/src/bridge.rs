@@ -52,6 +52,10 @@ pub mod paging {
 		pub fn __popcorn_paging_ktable_translate_address(this: &KTable, addr: VirtualAddress) -> Option<PhysicalAddress>;
 		pub fn __popcorn_paging_ktable_map_page(this: &mut KTable, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
 		pub fn __popcorn_paging_ktable_unmap_page(this: &mut KTable, page: Page) -> Result<(), ()>;
+		pub fn __popcorn_paging_ttable_translate_page(this: &AddressSpaceInner, page: Page) -> Option<Frame>;
+		pub fn __popcorn_paging_ttable_translate_address(this: &AddressSpaceInner, addr: VirtualAddress) -> Option<PhysicalAddress>;
+		pub fn __popcorn_paging_ttable_map_page(this: &AddressSpaceInner, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
+		pub fn __popcorn_paging_ttable_unmap_page(this: &AddressSpaceInner, page: Page) -> Result<(), ()>;
 		pub fn __popcorn_address_space_load(this: &AddressSpaceInner);
 	}
 
@@ -81,6 +85,7 @@ pub mod memory {
 	use core::ptr::NonNull;
 	use crate::memory::physical::GlobalAllocator;
 	use crate::bridge::paging::AddressSpaceInner;
+	use crate::memory::{AllocError, Page};
 
 	extern "Rust" {
 		#[link_name = "__popcorn_memory_physical_highmem"]
@@ -90,6 +95,9 @@ pub mod memory {
 		pub static GLOBAL_DMA: GlobalAllocator;
 		
 		pub fn __popcorn_check_address_space(to_check: NonNull<AddressSpaceInner>) -> bool;
+		pub fn __popcorn_address_space_allocate(this: &AddressSpaceInner, len: usize) -> Result<Page, AllocError>;
+		pub fn __popcorn_address_space_allocate_at(this: &AddressSpaceInner, at: Page, len: usize) -> Result<Page, AllocError>;
+		pub fn __popcorn_address_space_deallocate(this: &AddressSpaceInner, base: Page, len: usize);
 	}
 }
 
