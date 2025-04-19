@@ -64,6 +64,7 @@ impl Address for Frame {}
 
 /// The location at which to make the [mapping](self)
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
+#[derive(Copy, Clone)]
 pub enum Location<A: Address> {
 	/// The mapping can go anywhere
 	#[stable(feature = "kernel_mmap", since = "1.1.0")] Any,
@@ -101,7 +102,7 @@ pub enum Laziness { Lazy, Prefault }
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub struct Config<'physical_allocator, A: AddressSpaceTy = Kernel> {
 	physical_location: Location<Frame>,
-	_virtual_location: Location<Page>,
+	virtual_location: Location<Page>,
 	_laziness: Laziness,
 	length: NonZero<usize>,
 	physical_allocator: &'physical_allocator dyn PhysicalAllocator,
@@ -124,7 +125,7 @@ impl Config<'static, Kernel> {
 	pub fn new(length: NonZero<usize>) -> Self {
 		Config {
 			physical_location: Location::Any,
-			_virtual_location: Location::Any,
+			virtual_location: Location::Any,
 			_laziness: Laziness::Lazy,
 			length,
 			physical_allocator: highmem(),
@@ -149,7 +150,7 @@ impl Config<'static, Userspace> {
 	pub fn new_in(length: NonZero<usize>, address_space: &AddressSpace) -> Self {
 		Config {
 			physical_location: Location::Any,
-			_virtual_location: Location::Any,
+			virtual_location: Location::Any,
 			_laziness: Laziness::Lazy,
 			length,
 			physical_allocator: highmem(),
@@ -194,7 +195,7 @@ impl<'physical_allocator, A: AddressSpaceTy> Config<'physical_allocator, A> {
 	#[unstable(feature = "kernel_mmap_config", issue = "24")]
 	pub fn virtual_location(self, location: Location<Page>) -> Self {
 		Config {
-			_virtual_location: location,
+			virtual_location: location,
 			.. self
 		}
 	}
@@ -275,6 +276,8 @@ impl<'phys_alloc, R: Mappable> RawMapping<'phys_alloc, R, Kernel> {
 	/// If the page tables already contained a mapping for the newly allocated virtual memory.
 	#[stable(feature = "kernel_mmap", since = "1.1.0")]
 	pub fn new(config: Config<'phys_alloc, Kernel>, reason: u16) -> Result<Self, AllocError> {
+		let Location::Any = config.virtual_location else { todo!() };
+		
 		let virtual_len = R::physical_length_to_virtual_length(config.length);
 		let virtual_mem = OwnedPages::new(virtual_len)?;
 
@@ -299,7 +302,7 @@ impl<'phys_alloc, R: Mappable> RawMapping<'phys_alloc, R, Userspace> {
 	pub fn new_in(config: Config<'phys_alloc, Userspace>, reason: u16) -> Result<Self, AllocError> {
 		let Some(address_space) = Weak::upgrade(&config.address_space.0) else { return Err(AllocError) };
 		let virtual_len = R::physical_length_to_virtual_length(config.length);
-		let virtual_mem = OwnedPages::new_in(virtual_len, &address_space)?;
+		let virtual_mem = OwnedPages::xnew(virtual_len, &address_space, config.virtual_location)?;
 
 		Self::new_at(config, reason, virtual_mem)
 	}

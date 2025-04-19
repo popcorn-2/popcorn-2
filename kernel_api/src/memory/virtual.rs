@@ -8,6 +8,7 @@ use auto_impl::auto_impl;
 use log::debug;
 use crate::bridge::paging::MapPageError;
 use crate::memory::{Frame, Page};
+use crate::memory::mapping::Location;
 use crate::memory::r#virtual::address_space::{AddressSpace, AddressSpaceInner, Weak};
 use crate::sync::RwSpinlock;
 use super::AllocError;
@@ -154,6 +155,22 @@ impl OwnedPages<Userspace> {
 			len,
 			address_space,
 		})
+	}
+	
+	pub fn xnew(count: NonZero<usize>, address_space: &AddressSpace, location: Location<Page>) -> Result<Self, AllocError> {
+		match location {
+			Location::Any => Self::new_in(count, address_space),
+			Location::At(f) => {
+				let address_space = Userspace(AddressSpace::downgrade(address_space));
+				let base = address_space.allocate_contiguous_at(f, count.get())?;
+				Ok(OwnedPages {
+					base,
+					len: count,
+					address_space
+				})
+			},
+			_ => todo!(),
+		}
 	}
 }
 
