@@ -20,7 +20,7 @@ use log::debug;
 use crate::memory::allocator::{PhysicalAllocator, SpecificLocation};
 use crate::memory::{AllocError, Frame, Page};
 use crate::memory::physical::{OwnedFrames, highmem};
-use crate::memory::r#virtual::{AddressSpace, AddressSpaceTy, Kernel, OwnedPages, Userspace, VirtualAllocator, WeakAddressSpace};
+use crate::memory::r#virtual::{AddressSpace, AddressSpaceTy, Kernel, OwnedPages, Userspace, VirtualAllocator};
 
 /// Basic operations to decide how to map memory together.
 ///

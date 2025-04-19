@@ -174,7 +174,6 @@ impl<A: AddressSpaceTy> Drop for OwnedPages<A> {
 }
 
 pub struct AddressSpace(#[unstable(feature = "kernel_internals", issue = "none")] pub Arc<AddressSpaceInner>);
-pub struct WeakAddressSpace(Weak<AddressSpaceInner>);
 
 impl AddressSpace {
 	pub fn as_ptr(&self) -> NonNull<AddressSpaceInner> {
@@ -195,21 +194,11 @@ impl AddressSpace {
 	pub fn clone_ref(this: &Self) -> AddressSpace {
 		AddressSpace(Arc::clone(&this.0))
 	}
-
-	pub fn downgrade(this: &Self) -> WeakAddressSpace {
-		WeakAddressSpace(Arc::downgrade(&this.0))
-	}
 }
 
 impl Debug for AddressSpace {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		f.debug_tuple("AddressSpace")
 				.finish_non_exhaustive()
-	}
-}
-
-impl WeakAddressSpace {
-	pub fn upgrade(&self) -> Option<AddressSpace> {
-		self.0.upgrade().map(AddressSpace)
 	}
 }
