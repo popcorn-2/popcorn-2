@@ -32,7 +32,6 @@ pub mod hal {
 pub mod paging {
 	use core::marker::PhantomData;
 	use core::ops::DerefMut;
-	use alloc::sync::Arc;
 	use crate::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
 	use crate::sync::RwWriteGuard;
 	use crate::memory::allocator::PhysicalAllocator;
