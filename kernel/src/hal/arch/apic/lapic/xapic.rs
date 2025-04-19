@@ -7,7 +7,6 @@ use bit_field::BitField;
 use kernel::hal::arch::apic::lapic::Lvt;
 use kernel_api::memory::mapping::{Config, Location, Mapping};
 use kernel_api::memory::{Frame, PhysicalAddress};
-use kernel_api::memory::r#virtual::Global;
 use kernel_api::time::Instant;
 use crate::hal;
 use crate::hal::arch::apic::lapic::{DeliveryMode, LvtState, Registers};

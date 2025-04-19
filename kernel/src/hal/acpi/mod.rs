@@ -9,7 +9,7 @@ use kernel_api::memory::mapping::{Config, Location, Mapping};
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::allocator::PhysicalAllocator;
 use kernel_api::memory::physical::OwnedFrames;
-use kernel_api::memory::r#virtual::{Global, OwnedPages};
+use kernel_api::memory::r#virtual::{Kernel, OwnedPages};
 use kernel_api::sync::{OnceLock, Syncify};
 
 static TABLES: OnceLock<Syncify<AcpiTables<Handler<'static>>>> = OnceLock::new();
@@ -216,7 +216,7 @@ impl AcpiHandler for Handler<'_> {
 
 		unsafe {
 			let frames = OwnedFrames::from_raw_parts(first_frame, len, region.handler().allocator);
-			let pages = OwnedPages::from_raw_parts(first_page, len, Global);
+			let pages = OwnedPages::from_raw_parts(first_page, len, Kernel);
 			let _mapping = Mapping::from_contiguous_raw_parts(frames, pages);
 		}
 	}

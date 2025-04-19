@@ -83,7 +83,6 @@ use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
 use kernel_api::memory::mapping::{Mapping, self};
 use kernel_api::memory::physical::highmem;
-use kernel_api::memory::r#virtual::Global;
 use kernel_api::time::Instant;
 use utils::handoff::MemoryType;
 use crate::hal::exception::Ty;

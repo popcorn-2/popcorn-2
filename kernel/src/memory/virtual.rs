@@ -70,7 +70,6 @@ impl VirtualAllocator for Bootstrap {
 }
 
 #[allow(unused_imports)]
-pub use kernel_api::memory::r#virtual::Global;
 use crate::hal::paging2::TTable;
 use crate::hal::TTableTy;
 use crate::memory::paging::ktable;
@@ -104,6 +103,8 @@ impl AddressSpaceInner {
 			}),
 		))
 	}
+
+	pub fn ttable(&self) -> &TTableTy { &self.ttable }
 }
 
 #[no_mangle]
@@ -118,4 +119,19 @@ fn __popcorn_check_address_space(to_check: NonNull<AddressSpaceInner>) -> bool {
 			.as_ref().expect("cannot use User<*> from idle thread")
 			.tcb_ref().address_space.0;
 	core::ptr::eq(Arc::as_ptr(address_space).cast(), to_check.as_ptr().cast_const())
+}
+
+#[no_mangle]
+fn __popcorn_address_space_allocate(this: &AddressSpaceInner, len: usize) -> Result<Page, AllocError> {
+	this.allocator.allocate_contiguous(len)
+}
+
+#[no_mangle]
+fn __popcorn_address_space_allocate_at(this: &AddressSpaceInner, at: Page, len: usize) -> Result<Page, AllocError> {
+	this.allocator.allocate_contiguous_at(at, len)
+}
+
+#[no_mangle]
+fn __popcorn_address_space_deallocate(this: &AddressSpaceInner, base: Page, len: usize) {
+	this.allocator.deallocate_contiguous(base, len)
 }
