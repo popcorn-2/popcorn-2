@@ -5,7 +5,7 @@ use core::cell::UnsafeCell;
 use core::num::NonZeroUsize;
 use kernel_api::memory::mapping;
 use kernel_api::memory::mapping::Stack;
-use kernel_api::memory::r#virtual::{AddressSpace, Global};
+use kernel_api::memory::r#virtual::{AddressSpace, Kernel};
 use crate::hal::{self, SaveState, TTableTy};
 use super::{parking::ParkGaurd, ThreadId, WakeReason};
 use crate::hal::SaveStateTr;
@@ -114,7 +114,7 @@ tcb_views! {
 		/// The user-facing name of the thread
 		name: Cow<'static, str>,
 		/// The stack that kernel code runs on inside the thread
-		kernel_stack: Stack<'static, Global>,
+		kernel_stack: Stack<'static, Kernel>,
 		/// The current running state of the thread
 		#mut(Pointer) state: ThreadState,
 		/// The numerical ID of the thread

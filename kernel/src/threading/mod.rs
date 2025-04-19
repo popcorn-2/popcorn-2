@@ -47,7 +47,7 @@ use hashbrown::HashMap;
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
 use kernel_api::memory::mapping::Stack;
 use kernel_api::memory::physical::{highmem, OwnedFrames};
-use kernel_api::memory::r#virtual::{AddressSpace, Global, OwnedPages};
+use kernel_api::memory::r#virtual::{AddressSpace, Kernel, OwnedPages};
 use kernel_api::sync::Spinlock;
 use crate::{hashmap_new, non_zero};
 use scheduler::Scheduler;
@@ -155,7 +155,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		OwnedPages::from_raw_parts(
 			stack.bottom_virt,
 			NonZero::<usize>::new(stack_phys_len + 1).expect("Cannot have a zero sized stack"),
-			Global,
+			Kernel,
 		)
 	};
 

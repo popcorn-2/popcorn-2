@@ -20,7 +20,7 @@ use log::debug;
 use crate::memory::allocator::{PhysicalAllocator, SpecificLocation};
 use crate::memory::{AllocError, Frame, Page};
 use crate::memory::physical::{OwnedFrames, highmem};
-use crate::memory::r#virtual::{Global, OwnedPages, VirtualAllocator};
+use crate::memory::r#virtual::{AddressSpace, AddressSpaceTy, Kernel, OwnedPages, Userspace, VirtualAllocator, WeakAddressSpace};
 
 /// Basic operations to decide how to map memory together.
 ///
@@ -98,17 +98,17 @@ pub enum Laziness { Lazy, Prefault }
 /// `highmem` [`physical allocator`](PhysicalAllocator). It will lazily allocate physical memory, and map it
 /// with read, write and execute permissions.
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
-pub struct Config<'physical_allocator, A: VirtualAllocator> {
+pub struct Config<'physical_allocator, A: AddressSpaceTy = Kernel> {
 	physical_location: Location<Frame>,
 	_virtual_location: Location<Page>,
 	_laziness: Laziness,
 	length: NonZero<usize>,
 	physical_allocator: &'physical_allocator dyn PhysicalAllocator,
-	virtual_allocator: A,
+	address_space: A,
 	_protection: Protection,
 }
 
-impl Config<'static, Global> {
+impl Config<'static, Kernel> {
 	/// Creates a new [mapping](self) configuration with default options
 	///
 	/// `length` is specified in pages
@@ -127,13 +127,38 @@ impl Config<'static, Global> {
 			_laziness: Laziness::Lazy,
 			length,
 			physical_allocator: highmem(),
-			virtual_allocator: Global,
+			address_space: Kernel {},
 			_protection: Protection::RWX,
 		}
 	}
 }
 
-impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
+impl Config<'static, Userspace> {
+	/// Creates a new [mapping](self) configuration with default options,
+	/// but in the specified address space
+	///
+	/// `length` is specified in pages
+	///
+	/// The default options are not guaranteed, but at the moment are:
+	/// - physical and virtual locations: anywhere
+	/// - lazily allocated
+	/// - Highmem physical allocator
+	/// - Readable, writable and executable
+	#[stable(feature = "kernel_mmap", since = "1.1.0")]
+	pub fn new_in(length: NonZero<usize>, address_space: AddressSpace) -> Self {
+		Config {
+			physical_location: Location::Any,
+			_virtual_location: Location::Any,
+			_laziness: Laziness::Lazy,
+			length,
+			physical_allocator: highmem(),
+			address_space: Userspace(address_space),
+			_protection: Protection::RWX,
+		}
+	}
+}
+
+impl<'physical_allocator, A: AddressSpaceTy> Config<'physical_allocator, A> {
 	/// Set the physical allocator to use
 	///
 	/// This is used for both the underlying memory and any page tables that need creating
@@ -141,16 +166,7 @@ impl<'physical_allocator, A: VirtualAllocator> Config<'physical_allocator, A> {
 	pub fn physical_allocator<'a>(self, allocator: &'a dyn PhysicalAllocator) -> Config<'a, A> {
 		Config {
 			physical_allocator: allocator,
-			.. self
-		}
-	}
-
-	/// Set the virtual allocator to use
-	#[unstable(feature = "kernel_mmap_config", issue = "24")]
-	pub fn virtual_allocator<New: VirtualAllocator>(self, allocator: New) -> Config<'physical_allocator, New> {
-		Config {
-			virtual_allocator: allocator,
-			.. self
+			..self
 		}
 	}
 
@@ -204,11 +220,11 @@ pub struct DiscontiguityError(());
 /// This will allocate any required memory when created, and register any lazily mapped memory as such.
 /// It will also manage the page tables to correctly unmap the memory when dropped.
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
-pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
+pub struct RawMapping<'phys_allocator, R: Mappable, A: AddressSpaceTy = Kernel> {
 	raw: PhantomData<R>,
 
-	/// The virtual allocator used for memory allocation
-	virtual_allocator: ManuallyDrop<A>,
+	/// The address space mapped into
+	address_space: ManuallyDrop<A>,
 
 	/// Whether the underlying physical memory is contiguous or not
 	contiguity: RawMappingContiguity,
@@ -221,11 +237,11 @@ pub struct RawMapping<'phys_allocator, R: Mappable, A: VirtualAllocator> {
 	physical_len: NonZero<usize>,
 
 	/// The physical allocator used for memory allocation
-	allocator: &'phys_allocator dyn PhysicalAllocator
+	allocator: &'phys_allocator dyn PhysicalAllocator,
 }
 
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
-impl<R: Mappable, A: VirtualAllocator> Debug for RawMapping<'_, R, A> {
+impl<R: Mappable, A: AddressSpaceTy> Debug for RawMapping<'_, R, A> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		f.debug_struct("RawMapping")
 		 .field(
@@ -238,12 +254,12 @@ impl<R: Mappable, A: VirtualAllocator> Debug for RawMapping<'_, R, A> {
 		 .field("physical_length", &self.physical_len().get())
 		 .field("virtual_base", &self.virtual_start())
 		 .field("virtual_valid_start", &self.virtual_valid_start())
-		 .field("virtual_allocator", &"<virtual allocator>")
+		 .field("address_space", &"<address space>")
 		 .finish()
 	}
 }
 
-impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A> {
+impl<'phys_alloc, R: Mappable> RawMapping<'phys_alloc, R, Kernel> {
 	/// Create a new memory mapping with the given configuration
 	///
 	/// All physical memory used for the initial allocation will be contiguous.
@@ -257,38 +273,65 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 	///
 	/// If the page tables already contained a mapping for the newly allocated virtual memory.
 	#[stable(feature = "kernel_mmap", since = "1.1.0")]
-	pub fn new(config: Config<'phys_alloc, A>, reason: u16) -> Result<Self, AllocError> {
-		let Config { length, physical_allocator, virtual_allocator, physical_location, .. } = config;
+	pub fn new(config: Config<'phys_alloc, Kernel>, reason: u16) -> Result<Self, AllocError> {
+		let virtual_len = R::physical_length_to_virtual_length(config.length);
+		let virtual_mem = OwnedPages::new(virtual_len)?;
 
-		let virtual_len = R::physical_length_to_virtual_length(length);
-		let physical_len = length;
+		Self::new_at(config, reason, virtual_mem)
+	}
+}
+
+impl<'phys_alloc, R: Mappable> RawMapping<'phys_alloc, R, Userspace> {
+	/// Create a new memory mapping with the given configuration
+	///
+	/// All physical memory used for the initial allocation will be contiguous.
+	/// This may change in future.
+	///
+	/// # Errors
+	///
+	/// If the required physical or virtual memory could not be allocation, [`AllocError`] is returned.
+	///
+	/// # Panics
+	///
+	/// If the page tables already contained a mapping for the newly allocated virtual memory.
+	#[stable(feature = "kernel_mmap", since = "1.1.0")]
+	pub fn new_in(config: Config<'phys_alloc, Userspace>, reason: u16) -> Result<Self, AllocError> {
+		let virtual_len = R::physical_length_to_virtual_length(config.length);
+		let virtual_mem = OwnedPages::new_in(virtual_len, &config.address_space.0)?;
+
+		Self::new_at(config, reason, virtual_mem)
+	}
+}
+
+impl<'phys_alloc, R: Mappable, A: AddressSpaceTy> RawMapping<'phys_alloc, R, A> {
+	fn new_at(config: Config<'phys_alloc, A>, reason: u16, virtual_mem: OwnedPages<A>) -> Result<Self, AllocError> {
+		let Config { length: physical_len, physical_allocator, physical_location, .. } = config;
 
 		let physical_mem = OwnedFrames::xnew(physical_len, physical_allocator, physical_location.into())?;
-		let virtual_mem = OwnedPages::new_with(virtual_len, virtual_allocator)?;
 
 		let (physical_base, _, _) = physical_mem.into_raw_parts();
-		let (virtual_base, _, virtual_allocator) = virtual_mem.into_raw_parts();
+		let (virtual_base, _, address_space) = virtual_mem.into_raw_parts();
 		let offset_base = virtual_base + R::physical_start_offset_from_virtual();
 
 		// TODO: huge pages
 		// FIXME: memory leak of physical and virtual memory if this fails
-		// fixme: can't assume ktable depending on AddressSpace once #43 is sorted
-		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
+		let mut page_table = address_space.get_page_table();
 		for (frame, page) in (0..physical_len.get()).map(|i| (physical_base + i, offset_base + i)) {
-			unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut page_table, page, frame, reason) }
+			A::map_page(&mut page_table, page, frame, reason)
 					.expect("Virtual memory uniquely owned by the allocation so should not be mapped in this address space");
 		}
+		drop(page_table);
 
 		Ok(Self {
 			raw: PhantomData,
-			virtual_allocator: ManuallyDrop::new(virtual_allocator),
+			address_space: ManuallyDrop::new(address_space),
 			contiguity: RawMappingContiguity::Contiguous(physical_base),
 			virtual_valid_start: offset_base,
 			physical_len,
 			allocator: physical_allocator,
 		})
 	}
-
+	
 	/// Destructure into the underlying [`OwnedFrames`] and [`OwnedPages`] that back the allocation
 	///
 	/// Depending on the implementation of [`Mappable`] used, these may be different length.
@@ -312,12 +355,12 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 			)
 		};
 		
-		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
+		let address_space = unsafe { ManuallyDrop::take(&mut self.address_space) };
 		let pages = unsafe {
 			OwnedPages::from_raw_parts(
 				self.virtual_start(),
 				self.virtual_len(),
-				virtual_allocator
+				address_space
 			)
 		};
 
@@ -327,14 +370,14 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 
 	#[unstable(feature = "kernel_mmap_to_parts", issue = "24")]
 	pub unsafe fn from_contiguous_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>) -> Self {
-		let (virtual_base, actual_vlen, virtual_allocator) = pages.into_raw_parts();
+		let (virtual_base, actual_vlen, address_space) = pages.into_raw_parts();
 		let (physical_base, physical_len, physical_allocator) = frames.into_raw_parts();
 		let correct_vlen = R::physical_length_to_virtual_length(physical_len);
 		debug_assert_eq!(actual_vlen, correct_vlen);
 
 		Self {
 			raw: PhantomData,
-			virtual_allocator: ManuallyDrop::new(virtual_allocator),
+			address_space: ManuallyDrop::new(address_space),
 			contiguity: RawMappingContiguity::Contiguous(physical_base),
 			virtual_valid_start: virtual_base + R::physical_start_offset_from_virtual(),
 			physical_len,
@@ -399,12 +442,12 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 										.try_into()
 										.expect("`new_len` is checked to be not equal to `physical_len`");
 
-			let extra_virtual_mem = Global.allocate_contiguous_at(self.virtual_end(), extra_len.get())?; // FIXME: use OwnedPages
+			let extra_virtual_mem = self.address_space.allocate_contiguous_at(self.virtual_end(), extra_len.get())?; // FIXME: use OwnedPages
 
 			debug_assert_eq!(self.virtual_end(), extra_virtual_mem);
 			
 			// TODO: huge pages
-			let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
+			let mut page_table = self.address_space.get_page_table();
 
 			let extra_physical_mem = OwnedFrames::xnew(extra_len, original_physical_allocator, super::allocator::Location::Any)?;
 			let (new_start_frame, _, _) = extra_physical_mem.into_raw_parts();
@@ -414,10 +457,9 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 			}
 
 			// FIXME: memory leak of physical and virtual memory if this fails
-			// FIXME: can't assume ktable depending on AddressSpace once #43 is sorted
 			// FIXME: this is probably wrong if the extra unmapped virtual memory is after the physical memory, not before
 			for (frame, page) in (0..extra_len.get()).map(|i| (new_start_frame + i, extra_virtual_mem + i)) {
-				unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut page_table, page, frame, 25) }
+				A::map_page(&mut page_table, page, frame, 25)
 						.expect("todo");
 			}
 
@@ -428,12 +470,11 @@ impl<'phys_alloc, R: Mappable, A: VirtualAllocator> RawMapping<'phys_alloc, R, A
 }
 
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
-impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
+impl<R: Mappable, A: AddressSpaceTy> Drop for RawMapping<'_, R, A> {
 	fn drop(&mut self) {
 		debug!("mmap dropped: {self:x?}");
 
-		// fixme: can't assume ktable depending on AddressSpace once #43 is sorted
-		let mut page_table = unsafe { crate::bridge::paging::__popcorn_paging_get_ktable() };
+		let mut page_table = self.address_space.get_page_table();
 
 		// If the underlying memory is discontiguous, we need to find the physical memory chunks via the page tables
 		// and deallocate them before unmapping. To reduce the number of allocator calls, we merge contiguous chunks
@@ -451,8 +492,8 @@ impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 			},
 			RawMappingContiguity::Discontiguous => {
 				let page_iter = (0..self.physical_len().get()).map(|i| self.virtual_valid_start() + i);
-				let frame_iter = page_iter.map(|page| unsafe {
-					crate::bridge::paging::__popcorn_paging_ktable_translate_page(&mut page_table, page)
+				let frame_iter = page_iter.map(|page| {
+					A::translate_page(&mut page_table, page)
 							.expect("Virtual memory uniquely owned by this mmap so shouldn't be unmapped")
 				});
 
@@ -489,16 +530,17 @@ impl<R: Mappable, A: VirtualAllocator> Drop for RawMapping<'_, R, A> {
 
 		for page in (0..self.physical_len().get()).map(|i| self.virtual_valid_start() + i) {
 			debug!("unmapping page {page:x?}");
-			unsafe { crate::bridge::paging::__popcorn_paging_ktable_unmap_page(&mut page_table, page) }
+			A::unmap_page(&mut page_table, page)
 					.expect("Virtual memory uniquely owned by this mmap so shouldn't be unmapped");
 		}
 
-		let virtual_allocator = unsafe { ManuallyDrop::take(&mut self.virtual_allocator) };
+		drop(page_table);
+		let address_space = unsafe { ManuallyDrop::take(&mut self.address_space) };
 		let _pages = unsafe {
 			OwnedPages::from_raw_parts(
 				self.virtual_start(),
 				self.virtual_len(),
-				virtual_allocator
+				address_space
 			)
 		};
 	}
@@ -531,11 +573,11 @@ impl Mappable for RawStack {
 /// Manages a mapping directly between physical and virtual memory.
 #[allow(type_alias_bounds)] // makes docs nicer
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
-pub type Mapping<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, RawMmap, V>;
+pub type Mapping<'phys_alloc, A: AddressSpaceTy = Kernel> = RawMapping<'phys_alloc, RawMmap, A>;
 
 /// A RAII stack
 ///
 /// Manages the memory map for a stack, including a guard page below the stack.
 #[allow(type_alias_bounds)] // makes docs nicer
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
-pub type Stack<'phys_alloc, V: VirtualAllocator = Global> = RawMapping<'phys_alloc, RawStack, V>;
+pub type Stack<'phys_alloc, A: AddressSpaceTy = Kernel> = RawMapping<'phys_alloc, RawStack, A>;
