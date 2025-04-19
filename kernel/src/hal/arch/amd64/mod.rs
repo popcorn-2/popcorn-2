@@ -212,6 +212,7 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	extern "C" fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! {
+		debug!("switch to userspace (rip: {addr:x?}, rsp: {stack_top:x?})");
 		crate::hal::get_and_disable_interrupts(); // so we can switch stack without getting interrupted before we get to userspace
 		unsafe {
 			asm!(
