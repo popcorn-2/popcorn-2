@@ -35,6 +35,7 @@
 #![feature(arbitrary_self_types_pointers)]
 #![feature(macro_metavar_expr_concat)]
 #![feature(linkage)]
+#![feature(once_cell_try_insert)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -51,7 +52,8 @@
 #![feature(kernel_time)]
 #![feature(kernel_feature_detect)]
 #![feature(kernel_irq_cell)]
-#![feature(once_cell_try_insert)]
+#![feature(kernel_allocation_zeroing)]
+
 #![no_std]
 #![no_main]
 
@@ -73,21 +75,26 @@ use core::ptr::{addr_of, slice_from_raw_parts_mut};
 use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
 use core::{future, mem, ptr};
 use core::cmp::{max, min};
+use core::mem::ManuallyDrop;
 use core::num::NonZero;
 use core::task::{Poll};
 use core::time::Duration;
+use elf::header::program::SegmentType;
 use crate::threading::ThreadControlBlock;
 use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
-use kernel_api::memory::mapping::{Mapping, self};
+use kernel_api::memory::mapping::{Mapping, self, Location, Stack};
 use kernel_api::memory::physical::highmem;
+use kernel_api::memory::r#virtual::address_space::AddressSpace;
+use kernel_api::ptr::{slice_from_raw_parts, User};
 use kernel_api::time::Instant;
 use utils::handoff::MemoryType;
 use crate::hal::exception::Ty;
-use crate::hal::paging2::TTable;
+use crate::hal::paging2::{KTable, TTable};
 use crate::memory::paging::ktable;
+use crate::memory::r#virtual::AddressSpaceInner;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::task::executor::Executor;
 use crate::threading::{WakeTrigger, WakeReason};
@@ -505,6 +512,8 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 	hal::post_acpi_init();
 
+	let init_data = Box::from(handoff_data.init_exec);
+
 	let init_thread = threading::init(handoff_data);
 	debug!("Init running on {init_thread:?}");
 
@@ -522,39 +531,63 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		debug!("Boot animation running on {task:?}");
 	}
 	threading::debug();
-	threading::exit(0);
+	threading::yield_now();
 
-	{
-		const CORE_SOCKET_OPEN: u128 = 0;
+	let (entrypoint, stack) = {
+		let guard = percpu_v2!(current_thread).read();
+		let address_space = guard.as_ref().unwrap().tcb_ref().address_space;
 
-		let shim = |a: &str| {
-			let a = a.as_bytes();
-			debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, a.as_ptr() as _, a.len(), 0, 0));
+		let stack_top = {
+			let config = mapping::Config::new_in(NonZero::new(4).unwrap(), AddressSpaceInner::to_api(address_space))
+					.virtual_location(Location::At(Page::new(VirtualAddress::new(0x7fff_ffff_b000))));
+			// fixme
+			let stack = ManuallyDrop::new(Stack::new_in(config, u16::MAX).unwrap());
+			// address_space.add_mapping("[stack]", stack);
+			stack.virtual_end().start()
 		};
-		shim("hello world!");
-		shim("hello.foo.world.:/byee/eee");
-		shim(".:/byee/eee");
-		shim(":/byee/");
-		shim(":byee/");
-		debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, ptr::null::<u8>() as _, 10, 0, 0));
-		debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, 0xdeadbeef, 10, 0, 0));
-		shim(":core.input.mouse@");
-		{
-			let f = || {
-				let a = "core.input.mouse@:mouse".as_bytes();
-				debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, a.as_ptr() as _, a.len(), 0, 0));
+
+		let file = elf::File::try_new(&init_data).unwrap();
+
+		for segment in file.segments()
+		                   .filter(|s| s.segment_type == SegmentType::LOAD) {
+			assert!(segment.alignment <= 4096, "Not designed for >1 page alignment");
+
+			let addr = VirtualAddress::<1>::new(segment.vaddr.try_into().unwrap());
+			let segment_page_offset = addr - addr.align_down::<4096>();
+
+			let len = segment_page_offset + usize::try_from(segment.memory_size).unwrap();
+			let len = len.div_ceil(4096);
+			
+			let mapping = {
+				let config = mapping::Config::new_in(len.try_into().unwrap(), AddressSpaceInner::to_api(address_space))
+						.virtual_location(Location::At(Page::new(addr.align_down())));
+				Mapping::new_in(config, u16::MAX).unwrap()
 			};
 
-			threading::spawn_with(f, Cow::Borrowed("foo"));
-		}
-		threading::debug();
-		threading::yield_now();
-		debug!("{:#?}", &*ipc::server::servers());
-	}
+			assert!(segment.file_size <= segment.memory_size);
 
-	loop {
-		threading::yield_now();
-	}
+			unsafe {
+				ptr::copy_nonoverlapping(
+					file[segment.file_location()].as_ptr(),
+					addr.as_ptr(),
+					segment.file_size.try_into().unwrap(),
+				);
+				ptr::write_bytes(
+					addr.as_ptr().byte_add(segment.file_size.try_into().unwrap()),
+					0,
+					(segment.memory_size - segment.file_size).try_into().unwrap(),
+				);
+			}
+
+			address_space.add_mapping("/user/init.exec", mapping);
+		}
+		
+		debug!("{address_space:?}");
+
+		(VirtualAddress::new(file.entrypoint()), stack_top)
+	};
+
+	hal::switch_to_userspace_at(entrypoint, stack.align_down());
 }
 
 #[cfg(not(test))]

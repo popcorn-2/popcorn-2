@@ -49,6 +49,12 @@ pub fn main() {
 		BufReader::new(f)
 	};
 
+	let mut init_exec = {
+		let init_exec_path = cargo_env!("init_exec");
+		let f = File::open(init_exec_path).expect("init file does not exist");
+		BufReader::new(f)
+	};
+
 	let disk_image_path = {
 		let out_dir = PathBuf::from(cargo_env!("OUT_DIR"));
 		out_dir.join("popcorn2.iso")
@@ -84,7 +90,7 @@ pub fn main() {
 
 		match partition.part_type {
 			PartitionType::Efi => init_efi_partition(fs, &mut bootloader, &mut popfs_driver),
-			PartitionType::System => init_system_partition(fs, &mut kernel, kernel_map.as_mut()),
+			PartitionType::System => init_system_partition(fs, &mut kernel, kernel_map.as_mut(), &mut init_exec),
 			_ => {}
 		}
 	}
@@ -109,7 +115,7 @@ fn init_efi_partition(fs: FileSystem<impl ReadWriteSeek>, mut bootloader_data: i
 	io::copy(&mut popfs_data, &mut popfs).unwrap();
 }
 
-fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: impl Read, map_data: Option<impl Read>) {
+fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: impl Read, map_data: Option<impl Read>, mut init_exec: impl Read) {
 	let root_dir = fs.root_dir();
 	root_dir.create_dir("kernel").unwrap();
 	let mut kernel = root_dir.create_file("kernel/kernel.exec").unwrap();
@@ -121,6 +127,11 @@ fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: im
 		map.truncate().unwrap();
 		io::copy(&mut map_data, &mut map).unwrap();
 	}
+
+	root_dir.create_dir("user").unwrap();
+	let mut init = root_dir.create_file("user/init.exec").unwrap();
+	init.truncate().unwrap();
+	io::copy(&mut init_exec, &mut init).unwrap();
 }
 
 fn create_fat_partition<T: Read + Write + Seek + Debug>(mut disk: T, size: u64, name: &str, part_type: Type) -> FileSystem<impl ReadWriteSeek> {

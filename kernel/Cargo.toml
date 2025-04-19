@@ -30,6 +30,8 @@ minicov = { version = "0.3", optional = true }
 hashbrown = { version = "0.14.5" }
 enum_dispatch = "0.3.13"
 
+elf = { version = "0.1.0", path = "../elf" }
+
 [dev-dependencies]
 minicov = "0.3"
 test = { path = "../test_harness" }
