@@ -119,6 +119,10 @@ impl ThreadId {
 			id
 		}
 	}
+	
+	pub fn get(self) -> usize {
+		self.id.get()
+	}
 }
 
 /// The numerical ID of a CPU core

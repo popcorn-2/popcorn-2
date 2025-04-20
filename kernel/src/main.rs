@@ -93,6 +93,7 @@ use kernel_api::time::Instant;
 use utils::handoff::MemoryType;
 use crate::hal::exception::Ty;
 use crate::hal::paging2::{KTable, TTable};
+use crate::ipc::handle::Handle;
 use crate::memory::paging::ktable;
 use crate::memory::r#virtual::AddressSpaceInner;
 use crate::memory::watermark_allocator::WatermarkAllocator;
@@ -586,6 +587,27 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 		(VirtualAddress::new(file.entrypoint()), stack_top)
 	};
+	drop(init_data);
+	{
+		debug!("opening init stdin/out/err/thread as handles 0..=3");
+		
+		let _ = ipc::server::servers(); // force it to init builtin servers (root + proc)
+		
+		let guard = percpu_v2!(current_thread).read();
+		let thread = guard.as_ref().unwrap().tcb_ref();
+		
+		let stdio_handle = ipc::open("console:/").expect("unable to open console");
+		let thread_handle = Handle::new(ipc::server::proc_server(), thread.thread_id.get());
+		
+		thread.handles.openat(0, stdio_handle)
+				.expect("unable to open fd 0");
+		thread.handles.openat(1, stdio_handle)
+				.expect("unable to open fd 1");
+		thread.handles.openat(2, stdio_handle)
+				.expect("unable to open fd 2");
+		thread.handles.openat(3, thread_handle)
+				.expect("unable to open fd 3");
+	}
 
 	hal::switch_to_userspace_at(entrypoint, stack.align_down());
 }
