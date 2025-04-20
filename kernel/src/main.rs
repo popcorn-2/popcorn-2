@@ -544,7 +544,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 		let stack_top = {
 			let config = mapping::Config::new_in(NonZero::new(4).unwrap(), AddressSpaceInner::to_api(address_space))
-					.virtual_location(Location::At(Page::new(VirtualAddress::new(0x7fff_ffff_b000))));
+					.virtual_location(Location::At(Page::new(VirtualAddress::new(0x40000000))));
 			// fixme
 			let stack = ManuallyDrop::new(Stack::new_in(config, u16::MAX).unwrap());
 			// address_space.add_mapping("[stack]", stack);
