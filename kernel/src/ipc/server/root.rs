@@ -5,7 +5,7 @@ use kernel_api::sync::Spinlock;
 use utils::better_cow::Cow;
 use crate::ipc::{Error, server};
 use crate::ipc::server::{Server, ServerId};
-use crate::ipc::userspace::UserspaceServer;
+use super::userspace::UserspaceServer;
 
 #[derive(Debug)]
 pub struct RootServer {

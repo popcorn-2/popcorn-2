@@ -8,8 +8,11 @@ use kernel_api::sync::{LazyLock, RwSpinlock};
 use utils::better_cow::Cow;
 use crate::ipc::Error;
 
-use super::root::RootServer;
-use super::userspace::UserspaceServer;
+mod root;
+mod userspace;
+
+use root::RootServer;
+use userspace::UserspaceServer;
 
 #[enum_dispatch(ServerTy)]
 pub trait Server {

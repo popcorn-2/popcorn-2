@@ -3,8 +3,6 @@
 pub mod server;
 pub mod handle;
 mod protocol;
-mod root;
-mod userspace;
 
 use utils::better_cow::Cow;
 use kernel_api::ptr::slice_from_raw_parts;
