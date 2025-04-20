@@ -9,13 +9,98 @@ use kernel_api::ptr::slice_from_raw_parts;
 use core::str::pattern::{Pattern, Searcher};
 use hashbrown::HashMap;
 use kernel_api::ptr::User;
-use kernel_api::sync::RwSpinlock;
+use kernel_api::sync::{LazyLock, RwSpinlock};
 use crate::ipc::handle::Handle;
-use crate::ipc::protocol::Method;
+use crate::ipc::protocol::{ArgPairTy, ArgTy, HandledMethod, Method};
 use server::Server as _;
 use crate::memory::r#virtual::AddressSpaceInner;
 
-static METHODS: RwSpinlock<HashMap<u128, Method>> = RwSpinlock::new(HashMap::with_hasher(hashbrown::hash_map::DefaultHashBuilder::new()));
+static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
+	let mut map = HashMap::new();
+
+	mod core {
+		pub mod io {
+			pub const WRITE: u128 = 0x2;
+			pub const READ: u128 = 0x3;
+			pub const SEEK: u128 = 0x4;
+
+			pub const WRITE_WRITE: u128 = 0;
+			pub const READ_READ: u128 = 0;
+			pub const SEEK_SEEK: u128 = 0;
+		}
+		pub mod proc {
+			pub const PROC: u128 = 0x5;
+			pub const THREAD: u128 = 0x6;
+
+			pub const PROC_EXIT: u128 = 0;
+			pub const PROC_DEBUG: u128 = 1<<96;
+			pub const PROC_ALLOC: u128 = 2<<96;
+			pub const PROC_DEALLOC: u128 = 3<<96;
+			pub const THREAD_SET_TCB: u128 = 0;
+		}
+	}
+
+	map.try_insert(
+		core::io::WRITE | core::io::WRITE_WRITE,
+		HandledMethod {
+			a: ArgTy::None,
+			b: ArgPairTy::Memory,
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+	map.try_insert(
+		core::io::READ | core::io::READ_READ,
+		HandledMethod {
+			a: ArgTy::None,
+			b: ArgPairTy::OutMemory,
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+	map.try_insert(
+		core::proc::PROC | core::proc::PROC_DEBUG,
+		HandledMethod {
+			a: ArgTy::None,
+			b: ArgPairTy::String,
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+	map.try_insert(
+		core::proc::PROC | core::proc::PROC_EXIT,
+		HandledMethod {
+			a: ArgTy::Value,
+			b: ArgPairTy::None,
+			ret: ArgTy::None,
+		}
+	).unwrap();
+	map.try_insert(
+		core::proc::PROC | core::proc::PROC_ALLOC,
+		HandledMethod {
+			a: ArgTy::Value,
+			b: ArgPairTy::None,
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+	map.try_insert(
+		core::proc::PROC | core::proc::PROC_DEALLOC,
+		HandledMethod {
+			a: ArgTy::Value,
+			b: ArgPairTy::None,
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+	map.try_insert(
+		core::proc::THREAD | core::proc::THREAD_SET_TCB,
+		HandledMethod {
+			a: ArgTy::Value,
+			b: ArgPairTy::None,
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+
+	debug!("{map:#x?}");
+
+	map
+});
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(i16)]
@@ -78,45 +163,47 @@ fn syscall(proto_method: u128, a: usize, b: usize, _c: usize, _d: usize) -> Resu
 			slice_from_raw_parts(endpoint_ptr, b)
 		};
 
-		open(ptr).and_then(|handle| {
+		let Ok(buf) = (unsafe { ptr.read_to_buffer() }) else { yeet!(Error::InvalidPointer); };
+
+		let path = match core::str::from_utf8(&buf) {
+			Ok(path) => path,
+			Err(e) => {
+				error!("{buf:#x?}\n{e:?}");
+				yeet!(Error::InvalidUtf8);
+			},
+		};
+		
+		open(path).and_then(|handle| {
 			let res = percpu_v2!(current_thread).read().as_ref()
 					.expect("must be running on a thread to syscall")
 					.tcb_ref().handles.push(handle);
 			res.map(|val| NonNegativeIsize::new(val.try_into().unwrap()).unwrap())
 		})
 	} else {
-		let Some(meta) = METHODS.read().get(&proto_method).map(|&x| x) else {
+		let Some(meta) = METHODS.get(&proto_method).map(|&x| x) else {
 			yeet!(Error::Unimplemented);
 		};
-		
+
 		let handle = percpu_v2!(current_thread).read().as_ref()
 		                                       .expect("must be running on a thread to syscall")
 		                                       .tcb_ref().handles.get(a.try_into().unwrap())?;
 
+		debug!("dispatch to {handle:x?}");
+		
 		todo!()
 	}
 }
 
-fn open(endpoint: User<*const [u8]>) -> Result<Handle, Error> {
-	let Ok(buf) = (unsafe { endpoint.read_to_buffer() }) else { yeet!(Error::InvalidPointer); };
-
-	let path = match core::str::from_utf8(&buf) {
-		Ok(path) => path,
-		Err(e) => {
-			error!("{buf:#x?}\n{e:?}");
-			yeet!(Error::InvalidUtf8);
-		},
-	};
-
+pub fn open(path: &str) -> Result<Handle, Error> {
 	let (domain, endpoint) = match <char as Pattern>::into_searcher(':', path).next_match() {
 		Some((begin, end)) => {
 			(path.get(..begin).unwrap(), path.get(end..).unwrap())
 		},
 		None => ("", path),
 	};
-	
+
 	let endpoint = endpoint.trim_start_matches('/')
-			.trim_end_matches('/');
+	                       .trim_end_matches('/');
 
 	let domain = domain.trim_end_matches('.');
 
@@ -124,5 +211,5 @@ fn open(endpoint: User<*const [u8]>) -> Result<Handle, Error> {
 
 	let (srv_id, srv) = server::servers().get_server(domain)?;
 	srv.open(Cow::Borrowed(endpoint)) // fixme: pass the Box here since the userspace thunk puts it back into a Box (and we want allocation reuse)
-			.map(|id| Handle::new(srv_id, id))
+	   .map(|id| Handle::new(srv_id, id))
 }

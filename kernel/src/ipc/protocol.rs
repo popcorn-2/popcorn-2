@@ -7,11 +7,12 @@ pub struct ProtocolId(u128);
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Debug)]
 pub struct MethodId(u32);
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+/*#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Method {
 	Static(StaticMethod),
 	Handled(HandledMethod),
-}
+}*/
+pub type Method = HandledMethod;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct StaticMethod {
@@ -24,16 +25,26 @@ pub struct StaticMethod {
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct HandledMethod {
-	arg_2: ArgTy,
-	arg_3: ArgTy,
-	arg_4: ArgTy,
-	ret: ArgTy,
+	pub a: ArgTy,
+	pub b: ArgPairTy,
+	pub ret: ArgTy,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum ArgTy {
 	Value,
+	Object,
 	None,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum ArgPairTy {
+	None,
+	Memory,
+	String,
+	OutMemory,
+	OutString,
+	Pair(ArgTy, ArgTy),
 }
 
 fn proto_method_to_parts(proto_method: u128) -> (ProtocolId, MethodId) {

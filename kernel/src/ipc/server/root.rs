@@ -25,7 +25,7 @@ impl Server for RootServer {
 		};
 
 		let new_server = UserspaceServer::new_current_thread().into();
-		let id = server::servers_mut().insert_server(Cow::Owned(endpoint.into_owned()), new_server)?; // fixme: silly allocation
+		let id = server::servers_mut().insert_server(Some(Cow::Owned(endpoint.into_owned())), new_server)?; // fixme: silly allocation
 		
 		self.handle_map.lock().try_insert(handle, id)
 				.expect("Handle reuse should not happen");
