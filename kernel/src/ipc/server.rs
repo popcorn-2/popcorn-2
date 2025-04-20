@@ -4,7 +4,8 @@ use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
 use enum_dispatch::enum_dispatch;
 use hashbrown::HashMap;
-use kernel_api::sync::{LazyLock, RwSpinlock};
+use kernel_api::sync::{LazyLock, OnceLock, RwSpinlock};
+use kernel_api::time::Instant;
 use utils::better_cow::Cow;
 use crate::ipc::Error;
 
@@ -33,7 +34,7 @@ pub enum ServerTy {
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Copy, Debug)]
-pub struct ServerId(usize);
+pub struct ServerId(usize, u64);
 
 impl ServerId {
 	const MAX: usize = u16::MAX as usize;
@@ -43,7 +44,7 @@ impl ServerId {
 		self.0 as u16
 	}
 	
-	pub fn new(val: u16) -> Self { Self(val.into()) }
+	pub fn new(val: u16) -> Self { Self(val.into(), Instant::now().get() as u64) } // assuming arch val is clock cycles, still takes >100 years to overflow generation number creating a new server every clock cycle at 5GHz
 }
 
 static SERVERS: LazyLock<RwSpinlock<ServerList>> = LazyLock::new(|| RwSpinlock::new(ServerList::new()));
