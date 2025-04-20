@@ -39,11 +39,11 @@ impl HandleMap {
 #[derive(Debug, Copy, Clone)]
 pub struct Handle {
 	server_id: ServerId,
-	internal_id: u16,
+	internal_id: usize,
 }
 
 impl Handle {
-	pub fn new(server_id: ServerId, internal_id: u16) -> Handle {
+	pub fn new(server_id: ServerId, internal_id: usize) -> Handle {
 		Handle { server_id, internal_id }
 	}
 	

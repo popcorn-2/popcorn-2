@@ -1,7 +1,7 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::sync::Arc;
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
 use enum_dispatch::enum_dispatch;
 use hashbrown::HashMap;
 use kernel_api::sync::{LazyLock, RwSpinlock};
@@ -10,13 +10,17 @@ use crate::ipc::Error;
 
 mod root;
 mod userspace;
+mod proc;
+mod console;
 
 use root::RootServer;
 use userspace::UserspaceServer;
+use proc::ProcServer;
+use console::ConsoleServer;
 
 #[enum_dispatch(ServerTy)]
 pub trait Server {
-	fn open(&self, endpoint: Cow<'_, Box<str>, str>) -> Result<u16, Error>;
+	fn open(&self, endpoint: Cow<'_, Box<str>, str>) -> Result<usize, Error>;
 }
 
 #[enum_dispatch]
@@ -24,6 +28,8 @@ pub trait Server {
 pub enum ServerTy {
 	RootServer,
 	UserspaceServer,
+	ProcServer,
+	ConsoleServer,
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Copy, Debug)]
@@ -47,7 +53,7 @@ pub(super) fn servers_mut() -> impl DerefMut<Target = ServerList> { SERVERS.writ
 
 #[derive(Debug)]
 pub struct ServerList {
-	next_id: AtomicUsize,
+	next_id: AtomicU16,
 
 	// TODO: namespacing
 	// fixme: privacy
@@ -58,7 +64,7 @@ pub struct ServerList {
 impl ServerList {
 	fn new() -> Self {
 		let mut list = Self {
-			next_id: AtomicUsize::new(1),
+			next_id: AtomicU16::new(1),
 			name_lookup: HashMap::new(),
 			server_map: HashMap::new(),
 		};
@@ -70,10 +76,10 @@ impl ServerList {
 	}
 	
 	pub(super) fn new_id(&self) -> Result<ServerId, Error> {
-		if self.next_id.load(Ordering::Relaxed) == ServerId::MAX { yeet!(Error::Overflow); }
+		if usize::from(self.next_id.load(Ordering::Relaxed)) == ServerId::MAX { yeet!(Error::Overflow); }
 
 		let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-		Ok(ServerId(id))
+		Ok(ServerId::new(id))
 	}
 
 	pub(super) fn insert_server(&mut self, name: Cow<'static, Box<str>, str>, server: ServerTy) -> Result<ServerId, Error> {
