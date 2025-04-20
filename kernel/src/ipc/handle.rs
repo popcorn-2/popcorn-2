@@ -1,7 +1,23 @@
+use hashbrown::HashMap;
+use kernel_api::sync::Spinlock;
 #[allow(unused_imports)] use crate::prelude::*;
 use crate::ipc::{Error, NonNegativeIsize};
 use crate::ipc::server::ServerId;
 
+#[derive(Debug)]
+pub struct HandleMap {
+	map: Spinlock<HashMap<u32, Handle>>,
+}
+
+impl HandleMap {
+	pub fn new() -> Self {
+		Self {
+			map: Spinlock::new(HashMap::new()),
+		}
+	}
+}
+
+#[derive(Debug)]
 pub struct Handle {
 	server_id: ServerId,
 	internal_id: u16,

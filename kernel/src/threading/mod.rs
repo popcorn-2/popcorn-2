@@ -38,6 +38,7 @@
 
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
+use alloc::sync::Arc;
 use core::arch::{asm, naked_asm};
 use core::fmt::Debug;
 use core::num::NonZero;
@@ -68,6 +69,7 @@ pub use thread_control_block::{ThreadState, ThreadControlBlock, PointerView, Own
 pub use yielding::{yield_now, yield_defer, create_idle_thread};
 use crate::hal::paging2::TTable;
 use crate::hal::TTableTy;
+use crate::ipc::handle::HandleMap;
 use crate::memory::r#virtual::AddressSpaceInner;
 
 pub type SchedulerTy = impl Scheduler;
@@ -165,6 +167,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		unsafe { Stack::from_contiguous_raw_parts(stack_frames, stack_pages) },
 		ThreadState::Running,
 		INIT_THREAD_ID,
+		Arc::new(HandleMap::new()),
 	);
 	crate::hal::first_thread_init(&tcb);
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));

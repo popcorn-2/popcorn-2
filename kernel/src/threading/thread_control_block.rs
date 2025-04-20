@@ -9,6 +9,7 @@ use kernel_api::memory::r#virtual::Kernel;
 use crate::hal::{self, SaveState, TTableTy};
 use super::{parking::ParkGaurd, ThreadId, WakeReason};
 use crate::hal::SaveStateTr;
+use crate::ipc::handle::HandleMap;
 use crate::memory::r#virtual::AddressSpaceInner;
 
 #[doc(hidden)]
@@ -120,6 +121,8 @@ tcb_views! {
 		#mut(Pointer) state: ThreadState,
 		/// The numerical ID of the thread
 		thread_id: ThreadId,
+		//// The currently open handles
+		handles: Arc<HandleMap>,
 	}
 }
 
@@ -170,6 +173,7 @@ impl ThreadControlBlock {
 			new_stack,
 			ThreadState::Ready,
 			id,
+			Arc::new(HandleMap::new()),
 		);
 		new_thread.save_state = UnsafeCell::new(SaveState::new(&mut new_thread, startup, main, arg));
 
