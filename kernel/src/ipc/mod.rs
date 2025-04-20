@@ -78,13 +78,20 @@ fn syscall(proto_method: u128, a: usize, b: usize, _c: usize, _d: usize) -> Resu
 			slice_from_raw_parts(endpoint_ptr, b)
 		};
 
-		open(ptr).map(|handle| handle.to_arg())
+		open(ptr).and_then(|handle| {
+			let res = percpu_v2!(current_thread).read().as_ref()
+					.expect("must be running on a thread to syscall")
+					.tcb_ref().handles.push(handle);
+			res.map(|val| NonNegativeIsize::new(val.try_into().unwrap()).unwrap())
+		})
 	} else {
-		let _handle = Handle::from_arg(a);
-		
-		let Some(_meta) = METHODS.read().get(&proto_method).map(|&x| x) else {
+		let Some(meta) = METHODS.read().get(&proto_method).map(|&x| x) else {
 			yeet!(Error::Unimplemented);
 		};
+		
+		let handle = percpu_v2!(current_thread).read().as_ref()
+		                                       .expect("must be running on a thread to syscall")
+		                                       .tcb_ref().handles.get(a.try_into().unwrap())?;
 
 		todo!()
 	}
