@@ -6,7 +6,7 @@ mod protocol;
 
 use utils::better_cow::Cow;
 use kernel_api::ptr::slice_from_raw_parts;
-use core::str::pattern::{Pattern, Searcher};
+use ::core::str::pattern::{Pattern, Searcher};
 use hashbrown::HashMap;
 use kernel_api::ptr::User;
 use kernel_api::sync::{LazyLock, RwSpinlock};
@@ -15,36 +15,36 @@ use crate::ipc::protocol::{ArgPairTy, ArgTy, HandledMethod, Method};
 use server::Server as _;
 use crate::memory::r#virtual::AddressSpaceInner;
 
+mod core {
+	pub mod io {
+		pub const WRITE: u128 = 0x2;
+		pub const READ: u128 = 0x3;
+		pub const SEEK: u128 = 0x4;
+
+		pub const WRITE_WRITE: u128 = 0;
+		pub const READ_READ: u128 = 0;
+		pub const SEEK_SEEK: u128 = 0;
+	}
+	pub mod proc {
+		pub const PROC: u128 = 0x5;
+		pub const THREAD: u128 = 0x6;
+
+		pub const PROC_EXIT: u128 = 0;
+		pub const PROC_DEBUG: u128 = 1<<96;
+		pub const PROC_ALLOC: u128 = 2<<96;
+		pub const PROC_DEALLOC: u128 = 3<<96;
+		pub const THREAD_SET_TCB: u128 = 0;
+	}
+}
+
 static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 	let mut map = HashMap::new();
-
-	mod core {
-		pub mod io {
-			pub const WRITE: u128 = 0x2;
-			pub const READ: u128 = 0x3;
-			pub const SEEK: u128 = 0x4;
-
-			pub const WRITE_WRITE: u128 = 0;
-			pub const READ_READ: u128 = 0;
-			pub const SEEK_SEEK: u128 = 0;
-		}
-		pub mod proc {
-			pub const PROC: u128 = 0x5;
-			pub const THREAD: u128 = 0x6;
-
-			pub const PROC_EXIT: u128 = 0;
-			pub const PROC_DEBUG: u128 = 1<<96;
-			pub const PROC_ALLOC: u128 = 2<<96;
-			pub const PROC_DEALLOC: u128 = 3<<96;
-			pub const THREAD_SET_TCB: u128 = 0;
-		}
-	}
 
 	map.try_insert(
 		core::io::WRITE | core::io::WRITE_WRITE,
 		HandledMethod {
 			a: ArgTy::None,
-			b: ArgPairTy::Memory,
+			b: ArgPairTy::String, // todo
 			ret: ArgTy::Value,
 		}
 	).unwrap();
@@ -165,7 +165,7 @@ fn syscall(proto_method: u128, a: usize, b: usize, _c: usize, _d: usize) -> Resu
 
 		let Ok(buf) = (unsafe { ptr.read_to_buffer() }) else { yeet!(Error::InvalidPointer); };
 
-		let path = match core::str::from_utf8(&buf) {
+		let path = match ::core::str::from_utf8(&buf) {
 			Ok(path) => path,
 			Err(e) => {
 				error!("{buf:#x?}\n{e:?}");
