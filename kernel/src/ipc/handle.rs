@@ -53,4 +53,7 @@ impl Handle {
 	pub fn new(server_id: ServerId, internal_id: usize) -> Handle {
 		Handle { server_id, internal_id }
 	}
+
+	pub fn server_id(&self) -> ServerId { self.server_id }
+	pub fn internal_id(&self) -> usize { self.internal_id }
 }
