@@ -132,7 +132,7 @@ pub mod entry {
 
 use entry::Entry;
 use kernel_api::sync::OnceLock;
-use crate::hal::arch::amd64::Amd64Hal;
+use crate::hal::arch::amd64::{Amd64Hal, msr};
 use crate::hal::arch::amd64::interrupts::entry::Type;
 use crate::hal::exception::{DebugTy, Exception, ExceptionRegisters, PageFault, Ty};
 use crate::hal::interrupts_v2::Vector;
@@ -254,8 +254,9 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 		return;
 	}
 	
-	let (fs_low, fs_high): (u32, u32);
-	unsafe { asm!("rdmsr", out("edx") fs_high, out("eax") fs_low, in("ecx") 0xc0000100u32); }
+	let fs = msr::rdmsr(msr::FS_BASE);
+	let gs = msr::rdmsr(msr::KERNEL_GS_BASE);
+	let gs_kernel = msr::rdmsr(msr::GS_BASE); // because they were swapped by swapgs
 
 	let mut reg_dump = Amd64RegisterDump {
 		stack_frame: data,
@@ -265,9 +266,9 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 		r13: u64::MAX,
 		r14: u64::MAX,
 		r15: u64::MAX,
-		fs: u64::from(fs_high) << 32 | u64::from(fs_low),
-		gs: u64::MAX,
-		gs_kernel: u64::MAX,
+		fs,
+		gs,
+		gs_kernel,
 	};
 	
 	let user_mode = reg_dump.stack_frame.cs > 0x10;
