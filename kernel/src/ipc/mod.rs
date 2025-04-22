@@ -145,14 +145,12 @@ pub extern "C" fn syscall_entry(proto_method: u128, a: usize, b: usize, c: usize
 	}
 }
 
-fn syscall(proto_method: u128, a: usize, b: usize, _c: usize, _d: usize) -> Result<NonNegativeIsize, Error> {
-	if proto_method == 0 /* open@core.socket */ {
+fn syscall(proto_method: u128, a: usize, b: usize, c: usize, d: usize) -> Result<NonNegativeIsize, Error> {
+	if proto_method == 0 /* open@core.server.ctl */ {
 		// For now, we special case `open` as the only static function (not taking a `Handle`, and
 		// thus requiring extra knowledge by the kernel to know where to dispatch it)
-		// In future, when static methods are fully supported this will be modified to become
-		// more generic
 
-		let ptr = {
+		let endpoint_ptr = {
 			let endpoint_ptr = User::<*const u8>::new_in(
 				a as _,
 				AddressSpaceInner::to_api(
@@ -162,8 +160,18 @@ fn syscall(proto_method: u128, a: usize, b: usize, _c: usize, _d: usize) -> Resu
 			);
 			slice_from_raw_parts(endpoint_ptr, b)
 		};
+		let proto_ptr = {
+			let proto_ptr = User::<*const u128>::new_in(
+				c as _,
+				AddressSpaceInner::to_api(
+					percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
+					                          .tcb_ref().address_space
+				),
+			);
+			slice_from_raw_parts(proto_ptr, d)
+		};
 
-		let Ok(buf) = (unsafe { ptr.read_to_buffer() }) else { yeet!(Error::InvalidPointer); };
+		let Ok(buf) = (unsafe { endpoint_ptr.read_to_buffer() }) else { yeet!(Error::InvalidPointer); };
 
 		let path = match ::core::str::from_utf8(&buf) {
 			Ok(path) => path,
