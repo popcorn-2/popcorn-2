@@ -7,7 +7,7 @@ use hashbrown::HashMap;
 use kernel_api::sync::{LazyLock, OnceLock, RwSpinlock};
 use kernel_api::time::Instant;
 use utils::better_cow::Cow;
-use crate::ipc::Error;
+use crate::ipc::{Error, NonNegativeIsize};
 
 mod root;
 mod userspace;
@@ -22,6 +22,11 @@ use console::ConsoleServer;
 #[enum_dispatch(ServerTy)]
 pub trait Server {
 	fn open(&self, endpoint: Cow<'_, Box<str>, str>) -> Result<usize, Error>;
+	fn dispatch_vvv_ve(&self, proto_method: u128, fd: usize, b: usize, c: usize, d: usize) -> Result<NonNegativeIsize, Error> { Err(Error::Unimplemented) }
+	fn dispatch_vm_ve(&self, proto_method: u128, fd: usize, b: usize, m: Box<[u8]>) -> Result<NonNegativeIsize, Error> { Err(Error::Unimplemented) }
+	fn dispatch_vs_ve(&self, proto_method: u128, fd: usize, b: usize, s: String) -> Result<NonNegativeIsize, Error> { Err(Error::Unimplemented) }
+	fn dispatch_vM_ve(&self, proto_method: u128, fd: usize, b: usize, size: usize) -> Result<(Box<[u8]>, NonNegativeIsize), Error> { Err(Error::Unimplemented) }
+	fn dispatch_vS_ve(&self, proto_method: u128, fd: usize, b: usize, size: usize) -> Result<(String, NonNegativeIsize), Error> { Err(Error::Unimplemented) }
 }
 
 #[enum_dispatch]
