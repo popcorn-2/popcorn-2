@@ -361,10 +361,15 @@ pub unsafe extern "C-unwind" fn amd64_syscall_handler() {
 		"swapgs",
 		
 		"mov rbx, rsp", // save userspace stack pointer
-		"mov r12, rcx", // save rcx (for sysret)
-		"mov r13, r11", // save r11 (for sysret)
+		"mov rsp, gs:[{rsp0_offset}]", // load kernel stack from [TLS - 8]
 		
-		"mov rsp, gs:[{rsp0_offset}]", // load kernel stack from [TLS - 8] - see hal::switch_thread for notes
+		"push r8",
+		"push r9",
+		"push r10",
+		"push rcx",
+		"push r11",
+		"sub rsp, 8", // alignment
+		
 		"sti", // can take interrupts now that stack is sorted
 			   // todo: fix for NMI stuff
 		
@@ -378,11 +383,16 @@ pub unsafe extern "C-unwind" fn amd64_syscall_handler() {
 		
 		"call {}", // extern C function so return val already in rax
 		
-		"cli",
-		"mov r11, r13", // restore registers to userspace state
-		"mov rcx, r12",
-		"mov rsp, rbx",
+		"add rsp, 8",
+		"pop r11",
+		"pop rcx",
+		"pop r10",
+		"pop r9",
+		"pop r8",
 		
+		"cli",
+		
+		"mov rsp, rbx",
 		"swapgs",
 		"sysretq",
 		sym crate::syscall_handler,
