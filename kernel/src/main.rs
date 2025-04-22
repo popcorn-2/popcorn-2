@@ -550,8 +550,24 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 					.virtual_location(Location::At(Page::new(VirtualAddress::new(0x40000000))));
 			// fixme
 			let stack = ManuallyDrop::new(Stack::new_in(config, u16::MAX).unwrap());
-			// address_space.add_mapping("[stack]", stack);
-			stack.virtual_end().start()
+
+			debug!("[stack] {:#x}->{:#x}",
+				stack.virtual_start().as_ptr().addr(),
+				stack.virtual_end().as_ptr().addr(),
+			);
+
+			let ptr = stack.virtual_end().start().as_ptr().cast::<u64>();
+			unsafe {
+				core::arch::asm!("stac");
+				ptr.offset(-1).write(0); // argc
+				ptr.offset(-2).write(0); // argv terminator
+				ptr.offset(-3).write(0); // env terminator
+				ptr.offset(-4).write(0); // once more for 16 byte alignment
+				core::arch::asm!("clac");
+
+				// address_space.add_mapping("[stack]", stack);
+				VirtualAddress::from(ptr.offset(-4))
+			}
 		};
 
 		let file = elf::File::try_new(&init_data).unwrap();
@@ -597,15 +613,15 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	drop(init_data);
 	{
 		debug!("opening init stdin/out/err/thread as handles 0..=3");
-		
+
 		let _ = ipc::server::servers(); // force it to init builtin servers (root + proc)
-		
+
 		let guard = percpu_v2!(current_thread).read();
 		let thread = guard.as_ref().unwrap().tcb_ref();
-		
+
 		let stdio_handle = ipc::open("console:/").expect("unable to open console");
 		let thread_handle = Handle::new(ipc::server::proc_server(), thread.thread_id.get());
-		
+
 		thread.handles.openat(0, stdio_handle)
 				.expect("unable to open fd 0");
 		thread.handles.openat(1, stdio_handle)
@@ -616,7 +632,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 				.expect("unable to open fd 3");
 	}
 
-	hal::switch_to_userspace_at(entrypoint, stack.align_down());
+	hal::switch_to_userspace_at(entrypoint, stack);
 }
 
 #[cfg(not(test))]
