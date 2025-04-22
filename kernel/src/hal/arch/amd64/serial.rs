@@ -139,6 +139,7 @@ impl SerialPort {
 impl Write for SerialPort {
 	fn write_str(&mut self, s: &str) -> fmt::Result {
 		for data in s.as_bytes() {
+			if *data == ('\n' as u8) { self.send('\r' as u8); }
 			self.send(*data);
 		}
 		Ok(())
