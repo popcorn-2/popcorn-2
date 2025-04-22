@@ -5,7 +5,7 @@ pub mod handle;
 mod protocol;
 
 use utils::better_cow::Cow;
-use kernel_api::ptr::slice_from_raw_parts;
+use kernel_api::ptr::{slice_from_raw_parts, slice_from_raw_parts_mut};
 use ::core::str::pattern::{Pattern, Searcher};
 use hashbrown::HashMap;
 use kernel_api::ptr::User;
@@ -190,7 +190,87 @@ fn syscall(proto_method: u128, a: usize, b: usize, _c: usize, _d: usize) -> Resu
 
 		debug!("dispatch to {handle:x?}");
 		
-		todo!()
+		let servers = server::servers();
+		let srv = servers.get_server(handle.server_id())?;
+		
+		match (meta.a, meta.b, meta.ret) {
+			(ArgTy::Value | ArgTy::None, ArgPairTy::Pair(ArgTy::Value | ArgTy::None, ArgTy::Value | ArgTy::None) | ArgPairTy::None, ArgTy::Value | ArgTy::None) => {
+				srv.dispatch_vvv_ve(
+					proto_method,
+					handle.internal_id(),
+					b, c, d
+				)
+			}
+			(ArgTy::Value | ArgTy::None, ArgPairTy::String, ArgTy::Value | ArgTy::None) => {
+				let s = {
+					let arg_ptr = User::<*const u8>::new_in(
+						c as _,
+						AddressSpaceInner::to_api(
+							percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
+							                          .tcb_ref().address_space
+						),
+					);
+					let arg_ptr = slice_from_raw_parts(arg_ptr, d);
+
+					let Ok(buf) = (unsafe { arg_ptr.read_to_buffer() }) else { yeet!(Error::InvalidPointer); };
+
+					match String::from_utf8(buf.to_vec()) {
+						Ok(path) => path,
+						Err(e) => {
+							error!("{buf:#x?}\n{e:?}");
+							yeet!(Error::InvalidUtf8);
+						},
+					}
+				};
+
+				srv.dispatch_vs_ve(
+					proto_method,
+					handle.internal_id(),
+					b, s
+				)
+			}
+			(ArgTy::Value | ArgTy::None, ArgPairTy::Memory, ArgTy::Value | ArgTy::None) => {
+				let m = {
+					let arg_ptr = User::<*const u8>::new_in(
+						c as _,
+						AddressSpaceInner::to_api(
+							percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
+							                          .tcb_ref().address_space
+						),
+					);
+					let arg_ptr = slice_from_raw_parts(arg_ptr, d);
+
+					let Ok(buf) = (unsafe { arg_ptr.read_to_buffer() }) else { yeet!(Error::InvalidPointer); };
+
+					buf
+				};
+				srv.dispatch_vm_ve(
+					proto_method,
+					handle.internal_id(),
+					b, m
+				)
+			}
+			(ArgTy::Value | ArgTy::None, ArgPairTy::OutMemory, ArgTy::Value | ArgTy::None) => {
+				let (out, res) = srv.dispatch_vM_ve(
+					proto_method,
+					handle.internal_id(),
+					b, d
+				)?;
+
+				let arg_ptr = User::<*mut u8>::new_in(
+					c as _,
+					AddressSpaceInner::to_api(
+						percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
+						                          .tcb_ref().address_space
+					),
+				);
+				let arg_ptr = slice_from_raw_parts_mut(arg_ptr, d);
+
+				arg_ptr.write_from_buffer(&out).map_err(|_| Error::InvalidPointer)?;
+				Ok(res)
+			}
+			_ => { todo!() }
+		}
 	}
 }
 
@@ -209,7 +289,8 @@ pub fn open(path: &str) -> Result<Handle, Error> {
 
 	info!("Open `{domain}:{endpoint}`");
 
-	let (srv_id, srv) = server::servers().get_server(domain)?;
+	let (srv_id, srv) = server::servers().get_server_at(domain)?;
+	debug!("Open `{srv_id:?}:{endpoint}`");
 	srv.open(Cow::Borrowed(endpoint)) // fixme: pass the Box here since the userspace thunk puts it back into a Box (and we want allocation reuse)
 	   .map(|id| Handle::new(srv_id, id))
 }

@@ -113,11 +113,18 @@ impl ServerList {
 		Ok(id)
 	}
 
-	pub fn get_server(&self, name: &str) -> Result<(ServerId, Arc<ServerTy>), Error> {
+	pub fn get_server_at(&self, name: &str) -> Result<(ServerId, Arc<ServerTy>), Error> {
 		let id = self.name_lookup.get(name)
 				.ok_or(Error::BadServer)?;
-		let srv = self.server_map.get(id)
-			.ok_or(Error::BadServer)?;
-		Ok((*id, srv.clone()))
+		match self.get_server(*id) {
+			Ok(srv) => Ok((*id, srv)),
+			Err(err) => Err(err),
+		}
+	}
+
+	pub fn get_server(&self, id: ServerId) -> Result<Arc<ServerTy>, Error> {
+		let srv = self.server_map.get(&id)
+		              .ok_or(Error::BadServer)?;
+		Ok(Arc::clone(srv))
 	}
 }
