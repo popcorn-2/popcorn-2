@@ -36,6 +36,7 @@
 #![feature(macro_metavar_expr_concat)]
 #![feature(linkage)]
 #![feature(once_cell_try_insert)]
+#![feature(unsigned_nonzero_div_ceil)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
