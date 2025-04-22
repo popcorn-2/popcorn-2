@@ -1,8 +1,11 @@
-use core::sync::atomic::{AtomicBool, Ordering};
+use ::core::sync::atomic::{AtomicBool, Ordering};
+use kernel_api::dbg;
 #[allow(unused_imports)] use crate::prelude::*;
 use utils::better_cow::Cow;
-use crate::ipc::Error;
+use crate::hal::FormatWriter;
+use crate::ipc::{Error, NonNegativeIsize};
 use crate::ipc::server::Server;
+use super::super::core;
 
 /// IO server for the kernel debug console
 /// 
@@ -23,6 +26,33 @@ impl Server for ConsoleServer {
 			if res.is_ok() { Ok(1) }
 			else { Err(Error::NameInUse) }
 		} else { Err(Error::InvalidArg) }
+	}
+
+	fn dispatch_vs_ve(&self, proto_method: u128, fd: usize, b: usize, s: String) -> Result<NonNegativeIsize, Error> {
+		if fd != 1 { return Err(Error::Unimplemented); }
+		
+		match proto_method {
+			const { core::io::WRITE | core::io::WRITE_WRITE } => {
+				sprint!("{s}");
+				Ok(NonNegativeIsize::new(s.len() as isize).unwrap())
+			}
+			_ => unimplemented!()
+		}
+	}
+
+	fn dispatch_vM_ve(&self, proto_method: u128, fd: usize, b: usize, size: usize) -> Result<(Box<[u8]>, NonNegativeIsize), Error> {
+		if fd != 1 { return Err(Error::Unimplemented); }
+
+		match proto_method {
+			const { core::io::READ | core::io::READ_READ } => {
+				let mut buf = Box::new_uninit_slice(size);
+				for i in 0..size {
+					buf[i].write(crate::hal::SerialOut::read());
+				}
+				dbg!(Ok((unsafe { buf.assume_init() }, NonNegativeIsize::new(size as isize).unwrap())))
+			}
+			_ => unimplemented!()
+		}
 	}
 }
 
