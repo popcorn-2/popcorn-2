@@ -61,6 +61,7 @@ pub enum IpiTarget {
 
 pub trait FormatWriter {
 	fn print(fmt: core::fmt::Arguments);
+	fn read() -> u8;
 }
 
 pub trait InterruptTable {

@@ -165,6 +165,10 @@ impl crate::hal::FormatWriter for HalWriter {
 	fn print(args: Arguments) {
 		SERIAL0.lock().write_fmt(args).unwrap();
 	}
+
+	fn read() -> u8 {
+		SERIAL0.lock().receive()
+	}
 }
 
 #[export_name = "__popcorn_force_unsafe_serial"]
