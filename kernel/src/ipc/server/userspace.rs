@@ -18,7 +18,7 @@ impl UserspaceServer {
 	pub(crate) fn new_current_thread() -> Self {
 		Self {
 			pending_queue: SegQueue::new(),
-			pid: threading::current_thread().expect("Cannot be caled while idling"),
+			pid: threading::current_thread().expect("Cannot be called while idling"),
 			processed_queue: (),
 		}
 	}
