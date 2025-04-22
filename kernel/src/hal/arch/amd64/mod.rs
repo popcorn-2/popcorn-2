@@ -64,7 +64,7 @@ unsafe impl Hal for Amd64Hal {
 
 		msr::wrmsr(
 			msr::STAR,
-			((24 | 0b11) << 48) | (8 << 48),
+			((24 | 0b11) << 48) | (8 << 32),
 		);
 		msr::wrmsr(
 			msr::LSTAR,
