@@ -183,12 +183,11 @@ macro_rules! assert_unsafe_precondition {
 #[inline]
 extern "C" fn syscall_handler(num_low: u64, num_high: u64, a: usize, b: usize, c: usize, d: usize) -> isize {
 	debug!("syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x})");
-	
+
 	return ipc::syscall_entry(
 		(num_high as u128) << 64 | (num_low as u128),
 		a, b, c, d
 	);
-
 }
 
 #[inline]
@@ -211,6 +210,8 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 				backtrace();
 				loop {}
 			} else {
+				error!("Userspace exception occurred at {:#x}:\n{ty}", at);
+				debug!("{:#x?}", exception.registers);
 				todo!()
 			}
 		},
@@ -248,6 +249,8 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 
 				loop {}
 			} else {
+				error!("Userspace page fault occurred at {:#x}:\n{ty}", at);
+				debug!("{:#x?}", exception.registers);
 				todo!()
 			}
 		}
