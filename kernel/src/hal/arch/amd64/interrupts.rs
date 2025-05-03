@@ -358,43 +358,78 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 #[naked]
 pub unsafe extern "C-unwind" fn amd64_syscall_handler() {
 	naked_asm!(
+		".cfi_startproc simple",
+		".cfi_register rip, rcx",
+
 		"swapgs",
 		
 		"mov rbx, rsp", // save userspace stack pointer
+		".cfi_register rsp, rbx",
 		"mov rsp, gs:[{rsp0_offset}]", // load kernel stack from [TLS - 8]
-		
+		".cfi_def_cfa rsp, 0",
+
 		"push r8",
+		".cfi_def_cfa_offset 8",
+        ".cfi_offset r8, -8",
 		"push r9",
+		".cfi_def_cfa_offset 16",
+        ".cfi_offset r9, -16",
 		"push r10",
+		".cfi_def_cfa_offset 24",
+        ".cfi_offset r10, -24",
 		"push rcx",
+		".cfi_def_cfa_offset 32",
+        ".cfi_offset rcx, -32",
+        ".cfi_offset rip, -32", // fixme: unwinder bug - dependencies not properly evaluated
 		"push r11",
-		"sub rsp, 8", // alignment
-		
+		".cfi_def_cfa_offset 40",
+        ".cfi_offset r11, -40",
+		"push rcx", // pass syscall address on stack as extra parameter
+		".cfi_def_cfa_offset 48",
+
 		"sti", // can take interrupts now that stack is sorted
 			   // todo: fix for NMI stuff
 		
 		"mov r9, rdx",
+		".cfi_register rdx, r9",
 		"mov rcx, rdi",
+		".cfi_register rdi, rcx",
 		"mov r8, rsi",
+		".cfi_register rsi, r8",
 		"movq rdi, xmm0",
 		"punpckhqdq xmm0, xmm0", // broadcast the high half of xmm0 to both halves
 		"movq rsi, xmm0",
 		"mov rdx, rax",
+		".cfi_register rax, rdx",
 		
 		"call {}", // extern C function so return val already in rax
 		
 		"add rsp, 8",
+		".cfi_def_cfa_offset 40",
 		"pop r11",
+		".cfi_def_cfa_offset 32",
+		".cfi_same_value r11",
 		"pop rcx",
+		".cfi_def_cfa_offset 24",
+		".cfi_same_value rcx",
 		"pop r10",
+		".cfi_def_cfa_offset 16",
+		".cfi_same_value r10",
 		"pop r9",
+		".cfi_def_cfa_offset 8",
+		".cfi_same_value r9",
 		"pop r8",
+		".cfi_def_cfa_offset 0",
+		".cfi_same_value r8",
 		
 		"cli",
 		
 		"mov rsp, rbx",
+		".cfi_register rbx, rsp",
+		
 		"swapgs",
 		"sysretq",
+		".cfi_endproc",
 		sym crate::syscall_handler,
 		rsp0_offset = const core::mem::offset_of!(crate::percpu::Percpu, kernel_stack_top),
 	);
