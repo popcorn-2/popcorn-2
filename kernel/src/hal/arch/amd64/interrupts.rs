@@ -355,7 +355,7 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 	crate::exception_handler(&mut exception_payload);
 }
 
-#[naked]
+#[unsafe(naked)]
 pub unsafe extern "C-unwind" fn amd64_syscall_handler() {
 	naked_asm!(
 		".cfi_startproc simple",
@@ -441,7 +441,7 @@ mod handlers {
 	macro_rules! irq_handler {
 	    ($num:literal error) => {
 		    ::paste::paste! {
-			    #[naked]
+			    #[unsafe(naked)]
 			    #[allow(dead_code)]
 		        pub(super) unsafe extern "C-unwind" fn [<amd64_irq_handler_ $num>]() {
 					::core::arch::naked_asm!(
@@ -453,7 +453,7 @@ mod handlers {
 	
 	    ($num:literal) => {
 		    ::paste::paste! {
-			    #[naked]
+			    #[unsafe(naked)]
 			    #[allow(dead_code)]
 		        pub(super) unsafe extern "C-unwind" fn [<amd64_irq_handler_ $num>]() {
 					::core::arch::naked_asm!(

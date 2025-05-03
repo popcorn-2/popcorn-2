@@ -111,7 +111,7 @@ macro _irq_program_inner {
 }
 
 pub macro irq_program($({$opcode:ident $($arg1:tt $(<- $arg2:tt $(, $arg3:literal)?)?)?})*) {{
-	#[naked]
+	#[unsafe(naked)]
 	unsafe extern "C" fn irq_program() {
 		::core::arch::asm!("pop rsi", $(_irq_program_inner!($opcode $($arg1 $(<- $arg2 $(, $arg3)?)?)?)),*, "push rsi", "ret", options(noreturn))
 	}

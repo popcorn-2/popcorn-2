@@ -130,7 +130,7 @@ unsafe impl Hal for Amd64Hal {
 		
 		return inner(from.save_state, to.save_state, preserve);
 
-		#[naked] // todo: convert to normal inline asm
+		#[unsafe(naked)] // todo: convert to normal inline asm
 		unsafe extern "C" fn inner(from: &mut Amd64SaveState, to: &Amd64SaveState, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
 			// rdi: from
 			// rsi: to

@@ -32,7 +32,7 @@ impl Server for ConsoleServer {
 		if fd != 1 { return Err(Error::Unimplemented); }
 		
 		match proto_method {
-			const { core::io::WRITE | core::io::WRITE_WRITE } => {
+			m if m == const { core::io::WRITE | core::io::WRITE_WRITE } => {
 				sprint!("{s}");
 				Ok(NonNegativeIsize::new(s.len() as isize).unwrap())
 			}
@@ -44,7 +44,7 @@ impl Server for ConsoleServer {
 		if fd != 1 { return Err(Error::Unimplemented); }
 
 		match proto_method {
-			const { core::io::READ | core::io::READ_READ } => {
+			m if m == const { core::io::READ | core::io::READ_READ } => {
 				let mut buf = Box::new_uninit_slice(size);
 				for i in 0..size {
 					buf[i].write(crate::hal::SerialOut::read());

@@ -289,7 +289,7 @@ pub fn exit(_exit_code: i8) -> ! {
 	unreachable!("Failed to exit thread");
 }
 
-#[naked]
+#[unsafe(naked)]
 pub unsafe extern "C" fn thread_startup() {
 	naked_asm!(
 		".cfi_startproc simple",

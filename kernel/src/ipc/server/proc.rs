@@ -25,14 +25,15 @@ impl Server for ProcServer {
 		if fd != percpu_v2!(current_thread).read().as_ref().unwrap().tcb_ref().thread_id.get() { return Err(Error::Unimplemented); }
 		
 		match proto_method {
-			const { core::proc::THREAD | core::proc::THREAD_SET_TCB } => {
+			m if m == const { core::proc::THREAD | core::proc::THREAD_SET_TCB } => {
 				unsafe { crate::hal::load_user_tls(b as _); }
 				return Ok(NonNegativeIsize::new(0).unwrap());
 			}
-			const { core::proc::PROC | core::proc::PROC_EXIT } => {
+			m if m == const { core::proc::PROC | core::proc::PROC_EXIT } => {
+				crate::panicking::stack_trace();
 				crate::threading::exit(b as i8);
 			}
-			const { core::proc::PROC | core::proc::PROC_ALLOC } => {
+			m if m == const { core::proc::PROC | core::proc::PROC_ALLOC } => {
 				let Some(len) = NonZero::new(b) else { return Ok(NonNegativeIsize::new(0).unwrap()); };
 				let len = len.div_ceil(NonZero::new(4096).unwrap());
 
@@ -49,14 +50,14 @@ impl Server for ProcServer {
 
 				Ok(NonNegativeIsize::new(ret).unwrap())
 			}
-			const { core::proc::PROC | core::proc::PROC_DEALLOC } => { Ok(NonNegativeIsize::new(0).unwrap()) }
+			m if m == const { core::proc::PROC | core::proc::PROC_DEALLOC } => { Ok(NonNegativeIsize::new(0).unwrap()) }
 			_ => unimplemented!()
 		}
 	}
 
 	fn dispatch_vs_ve(&self, proto_method: u128, fd: usize, b: usize, s: String) -> Result<NonNegativeIsize, Error> {
 		match proto_method {
-			const { core::proc::PROC | core::proc::PROC_DEBUG } => {
+			m if m == const { core::proc::PROC | core::proc::PROC_DEBUG } => {
 				info!("log(ThreadId({fd})) - `{s}`");
 				Ok(NonNegativeIsize::new(0).unwrap())
 			}

@@ -182,8 +182,8 @@ macro_rules! assert_unsafe_precondition {
 }
 
 #[inline]
-extern "C" fn syscall_handler(num_low: u64, num_high: u64, a: usize, b: usize, c: usize, d: usize) -> isize {
-	debug!("syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x})");
+extern "C" fn syscall_handler(num_low: u64, num_high: u64, a: usize, b: usize, c: usize, d: usize, ip: usize) -> isize {
+	debug!("syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x}) @ {ip:#x}");
 
 	return ipc::syscall_entry(
 		(num_high as u128) << 64 | (num_low as u128),
