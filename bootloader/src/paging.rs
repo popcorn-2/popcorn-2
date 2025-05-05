@@ -262,7 +262,7 @@ impl TableEntry {
 	}
 
 	fn set_pointed_frame_unchecked(&mut self, frame: Frame, flags: TableEntryFlags) {
-		self.0 &= !0x000f_ffff_ffff_f000;
+		self.0 = 0;
 		self.0 |= frame.0 & 0x000f_ffff_ffff_f000;
 		self.0 |= (flags | TableEntryFlags::PRESENT).bits();
 	}
