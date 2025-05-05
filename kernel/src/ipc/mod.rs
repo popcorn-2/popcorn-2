@@ -146,7 +146,7 @@ pub extern "C" fn syscall_entry(proto_method: u128, a: usize, b: usize, c: usize
 }
 
 fn syscall(proto_method: u128, a: usize, b: usize, c: usize, d: usize) -> Result<NonNegativeIsize, Error> {
-	if proto_method == 0 /* open@core.server.ctl */ {
+	if proto_method == 0 /* open@core.object.Object */ {
 		// For now, we special case `open` as the only static function (not taking a `Handle`, and
 		// thus requiring extra knowledge by the kernel to know where to dispatch it)
 
