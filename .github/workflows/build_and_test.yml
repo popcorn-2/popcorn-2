@@ -24,13 +24,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
+      - name: 'Download init exec'
+        run: curl -o ${{ github.workspace }}/init.exec -L https://github.com/popcorn-2/.github/raw/refs/heads/trunk/init_exec.exec
       - name: 'Build'
         env:
           CC: clang
           CXX: C++
           CFLAGS: -I${{ github.workspace }}/deps/edk2/MdePkg/Include -I${{ github.workspace }}/deps/edk2-libc/StdLib/Include -I${{ github.workspace }}/deps/edk2-libc/StdLib/Include/X64 -v
         run: |
-          ./pop.py build --arch x86_64 -v ${{ github.ref == 'refs/heads/trunk' && '--release' || '' }} --kernel-features="${{ matrix.logging }} ${{ matrix.preemptive }}"
+          init_exec=${{ github.workspace }}/init.exec ./pop.py build --arch x86_64 -v ${{ github.ref == 'refs/heads/trunk' && '--release' || '' }} --kernel-features="${{ matrix.logging }} ${{ matrix.preemptive }}"
       - name: 'Archive live ISO'
         if: success() && github.ref == 'refs/heads/trunk'
         uses: actions/upload-artifact@v4
