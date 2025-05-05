@@ -16,6 +16,7 @@ use core::fmt::{Debug, Formatter};
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::num::NonZero;
+use core::{mem, ptr};
 use log::debug;
 use crate::memory::allocator::{PhysicalAllocator, SpecificLocation};
 use crate::memory::{AllocError, Frame, Page};
@@ -29,10 +30,10 @@ use crate::memory::r#virtual::address_space::{Weak, AddressSpace};
 #[unstable(feature = "kernel_mmap_trait", issue = "24")]
 pub trait Mappable {
 	/// The amount of virtual memory required to create a mapping with `physical_length` [`Frame`]s
-	fn physical_length_to_virtual_length(physical_length: NonZero<usize>) -> NonZero<usize>;
+	fn physical_length_to_virtual_length(&self, physical_length: NonZero<usize>) -> NonZero<usize>;
 
 	/// The number of [`Page`]s to offset the physical memory into the allocated virtual memory
-	fn physical_start_offset_from_virtual() -> isize;
+	fn physical_start_offset_from_virtual(&self) -> isize;
 }
 
 /// The memory protection to use for the memory mapping
@@ -233,7 +234,7 @@ pub struct DiscontiguityError(());
 /// It will also manage the page tables to correctly unmap the memory when dropped.
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub struct RawMapping<'phys_allocator, R: Mappable, A: AddressSpaceTy = Kernel> {
-	raw: PhantomData<R>,
+	raw: R,
 
 	/// The address space mapped into
 	address_space: ManuallyDrop<A>,
@@ -289,13 +290,13 @@ impl<'phys_alloc, R: Mappable> RawMapping<'phys_alloc, R, Kernel> {
 	///
 	/// If the page tables already contained a mapping for the newly allocated virtual memory.
 	#[stable(feature = "kernel_mmap", since = "1.1.0")]
-	pub fn new(config: Config<'phys_alloc, Kernel>, reason: u16) -> Result<Self, AllocError> {
+	pub fn new(config: Config<'phys_alloc, Kernel>, reason: u16, raw: R) -> Result<Self, AllocError> {
 		let Location::Any = config.virtual_location else { todo!() };
 		
-		let virtual_len = R::physical_length_to_virtual_length(config.length);
+		let virtual_len = raw.physical_length_to_virtual_length(config.length);
 		let virtual_mem = OwnedPages::new(virtual_len)?;
 
-		Self::new_at(config, reason, virtual_mem)
+		Self::new_at(config, reason, virtual_mem, raw)
 	}
 }
 
@@ -313,17 +314,17 @@ impl<'phys_alloc, R: Mappable> RawMapping<'phys_alloc, R, Userspace> {
 	///
 	/// If the page tables already contained a mapping for the newly allocated virtual memory.
 	#[stable(feature = "kernel_mmap", since = "1.1.0")]
-	pub fn new_in(config: Config<'phys_alloc, Userspace>, reason: u16) -> Result<Self, AllocError> {
+	pub fn new_in(config: Config<'phys_alloc, Userspace>, reason: u16, raw: R) -> Result<Self, AllocError> {
 		let Some(address_space) = Weak::upgrade(&config.address_space.0) else { return Err(AllocError) };
-		let virtual_len = R::physical_length_to_virtual_length(config.length);
+		let virtual_len = raw.physical_length_to_virtual_length(config.length);
 		let virtual_mem = OwnedPages::xnew(virtual_len, &address_space, config.virtual_location)?;
 
-		Self::new_at(config, reason, virtual_mem)
+		Self::new_at(config, reason, virtual_mem, raw)
 	}
 }
 
 impl<'phys_alloc, R: Mappable, A: AddressSpaceTy> RawMapping<'phys_alloc, R, A> {
-	fn new_at(config: Config<'phys_alloc, A>, reason: u16, virtual_mem: OwnedPages<A>) -> Result<Self, AllocError> {
+	fn new_at(config: Config<'phys_alloc, A>, reason: u16, virtual_mem: OwnedPages<A>, raw: R) -> Result<Self, AllocError> {
 		let Config {
 			length: physical_len,
 			physical_allocator,
@@ -336,7 +337,7 @@ impl<'phys_alloc, R: Mappable, A: AddressSpaceTy> RawMapping<'phys_alloc, R, A> 
 
 		let (physical_base, _, _) = physical_mem.into_raw_parts();
 		let (virtual_base, _, address_space) = virtual_mem.into_raw_parts();
-		let offset_base = virtual_base + R::physical_start_offset_from_virtual();
+		let offset_base = virtual_base + raw.physical_start_offset_from_virtual();
 
 		// TODO: huge pages
 		// FIXME: memory leak of physical and virtual memory if this fails
@@ -348,7 +349,7 @@ impl<'phys_alloc, R: Mappable, A: AddressSpaceTy> RawMapping<'phys_alloc, R, A> 
 		drop(page_table);
 
 		Ok(Self {
-			raw: PhantomData,
+			raw,
 			address_space: ManuallyDrop::new(address_space),
 			contiguity: RawMappingContiguity::Contiguous(physical_base),
 			virtual_valid_start: offset_base,
@@ -368,7 +369,7 @@ impl<'phys_alloc, R: Mappable, A: AddressSpaceTy> RawMapping<'phys_alloc, R, A> 
 	/// If the underlying physical memory is not contiguous, and so cannot be represented as a single instance
 	/// of [`OwnedFrames`], [`DiscontiguityError`] is returned.
 	#[unstable(feature = "kernel_mmap_to_parts", issue = "24")]
-	pub fn into_contiguous_raw_parts(mut self) -> Result<(OwnedFrames<'phys_alloc>, OwnedPages<A>, Protection), DiscontiguityError> {
+	pub fn into_contiguous_raw_parts(mut self) -> Result<(OwnedFrames<'phys_alloc>, OwnedPages<A>, Protection, R), DiscontiguityError> {
 		let frames = unsafe {
 			let RawMappingContiguity::Contiguous(base_frame) = self.contiguity else {
 				return Err(DiscontiguityError(()));
@@ -391,21 +392,21 @@ impl<'phys_alloc, R: Mappable, A: AddressSpaceTy> RawMapping<'phys_alloc, R, A> 
 		};
 
 		let this = ManuallyDrop::new(self);
-		Ok((frames, pages, this.protection))
+		Ok((frames, pages, this.protection, unsafe { ptr::read(&this.raw) }))
 	}
 
 	#[unstable(feature = "kernel_mmap_to_parts", issue = "24")]
-	pub unsafe fn from_contiguous_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>, protection: Protection) -> Self {
+	pub unsafe fn from_contiguous_raw_parts(frames: OwnedFrames<'phys_alloc>, pages: OwnedPages<A>, protection: Protection, raw: R) -> Self {
 		let (virtual_base, actual_vlen, address_space) = pages.into_raw_parts();
 		let (physical_base, physical_len, physical_allocator) = frames.into_raw_parts();
-		let correct_vlen = R::physical_length_to_virtual_length(physical_len);
+		let correct_vlen = raw.physical_length_to_virtual_length(physical_len);
 		debug_assert_eq!(actual_vlen, correct_vlen);
 
 		Self {
-			raw: PhantomData,
+			virtual_valid_start: virtual_base + raw.physical_start_offset_from_virtual(),
+			raw,
 			address_space: ManuallyDrop::new(address_space),
 			contiguity: RawMappingContiguity::Contiguous(physical_base),
-			virtual_valid_start: virtual_base + R::physical_start_offset_from_virtual(),
 			physical_len,
 			allocator: physical_allocator,
 			protection,
@@ -413,12 +414,12 @@ impl<'phys_alloc, R: Mappable, A: AddressSpaceTy> RawMapping<'phys_alloc, R, A> 
 	}
 
 	fn virtual_len(&self) -> NonZero<usize> {
-		R::physical_length_to_virtual_length(self.physical_len())
+		self.raw.physical_length_to_virtual_length(self.physical_len())
 	}
 
 	#[unstable(feature = "kernel_mmap_to_parts", issue = "24")]
 	pub fn virtual_start(&self) -> Page {
-		self.virtual_valid_start() - R::physical_start_offset_from_virtual()
+		self.virtual_valid_start() - self.raw.physical_start_offset_from_virtual()
 	}
 
 	fn virtual_valid_start(&self) -> Page {
@@ -581,24 +582,24 @@ impl<R: Mappable, A: AddressSpaceTy> Drop for RawMapping<'_, R, A> {
 
 #[doc(hidden)]
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
-pub enum RawMmap {}
+pub struct RawMmap;
 
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
 impl Mappable for RawMmap {
-	fn physical_length_to_virtual_length(physical_length: NonZero<usize>) -> NonZero<usize> { physical_length }
-	fn physical_start_offset_from_virtual() -> isize { 0 }
+	fn physical_length_to_virtual_length(&self, physical_length: NonZero<usize>) -> NonZero<usize> { physical_length }
+	fn physical_start_offset_from_virtual(&self) -> isize { 0 }
 }
 
 #[doc(hidden)]
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
-pub enum RawStack {}
+pub struct RawStack;
 
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
 impl Mappable for RawStack {
-	fn physical_length_to_virtual_length(physical_length: NonZero<usize>) -> NonZero<usize> {
+	fn physical_length_to_virtual_length(&self, physical_length: NonZero<usize>) -> NonZero<usize> {
 		physical_length.checked_add(1).expect("Stack size overflow")
 	}
-	fn physical_start_offset_from_virtual() -> isize { 1 }
+	fn physical_start_offset_from_virtual(&self) -> isize { 1 }
 }
 
 /// A RAII memory mapping
@@ -608,9 +609,66 @@ impl Mappable for RawStack {
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub type Mapping<'phys_alloc, A: AddressSpaceTy = Kernel> = RawMapping<'phys_alloc, RawMmap, A>;
 
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
+pub fn new_mapping(config: Config<'_, Kernel>, reason: u16) -> Result<Mapping<'_, Kernel>, AllocError> {
+	Mapping::new(config, reason, RawMmap {})
+}
+
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
+pub fn new_mapping_in(config: Config<'_, Userspace>, reason: u16) -> Result<Mapping<'_, Userspace>, AllocError> {
+	Mapping::new_in(config, reason, RawMmap {})
+}
+
 /// A RAII stack
 ///
 /// Manages the memory map for a stack, including a guard page below the stack.
 #[allow(type_alias_bounds)] // makes docs nicer
 #[stable(feature = "kernel_mmap", since = "1.1.0")]
 pub type Stack<'phys_alloc, A: AddressSpaceTy = Kernel> = RawMapping<'phys_alloc, RawStack, A>;
+
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
+pub fn new_stack(config: Config<'_, Kernel>, reason: u16) -> Result<Stack<'_, Kernel>, AllocError> {
+	Stack::new(config, reason, RawStack {})
+}
+
+#[stable(feature = "kernel_mmap", since = "1.1.0")]
+pub fn new_stack_in(config: Config<'_, Userspace>, reason: u16) -> Result<Stack<'_, Userspace>, AllocError> {
+	Stack::new_in(config, reason, RawStack {})
+}
+
+#[unstable(feature = "kernel_internals", issue = "none")]
+pub struct DynMapping {
+	physical_length_to_virtual_length: fn(*mut u8, physical_length: NonZero<usize>) -> NonZero<usize>,
+	physical_start_offset_from_virtual: fn(*mut u8) -> isize,
+}
+
+impl DynMapping {
+	#[unstable(feature = "kernel_internals", issue = "none")]
+	pub fn coerce<R: Mappable, A: AddressSpaceTy>(from: RawMapping<R, A>) -> RawMapping<DynMapping, A> where [(); 1 / ((size_of::<R>() == 0) as usize)]: {
+		let from = ManuallyDrop::new(from);
+
+		RawMapping {
+			raw: DynMapping {
+				physical_length_to_virtual_length: unsafe { mem::transmute(R::physical_length_to_virtual_length as fn(&R, physical_length: NonZero<usize>) -> NonZero<usize>) },
+				physical_start_offset_from_virtual: unsafe { mem::transmute(R::physical_start_offset_from_virtual as fn(&R) -> isize) },
+			},
+			address_space: unsafe { ptr::read(&from.address_space) },
+			contiguity: unsafe { ptr::read(&from.contiguity) },
+			virtual_valid_start: from.virtual_valid_start,
+			physical_len: from.physical_len,
+			allocator: from.allocator,
+			protection: from.protection,
+		}
+	}
+}
+
+#[unstable(feature = "kernel_internals", issue = "none")]
+impl Mappable for DynMapping {
+	fn physical_length_to_virtual_length(&self, physical_length: NonZero<usize>) -> NonZero<usize> {
+		(self.physical_length_to_virtual_length)(ptr::dangling_mut(), physical_length)
+	}
+
+	fn physical_start_offset_from_virtual(&self) -> isize {
+		(self.physical_start_offset_from_virtual)(ptr::dangling_mut())
+	}
+}

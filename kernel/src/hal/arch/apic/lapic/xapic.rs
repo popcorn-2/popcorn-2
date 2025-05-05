@@ -5,7 +5,7 @@ use core::ptr::{addr_of, addr_of_mut};
 use acpi::madt::{Madt, MadtEntry};
 use bit_field::BitField;
 use kernel::hal::arch::apic::lapic::Lvt;
-use kernel_api::memory::mapping::{Config, Location, Mapping};
+use kernel_api::memory::mapping::{Config, Location, Mapping, new_mapping};
 use kernel_api::memory::{Frame, PhysicalAddress};
 use kernel_api::time::Instant;
 use crate::hal;
@@ -47,7 +47,7 @@ impl XApic {
 					.physical_location(Location::At(Frame::new(lower_addr)))
 					.physical_allocator(&hal::acpi::Allocator);
 			(
-				Mapping::new(config, crate::paging_codes::APIC_REGISTERS).expect("Unable to create physical mapping"),
+				new_mapping(config, crate::paging_codes::APIC_REGISTERS).expect("Unable to create physical mapping"),
 				offset,
 			)
 		};

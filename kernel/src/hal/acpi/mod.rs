@@ -5,7 +5,7 @@ use core::num::NonZero;
 use core::ops::{Deref, DerefMut};
 use core::ptr::{from_raw_parts_mut, NonNull, Pointee};
 use acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
-use kernel_api::memory::mapping::{Config, Location, Mapping};
+use kernel_api::memory::mapping::{Config, Location, Mapping, new_mapping, RawMmap};
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::memory::allocator::PhysicalAllocator;
 use kernel_api::memory::physical::OwnedFrames;
@@ -128,10 +128,10 @@ impl AcpiHandlerExt for Handler<'_> {
 		let config = Config::new(page_count)
 				.physical_location(Location::At(Frame::new(lower_addr)))
 				.physical_allocator(self.allocator);
-		let mapping = Mapping::new(config, <T as PagingReason>::reason()).expect("Unable to create physical mapping");
+		let mapping = new_mapping(config, <T as PagingReason>::reason()).expect("Unable to create physical mapping");
 
 
-		let (frames, pages, _) = mapping.into_contiguous_raw_parts()
+		let (frames, pages, _, _) = mapping.into_contiguous_raw_parts()
 				.expect("Initial `Mapping` allocation should be contiguous"); // FIXME: kernel_mmap discontinuous initial alloc
 		let (first_frame, phys_len, _) = frames.into_raw_parts();
 		let (first_page, virt_len, _) = pages.into_raw_parts();
@@ -217,7 +217,7 @@ impl AcpiHandler for Handler<'_> {
 		unsafe {
 			let frames = OwnedFrames::from_raw_parts(first_frame, len, region.handler().allocator);
 			let pages = OwnedPages::from_raw_parts(first_page, len, Kernel);
-			let _mapping = Mapping::from_contiguous_raw_parts(frames, pages, Default::default()); // Using default here because the value doesn't matter as it's unmapped immediately
+			let _mapping = Mapping::from_contiguous_raw_parts(frames, pages, Default::default(), RawMmap); // Using default here because the value doesn't matter as it's unmapped immediately
 		}
 	}
 }

@@ -4,7 +4,7 @@ use alloc::sync::Arc;
 use core::cell::UnsafeCell;
 use core::num::NonZeroUsize;
 use kernel_api::memory::mapping;
-use kernel_api::memory::mapping::Stack;
+use kernel_api::memory::mapping::{new_stack, Stack};
 use kernel_api::memory::r#virtual::Kernel;
 use crate::hal::{self, SaveState, TTableTy};
 use super::{parking::ParkGaurd, ThreadId, WakeReason};
@@ -160,7 +160,7 @@ impl ThreadControlBlock {
 	/// enqueue_new(tcb);
 	/// ```
 	pub fn new(name: Cow<'static, str>, address_space: Arc<AddressSpaceInner>, startup: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, arg: usize) -> (Self, ThreadId) {
-		let new_stack = Stack::new(
+		let new_stack = new_stack(
 			mapping::Config::new(NonZeroUsize::new(32).unwrap()),
 			crate::paging_codes::THREAD_KERNEL_STACK,
 		).unwrap();

@@ -37,6 +37,7 @@
 #![feature(linkage)]
 #![feature(once_cell_try_insert)]
 #![feature(unsigned_nonzero_div_ceil)]
+#![feature(generic_const_exprs)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -54,6 +55,7 @@
 #![feature(kernel_feature_detect)]
 #![feature(kernel_irq_cell)]
 #![feature(kernel_allocation_zeroing)]
+#![feature(kernel_mmap_trait)]
 
 #![no_std]
 #![no_main]
@@ -86,7 +88,7 @@ use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
-use kernel_api::memory::mapping::{Mapping, self, Location, Stack, Protection};
+use kernel_api::memory::mapping::{Mapping, self, Location, Stack, Protection, new_mapping_in, new_stack_in};
 use kernel_api::memory::physical::highmem;
 use kernel_api::memory::r#virtual::address_space::AddressSpace;
 use kernel_api::ptr::{slice_from_raw_parts, User};
@@ -551,15 +553,13 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 			let config = mapping::Config::new_in(NonZero::new(4).unwrap(), AddressSpaceInner::to_api(address_space))
 					.virtual_location(Location::At(Page::new(VirtualAddress::new(0x40000000))))
 					.protection(Protection::RWXU);
-			// fixme
-			let stack = ManuallyDrop::new(Stack::new_in(config, u16::MAX).unwrap());
 
-			debug!("[stack] {:#x}->{:#x}",
-				stack.virtual_start().as_ptr().addr(),
-				stack.virtual_end().as_ptr().addr(),
-			);
+			let stack = new_stack_in(config, u16::MAX).unwrap();
 
 			let ptr = stack.virtual_end().start().as_ptr().cast::<u64>();
+			
+			address_space.add_mapping("[stack@3]", stack);
+			
 			unsafe {
 				core::arch::asm!("stac");
 				ptr.offset(-1).write(0); // argc
@@ -589,7 +589,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 				let config = mapping::Config::new_in(len.try_into().unwrap(), AddressSpaceInner::to_api(address_space))
 						.virtual_location(Location::At(Page::new(addr.align_down())))
 						.protection(Protection::RWXU);
-				Mapping::new_in(config, u16::MAX).unwrap()
+				new_mapping_in(config, u16::MAX).unwrap()
 			};
 
 			assert!(segment.file_size <= segment.memory_size);

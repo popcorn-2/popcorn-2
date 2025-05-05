@@ -5,7 +5,7 @@ use core::ops::Range;
 use core::ptr::{addr_of, NonNull};
 use core::sync::atomic::{AtomicPtr, Ordering};
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
-use kernel_api::memory::mapping::{Mapping, RawMapping};
+use kernel_api::memory::mapping::{DynMapping, Mappable, Mapping, RawMapping};
 use kernel_api::memory::physical::highmem;
 use kernel_api::memory::r#virtual::{address_space::AddressSpace, Userspace, VirtualAllocator};
 use kernel_api::sync::{RwSpinlock, Spinlock};
@@ -79,7 +79,7 @@ use crate::memory::paging::ktable;
 pub(crate) struct AddressSpaceInner {
 	ttable: TTableTy,
 	allocator: RangedBtreeAllocator,
-	maps: Spinlock<Vec<(&'static str, Mapping<'static, Userspace>)>>,
+	maps: Spinlock<Vec<(&'static str, RawMapping<'static, DynMapping, Userspace>)>>,
 }
 
 impl Debug for AddressSpaceInner {
@@ -126,8 +126,8 @@ impl AddressSpaceInner {
 		unsafe { core::mem::transmute::<_, &Arc<Self>>(this) }
 	}
 	
-	pub fn add_mapping(&self, name: &'static str, map: Mapping<'static, Userspace>) {
-		self.maps.lock().push((name, map));
+	pub fn add_mapping<M: Mappable>(&self, name: &'static str, map: RawMapping<'static, M, Userspace>) where [(); 1 / ((size_of::<M>() == 0) as usize)]: {
+		self.maps.lock().push((name, DynMapping::coerce(map)));
 	}
 }
 
