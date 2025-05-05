@@ -1,6 +1,6 @@
 use ::core::num::NonZero;
 use kernel_api::memory::mapping;
-use kernel_api::memory::mapping::Mapping;
+use kernel_api::memory::mapping::{Mapping, Protection};
 #[allow(unused_imports)] use crate::prelude::*;
 use utils::better_cow::Cow;
 use crate::ipc::{Error, NonNegativeIsize};
@@ -40,7 +40,8 @@ impl Server for ProcServer {
 				let guard = percpu_v2!(current_thread).read();
 				let address_space = guard.as_ref().unwrap().tcb_ref().address_space;
 
-				let config = mapping::Config::new_in(len.try_into().unwrap(), AddressSpaceInner::to_api(address_space));
+				let config = mapping::Config::new_in(len.try_into().unwrap(), AddressSpaceInner::to_api(address_space))
+						.protection(Protection::RWXU);
 				let Ok(mapping) = Mapping::new_in(config, u16::MAX) else { return Err(Error::Overflow); };
 
 				let ret = mapping.virtual_start().as_ptr() as isize;

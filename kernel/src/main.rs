@@ -86,7 +86,7 @@ use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
-use kernel_api::memory::mapping::{Mapping, self, Location, Stack};
+use kernel_api::memory::mapping::{Mapping, self, Location, Stack, Protection};
 use kernel_api::memory::physical::highmem;
 use kernel_api::memory::r#virtual::address_space::AddressSpace;
 use kernel_api::ptr::{slice_from_raw_parts, User};
@@ -548,7 +548,8 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 		let stack_top = {
 			let config = mapping::Config::new_in(NonZero::new(4).unwrap(), AddressSpaceInner::to_api(address_space))
-					.virtual_location(Location::At(Page::new(VirtualAddress::new(0x40000000))));
+					.virtual_location(Location::At(Page::new(VirtualAddress::new(0x40000000))))
+					.protection(Protection::RWXU);
 			// fixme
 			let stack = ManuallyDrop::new(Stack::new_in(config, u16::MAX).unwrap());
 
@@ -585,7 +586,8 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 			
 			let mapping = {
 				let config = mapping::Config::new_in(len.try_into().unwrap(), AddressSpaceInner::to_api(address_space))
-						.virtual_location(Location::At(Page::new(addr.align_down())));
+						.virtual_location(Location::At(Page::new(addr.align_down())))
+						.protection(Protection::RWXU);
 				Mapping::new_in(config, u16::MAX).unwrap()
 			};
 
