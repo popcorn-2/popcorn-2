@@ -21,8 +21,8 @@ impl HandleMap {
 	
 	pub fn push(&self, handle: Handle) -> Result<u32, Error> {
 		loop {
+			if self.next_fd.load(Ordering::Relaxed) == u32::MAX { panic!("overflow"); } // todo: better
 			let fd = self.next_fd.fetch_add(1, Ordering::Relaxed);
-			if fd == u32::MAX { return Err(Error::Overflow); }
 			
 			match self.map.lock().try_insert(fd, handle) {
 				Ok(_) => break Ok(fd),

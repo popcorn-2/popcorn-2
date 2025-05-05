@@ -19,7 +19,7 @@ impl Server for RootServer {
 		if path.contains('/') { yeet!(Error::InvalidArg); }
 
 		let handle = {
-			if self.next_handle.load(Ordering::Relaxed) == usize::MAX { yeet!(Error::Overflow); }
+			if self.next_handle.load(Ordering::Relaxed) == usize::MAX { panic!("overflow"); } // todo: better
 			let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
 			handle
 		};

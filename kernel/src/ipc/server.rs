@@ -93,7 +93,7 @@ impl ServerList {
 	}
 	
 	pub(super) fn new_id(&self) -> Result<ServerId, Error> {
-		if usize::from(self.next_id.load(Ordering::Relaxed)) == ServerId::MAX { yeet!(Error::Overflow); }
+		if usize::from(self.next_id.load(Ordering::Relaxed)) == ServerId::MAX { panic!("overflow"); } // todo: better
 
 		let id = self.next_id.fetch_add(1, Ordering::Relaxed);
 		Ok(ServerId::new(id))
