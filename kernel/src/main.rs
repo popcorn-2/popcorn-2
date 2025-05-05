@@ -276,7 +276,7 @@ mod handoff_protection {
 	use core::fmt::{Debug, Formatter};
 	use core::ops::Deref;
 	use derive_more::Constructor;
-	use crate::hal;
+	use crate::{hal, panicking};
 
 	#[derive(Constructor)]
 	pub struct HandoffWrapper(&'static utils::handoff::Data, hal::TTableTy);
@@ -284,6 +284,7 @@ mod handoff_protection {
 	impl HandoffWrapper {
 		pub fn to_empty_ttable(self) -> hal::TTableTy {
 			// todo!("empty the ttable");
+			*panicking::SYMBOL_MAP.write() = None; // HACK
 			self.1
 		}
 	}
