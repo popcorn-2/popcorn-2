@@ -46,7 +46,7 @@ use core::ops::Range;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use hashbrown::HashMap;
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
-use kernel_api::memory::mapping::Stack;
+use kernel_api::memory::mapping::{Protection, Stack};
 use kernel_api::memory::physical::{highmem, OwnedFrames};
 use kernel_api::memory::r#virtual::{Kernel, OwnedPages};
 use kernel_api::sync::Spinlock;
@@ -168,7 +168,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		address_space,
 		Default::default(),
 		Cow::Borrowed("init"),
-		unsafe { Stack::from_contiguous_raw_parts(stack_frames, stack_pages) },
+		unsafe { Stack::from_contiguous_raw_parts(stack_frames, stack_pages, Protection::RWX) }, // FIXME: this should only be RW but that doesn't exist
 		ThreadState::Running,
 		INIT_THREAD_ID,
 		Arc::new(HandleMap::new()),

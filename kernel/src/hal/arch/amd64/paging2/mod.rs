@@ -5,6 +5,7 @@ use core::ops::DerefMut;
 use kernel_api::bridge::paging::MapPageError;
 use kernel_api::memory::allocator::{PhysicalAllocator};
 use kernel_api::memory::{Frame, Page, PhysicalAddress, AllocError};
+use kernel_api::memory::mapping::Protection;
 use kernel_api::memory::physical::highmem;
 use kernel_api::sync::{Spinlock, SpinlockGuard};
 use table::{Table, PDPT, PML4, PageIndices};
@@ -117,13 +118,13 @@ impl Debug for Amd64TTable {
 }
 
 impl Amd64TTable {
-	fn do_map(pml4: &mut Table<PML4>, page: Page, frame: Frame, reason: u16, allocator: &'static dyn PhysicalAllocator) -> Result<(), MapPageError> {
+	fn do_map(pml4: &mut Table<PML4>, page: Page, frame: Frame, reason: u16, protection: Protection, allocator: &'static dyn PhysicalAllocator) -> Result<(), MapPageError> {
 		assert!(page.start().addr < 0xffff_8000_0000_0000, "TTable only handles lower half addresses");
 
 		let pdpt = pml4.child_table_or_new(page.pml4_index(), &allocator)?;
 		let pd = pdpt.child_table_or_new(page.pdpt_index(), &allocator)?;
 		let pt = pd.child_table_or_new(page.pd_index(), &allocator)?;
-		pt.entries[page.pt_index()].point_to_frame(frame, reason).map_err(|e| MapPageError::AlreadyMapped(e))
+		pt.entries[page.pt_index()].point_to_frame(frame, reason, protection).map_err(|e| MapPageError::AlreadyMapped(e))
 	}
 	
 	fn do_unmap(pml4: &mut Table<PML4>, page: Page) -> Result<(), ()> {
@@ -158,12 +159,13 @@ impl KTable for Amd64TTable {
 		pt.entries[page.pt_index()].pointed_frame()
 	}
 
-	fn map_page(&mut self, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
+	fn map_page(&mut self, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError> {
 		Self::do_map(
 			self.pml4.pml4_mut(),
 			page,
 			frame,
 			reason,
+			protection,
 			self.allocator,
 		)
 	}
@@ -183,13 +185,13 @@ impl KTable for Amd64KTable {
 		pt.entries[page.pt_index()].pointed_frame()
 	}
 
-	fn map_page(&mut self, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
+	fn map_page(&mut self, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError> {
 		assert!(page.start().addr >= 0xffff_8000_0000_0000, "KTable only handles upper half addresses");
 
 		let pdpt = &mut self.tables.tables_mut()[page.pml4_index() - 256];
 		let pd = pdpt.child_table_or_new(page.pdpt_index(), &self.allocator)?;
 		let pt = pd.child_table_or_new(page.pd_index(), &self.allocator)?;
-		pt.entries[page.pt_index()].point_to_frame(frame, reason).map_err(|e| MapPageError::AlreadyMapped(e))
+		pt.entries[page.pt_index()].point_to_frame(frame, reason, protection).map_err(|e| MapPageError::AlreadyMapped(e))
 	}
 
 	fn unmap_page(&mut self, page: Page) -> Result<(), ()> {
@@ -228,7 +230,7 @@ impl TTable for Amd64TTable {
 
 		for (i, entry) in pml4.entries[256..].iter_mut().enumerate() {
 			let ktable_frame = ktable.tables.0 + i;
-			entry.point_to_frame(ktable_frame, 0)
+			entry.point_to_frame(ktable_frame, 0, Protection::RWXU)
 					.expect("Empty table should have no mappings");
 		}
 
@@ -241,13 +243,14 @@ impl TTable for Amd64TTable {
 		})
 	}
 
-	fn map_page(&self, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
+	fn map_page(&self, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError> {
 		Self::do_map(
 			&mut *self.pml4.pml4_lock_mut(),
 			page,
 			frame,
 			reason,
-			self.allocator
+			protection,
+			self.allocator,
 		)
 	}
 

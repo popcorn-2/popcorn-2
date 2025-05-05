@@ -86,7 +86,7 @@ impl Debug for AddressSpaceInner {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		writeln!(f, "AddressSpaceInner {{")?;
 		for (name, map) in &*self.maps.lock() {
-			writeln!(f, "    {:x}-{:x} {}", map.virtual_start().as_ptr().addr(), map.virtual_end().as_ptr().addr(), name)?;
+			writeln!(f, "    {:x}-{:x} {} {:?}", map.virtual_start().as_ptr().addr(), map.virtual_end().as_ptr().addr(), name, map.protection())?;
 		}
 		writeln!(f, "}}")?;
 		Ok(())

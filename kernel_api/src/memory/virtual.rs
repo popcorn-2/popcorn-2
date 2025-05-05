@@ -8,7 +8,7 @@ use auto_impl::auto_impl;
 use log::debug;
 use crate::bridge::paging::MapPageError;
 use crate::memory::{Frame, Page};
-use crate::memory::mapping::Location;
+use crate::memory::mapping::{Location, Protection};
 use crate::memory::r#virtual::address_space::{AddressSpace, AddressSpaceInner, Weak};
 use crate::sync::RwSpinlock;
 use super::AllocError;
@@ -40,7 +40,7 @@ pub trait AddressSpaceTy: private::Sealed {
 	type PageTable<'a>;
 	fn get_page_table(&self) -> Self::PageTable<'_>;
 	fn translate_page(table: &mut Self::PageTable<'_>, page: Page) -> Option<Frame>;
-	fn map_page(table: &mut Self::PageTable<'_>, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
+	fn map_page(table: &mut Self::PageTable<'_>, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError>;
 	fn unmap_page(table: &mut Self::PageTable<'_>, page: Page) -> Result<(), ()>;
 
 	fn allocate_contiguous(&self, len: usize) -> Result<Page, AllocError>;
@@ -62,8 +62,8 @@ impl AddressSpaceTy for Kernel {
 	}
 
 	#[define_opaque()]
-	fn map_page(table: &mut Self::PageTable<'_>, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
-		unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut **table, page, frame, reason) }
+	fn map_page(table: &mut Self::PageTable<'_>, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError> {
+		unsafe { crate::bridge::paging::__popcorn_paging_ktable_map_page(&mut **table, page, frame, reason, protection) }
 	}
 
 	#[define_opaque()]
@@ -100,9 +100,9 @@ impl AddressSpaceTy for Userspace {
 		unsafe { crate::bridge::paging::__popcorn_paging_ttable_translate_page(table.as_ref(), page) }
 	}
 
-	fn map_page(table: &mut Self::PageTable<'_>, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
+	fn map_page(table: &mut Self::PageTable<'_>, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError> {
 		let Some(table) = table else { return Err(MapPageError::AllocError) };
-		unsafe { crate::bridge::paging::__popcorn_paging_ttable_map_page(table.as_ref(), page, frame, reason) }
+		unsafe { crate::bridge::paging::__popcorn_paging_ttable_map_page(table.as_ref(), page, frame, reason, protection) }
 	}
 
 	fn unmap_page(table: &mut Self::PageTable<'_>, page: Page) -> Result<(), ()> {

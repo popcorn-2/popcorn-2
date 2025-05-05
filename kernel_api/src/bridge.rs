@@ -33,6 +33,7 @@ pub mod paging {
 	use core::marker::PhantomData;
 	use core::ops::DerefMut;
 	use crate::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
+	use crate::memory::mapping::Protection;
 	use crate::sync::RwWriteGuard;
 	use crate::memory::r#virtual::address_space::AddressSpaceInner;
 
@@ -45,11 +46,11 @@ pub mod paging {
 
 		pub fn __popcorn_paging_ktable_translate_page(this: &KTable, page: Page) -> Option<Frame>;
 		pub fn __popcorn_paging_ktable_translate_address(this: &KTable, addr: VirtualAddress) -> Option<PhysicalAddress>;
-		pub fn __popcorn_paging_ktable_map_page(this: &mut KTable, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
+		pub fn __popcorn_paging_ktable_map_page(this: &mut KTable, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError>;
 		pub fn __popcorn_paging_ktable_unmap_page(this: &mut KTable, page: Page) -> Result<(), ()>;
 		pub fn __popcorn_paging_ttable_translate_page(this: &AddressSpaceInner, page: Page) -> Option<Frame>;
 		pub fn __popcorn_paging_ttable_translate_address(this: &AddressSpaceInner, addr: VirtualAddress) -> Option<PhysicalAddress>;
-		pub fn __popcorn_paging_ttable_map_page(this: &AddressSpaceInner, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
+		pub fn __popcorn_paging_ttable_map_page(this: &AddressSpaceInner, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError>;
 		pub fn __popcorn_paging_ttable_unmap_page(this: &AddressSpaceInner, page: Page) -> Result<(), ()>;
 		pub fn __popcorn_address_space_load(this: &AddressSpaceInner);
 	}
