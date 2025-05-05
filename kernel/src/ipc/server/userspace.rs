@@ -18,14 +18,14 @@ impl UserspaceServer {
 	pub(crate) fn new_current_thread() -> Self {
 		Self {
 			pending_queue: SegQueue::new(),
-			pid: threading::current_thread().expect("Cannot be caled while idling"),
+			pid: threading::current_thread().expect("Cannot be called while idling"),
 			processed_queue: (),
 		}
 	}
 }
 
 impl Server for UserspaceServer {
-	fn open(&self, endpoint: Cow<'_, Box<str>, str>) -> Result<u16, Error> {
+	fn open(&self, endpoint: Cow<'_, Box<str>, str>) -> Result<usize, Error> {
 		let endpoint = Box::<[u8]>::from(endpoint.into_owned()); // TODO(syscall-api): NUL terminate the string for better C interop
 		let packet = Packet {
 			proto_method: 0,

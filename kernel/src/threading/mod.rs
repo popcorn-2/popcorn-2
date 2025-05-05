@@ -38,20 +38,20 @@
 
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
+use alloc::sync::Arc;
 use core::arch::{asm, naked_asm};
 use core::fmt::Debug;
 use core::num::NonZero;
 use core::ops::Range;
-use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use hashbrown::HashMap;
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
-use kernel_api::memory::mapping::Stack;
+use kernel_api::memory::mapping::{Protection, Stack, RawStack};
 use kernel_api::memory::physical::{highmem, OwnedFrames};
-use kernel_api::memory::r#virtual::{AddressSpace, Kernel, OwnedPages};
+use kernel_api::memory::r#virtual::{Kernel, OwnedPages};
 use kernel_api::sync::Spinlock;
 use crate::{hashmap_new, non_zero};
 use scheduler::Scheduler;
-use crate::memory::paging::ktable;
 
 mod cleanup;
 mod parking;
@@ -69,6 +69,7 @@ pub use thread_control_block::{ThreadState, ThreadControlBlock, PointerView, Own
 pub use yielding::{yield_now, yield_defer, create_idle_thread};
 use crate::hal::paging2::TTable;
 use crate::hal::TTableTy;
+use crate::ipc::handle::HandleMap;
 use crate::memory::r#virtual::AddressSpaceInner;
 
 pub type SchedulerTy = impl Scheduler;
@@ -118,6 +119,10 @@ impl ThreadId {
 			id
 		}
 	}
+	
+	pub fn get(self) -> usize {
+		self.id.get()
+	}
 }
 
 /// The numerical ID of a CPU core
@@ -163,10 +168,12 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		address_space,
 		Default::default(),
 		Cow::Borrowed("init"),
-		unsafe { Stack::from_contiguous_raw_parts(stack_frames, stack_pages) },
+		unsafe { Stack::from_contiguous_raw_parts(stack_frames, stack_pages, Protection::RWX, RawStack) }, // FIXME: this should only be RW but that doesn't exist
 		ThreadState::Running,
 		INIT_THREAD_ID,
+		Arc::new(HandleMap::new()),
 	);
+	percpu_v2!(kernel_stack_top).store(tcb.kernel_stack.virtual_end().end().addr, Ordering::Relaxed);
 	crate::hal::first_thread_init(&tcb);
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
 
@@ -227,7 +234,7 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 	let boxed = Box::into_raw(Box::new(boxed));
 
 	let address_space = AddressSpaceInner::empty()?;
-	
+
 	let (tcb, id) = ThreadControlBlock::new(
 		name,
 		address_space,
@@ -283,7 +290,7 @@ pub fn exit(_exit_code: i8) -> ! {
 	unreachable!("Failed to exit thread");
 }
 
-#[naked]
+#[unsafe(naked)]
 pub unsafe extern "C" fn thread_startup() {
 	naked_asm!(
 		".cfi_startproc simple",

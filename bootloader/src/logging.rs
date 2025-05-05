@@ -28,7 +28,12 @@ impl Log for Logger {
 	}
 
 	fn log(&self, record: &Record) {
+		let st = unsafe { uefi_services::system_table().as_mut() };
+		let stdout = st.stdout();
+		
 		unsafe {
+			//let vec = &mut *self.vec.get();
+			write!(stdout, "{}: ", record.level());
 			if let Some(mut uart) = self.uart {
 				let uart = uart.as_mut();
 
@@ -45,8 +50,10 @@ impl Log for Logger {
 
 				if let Some(file) = record.file() && let Some(line) = record.line() {
 					let _ = write!(uart, "{}:{} - ", file, line);
+					let _ = write!(stdout, "{}:{} - ", file, line);
 				}
 				let _ = writeln!(uart, "{}\u{001b}[0m", record.args());
+				let _ = writeln!(stdout, "{}", record.args());
 			}
 		}
 	}

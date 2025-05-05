@@ -64,7 +64,7 @@ unsafe impl Hal for Amd64Hal {
 
 		msr::wrmsr(
 			msr::STAR,
-			((24 | 0b11) << 48) | (8 << 48),
+			((24 | 0b11) << 48) | (8 << 32),
 		);
 		msr::wrmsr(
 			msr::LSTAR,
@@ -130,7 +130,7 @@ unsafe impl Hal for Amd64Hal {
 		
 		return inner(from.save_state, to.save_state, preserve);
 
-		#[naked] // todo: convert to normal inline asm
+		#[unsafe(naked)] // todo: convert to normal inline asm
 		unsafe extern "C" fn inner(from: &mut Amd64SaveState, to: &Amd64SaveState, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
 			// rdi: from
 			// rsi: to
@@ -212,6 +212,7 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	extern "C" fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! {
+		debug!("switch to userspace (rip: {addr:x?}, rsp: {stack_top:x?})");
 		crate::hal::get_and_disable_interrupts(); // so we can switch stack without getting interrupted before we get to userspace
 		unsafe {
 			asm!(

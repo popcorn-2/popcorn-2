@@ -266,7 +266,8 @@ pub enum Endianness {
 #[derive(Debug, TryFromPrimitive)]
 #[repr(u8)]
 pub enum Abi {
-	SystemV = 0
+	SystemV = 0,
+	Popcorn = 200,
 }
 
 #[derive(Debug, TryFromPrimitive)]

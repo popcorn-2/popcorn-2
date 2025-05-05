@@ -1,9 +1,10 @@
 use core::mem::MaybeUninit;
 use crate::ptr::impls;
 use alloc::boxed::Box;
+use core::cmp;
 use core::ptr::NonNull;
-use crate::bridge::paging::AddressSpaceInner;
-use crate::memory::r#virtual::AddressSpace;
+use log::debug;
+use crate::memory::r#virtual::address_space::{AddressSpace, AddressSpaceInner};
 
 pub enum PointerError {
 	InvalidAddress,
@@ -244,6 +245,21 @@ impl<T> User<*const [T]> {
 
 impl<T> User<*mut [T]> {
 	user_ptr_impl_slice!(mut);
+
+	pub fn write_from_buffer(self, val: &[T]) -> Result<usize, PointerError> {
+		unsafe {
+			assert!(
+				crate::bridge::memory::__popcorn_check_address_space(self.1),
+				"Address space of User<*> should match current address space",
+			);
+		}
+		let len = cmp::min(self.0.len(), val.len());
+
+		debug!("copy {} bytes from {:p} to {:p}", len * size_of::<T>(), self.0, val.as_ptr());
+
+		self.cast::<u8>().copy_from_nonoverlapping(val.as_ptr().cast(), len * size_of::<T>())?;
+		Ok(len)
+	}
 }
 
 pub fn slice_from_raw_parts<T>(data: User<*const T>, len: usize) -> User<*const [T]> {

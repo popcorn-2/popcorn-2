@@ -2,6 +2,7 @@
 use core::marker::PhantomData;
 use kernel_api::memory::allocator::PhysicalAllocator;
 use kernel_api::memory::{AllocError, Frame, Page};
+use kernel_api::memory::mapping::Protection;
 use crate::hal::arch::amd64::paging::Amd64Entry;
 use crate::hal::paging::Entry;
 
@@ -109,9 +110,9 @@ impl<L: ParentLevel> Table<L> {
 	pub(super) fn child_table_or_new(&mut self, idx: usize, allocator: impl PhysicalAllocator) -> Result<&mut Table<L::Child>, AllocError> {
 		if self.child_table_mut(idx).is_none() {
 			let table_frame = Table::<L::Child>::empty_with(allocator)?;
-			self.entries[idx].point_to_frame(table_frame, 0).expect("Entry was not present");
+			self.entries[idx].point_to_frame(table_frame, u16::MAX, Protection::RWXU).expect("Entry was not present");
 		}
-
+		
 		Ok(self.child_table_mut(idx).expect("Just mapped this entry"))
 	}
 }

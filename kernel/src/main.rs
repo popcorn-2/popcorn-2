@@ -35,6 +35,9 @@
 #![feature(arbitrary_self_types_pointers)]
 #![feature(macro_metavar_expr_concat)]
 #![feature(linkage)]
+#![feature(once_cell_try_insert)]
+#![feature(unsigned_nonzero_div_ceil)]
+#![feature(generic_const_exprs)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -51,7 +54,9 @@
 #![feature(kernel_time)]
 #![feature(kernel_feature_detect)]
 #![feature(kernel_irq_cell)]
-#![feature(once_cell_try_insert)]
+#![feature(kernel_allocation_zeroing)]
+#![feature(kernel_mmap_trait)]
+
 #![no_std]
 #![no_main]
 
@@ -73,21 +78,27 @@ use core::ptr::{addr_of, slice_from_raw_parts_mut};
 use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
 use core::{future, mem, ptr};
 use core::cmp::{max, min};
+use core::mem::ManuallyDrop;
 use core::num::NonZero;
 use core::task::{Poll};
 use core::time::Duration;
+use elf::header::program::SegmentType;
 use crate::threading::ThreadControlBlock;
 use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
-use kernel_api::memory::mapping::{Mapping, self};
+use kernel_api::memory::mapping::{Mapping, self, Location, Stack, Protection, new_mapping_in, new_stack_in};
 use kernel_api::memory::physical::highmem;
+use kernel_api::memory::r#virtual::address_space::AddressSpace;
+use kernel_api::ptr::{slice_from_raw_parts, User};
 use kernel_api::time::Instant;
 use utils::handoff::MemoryType;
 use crate::hal::exception::Ty;
-use crate::hal::paging2::TTable;
+use crate::hal::paging2::{KTable, TTable};
+use crate::ipc::handle::Handle;
 use crate::memory::paging::ktable;
+use crate::memory::r#virtual::AddressSpaceInner;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::task::executor::Executor;
 use crate::threading::{WakeTrigger, WakeReason};
@@ -173,10 +184,13 @@ macro_rules! assert_unsafe_precondition {
 }
 
 #[inline]
-extern "C" fn syscall_handler(num_low: u64, num_high: u64, a: u64, b: u64, c: u64, d: u64) -> i64 {
-	debug!("syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x})");
-	todo!()
+extern "C" fn syscall_handler(num_low: u64, num_high: u64, a: usize, b: usize, c: usize, d: usize, ip: usize) -> isize {
+	debug!("syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x}) @ {ip:#x}");
 
+	return ipc::syscall_entry(
+		(num_high as u128) << 64 | (num_low as u128),
+		a, b, c, d
+	);
 }
 
 #[inline]
@@ -199,6 +213,8 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 				backtrace();
 				loop {}
 			} else {
+				error!("Userspace exception occurred at {:#x}:\n{ty}", at);
+				debug!("{:#x?}", exception.registers);
 				todo!()
 			}
 		},
@@ -236,6 +252,8 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 
 				loop {}
 			} else {
+				error!("Userspace page fault occurred at {:#x}:\n{ty}", at);
+				debug!("{:#x?}", exception.registers);
 				todo!()
 			}
 		}
@@ -260,7 +278,7 @@ mod handoff_protection {
 	use core::fmt::{Debug, Formatter};
 	use core::ops::Deref;
 	use derive_more::Constructor;
-	use crate::hal;
+	use crate::{hal, panicking};
 
 	#[derive(Constructor)]
 	pub struct HandoffWrapper(&'static utils::handoff::Data, hal::TTableTy);
@@ -268,6 +286,7 @@ mod handoff_protection {
 	impl HandoffWrapper {
 		pub fn to_empty_ttable(self) -> hal::TTableTy {
 			// todo!("empty the ttable");
+			*panicking::SYMBOL_MAP.write() = None; // HACK
 			self.1
 		}
 	}
@@ -505,6 +524,8 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 	hal::post_acpi_init();
 
+	let init_data = Box::from(handoff_data.init_exec);
+
 	let init_thread = threading::init(handoff_data);
 	debug!("Init running on {init_thread:?}");
 
@@ -522,39 +543,100 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		debug!("Boot animation running on {task:?}");
 	}
 	threading::debug();
-	threading::exit(0);
+	threading::yield_now();
 
-	{
-		const CORE_SOCKET_OPEN: u128 = 0;
+	let (entrypoint, stack) = {
+		let guard = percpu_v2!(current_thread).read();
+		let address_space = guard.as_ref().unwrap().tcb_ref().address_space;
 
-		let shim = |a: &str| {
-			let a = a.as_bytes();
-			debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, a.as_ptr() as _, a.len(), 0, 0));
+		let stack_top = {
+			let config = mapping::Config::new_in(NonZero::new(4).unwrap(), AddressSpaceInner::to_api(address_space))
+					.virtual_location(Location::At(Page::new(VirtualAddress::new(0x40000000))))
+					.protection(Protection::RWXU);
+
+			let stack = new_stack_in(config, u16::MAX).unwrap();
+
+			let ptr = stack.virtual_end().start().as_ptr().cast::<u64>();
+			
+			address_space.add_mapping("[stack@3]", stack);
+			
+			unsafe {
+				core::arch::asm!("stac");
+				ptr.offset(-1).write(0); // argc
+				ptr.offset(-2).write(0); // argv terminator
+				ptr.offset(-3).write(0); // env terminator
+				ptr.offset(-4).write(0); // once more for 16 byte alignment
+				core::arch::asm!("clac");
+
+				// address_space.add_mapping("[stack]", stack);
+				VirtualAddress::from(ptr.offset(-4))
+			}
 		};
-		shim("hello world!");
-		shim("hello.foo.world.:/byee/eee");
-		shim(".:/byee/eee");
-		shim(":/byee/");
-		shim(":byee/");
-		debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, ptr::null::<u8>() as _, 10, 0, 0));
-		debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, 0xdeadbeef, 10, 0, 0));
-		shim(":core.input.mouse@");
-		{
-			let f = || {
-				let a = "core.input.mouse@:mouse".as_bytes();
-				debug!("{}", ipc::syscall_entry(CORE_SOCKET_OPEN, a.as_ptr() as _, a.len(), 0, 0));
+
+		let file = elf::File::try_new(&init_data).unwrap();
+
+		for segment in file.segments()
+		                   .filter(|s| s.segment_type == SegmentType::LOAD) {
+			assert!(segment.alignment <= 4096, "Not designed for >1 page alignment");
+
+			let addr = VirtualAddress::<1>::new(segment.vaddr.try_into().unwrap());
+			let segment_page_offset = addr - addr.align_down::<4096>();
+
+			let len = segment_page_offset + usize::try_from(segment.memory_size).unwrap();
+			let len = len.div_ceil(4096);
+			
+			let mapping = {
+				let config = mapping::Config::new_in(len.try_into().unwrap(), AddressSpaceInner::to_api(address_space))
+						.virtual_location(Location::At(Page::new(addr.align_down())))
+						.protection(Protection::RWXU);
+				new_mapping_in(config, u16::MAX).unwrap()
 			};
 
-			threading::spawn_with(f, Cow::Borrowed("foo"));
+			assert!(segment.file_size <= segment.memory_size);
+
+			unsafe {
+				ptr::copy_nonoverlapping(
+					file[segment.file_location()].as_ptr(),
+					addr.as_ptr(),
+					segment.file_size.try_into().unwrap(),
+				);
+				ptr::write_bytes(
+					addr.as_ptr().byte_add(segment.file_size.try_into().unwrap()),
+					0,
+					(segment.memory_size - segment.file_size).try_into().unwrap(),
+				);
+			}
+
+			address_space.add_mapping("/user/init.exec", mapping);
 		}
-		threading::debug();
-		threading::yield_now();
-		debug!("{:#?}", &*ipc::server::servers());
+		
+		debug!("{address_space:?}");
+
+		(VirtualAddress::new(file.entrypoint()), stack_top)
+	};
+	drop(init_data);
+	{
+		debug!("opening init stdin/out/err/thread as handles 0..=3");
+
+		let _ = ipc::server::servers(); // force it to init builtin servers (root + proc)
+
+		let guard = percpu_v2!(current_thread).read();
+		let thread = guard.as_ref().unwrap().tcb_ref();
+
+		let stdio_handle = ipc::open("console:/").expect("unable to open console");
+		let thread_handle = Handle::new(ipc::server::proc_server(), thread.thread_id.get());
+
+		thread.handles.openat(0, stdio_handle)
+				.expect("unable to open fd 0");
+		thread.handles.openat(1, stdio_handle)
+				.expect("unable to open fd 1");
+		thread.handles.openat(2, stdio_handle)
+				.expect("unable to open fd 2");
+		thread.handles.openat(3, thread_handle)
+				.expect("unable to open fd 3");
 	}
 
-	loop {
-		threading::yield_now();
-	}
+	hal::switch_to_userspace_at(entrypoint, stack);
 }
 
 #[cfg(not(test))]

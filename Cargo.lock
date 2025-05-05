@@ -452,6 +452,7 @@ dependencies = [
  "bitmap_allocator",
  "crossbeam-queue",
  "derive_more",
+ "elf",
  "enum_dispatch",
  "hashbrown 0.14.5",
  "kernel_api",
@@ -964,11 +965,11 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 
 [[package]]
 name = "unwinding"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51f06a05848f650946acef3bf525fe96612226b61f74ae23ffa4e98bfbb8ab3c"
+version = "0.2.6"
+source = "git+https://github.com/popcorn-2/unwinding.git#ba2bb77bec4f1f0803784d0bc8eeda761d3dac7e"
 dependencies = [
  "gimli 0.31.1",
+ "log",
 ]
 
 [[package]]

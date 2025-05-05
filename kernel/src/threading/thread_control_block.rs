@@ -4,11 +4,13 @@ use alloc::sync::Arc;
 use core::cell::UnsafeCell;
 use core::num::NonZeroUsize;
 use kernel_api::memory::mapping;
-use kernel_api::memory::mapping::Stack;
-use kernel_api::memory::r#virtual::{AddressSpace, Kernel};
+use kernel_api::memory::mapping::{new_stack, Stack};
+use kernel_api::memory::r#virtual::Kernel;
 use crate::hal::{self, SaveState, TTableTy};
 use super::{parking::ParkGaurd, ThreadId, WakeReason};
 use crate::hal::SaveStateTr;
+use crate::ipc::handle::HandleMap;
+use crate::memory::r#virtual::AddressSpaceInner;
 
 #[doc(hidden)]
 macro_rules! __tcb_gen_field {
@@ -108,7 +110,7 @@ macro_rules! tcb_views {
 tcb_views! {
 	pub struct ThreadControlBlock {
 		/// The address space for the thread
-		address_space: AddressSpace,
+		address_space: Arc<AddressSpaceInner>,
 		/// The saved CPU state
 		#mut(Pointer) save_state: SaveState,
 		/// The user-facing name of the thread
@@ -119,6 +121,8 @@ tcb_views! {
 		#mut(Pointer) state: ThreadState,
 		/// The numerical ID of the thread
 		thread_id: ThreadId,
+		//// The currently open handles
+		handles: Arc<HandleMap>,
 	}
 }
 
@@ -155,8 +159,8 @@ impl ThreadControlBlock {
 	/// 
 	/// enqueue_new(tcb);
 	/// ```
-	pub fn new(name: Cow<'static, str>, address_space: AddressSpace, startup: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, arg: usize) -> (Self, ThreadId) {
-		let new_stack = Stack::new(
+	pub fn new(name: Cow<'static, str>, address_space: Arc<AddressSpaceInner>, startup: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, arg: usize) -> (Self, ThreadId) {
+		let new_stack = new_stack(
 			mapping::Config::new(NonZeroUsize::new(32).unwrap()),
 			crate::paging_codes::THREAD_KERNEL_STACK,
 		).unwrap();
@@ -169,6 +173,7 @@ impl ThreadControlBlock {
 			new_stack,
 			ThreadState::Ready,
 			id,
+			Arc::new(HandleMap::new()),
 		);
 		new_thread.save_state = UnsafeCell::new(SaveState::new(&mut new_thread, startup, main, arg));
 

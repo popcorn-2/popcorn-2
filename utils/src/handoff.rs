@@ -4,7 +4,6 @@ use core::ptr::NonNull;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
 use kernel_api::ptr::Unique;
 
-#[derive(Debug)]
 #[repr(C)]
 pub struct Data {
 	pub framebuffer: Option<Framebuffer>,
@@ -15,6 +14,20 @@ pub struct Data {
 	pub tls: (Range<VirtualAddress>, usize),
 	pub rsdp: PhysicalAddress,
 	pub init_exec: &'static [u8],
+}
+
+impl Debug for Data {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		f.debug_struct("Data")
+				.field("framebuffer", &self.framebuffer)
+				.field("memory", &self.memory)
+				.field("modules", &self.modules)
+				.field("log", &self.log)
+				.field("test", &self.test)
+				.field("tls", &self.tls)
+				.field("rsdp", &self.rsdp)
+		        .finish_non_exhaustive()
+	}
 }
 
 #[repr(C)]
@@ -121,10 +134,16 @@ impl Debug for Modules {
 	}
 }
 
-#[derive(Debug)]
 #[repr(C)]
 pub struct Logging {
 	pub symbol_map: Option<&'static [u8]>
+}
+
+impl Debug for Logging {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		f.debug_struct("Logging")
+				.finish_non_exhaustive()
+	}
 }
 
 #[repr(C)]

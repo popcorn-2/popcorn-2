@@ -33,27 +33,24 @@ pub mod paging {
 	use core::marker::PhantomData;
 	use core::ops::DerefMut;
 	use crate::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
+	use crate::memory::mapping::Protection;
 	use crate::sync::RwWriteGuard;
-	use crate::memory::allocator::PhysicalAllocator;
+	use crate::memory::r#virtual::address_space::AddressSpaceInner;
 
 	// FIXME: replace with extern type when alignment can be specified
 	#[repr(align(8))]
 	pub struct KTable((), PhantomData<KTableInner>);
 
-	#[repr(align(8))]
-	pub struct AddressSpaceInner((), PhantomData<_AddressSpaceInner>);
-
 	extern "Rust" {
 		type KTableInner;
-		type _AddressSpaceInner;
 
 		pub fn __popcorn_paging_ktable_translate_page(this: &KTable, page: Page) -> Option<Frame>;
 		pub fn __popcorn_paging_ktable_translate_address(this: &KTable, addr: VirtualAddress) -> Option<PhysicalAddress>;
-		pub fn __popcorn_paging_ktable_map_page(this: &mut KTable, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
+		pub fn __popcorn_paging_ktable_map_page(this: &mut KTable, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError>;
 		pub fn __popcorn_paging_ktable_unmap_page(this: &mut KTable, page: Page) -> Result<(), ()>;
 		pub fn __popcorn_paging_ttable_translate_page(this: &AddressSpaceInner, page: Page) -> Option<Frame>;
 		pub fn __popcorn_paging_ttable_translate_address(this: &AddressSpaceInner, addr: VirtualAddress) -> Option<PhysicalAddress>;
-		pub fn __popcorn_paging_ttable_map_page(this: &AddressSpaceInner, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
+		pub fn __popcorn_paging_ttable_map_page(this: &AddressSpaceInner, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError>;
 		pub fn __popcorn_paging_ttable_unmap_page(this: &AddressSpaceInner, page: Page) -> Result<(), ()>;
 		pub fn __popcorn_address_space_load(this: &AddressSpaceInner);
 	}
@@ -83,8 +80,8 @@ pub mod paging {
 pub mod memory {
 	use core::ptr::NonNull;
 	use crate::memory::physical::GlobalAllocator;
-	use crate::bridge::paging::AddressSpaceInner;
 	use crate::memory::{AllocError, Page};
+	use crate::memory::r#virtual::address_space::AddressSpaceInner;
 
 	extern "Rust" {
 		#[link_name = "__popcorn_memory_physical_highmem"]

@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 use core::num::NonZero;
 use core::ptr::slice_from_raw_parts;
-use kernel_api::memory::mapping::{Config, Mapping};
+use kernel_api::memory::mapping::{Config, Mapping, new_mapping};
 
 pub struct MappedVec<T> {
 	storage: Option<Mapping<'static>>,
@@ -22,7 +22,7 @@ impl<T> MappedVec<T> {
 		if self.storage.is_none() {
 			debug_assert!(self.capacity() == 0);
 			debug_assert!(self.len() == 0);
-			self.storage = Some(Mapping::new(Config::new(NonZero::new(1).unwrap()), 25).expect("allocation failed"));
+			self.storage = Some(new_mapping(Config::new(NonZero::new(1).unwrap()), 25).expect("allocation failed"));
 			debug_assert!(self.capacity() > self.len());
 		}
 

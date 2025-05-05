@@ -5,6 +5,7 @@ use kernel_api::bridge::paging::MapPageError;
 use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
 use super::{KTableTy, TTableTy};
 use kernel_api::memory::allocator::{PhysicalAllocator};
+use kernel_api::memory::mapping::Protection;
 use crate::memory::r#virtual::AddressSpaceInner;
 
 pub trait KTable: Debug + Sized {
@@ -17,7 +18,7 @@ pub trait KTable: Debug + Sized {
 		Some(physical.start() + diff)
 	}
 
-	fn map_page(&mut self, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
+	fn map_page(&mut self, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError>;
 	fn unmap_page(&mut self, page: Page) -> Result<(), ()>;
 }
 
@@ -33,7 +34,7 @@ pub trait TTable: KTable + Sized {
 
 	fn new(ktable: &KTableTy, allocator: &'static dyn PhysicalAllocator) -> Result<Self, AllocError>;
 
-	fn map_page(&self, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError>;
+	fn map_page(&self, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError>;
 	fn unmap_page(&self, page: Page) -> Result<(), ()>;
 }
 
@@ -48,8 +49,8 @@ fn __popcorn_paging_ktable_translate_address(this: &KTableTy, addr: VirtualAddre
 }
 
 #[no_mangle]
-fn __popcorn_paging_ktable_map_page(this: &mut KTableTy, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
-	<KTableTy as KTable>::map_page(this, page, frame, reason)
+fn __popcorn_paging_ktable_map_page(this: &mut KTableTy, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError> {
+	<KTableTy as KTable>::map_page(this, page, frame, reason, protection)
 }
 
 #[no_mangle]
@@ -68,8 +69,8 @@ fn __popcorn_paging_ttable_translate_address(this: &AddressSpaceInner, addr: Vir
 }
 
 #[no_mangle]
-fn __popcorn_paging_ttable_map_page(this: &AddressSpaceInner, page: Page, frame: Frame, reason: u16) -> Result<(), MapPageError> {
-	<TTableTy as TTable>::map_page(this.ttable(), page, frame, reason)
+fn __popcorn_paging_ttable_map_page(this: &AddressSpaceInner, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError> {
+	<TTableTy as TTable>::map_page(this.ttable(), page, frame, reason, protection)
 }
 
 #[no_mangle]

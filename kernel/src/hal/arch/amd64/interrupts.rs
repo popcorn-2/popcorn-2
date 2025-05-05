@@ -132,7 +132,7 @@ pub mod entry {
 
 use entry::Entry;
 use kernel_api::sync::OnceLock;
-use crate::hal::arch::amd64::Amd64Hal;
+use crate::hal::arch::amd64::{Amd64Hal, msr};
 use crate::hal::arch::amd64::interrupts::entry::Type;
 use crate::hal::exception::{DebugTy, Exception, ExceptionRegisters, PageFault, Ty};
 use crate::hal::interrupts_v2::Vector;
@@ -254,8 +254,9 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 		return;
 	}
 	
-	let (fs_low, fs_high): (u32, u32);
-	unsafe { asm!("rdmsr", out("edx") fs_high, out("eax") fs_low, in("ecx") 0xc0000100u32); }
+	let fs = msr::rdmsr(msr::FS_BASE);
+	let gs = msr::rdmsr(msr::KERNEL_GS_BASE);
+	let gs_kernel = msr::rdmsr(msr::GS_BASE); // because they were swapped by swapgs
 
 	let mut reg_dump = Amd64RegisterDump {
 		stack_frame: data,
@@ -265,9 +266,9 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 		r13: u64::MAX,
 		r14: u64::MAX,
 		r15: u64::MAX,
-		fs: u64::from(fs_high) << 32 | u64::from(fs_low),
-		gs: u64::MAX,
-		gs_kernel: u64::MAX,
+		fs,
+		gs,
+		gs_kernel,
 	};
 	
 	let user_mode = reg_dump.stack_frame.cs > 0x10;
@@ -354,36 +355,81 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 	crate::exception_handler(&mut exception_payload);
 }
 
-#[naked]
+#[unsafe(naked)]
 pub unsafe extern "C-unwind" fn amd64_syscall_handler() {
 	naked_asm!(
+		".cfi_startproc simple",
+		".cfi_register rip, rcx",
+
 		"swapgs",
 		
 		"mov rbx, rsp", // save userspace stack pointer
-		"mov r12, rcx", // save rcx (for sysret)
-		"mov r13, r11", // save r11 (for sysret)
-		
-		"mov rsp, gs:[{rsp0_offset}]", // load kernel stack from [TLS - 8] - see hal::switch_thread for notes
+		".cfi_register rsp, rbx",
+		"mov rsp, gs:[{rsp0_offset}]", // load kernel stack from [TLS - 8]
+		".cfi_def_cfa rsp, 0",
+
+		"push r8",
+		".cfi_def_cfa_offset 8",
+        ".cfi_offset r8, -8",
+		"push r9",
+		".cfi_def_cfa_offset 16",
+        ".cfi_offset r9, -16",
+		"push r10",
+		".cfi_def_cfa_offset 24",
+        ".cfi_offset r10, -24",
+		"push rcx",
+		".cfi_def_cfa_offset 32",
+        ".cfi_offset rcx, -32",
+        ".cfi_offset rip, -32", // fixme: unwinder bug - dependencies not properly evaluated
+		"push r11",
+		".cfi_def_cfa_offset 40",
+        ".cfi_offset r11, -40",
+		"push rcx", // pass syscall address on stack as extra parameter
+		".cfi_def_cfa_offset 48",
+
 		"sti", // can take interrupts now that stack is sorted
 			   // todo: fix for NMI stuff
 		
 		"mov r9, rdx",
+		".cfi_register rdx, r9",
 		"mov rcx, rdi",
+		".cfi_register rdi, rcx",
 		"mov r8, rsi",
+		".cfi_register rsi, r8",
 		"movq rdi, xmm0",
 		"punpckhqdq xmm0, xmm0", // broadcast the high half of xmm0 to both halves
 		"movq rsi, xmm0",
 		"mov rdx, rax",
+		".cfi_register rax, rdx",
 		
 		"call {}", // extern C function so return val already in rax
 		
+		"add rsp, 8",
+		".cfi_def_cfa_offset 40",
+		"pop r11",
+		".cfi_def_cfa_offset 32",
+		".cfi_same_value r11",
+		"pop rcx",
+		".cfi_def_cfa_offset 24",
+		".cfi_same_value rcx",
+		"pop r10",
+		".cfi_def_cfa_offset 16",
+		".cfi_same_value r10",
+		"pop r9",
+		".cfi_def_cfa_offset 8",
+		".cfi_same_value r9",
+		"pop r8",
+		".cfi_def_cfa_offset 0",
+		".cfi_same_value r8",
+		
 		"cli",
-		"mov r11, r13", // restore registers to userspace state
-		"mov rcx, r12",
+		
 		"mov rsp, rbx",
+		".cfi_register rbx, rsp",
 		
 		"swapgs",
 		"sysretq",
+		".cfi_endproc",
 		sym crate::syscall_handler,
 		rsp0_offset = const core::mem::offset_of!(crate::percpu::Percpu, kernel_stack_top),
 	);
@@ -395,7 +441,7 @@ mod handlers {
 	macro_rules! irq_handler {
 	    ($num:literal error) => {
 		    ::paste::paste! {
-			    #[naked]
+			    #[unsafe(naked)]
 			    #[allow(dead_code)]
 		        pub(super) unsafe extern "C-unwind" fn [<amd64_irq_handler_ $num>]() {
 					::core::arch::naked_asm!(
@@ -407,7 +453,7 @@ mod handlers {
 	
 	    ($num:literal) => {
 		    ::paste::paste! {
-			    #[naked]
+			    #[unsafe(naked)]
 			    #[allow(dead_code)]
 		        pub(super) unsafe extern "C-unwind" fn [<amd64_irq_handler_ $num>]() {
 					::core::arch::naked_asm!(

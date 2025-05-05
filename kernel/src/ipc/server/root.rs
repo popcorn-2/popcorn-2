@@ -1,31 +1,31 @@
 #[allow(unused_imports)] use crate::prelude::*;
-use core::sync::atomic::{AtomicU16, Ordering};
+use core::sync::atomic::{AtomicUsize, Ordering};
 use hashbrown::HashMap;
 use kernel_api::sync::Spinlock;
 use utils::better_cow::Cow;
 use crate::ipc::{Error, server};
 use crate::ipc::server::{Server, ServerId};
-use crate::ipc::userspace::UserspaceServer;
+use super::userspace::UserspaceServer;
 
 #[derive(Debug)]
 pub struct RootServer {
-	next_handle: AtomicU16,
-	handle_map: Spinlock<HashMap<u16, ServerId>>,
+	next_handle: AtomicUsize,
+	handle_map: Spinlock<HashMap<usize, ServerId>>,
 }
 
 impl Server for RootServer {
-	fn open(&self, endpoint: Cow<'_, Box<str>, str>) -> Result<u16, Error> {
+	fn open(&self, endpoint: Cow<'_, Box<str>, str>) -> Result<usize, Error> {
 		let path = endpoint.trim_start_matches('/');
 		if path.contains('/') { yeet!(Error::InvalidArg); }
 
 		let handle = {
-			if self.next_handle.load(Ordering::Relaxed) == u16::MAX { yeet!(Error::Overflow); }
+			if self.next_handle.load(Ordering::Relaxed) == usize::MAX { panic!("overflow"); } // todo: better
 			let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
 			handle
 		};
 
 		let new_server = UserspaceServer::new_current_thread().into();
-		let id = server::servers_mut().insert_server(Cow::Owned(endpoint.into_owned()), new_server)?; // fixme: silly allocation
+		let id = server::servers_mut().insert_server(Some(Cow::Owned(endpoint.into_owned())), new_server)?; // fixme: silly allocation
 		
 		self.handle_map.lock().try_insert(handle, id)
 				.expect("Handle reuse should not happen");
@@ -37,7 +37,7 @@ impl Server for RootServer {
 impl RootServer {
 	pub const fn new() -> Self {
 		Self {
-			next_handle: AtomicU16::new(0),
+			next_handle: AtomicUsize::new(0),
 			handle_map: Spinlock::new(HashMap::with_hasher(hashbrown::hash_map::DefaultHashBuilder::new())),
 		}
 	}

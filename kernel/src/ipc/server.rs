@@ -1,19 +1,32 @@
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::sync::Arc;
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
 use enum_dispatch::enum_dispatch;
 use hashbrown::HashMap;
-use kernel_api::sync::{LazyLock, RwSpinlock};
+use kernel_api::sync::{LazyLock, OnceLock, RwSpinlock};
+use kernel_api::time::Instant;
 use utils::better_cow::Cow;
-use crate::ipc::Error;
+use crate::ipc::{Error, NonNegativeIsize};
 
-use super::root::RootServer;
-use super::userspace::UserspaceServer;
+mod root;
+mod userspace;
+mod proc;
+mod console;
+
+use root::RootServer;
+use userspace::UserspaceServer;
+use proc::ProcServer;
+use console::ConsoleServer;
 
 #[enum_dispatch(ServerTy)]
 pub trait Server {
-	fn open(&self, endpoint: Cow<'_, Box<str>, str>) -> Result<u16, Error>;
+	fn open(&self, endpoint: Cow<'_, Box<str>, str>) -> Result<usize, Error>;
+	fn dispatch_vvv_ve(&self, proto_method: u128, fd: usize, b: usize, c: usize, d: usize) -> Result<NonNegativeIsize, Error> { Err(Error::Unimplemented) }
+	fn dispatch_vm_ve(&self, proto_method: u128, fd: usize, b: usize, m: Box<[u8]>) -> Result<NonNegativeIsize, Error> { Err(Error::Unimplemented) }
+	fn dispatch_vs_ve(&self, proto_method: u128, fd: usize, b: usize, s: String) -> Result<NonNegativeIsize, Error> { Err(Error::Unimplemented) }
+	fn dispatch_vM_ve(&self, proto_method: u128, fd: usize, b: usize, size: usize) -> Result<(Box<[u8]>, NonNegativeIsize), Error> { Err(Error::Unimplemented) }
+	fn dispatch_vS_ve(&self, proto_method: u128, fd: usize, b: usize, size: usize) -> Result<(String, NonNegativeIsize), Error> { Err(Error::Unimplemented) }
 }
 
 #[enum_dispatch]
@@ -21,10 +34,12 @@ pub trait Server {
 pub enum ServerTy {
 	RootServer,
 	UserspaceServer,
+	ProcServer,
+	ConsoleServer,
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Copy, Debug)]
-pub struct ServerId(usize);
+pub struct ServerId(usize, u64);
 
 impl ServerId {
 	const MAX: usize = u16::MAX as usize;
@@ -34,17 +49,21 @@ impl ServerId {
 		self.0 as u16
 	}
 	
-	pub fn new(val: u16) -> Self { Self(val.into()) }
+	pub fn new(val: u16) -> Self { Self(val.into(), Instant::now().get() as u64) } // assuming arch val is clock cycles, still takes >100 years to overflow generation number creating a new server every clock cycle at 5GHz
 }
 
 static SERVERS: LazyLock<RwSpinlock<ServerList>> = LazyLock::new(|| RwSpinlock::new(ServerList::new()));
 
+// fixme: can this be improved?
+static PROC_SERVER_ID: OnceLock<ServerId> = OnceLock::new();
+
 pub fn servers() -> impl Deref<Target = ServerList> { SERVERS.read() }
 pub(super) fn servers_mut() -> impl DerefMut<Target = ServerList> { SERVERS.write() }
+pub fn proc_server() -> ServerId { *PROC_SERVER_ID.get().unwrap() }
 
 #[derive(Debug)]
 pub struct ServerList {
-	next_id: AtomicUsize,
+	next_id: AtomicU16,
 
 	// TODO: namespacing
 	// fixme: privacy
@@ -55,29 +74,38 @@ pub struct ServerList {
 impl ServerList {
 	fn new() -> Self {
 		let mut list = Self {
-			next_id: AtomicUsize::new(1),
+			next_id: AtomicU16::new(1),
 			name_lookup: HashMap::new(),
 			server_map: HashMap::new(),
 		};
 
-		list.insert_server(Cow::Borrowed(""), RootServer::new().into())
+		list.insert_server(Some(Cow::Borrowed("")), RootServer::new().into())
 				.expect("Not enough servers inserted yet for overflow");
+		
+		let id = list.insert_server(None, ProcServer::new().into())
+				.expect("Not enough servers inserted yet for overflow");
+		PROC_SERVER_ID.get_or_init(|| id);
+
+		list.insert_server(Some(Cow::Borrowed("console")), ConsoleServer::new().into())
+		    .expect("Not enough servers inserted yet for overflow");
 
 		list
 	}
 	
 	pub(super) fn new_id(&self) -> Result<ServerId, Error> {
-		if self.next_id.load(Ordering::Relaxed) == ServerId::MAX { yeet!(Error::Overflow); }
+		if usize::from(self.next_id.load(Ordering::Relaxed)) == ServerId::MAX { panic!("overflow"); } // todo: better
 
 		let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-		Ok(ServerId(id))
+		Ok(ServerId::new(id))
 	}
 
-	pub(super) fn insert_server(&mut self, name: Cow<'static, Box<str>, str>, server: ServerTy) -> Result<ServerId, Error> {
+	pub(super) fn insert_server(&mut self, name: Option<Cow<'static, Box<str>, str>>, server: ServerTy) -> Result<ServerId, Error> {
 		let id = self.new_id()?;
 
-		self.name_lookup.try_insert(name.into(), id)
-				.map_err(|_| Error::NameInUse)?;
+		if let Some(name) = name {
+			self.name_lookup.try_insert(name.into(), id)
+			    .map_err(|_| Error::NameInUse)?;
+		}
 
 		self.server_map.try_insert(id, Arc::new(server))
 				.expect("Newly generated handle shouldn't be in use");
@@ -85,11 +113,18 @@ impl ServerList {
 		Ok(id)
 	}
 
-	pub fn get_server(&self, name: &str) -> Result<(ServerId, Arc<ServerTy>), Error> {
+	pub fn get_server_at(&self, name: &str) -> Result<(ServerId, Arc<ServerTy>), Error> {
 		let id = self.name_lookup.get(name)
 				.ok_or(Error::BadServer)?;
-		let srv = self.server_map.get(id)
-			.ok_or(Error::BadServer)?;
-		Ok((*id, srv.clone()))
+		match self.get_server(*id) {
+			Ok(srv) => Ok((*id, srv)),
+			Err(err) => Err(err),
+		}
+	}
+
+	pub fn get_server(&self, id: ServerId) -> Result<Arc<ServerTy>, Error> {
+		let srv = self.server_map.get(&id)
+		              .ok_or(Error::BadServer)?;
+		Ok(Arc::clone(srv))
 	}
 }

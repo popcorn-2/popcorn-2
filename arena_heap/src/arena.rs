@@ -5,7 +5,7 @@ use core::ptr::NonNull;
 use log::debug;
 use kernel_api::dbg;
 use kernel_api::memory::AllocError;
-use kernel_api::memory::mapping::{Mapping, Config};
+use kernel_api::memory::mapping::{Mapping, Config, new_mapping};
 use crate::chunk::ChunkHeader;
 
 pub struct Arena {
@@ -23,7 +23,7 @@ impl Arena {
 			(capacity + 2*size_of::<ChunkHeader>()).div_ceil((4096 * 2) / 3), // add a bit of extra space
 		);
 
-		let mapping = Mapping::new(
+		let mapping = new_mapping(
 			Config::new(NonZero::new(page_count).unwrap()),
 			25
 		)?;

@@ -94,7 +94,9 @@ impl Deref for ActiveEdid {
 
 #[entry]
 fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
+    let _ = writeln!(system_table.stdout(), "Loading popcorn2...");
     let Ok(_) = uefi_services::init(&mut system_table) else {
+        let _ = writeln!(system_table.stdout(), "failed to init uefi services");
         return Status::ABORTED;
     };
 
@@ -103,6 +105,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let uart = match services.get_handle_for_protocol::<Serial>() {
         Ok(uart) => uart,
         Err(e) => {
+            error!("failed to init uart");
             return e.status();
         }
     };
@@ -115,13 +118,16 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         }, OpenProtocolAttributes::GetProtocol)
     } {
         Ok(uart) => uart,
-        Err(e) => return e.status()
+        Err(e) => {
+            error!("failed to init uart");
+            return e.status()
+        }
     };
 
     let gop = match services.get_handle_for_protocol::<GraphicsOutput>() {
         Ok(gop) => gop,
         Err(e) => {
-            let _ = writeln!(uart, "Unable to enable graphics"); // Can't really do anything if this fails
+            error!("failed to init graphics");
             return e.status();
         }
     };
@@ -135,7 +141,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     } {
         Ok(gop) => gop,
         Err(e) => {
-            let _ = writeln!(uart, "Unable to enable graphics");
+            error!("failed to init graphics");
             return e.status();
         }
     };

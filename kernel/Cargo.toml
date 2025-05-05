@@ -14,7 +14,7 @@ kernel_api = { path = "../kernel_api" }
 derive_more = "0.99.17"
 
 #[target.'cfg(panic = "unwind")'.dependencies]
-unwinding = { version = "0.2.5", default-features = false, features = ["unwinder", "panic", "personality", "fde-static"] }
+unwinding = { git = "https://github.com/popcorn-2/unwinding.git", default-features = false, features = ["unwinder", "panic", "personality", "fde-static", "hide-trace"] }
 
 arena_heap = { path = "../arena_heap" }
 bitmap_allocator = { path = "../bitmap_allocator" }
@@ -29,6 +29,8 @@ ranged_btree = { path = "../ranged_btree" }
 minicov = { version = "0.3", optional = true }
 hashbrown = { version = "0.14.5" }
 enum_dispatch = "0.3.13"
+
+elf = { version = "0.1.0", path = "../elf" }
 
 [dev-dependencies]
 minicov = "0.3"
