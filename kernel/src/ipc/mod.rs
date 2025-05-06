@@ -15,7 +15,13 @@ use crate::ipc::protocol::{ArgPairTy, ArgTy, HandledMethod, Method};
 use server::Server as _;
 use crate::memory::r#virtual::AddressSpaceInner;
 
-mod core {
+mod core_protos {
+	pub mod server {
+		pub const SYNC: u128 = 0x7;
+		
+		pub const SYNC_GET: u128 = 0;
+		pub const SYNC_POST: u128 = 1<<96;
+	}
 	pub mod io {
 		pub const WRITE: u128 = 0x2;
 		pub const READ: u128 = 0x3;
@@ -41,7 +47,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 	let mut map = HashMap::new();
 
 	map.try_insert(
-		core::io::WRITE | core::io::WRITE_WRITE,
+		core_protos::io::WRITE | core_protos::io::WRITE_WRITE,
 		HandledMethod {
 			a: ArgTy::None,
 			b: ArgPairTy::String, // todo
@@ -49,7 +55,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core::io::READ | core::io::READ_READ,
+		core_protos::io::READ | core_protos::io::READ_READ,
 		HandledMethod {
 			a: ArgTy::None,
 			b: ArgPairTy::OutMemory,
@@ -57,7 +63,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core::proc::PROC | core::proc::PROC_DEBUG,
+		core_protos::proc::PROC | core_protos::proc::PROC_DEBUG,
 		HandledMethod {
 			a: ArgTy::None,
 			b: ArgPairTy::String,
@@ -65,7 +71,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core::proc::PROC | core::proc::PROC_EXIT,
+		core_protos::proc::PROC | core_protos::proc::PROC_EXIT,
 		HandledMethod {
 			a: ArgTy::Value,
 			b: ArgPairTy::None,
@@ -73,7 +79,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core::proc::PROC | core::proc::PROC_ALLOC,
+		core_protos::proc::PROC | core_protos::proc::PROC_ALLOC,
 		HandledMethod {
 			a: ArgTy::Value,
 			b: ArgPairTy::None,
@@ -81,7 +87,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core::proc::PROC | core::proc::PROC_DEALLOC,
+		core_protos::proc::PROC | core_protos::proc::PROC_DEALLOC,
 		HandledMethod {
 			a: ArgTy::Value,
 			b: ArgPairTy::None,
@@ -89,7 +95,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core::proc::THREAD | core::proc::THREAD_SET_TCB,
+		core_protos::proc::THREAD | core_protos::proc::THREAD_SET_TCB,
 		HandledMethod {
 			a: ArgTy::Value,
 			b: ArgPairTy::None,
