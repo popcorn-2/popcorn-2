@@ -35,11 +35,13 @@ mod core_protos {
 		pub const PROC: u128 = 0x5;
 		pub const THREAD: u128 = 0x6;
 
-		pub const PROC_EXIT: u128 = 0;
+		pub const PROC_EXIT: u128 = 0<<96;
 		pub const PROC_DEBUG: u128 = 1<<96;
 		pub const PROC_ALLOC: u128 = 2<<96;
 		pub const PROC_DEALLOC: u128 = 3<<96;
-		pub const THREAD_SET_TCB: u128 = 0;
+		pub const THREAD_SET_TCB: u128 = 0<<96;
+		pub const THREAD_EXEC: u128 = 1<<96;
+		pub const THREAD_JOIN: u128 = 2<<96;
 	}
 }
 
@@ -99,6 +101,38 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		HandledMethod {
 			a: ArgTy::Value,
 			b: ArgPairTy::None,
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+	map.try_insert(
+		core_protos::proc::THREAD | core_protos::proc::THREAD_EXEC,
+		HandledMethod {
+			a: ArgTy::Value,
+			b: ArgPairTy::Pair(ArgTy::Value, ArgTy::Value),
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+	map.try_insert(
+		core_protos::proc::THREAD | core_protos::proc::THREAD_JOIN,
+		HandledMethod {
+			a: ArgTy::None,
+			b: ArgPairTy::None,
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+	map.try_insert(
+		core_protos::server::SYNC | core_protos::server::SYNC_GET,
+		HandledMethod {
+			a: ArgTy::None,
+			b: ArgPairTy::OutMemory,
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+	map.try_insert(
+		core_protos::server::SYNC | core_protos::server::SYNC_POST,
+		HandledMethod {
+			a: ArgTy::None,
+			b: ArgPairTy::Memory,
 			ret: ArgTy::Value,
 		}
 	).unwrap();
