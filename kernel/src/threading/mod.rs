@@ -173,7 +173,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		INIT_THREAD_ID,
 		Arc::new(HandleMap::new()),
 	);
-	percpu_v2!(kernel_stack_top).store(tcb.kernel_stack.virtual_end().end().addr, Ordering::Relaxed);
+	percpu_v2!(kernel_stack_top).store(tcb.kernel_stack.virtual_end().start().addr, Ordering::Relaxed);
 	crate::hal::first_thread_init(&tcb);
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
 

@@ -125,8 +125,8 @@ unsafe impl Hal for Amd64Hal {
 		// currently in kernel mode so even if we get an interrupt on the new TSS.privilege_stack_table[0] value
 		// the CPU won't pay attention to it
 		let ptr = tss::TSS.get().expect("TSS should be initialised")
-				.set_rsp0(to.kernel_stack.virtual_end().end().align_down());
-		percpu_v2!(kernel_stack_top).store(to.kernel_stack.virtual_end().end().addr, Ordering::Relaxed);
+				.set_rsp0(to.kernel_stack.virtual_end().start().align_down());
+		percpu_v2!(kernel_stack_top).store(to.kernel_stack.virtual_end().start().addr, Ordering::Relaxed);
 		
 		return inner(from.save_state, to.save_state, preserve);
 
@@ -207,7 +207,7 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	fn first_thread_init(tcb: &ThreadControlBlock) {
-		let tss_rsp0 = tcb.kernel_stack.virtual_end().end();
+		let tss_rsp0 = tcb.kernel_stack.virtual_end().start();
 		tss::TSS.get().expect("no TSS").set_rsp0(tss_rsp0.align_down());
 	}
 
