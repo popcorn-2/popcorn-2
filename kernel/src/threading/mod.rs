@@ -120,6 +120,12 @@ impl ThreadId {
 		}
 	}
 	
+	pub fn new_from(val: NonZero<usize>) -> Self {
+		Self {
+			id: val,
+		}
+	}
+	
 	pub fn get(self) -> usize {
 		self.id.get()
 	}

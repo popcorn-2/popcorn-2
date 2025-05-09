@@ -7,6 +7,8 @@ use crate::ipc::{Error, NonNegativeIsize};
 use crate::ipc::server::Server;
 use crate::memory::r#virtual::AddressSpaceInner;
 use super::super::core_protos;
+use crate::hal::SaveStateTr;
+use crate::threading::ThreadId;
 
 /// Manages thread objects, implementing `core.proc.Proc` and `core.proc.Thread`
 /// 
@@ -38,6 +40,38 @@ impl Server for ProcServer {
 			m if m == const { core_protos::proc::THREAD | core_protos::proc::THREAD_SET_TCB } => {
 				unsupported_other_thread()?;
 				unsafe { crate::hal::load_user_tls(b as _); }
+				return Ok(NonNegativeIsize::new(0).unwrap());
+			}
+			m if m == const { core_protos::proc::THREAD | core_protos::proc::THREAD_EXEC } => {
+				let mut guard = crate::threading::try_get_thread_pointer(ThreadId::new_from(fd.try_into().map_err(|_| Error::InvalidArg)?))
+						.ok_or_else(|| {
+							debug!("could not find ThreadPointer");
+							Error::InvalidArg
+						})?;
+				
+				let userspace_shim = move || {
+					crate::hal::switch_to_userspace_at(VirtualAddress::new(b), VirtualAddress::new(c));
+				};
+				let boxed_userspace = Box::into_raw(Box::new(Box::new(userspace_shim) as Box<dyn FnOnce() + Send + 'static>));
+				extern "C" fn shim(f: usize) -> ! {
+					debug!("started uninit thrad shim");
+					unsafe {
+						Box::from_raw(f as *mut Box<dyn FnOnce() + Send + 'static>)();
+					}
+					unreachable!()
+				}
+				
+				if !guard.tcb_mut().state.is_uninit() {
+					debug!("attempt to `exec` an already running thread");
+					return Err(Error::InvalidArg);
+				}
+				// SAFETY: We just checked the thread is still in an `Uninit` state and therefore has never been run
+				unsafe {
+					guard.tcb_mut().save_state.set_entry(shim, boxed_userspace as usize);
+				}
+				
+				crate::threading::start_uninit_thread(guard);
+
 				return Ok(NonNegativeIsize::new(0).unwrap());
 			}
 			m if m == const { core_protos::proc::PROC | core_protos::proc::PROC_EXIT } => {
