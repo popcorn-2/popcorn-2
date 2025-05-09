@@ -65,7 +65,7 @@ impl Scheduler for TicklessRoundRobin {
 		match *old_thread.tcb_mut().state {
 			ThreadState::Parked(_) => threading::move_to_global_parking_lot(old_thread),
 			ThreadState::Ready | ThreadState::JustUnparked(_) => self.enqueue(old_thread),
-			ThreadState::Running => unreachable!(),
+			ThreadState::Running | ThreadState::Uninit => unreachable!(),
 		}
 	}
 

@@ -197,6 +197,9 @@ pub enum ThreadState {
 	Parked(Arc<ParkGaurd>),
 	/// The thread was unparked but has not been run since
 	JustUnparked(WakeReason),
+	/// The thread has been created, but has not yet started execution,
+	/// and likely has an invalid starting stack
+	Uninit,
 }
 
 impl ThreadState {
@@ -233,6 +236,13 @@ impl ThreadState {
 		match self {
 			Self::JustUnparked(reason) => Some(*reason),
 			_ => None,
+		}
+	}
+
+	pub fn is_uninit(&self) -> bool {
+		match self {
+			Self::Uninit => true,
+			_ => false,
 		}
 	}
 }
