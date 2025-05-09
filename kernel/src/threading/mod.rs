@@ -42,14 +42,14 @@ use alloc::sync::Arc;
 use core::arch::{asm, naked_asm};
 use core::fmt::Debug;
 use core::num::NonZero;
-use core::ops::Range;
+use core::ops::{Deref, DerefMut, Range};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use hashbrown::HashMap;
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
 use kernel_api::memory::mapping::{Protection, Stack, RawStack};
 use kernel_api::memory::physical::{highmem, OwnedFrames};
 use kernel_api::memory::r#virtual::{Kernel, OwnedPages};
-use kernel_api::sync::Spinlock;
+use kernel_api::sync::{Spinlock, SpinlockGuard};
 use crate::{hashmap_new, non_zero};
 use scheduler::Scheduler;
 
@@ -259,6 +259,53 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 /// Returns `None` if the core is idle
 pub fn current_thread() -> Option<ThreadId> {
 	percpu_v2!(current_thread).read().as_ref().map(|t| *t.tcb_ref().thread_id)
+}
+
+pub fn get_thread(id: ThreadId) -> Option<impl DerefMut<Target = Thread>> {
+	let guard = TASK_LIST.lock();
+	if guard.get(&id).is_none() { return None; }
+	Some(SpinlockGuard::map(
+		guard,
+		|val| &mut val.get_mut(&id).expect("just checked this exists").0
+	))
+}
+
+pub struct ThreadPointerGuard<'a> {
+	pointer: *mut ThreadPointer,
+	guard: SpinlockGuard<'a, HashMap<ThreadId, (Thread, PointerState)>>,
+}
+
+impl<'a> ThreadPointerGuard<'a> {
+	fn try_new(mut guard: SpinlockGuard<'a, HashMap<ThreadId, (Thread, PointerState)>>, id: ThreadId) -> Option<Self> {
+		let val = match &mut guard.get_mut(&id).expect("thread pointer does not exist").1 {
+			PointerState::InScheduler => None,
+			PointerState::GloballyParked(ptr) => Some(ptr)
+		};
+		Some(ThreadPointerGuard {
+			pointer: val?,
+			guard
+		})
+	}
+}
+
+impl Deref for ThreadPointerGuard<'_> {
+	type Target = ThreadPointer;
+
+	fn deref(&self) -> &Self::Target {
+		unsafe { &*self.pointer }
+	}
+}
+
+impl DerefMut for ThreadPointerGuard<'_> {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		unsafe { &mut *self.pointer }
+	}
+}
+
+pub fn try_get_thread_pointer(id: ThreadId) -> Option<ThreadPointerGuard<'static>> {
+	let guard = TASK_LIST.lock();
+	if guard.get(&id).is_none() { return None; }
+	ThreadPointerGuard::try_new(guard, id)
 }
 
 fn move_to_global_parking_lot(mut thread: ThreadPointer) {
