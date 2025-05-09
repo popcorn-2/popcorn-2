@@ -626,7 +626,10 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		let thread = guard.as_ref().unwrap().tcb_ref();
 
 		let stdio_handle = ipc::open("console:/").expect("unable to open console");
-		let thread_handle = Handle::new(ipc::server::proc_server(), thread.thread_id.get());
+		let thread_handle = Handle::new(
+			ipc::server::servers().get_server_at("proc").expect("unable to open `proc`").0,
+			thread.thread_id.get()
+		);
 
 		thread.handles.openat(0, stdio_handle)
 				.expect("unable to open fd 0");

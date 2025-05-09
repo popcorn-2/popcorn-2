@@ -54,12 +54,8 @@ impl ServerId {
 
 static SERVERS: LazyLock<RwSpinlock<ServerList>> = LazyLock::new(|| RwSpinlock::new(ServerList::new()));
 
-// fixme: can this be improved?
-static PROC_SERVER_ID: OnceLock<ServerId> = OnceLock::new();
-
 pub fn servers() -> impl Deref<Target = ServerList> { SERVERS.read() }
 pub(super) fn servers_mut() -> impl DerefMut<Target = ServerList> { SERVERS.write() }
-pub fn proc_server() -> ServerId { *PROC_SERVER_ID.get().unwrap() }
 
 #[derive(Debug)]
 pub struct ServerList {
@@ -82,9 +78,8 @@ impl ServerList {
 		list.insert_server(Some(Cow::Borrowed("")), RootServer::new().into())
 				.expect("Not enough servers inserted yet for overflow");
 		
-		let id = list.insert_server(None, ProcServer::new().into())
+		list.insert_server(Some(Cow::Borrowed("proc")), ProcServer::new().into())
 				.expect("Not enough servers inserted yet for overflow");
-		PROC_SERVER_ID.get_or_init(|| id);
 
 		list.insert_server(Some(Cow::Borrowed("console")), ConsoleServer::new().into())
 		    .expect("Not enough servers inserted yet for overflow");
