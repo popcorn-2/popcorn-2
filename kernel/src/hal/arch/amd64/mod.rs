@@ -293,6 +293,12 @@ impl SaveStateTr for Amd64SaveState {
 			.. Self::default()
 		}
 	}
+
+	unsafe fn set_entry(&mut self, main: extern "C" fn(usize) -> !, args: usize) {
+		let stack_ptr = self.rsp.assume_init_read() as *mut usize;
+		stack_ptr.offset(4).write(main as usize);
+		stack_ptr.offset(3).write(args);
+	}
 }
 
 extern "x86-interrupt" fn breakpoint(frame: InterruptStackFrame) {

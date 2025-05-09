@@ -18,6 +18,10 @@ pub enum Result { Success, Failure }
 
 pub trait SaveStateTr: Debug + Default {
 	fn new(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, args: usize) -> Self;
+	/// # Safety
+	/// 
+	/// The thread must never have been run
+	unsafe fn set_entry(&mut self, main: extern "C" fn(usize) -> !, args: usize);
 }
 
 #[repr(C)]
