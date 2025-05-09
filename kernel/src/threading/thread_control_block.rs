@@ -179,10 +179,36 @@ impl ThreadControlBlock {
 
 		(new_thread, id)
 	}
+
+	pub fn clone_uninit_from(from: SharedView, name: Cow<'static, str>, startup: unsafe extern "C" fn()) -> (Self, ThreadId) {
+		extern "C" fn uninit_thread_panic(_: usize) -> ! {
+			panic!("attempted to run an uninit thread")
+		}
+		
+		let new_stack = new_stack(
+			mapping::Config::new(NonZeroUsize::new(32).unwrap()),
+			crate::paging_codes::THREAD_KERNEL_STACK,
+		).unwrap();
+
+		let id = ThreadId::new();
+		let mut new_thread = ThreadControlBlock::new_inner(
+			Arc::clone(from.address_space),
+			Default::default(),
+			name,
+			new_stack,
+			ThreadState::Uninit,
+			id,
+			Arc::clone(from.handles),
+		);
+		new_thread.save_state = UnsafeCell::new(SaveState::new(&mut new_thread, startup, uninit_thread_panic, 0));
+
+		(new_thread, id)
+	}
 }
 
 impl Drop for ThreadControlBlock {
 	fn drop(&mut self) {
+		debug!("dropped TCB for thread {:?}", self.thread_id);
 		assert!(!self.state.get_mut().is_running(), "Cannot drop currently running thread as this would remove the current stack");
 	}
 }

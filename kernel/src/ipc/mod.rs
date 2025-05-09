@@ -242,7 +242,8 @@ fn syscall(proto_method: u128, a: usize, b: usize, c: usize, d: usize) -> Result
 		debug!("dispatch to {handle:x?}");
 		
 		let servers = server::servers();
-		let srv = servers.get_server(handle.server_id())?;
+		let srv = servers.get_server(handle.server_id())?.clone();
+		drop(servers);
 		
 		match (meta.a, meta.b, meta.ret) {
 			(ArgTy::Value | ArgTy::None, ArgPairTy::Pair(ArgTy::Value | ArgTy::None, ArgTy::Value | ArgTy::None) | ArgPairTy::None, ArgTy::Value | ArgTy::None) => {

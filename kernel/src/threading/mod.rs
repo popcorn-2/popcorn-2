@@ -254,6 +254,41 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 	Ok(id)
 }
 
+pub fn clone_current_uninit(name: Cow<'static, str>) -> Result<ThreadId, AllocError> {
+	let (tcb, id) = ThreadControlBlock::clone_uninit_from(
+		percpu_v2!(current_thread).read().as_ref()
+				.expect("cannot clone non-existent thread")
+				.tcb_ref(),
+		name,
+		thread_startup,
+	);
+
+	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
+
+	TASK_LIST.lock()
+	         .try_insert(id, (thread, PointerState::GloballyParked(ptr)))
+	         .expect("ThreadId reuse");
+
+	Ok(id)
+}
+
+pub fn start_uninit_thread(thread_pointer: ThreadPointerGuard<'static>) {
+	let tid = *thread_pointer.tcb_ref().thread_id;
+	let ThreadPointerGuard { mut guard, .. } = thread_pointer;
+	let global_thread = guard.get_mut(&tid).expect("we already had a guard to this thread");
+	
+	match global_thread.1 {
+		PointerState::GloballyParked(_) => {
+			let PointerState::GloballyParked(mut ptr) = core::mem::replace(&mut global_thread.1, PointerState::InScheduler) else { unreachable!() };
+
+			debug!("Enqueue thread {:?} from uninit", ptr.tcb_mut().thread_id);
+			*ptr.tcb_mut().state = ThreadState::Ready;
+			scheduler::enqueue(ptr);
+		},
+		_ => unreachable!("uninit thread cannot be in scheduler"),
+	}
+}
+
 /// Gets the [`ThreadId`] for the thread currently running on this core
 /// 
 /// Returns `None` if the core is idle

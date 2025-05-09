@@ -17,8 +17,18 @@ use super::super::core_protos;
 pub struct ProcServer {}
 
 impl Server for ProcServer {
-	fn open(&self, _endpoint: Cow<'_, Box<str>, str>) -> Result<usize, Error> {
-		unimplemented!()
+	fn open(&self, endpoint: Cow<'_, Box<str>, str>) -> Result<usize, Error> {
+		let endpoint = &*endpoint;
+		if let Some(thread_name) = endpoint.strip_prefix("threads/") {
+			debug!("Create child thread with name `{thread_name}`");
+			let new_tcb = crate::threading::clone_current_uninit(
+				alloc::borrow::Cow::Owned(thread_name.to_owned()),
+			);
+			new_tcb.map(|thread_id| thread_id.get())
+					.map_err(|_| Error::AllocationFailure)
+		} else {
+			Err(Error::Unimplemented)
+		}
 	}
 
 	fn dispatch_vvv_ve(&self, proto_method: u128, fd: usize, b: usize, c: usize, d: usize) -> Result<NonNegativeIsize, Error> {
