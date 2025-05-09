@@ -118,6 +118,9 @@ pub enum Error {
 	InvalidArg = 5,
 	NameInUse = 6,
 	BadServer = 7,
+	BadHandle = 8,
+	ServerDead = 9,
+	AllocationFailure = 10,
 }
 
 #[repr(transparent)]
