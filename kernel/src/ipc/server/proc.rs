@@ -74,6 +74,11 @@ impl Server for ProcServer {
 
 				return Ok(NonNegativeIsize::new(0).unwrap());
 			}
+			m if m == const { core_protos::proc::THREAD | core_protos::proc::THREAD_YIELD } => {
+				unsupported_other_thread()?;
+				let _ = crate::threading::yield_now();
+				Ok(NonNegativeIsize::new(0).unwrap())
+			}
 			m if m == const { core_protos::proc::PROC | core_protos::proc::PROC_EXIT } => {
 				unsupported_other_thread()?;
 				crate::threading::exit(b as i8);

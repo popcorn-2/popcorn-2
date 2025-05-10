@@ -41,7 +41,7 @@ mod core_protos {
 		pub const PROC_DEALLOC: u128 = 3<<96;
 		pub const THREAD_SET_TCB: u128 = 0<<96;
 		pub const THREAD_EXEC: u128 = 1<<96;
-		pub const THREAD_JOIN: u128 = 2<<96;
+		pub const THREAD_YIELD: u128 = 2<<96;
 	}
 }
 
@@ -113,11 +113,11 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core_protos::proc::THREAD | core_protos::proc::THREAD_JOIN,
+		core_protos::proc::THREAD | core_protos::proc::THREAD_YIELD,
 		HandledMethod {
 			a: ArgTy::None,
 			b: ArgPairTy::None,
-			ret: ArgTy::Value,
+			ret: ArgTy::None,
 		}
 	).unwrap();
 	map.try_insert(
