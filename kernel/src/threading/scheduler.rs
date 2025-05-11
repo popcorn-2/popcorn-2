@@ -24,9 +24,11 @@ use crate::memory::paging::ktable;
 use crate::{hashmap_new, non_zero, assert_unsafe_precondition};
 use crate::threading::{CoreId, Thread, ThreadId, ThreadPointer, WakeReason};
 use crate::threading::{PointerView, SharedView, ThreadControlBlock, ThreadState};
+use crate::threading::scheduler::control::ControlEvent;
 
 #[doc(hidden)]
 mod tickless_round_robin;
+mod control;
 
 /// [`Injector`]s to add new threads to each core
 static SCHEDULER_INJECTORS: RwSpinlock<Vec<Box<dyn Injector>>> = RwSpinlock::new(vec![]);
@@ -61,6 +63,12 @@ pub trait Scheduler: Debug {
 	fn enqueue(&mut self, thread: ThreadPointer);
 
 	fn unpark(&mut self, thread_id: ThreadId, reason: WakeReason);
+}
+
+fn handle_control_event(this: &mut impl Scheduler, event: ControlEvent) {
+	match event {
+		ControlEvent::Unpark(thread_id, reason) => this.unpark(thread_id, reason),
+	}
 }
 
 #[define_opaque(super::SchedulerTy)]
