@@ -17,7 +17,7 @@ use core::mem::transmute;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::hal;
 #[cfg(feature = "preemptive")] use core::time::Duration;
-use kernel_api::sync::{IrqCell, IrqGuard, Spinlock};
+use kernel_api::sync::{IrqCell, IrqGuard, RwSpinlock, Spinlock};
 use kernel_api::time::Instant;
 use crate::hal::paging2::TTable;
 use crate::memory::paging::ktable;
@@ -29,7 +29,7 @@ use crate::threading::{PointerView, SharedView, ThreadControlBlock, ThreadState}
 mod tickless_round_robin;
 
 /// [`Injector`]s to add new threads to each core
-static SCHEDULER_INJECTORS: Spinlock<Vec<Box<dyn Injector>>> = Spinlock::new(vec![]);
+static SCHEDULER_INJECTORS: RwSpinlock<Vec<Box<dyn Injector>>> = RwSpinlock::new(vec![]);
 
 pub trait Injector: Send + Sync {
 	/// Adds the `thread` to the list of ready-to-run threads in the scheduler
@@ -69,7 +69,7 @@ pub(super) fn create_scheduler_for_current_core(running_thread: ThreadPointer) -
 	percpu_v2!(scheduler).set(IrqCell::new(scheduler))
 			.expect("Scheduler already initialised");
 	*percpu_v2!(current_thread).write() = Some(running_thread);
-	let mut guard = SCHEDULER_INJECTORS.lock();
+	let mut guard = SCHEDULER_INJECTORS.write();
 	guard.push(injector);
 	CoreId { id: guard.len() - 1 }
 }
@@ -85,7 +85,7 @@ pub fn enqueue(mut thread: ThreadPointer) {
 	
 	assert!(thread.tcb_mut().state.is_ready());
 	
-	let injectors = SCHEDULER_INJECTORS.lock();
+	let injectors = SCHEDULER_INJECTORS.read();
 	assert!(!injectors.is_empty(), "Scheduler not yet initialised");
 	let injector_idx = CORE_NUM.fetch_add(1, Ordering::Relaxed) % injectors.len();
 	let injector = &injectors[injector_idx];
