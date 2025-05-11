@@ -111,7 +111,8 @@ impl BitmapAllocator {
         if frame_count > BITS_PER_BITMAP_UNIT { alloc_err!("Too many pages for allocate_multiple_fast"); }
 
         // Create a mask of `frame_count` contiguous bits
-        let mask = (2 << (frame_count - 1)) - 1;
+        let mask = if frame_count == BITS_PER_BITMAP_UNIT { usize::MAX }
+                          else { (1 << frame_count) - 1 };
 
         for (i, entry) in self.bitmap.iter_mut().enumerate() {
             // locate the first free frame so we don't waste time checking unnecessary bits
