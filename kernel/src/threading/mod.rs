@@ -63,6 +63,7 @@ mod yielding;
 
 pub use parking::{park, ParkError, WakeReason, WakeTrigger, Waker};
 pub use pointers::{Thread, ThreadPointer};
+pub use scheduler::ControlEvent;
 use ranged_btree_allocator::RangedBtreeAllocator;
 pub use sleeping::{sleep, sleep_until};
 pub use thread_control_block::{ThreadState, ThreadControlBlock, PointerView, OwnedView, SharedView};

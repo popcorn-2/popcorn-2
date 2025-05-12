@@ -13,18 +13,20 @@
 use alloc::sync::Arc;
 use core::cell::OnceCell;
 use core::fmt::Debug;
+use core::mem;
 use core::mem::transmute;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::hal;
 #[cfg(feature = "preemptive")] use core::time::Duration;
+use crossbeam_queue::SegQueue;
 use kernel_api::sync::{IrqCell, IrqGuard, RwSpinlock, Spinlock};
 use kernel_api::time::Instant;
 use crate::hal::paging2::TTable;
 use crate::memory::paging::ktable;
-use crate::{hashmap_new, non_zero, assert_unsafe_precondition};
-use crate::threading::{CoreId, Thread, ThreadId, ThreadPointer, WakeReason};
+use crate::{assert_unsafe_precondition, hashmap_new, non_zero};
+use crate::threading::{CoreId, PointerState, Thread, ThreadId, ThreadPointer, WakeReason};
 use crate::threading::{PointerView, SharedView, ThreadControlBlock, ThreadState};
-use crate::threading::scheduler::control::ControlEvent;
+pub use control::ControlEvent;
 
 #[doc(hidden)]
 mod tickless_round_robin;
@@ -32,6 +34,8 @@ mod control;
 
 /// [`Injector`]s to add new threads to each core
 static SCHEDULER_INJECTORS: RwSpinlock<Vec<Box<dyn Injector>>> = RwSpinlock::new(vec![]);
+
+static SCHEDULER_EVENT_QUEUES: RwSpinlock<Vec<Arc<SegQueue<ControlEvent>>>> = RwSpinlock::new(vec![]);
 
 pub trait Injector: Send + Sync {
 	/// Adds the `thread` to the list of ready-to-run threads in the scheduler
@@ -72,19 +76,22 @@ fn handle_control_event(this: &mut impl Scheduler, event: ControlEvent) {
 }
 
 #[define_opaque(super::SchedulerTy)]
-pub(super) fn create_scheduler_for_current_core(running_thread: ThreadPointer) -> CoreId {
+pub(super) fn create_scheduler_for_current_core() -> CoreId {
 	let (scheduler, injector, _stealer) = <tickless_round_robin::TicklessRoundRobin as Scheduler>::new();
-	percpu_v2!(scheduler).set(IrqCell::new(scheduler))
+	let control_queue = Arc::new(SegQueue::new());
+	percpu_v2!(scheduler).set((IrqCell::new(scheduler), Arc::clone(&control_queue)))
 			.expect("Scheduler already initialised");
-	*percpu_v2!(current_thread).write() = Some(running_thread);
 	let mut guard = SCHEDULER_INJECTORS.write();
 	guard.push(injector);
-	CoreId { id: guard.len() - 1 }
+	let mut guard = SCHEDULER_EVENT_QUEUES.write();
+	guard.push(control_queue);
+	CoreId { id: (guard.len() - 1).try_into().expect("too many cores") }
 }
 
-pub(super) fn local_scheduler() -> &'static IrqCell<impl Scheduler + Debug> {
-	percpu_v2!(scheduler).get()
-			.expect("Scheduler not yet initialised")
+pub(super) fn local_scheduler() -> &'static IrqCell<impl Scheduler> {
+	let (scheduler, _) = percpu_v2!(scheduler).get()
+			.expect("Scheduler not yet initialised");
+	scheduler
 }
 
 /// Enqueues a thread onto a core such that system load stays balanced

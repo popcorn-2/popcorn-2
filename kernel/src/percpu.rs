@@ -1,7 +1,9 @@
-use core::cell::{Cell, LazyCell, OnceCell, UnsafeCell};
+use alloc::sync::Arc;
+use core::cell::{LazyCell, OnceCell, UnsafeCell};
 use core::sync::atomic::AtomicUsize;
+use crossbeam_queue::SegQueue;
 use kernel_api::sync::{IrqCell, RwSpinlock};
-use crate::threading::{Thread, ThreadId, ThreadPointer};
+use crate::threading::{ControlEvent, Thread, ThreadId, ThreadPointer};
 use crate::timing::TimerQueue;
 
 macro_rules! percpu_gen {
@@ -52,7 +54,7 @@ percpu_gen! {
         pub foo: UnsafeCell<usize> = UnsafeCell::new(6),
         pub local_timer_queue: TimerQueue = TimerQueue::new(),
         pub kernel_stack_top: AtomicUsize = AtomicUsize::new(0),
-        pub scheduler: OnceCell<IrqCell<crate::threading::SchedulerTy>> = OnceCell::new(),
+        pub scheduler: OnceCell<(IrqCell<crate::threading::SchedulerTy>, Arc<SegQueue<ControlEvent>>)> = OnceCell::new(),
         pub idle_thread: LazyCell<(ThreadId, Thread, UnsafeCell<ThreadPointer>)> = LazyCell::new(crate::threading::create_idle_thread),
         pub local_timer: OnceCell<crate::hal::timing::TimerMeta> = OnceCell::new(),
         pub current_thread: RwSpinlock<Option<ThreadPointer>> = RwSpinlock::new(None),
