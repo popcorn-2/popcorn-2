@@ -46,7 +46,7 @@ use core::ops::{Deref, DerefMut, Range};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use hashbrown::HashMap;
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
-use kernel_api::memory::mapping::{Protection, Stack, RawStack};
+use kernel_api::memory::mapping::{Protection, RawStack, Stack};
 use kernel_api::memory::physical::{highmem, OwnedFrames};
 use kernel_api::memory::r#virtual::{Kernel, OwnedPages};
 use kernel_api::sync::{Spinlock, SpinlockGuard};
@@ -61,13 +61,13 @@ mod sleeping;
 mod thread_control_block;
 mod yielding;
 
-pub use parking::{park, ParkError, WakeReason, WakeTrigger, Waker};
+pub use parking::{park, ParkError, Waker, WakeReason, WakeTrigger};
 pub use pointers::{Thread, ThreadPointer};
 pub use scheduler::ControlEvent;
 use ranged_btree_allocator::RangedBtreeAllocator;
 pub use sleeping::{sleep, sleep_until};
-pub use thread_control_block::{ThreadState, ThreadControlBlock, PointerView, OwnedView, SharedView};
-pub use yielding::{yield_now, yield_defer, create_idle_thread};
+pub use thread_control_block::{OwnedView, PointerView, SharedView, ThreadControlBlock, ThreadState};
+pub use yielding::{create_idle_thread, yield_defer, yield_now};
 use crate::hal::paging2::TTable;
 use crate::hal::TTableTy;
 use crate::ipc::handle::HandleMap;
@@ -83,7 +83,7 @@ static TASK_LIST: Spinlock<HashMap<ThreadId, (Thread, PointerState)>> = Spinlock
 
 #[derive(Debug)]
 enum PointerState {
-	InScheduler,
+	InScheduler(CoreId),
 	GloballyParked(ThreadPointer),
 }
 
@@ -135,7 +135,7 @@ impl ThreadId {
 /// The numerical ID of a CPU core
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct CoreId {
-	id: usize,
+	id: isize,
 }
 
 /// Initializes the scheduler subsystem
@@ -184,14 +184,16 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 	crate::hal::first_thread_init(&tcb);
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
 
+	let core = scheduler::create_scheduler_for_current_core();
+	
 	assert!(
 		TASK_LIST.lock()
-				.try_insert(INIT_THREAD_ID, (thread, PointerState::InScheduler))
+				.try_insert(INIT_THREAD_ID, (thread, PointerState::InScheduler(core)))
 				.is_ok(),
 		"ThreadId(1) should not exist already"
 	);
 	
-	let core = scheduler::create_scheduler_for_current_core(ptr);
+	*percpu_v2!(current_thread).write() = Some(ptr);
 	
 	crate::hal::enable_interrupts();
 
@@ -252,11 +254,11 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
 
-	TASK_LIST.lock()
-	         .try_insert(id, (thread, PointerState::InScheduler))
+	let mut guard = TASK_LIST.lock();
+	let thread = guard.try_insert(id, (thread, PointerState::GloballyParked(ptr)))
 	         .expect("ThreadId reuse");
 
-	scheduler::enqueue(ptr);
+	scheduler::enqueue(&mut thread.1);
 
 	Ok(id)
 }
@@ -285,12 +287,10 @@ pub fn start_uninit_thread(thread_pointer: ThreadPointerGuard<'static>) {
 	let global_thread = guard.get_mut(&tid).expect("we already had a guard to this thread");
 	
 	match global_thread.1 {
-		PointerState::GloballyParked(_) => {
-			let PointerState::GloballyParked(mut ptr) = core::mem::replace(&mut global_thread.1, PointerState::InScheduler) else { unreachable!() };
-
+		PointerState::GloballyParked(ref mut ptr) => {
 			debug!("Enqueue thread {:?} from uninit", ptr.tcb_mut().thread_id);
 			*ptr.tcb_mut().state = ThreadState::Ready;
-			scheduler::enqueue(ptr);
+			scheduler::enqueue(&mut global_thread.1);
 		},
 		_ => unreachable!("uninit thread cannot be in scheduler"),
 	}
@@ -320,7 +320,7 @@ pub struct ThreadPointerGuard<'a> {
 impl<'a> ThreadPointerGuard<'a> {
 	fn try_new(mut guard: SpinlockGuard<'a, HashMap<ThreadId, (Thread, PointerState)>>, id: ThreadId) -> Option<Self> {
 		let val = match &mut guard.get_mut(&id).expect("thread pointer does not exist").1 {
-			PointerState::InScheduler => None,
+			PointerState::InScheduler(_) => None,
 			PointerState::GloballyParked(ptr) => Some(ptr)
 		};
 		Some(ThreadPointerGuard {
@@ -360,7 +360,7 @@ fn move_to_global_parking_lot(mut thread: ThreadPointer) {
 	                         .expect("Cannot park a non-existent thread");
 
 	match global_thread.1 {
-		PointerState::InScheduler => {
+		PointerState::InScheduler(_) => {
 			global_thread.1 = PointerState::GloballyParked(thread);
 		},
 		PointerState::GloballyParked(_) => {
@@ -402,5 +402,5 @@ pub unsafe extern "C" fn thread_startup() {
 
 #[doc(hidden)]
 pub fn debug() {
-	debug!("current_thread = {:?}\n{:#?}", *percpu_v2!(current_thread).read(), scheduler::local_scheduler());
+	debug!("current_thread = {:?}\n{:#?}", *percpu_v2!(current_thread).read(), scheduler::local_scheduler().0);
 }

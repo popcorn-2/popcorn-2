@@ -56,7 +56,7 @@ impl Scheduler for TicklessRoundRobin {
 		)
 	}
 
-	fn get_next_thread(&mut self) -> Option<ThreadPointer> {
+	fn get_next_thread_(&mut self) -> Option<ThreadPointer> {
 		self.run_queue.lock().pop_front()
 	}
 
@@ -73,12 +73,14 @@ impl Scheduler for TicklessRoundRobin {
 		self.run_queue.lock().push_back(thread);
 	}
 
-	fn unpark(&mut self, thread_id: ThreadId, reason: WakeReason) {
+	fn unpark(&mut self, thread_id: ThreadId, reason: WakeReason) -> Result<(), ()> {
 		debug!("scheduler local unpark of {thread_id:?} for {reason:?}");
 		let mut guard = percpu_v2!(current_thread).write();
-		let t = guard.as_mut().expect("`tickless_round_robin` globally parks all threads so unpark a local thread must be the current thread");
-		assert_eq!(*t.tcb_ref().thread_id, thread_id);
-		debug_assert!(t.tcb_mut().state.is_parked() || t.tcb_mut().state.is_just_unparked());
-		*t.tcb_mut().state = ThreadState::JustUnparked(reason);
+		let t = guard.as_mut().ok_or(())?;
+		if *t.tcb_ref().thread_id == thread_id {
+			debug_assert!(t.tcb_mut().state.is_parked() || t.tcb_mut().state.is_just_unparked());
+			*t.tcb_mut().state = ThreadState::JustUnparked(reason);
+			Ok(())
+		} else { Err(()) } 
 	}
 }

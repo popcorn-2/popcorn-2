@@ -93,10 +93,11 @@ pub fn yield_now() -> Option<WakeReason> {
 	// First we lock the scheduler for the current core, and ask it for the current and new threads
 	// Wrap it in `ManuallyDrop` since we recreate the guard later, as the thread may have migrated
 	// during the context switch
-	let mut scheduler = ManuallyDrop::new(scheduler::local_scheduler().lock());
-	let mut guard = ManuallyDrop::new(percpu_v2!(current_thread).write());
+	let (scheduler, queue) = scheduler::local_scheduler();
+	let mut scheduler = ManuallyDrop::new(scheduler.lock());
 	
-	if let Some(new_thread) = scheduler.get_next_thread() {
+	if let Some(new_thread) = scheduler.get_next_thread(queue) {
+		let mut guard = ManuallyDrop::new(percpu_v2!(current_thread).write());
 		let old_thread = core::mem::replace(&mut **guard, Some(new_thread));
 		let new_thread = guard.as_mut().expect("Just added `new_thread`");
 		
@@ -118,6 +119,7 @@ pub fn yield_now() -> Option<WakeReason> {
 			}
 		}
 	} else {
+		let mut guard = ManuallyDrop::new(percpu_v2!(current_thread).write());
 		// no new thread, so either keep running old thread, or idle
 		let old_thread = guard.take();
 		
@@ -160,7 +162,7 @@ pub fn yield_now() -> Option<WakeReason> {
 }
 
 pub extern "C" fn post_switch_cleanup(mut previous_thread: ThreadPointer) {
-	let mut guard = unsafe { scheduler::local_scheduler().make_guard_unchecked() };
+	let mut guard = unsafe { scheduler::local_scheduler().0.make_guard_unchecked() };
 	let _ = unsafe { percpu_v2!(current_thread).force_unlock_write() };
 	let tcb = previous_thread.tcb_mut();
 	trace!("[b] switch from `{:?}` to current, old blocked in state {:?}", tcb.thread_id, tcb.state);
