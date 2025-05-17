@@ -83,4 +83,8 @@ impl Scheduler for TicklessRoundRobin {
 			Ok(())
 		} else { Err(()) } 
 	}
+
+	fn kill(&mut self, thread_id: ThreadId) -> Result<(), ()> {
+		todo!()
+	}
 }

@@ -74,6 +74,7 @@ pub trait Scheduler: Debug {
 	fn enqueue(&mut self, thread: ThreadPointer);
 
 	fn unpark(&mut self, thread_id: ThreadId, reason: WakeReason) -> Result<(), ()>;
+	fn kill(&mut self, thread_id: ThreadId) -> Result<(), ()>;
 }
 
 pub fn handle_control_event(this: &mut (impl Scheduler + ?Sized), event: ControlEvent) {
@@ -85,6 +86,12 @@ pub fn handle_control_event(this: &mut (impl Scheduler + ?Sized), event: Control
 				Err(_) => super::parking::do_wake(thread_id, reason),
 			}
 		},
+		ControlEvent::Kill(thread_id) => {
+			match this.kill(thread_id) {
+				Ok(_) => {},
+				Err(_) => super::do_kill(thread_id),
+			}
+		}
 	}
 }
 
