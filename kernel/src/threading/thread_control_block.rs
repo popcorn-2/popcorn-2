@@ -2,12 +2,15 @@
 use alloc::borrow::Cow;
 use alloc::sync::Arc;
 use core::cell::UnsafeCell;
-use core::num::NonZeroUsize;
+use core::fmt::{Debug, Formatter};
+use core::num::{NonZero, NonZeroUsize};
+use core::ptr;
+use core::sync::atomic::{AtomicU128, Ordering};
 use kernel_api::memory::mapping;
 use kernel_api::memory::mapping::{new_stack, Stack};
 use kernel_api::memory::r#virtual::Kernel;
 use crate::hal::{self, SaveState, TTableTy};
-use super::{parking::ParkGaurd, ThreadId, WakeReason};
+use super::{parking::ParkGaurd, Thread, ThreadId, ThreadPointer, WakeReason};
 use crate::hal::SaveStateTr;
 use crate::ipc::handle::HandleMap;
 use crate::memory::r#virtual::AddressSpaceInner;
@@ -118,7 +121,7 @@ tcb_views! {
 		/// The stack that kernel code runs on inside the thread
 		kernel_stack: Stack<'static, Kernel>,
 		/// The current running state of the thread
-		#mut(Pointer) state: ThreadState,
+		state: AtomicThreadState,
 		/// The numerical ID of the thread
 		thread_id: ThreadId,
 		//// The currently open handles
@@ -171,7 +174,7 @@ impl ThreadControlBlock {
 			Default::default(),
 			name,
 			new_stack,
-			ThreadState::Ready,
+			AtomicThreadState::new(ThreadState::Ready),
 			id,
 			Arc::new(HandleMap::new()),
 		);
@@ -196,7 +199,7 @@ impl ThreadControlBlock {
 			Default::default(),
 			name,
 			new_stack,
-			ThreadState::Uninit,
+			AtomicThreadState::new(ThreadState::Uninit),
 			id,
 			Arc::clone(from.handles),
 		);
@@ -204,12 +207,81 @@ impl ThreadControlBlock {
 
 		(new_thread, id)
 	}
+	
+	pub fn from_owned(thread: Thread, _pointer: ThreadPointer) -> Self {
+		unsafe { *Box::from_raw(thread.ptr.as_ptr()) }
+	}
 }
 
 impl Drop for ThreadControlBlock {
 	fn drop(&mut self) {
 		debug!("dropped TCB for thread {:?}", self.thread_id);
-		assert!(!self.state.get_mut().is_running(), "Cannot drop currently running thread as this would remove the current stack");
+		assert!(!self.state.load(Ordering::SeqCst).is_running(), "Cannot drop currently running thread as this would remove the current stack");
+	}
+}
+
+pub struct AtomicThreadState(AtomicU128);
+
+impl AtomicThreadState {
+	fn to_raw(state: ThreadState) -> u128 {
+		let (high, low): (usize, usize) = match state {
+			ThreadState::Ready => (0, 0),
+			ThreadState::Running => (1, 0),
+			ThreadState::Parked(park) => (2, Arc::into_raw(park).expose_provenance()),
+			ThreadState::JustUnparked(WakeReason::Timeout) => (3, 0),
+			ThreadState::JustUnparked(WakeReason::Custom(val)) => (3, val.get() as usize),
+			ThreadState::Uninit => (4, 0),
+			ThreadState::Dead => (5, 0),
+		};
+
+		(high as u128) << 64 | (low as u128)
+	}
+
+	fn from_raw(val: u128) -> ThreadState {
+		let (high, low) = ((val >> 64) as usize, val as usize);
+
+		match high {
+			0 => ThreadState::Ready,
+			1 => ThreadState::Running,
+			2 => {
+				let arc = unsafe { Arc::from_raw(ptr::with_exposed_provenance(low)) };
+				// since we store an arc ourselves
+				unsafe { Arc::increment_strong_count(Arc::as_ptr(&arc)) };
+				ThreadState::Parked(arc)
+			},
+			3 => ThreadState::JustUnparked(match NonZero::new(low as u16) {
+				None => WakeReason::Timeout,
+				Some(val) => WakeReason::Custom(val),
+			}),
+			4 => ThreadState::Uninit,
+			5 => ThreadState::Dead,
+			_ => unreachable!()
+		}
+	}
+
+	pub fn new(state: ThreadState) -> Self {
+		AtomicThreadState(AtomicU128::new(Self::to_raw(state)))
+	}
+
+	pub fn store(&self, state: ThreadState, ordering: Ordering) {
+		self.0.store(Self::to_raw(state), ordering);
+	}
+
+	pub fn load(&self, ordering: Ordering) -> ThreadState {
+		let val = self.0.load(ordering);
+		Self::from_raw(val)
+	}
+	
+	pub fn compare_exchange(&self, current: ThreadState, new: ThreadState, success: Ordering, failure: Ordering) {
+		let current = Self::to_raw(current);
+		let new = Self::to_raw(new);
+		let _ = self.0.compare_exchange(current, new, success, failure);
+	}
+}
+
+impl Debug for AtomicThreadState {
+	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+		Debug::fmt(&self.load(Ordering::Relaxed), f)
 	}
 }
 
@@ -226,6 +298,7 @@ pub enum ThreadState {
 	/// The thread has been created, but has not yet started execution,
 	/// and likely has an invalid starting stack
 	Uninit,
+	Dead,
 }
 
 impl ThreadState {

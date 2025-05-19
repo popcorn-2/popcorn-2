@@ -1,4 +1,5 @@
 use ::core::num::NonZero;
+use core::sync::atomic::Ordering;
 use kernel_api::memory::{mapping, VirtualAddress};
 use kernel_api::memory::mapping::{Mapping, new_mapping_in, Protection};
 #[allow(unused_imports)] use crate::prelude::*;
@@ -61,7 +62,7 @@ impl Server for ProcServer {
 					unreachable!()
 				}
 				
-				if !guard.tcb_mut().state.is_uninit() {
+				if !guard.tcb_ref().state.load(Ordering::SeqCst).is_uninit() {
 					debug!("attempt to `exec` an already running thread");
 					return Err(Error::InvalidArg);
 				}

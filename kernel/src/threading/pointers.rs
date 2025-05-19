@@ -7,7 +7,7 @@ use super::{PointerView, SharedView, OwnedView, ThreadControlBlock};
 ///
 /// See the [module level documentation](crate::threading#threadcontrolblock-vs-thread-vs-threadpointer-vs-threadid) for more information
 pub struct Thread {
-	ptr: NonNull<ThreadControlBlock>,
+	pub(super) ptr: NonNull<ThreadControlBlock>,
 }
 
 unsafe impl Send for Thread {}
@@ -75,18 +75,20 @@ impl ThreadPointer {
 
 impl Debug for Thread {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		let thread_id = self.tcb_ref().thread_id;
 		f.debug_struct("Thread")
-		 .field("ThreadId", &thread_id)
+		 .field("id", self.tcb_ref().thread_id)
+		 .field("state", self.tcb_ref().state)
+		 .field("name", self.tcb_ref().name)
 		 .finish_non_exhaustive()
 	}
 }
 
 impl Debug for ThreadPointer {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		let thread_id = self.tcb_ref().thread_id;
 		f.debug_struct("ThreadPointer")
-		 .field("ThreadId", thread_id)
+		 .field("id", self.tcb_ref().thread_id)
+		 .field("state", self.tcb_ref().state)
+		 .field("name", self.tcb_ref().name)
 		 .finish_non_exhaustive()
 	}
 }

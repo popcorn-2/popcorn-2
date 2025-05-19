@@ -3,6 +3,7 @@ use core::cell::{LazyCell, UnsafeCell};
 use core::mem::ManuallyDrop;
 use core::ptr;
 use core::ptr::addr_of;
+use core::sync::atomic::Ordering;
 use log::{debug, trace};
 use kernel_api::memory::physical::highmem;
 use kernel_api::sync::{IrqCell, IrqGuard};
@@ -10,7 +11,7 @@ use crate::hal::{ContextSwitchPreserve, self, IpiTarget, TTableTy};
 use crate::hal::paging2::TTable;
 use crate::memory::paging::ktable;
 use crate::memory::r#virtual::AddressSpaceInner;
-use super::{scheduler, WakeReason, ThreadState, scheduler::Scheduler, ThreadPointer, PointerView, Thread, ThreadControlBlock, ThreadId};
+use super::{scheduler, WakeReason, ThreadState, scheduler::Scheduler, ThreadPointer, PointerView, Thread, ThreadControlBlock, ThreadId, ControlEvent};
 
 pub fn create_idle_thread() -> (ThreadId, Thread, UnsafeCell<ThreadPointer>) {
 	extern "C" fn idle_loop(_: usize) -> ! {
@@ -68,10 +69,11 @@ pub fn yield_now() -> Option<WakeReason> {
 
 		#[cfg(feature = "log.scheduler")] trace!("[a] switch from `{:?}` to `{:?}`", from_view.thread_id, to_view.thread_id);
 
-		assert!(to_view.state.is_ready());
-		let reason = to_view.state.wake_reason();
-		*to_view.state = ThreadState::Running;
-		if from_view.state.is_running() { *from_view.state = ThreadState::Ready; }
+		let to_state = to_view.state.load(Ordering::SeqCst);
+		assert!(to_state.is_ready());
+		let reason = to_state.wake_reason();
+		to_view.state.store(ThreadState::Running, Ordering::SeqCst);
+		from_view.state.compare_exchange(ThreadState::Running, ThreadState::Ready, Ordering::SeqCst, Ordering::SeqCst);
 
 		// SAFETY: The AddressSpace is owned by the thread, and thread is always alive while running
 		unsafe {
@@ -94,9 +96,30 @@ pub fn yield_now() -> Option<WakeReason> {
 	// Wrap it in `ManuallyDrop` since we recreate the guard later, as the thread may have migrated
 	// during the context switch
 	let (scheduler, queue) = scheduler::local_scheduler();
-	let mut scheduler = ManuallyDrop::new(scheduler.lock());
+	let mut scheduler = scheduler.lock();
+
+	while let Some(event) = queue.pop() {
+		match event {
+			ControlEvent::Unpark(id, reason) => {
+				match scheduler.unpark(id, reason) {
+					Ok(_) => {},
+					Err(_) => super::parking::do_wake(id, reason),
+				}
+			},
+			ControlEvent::Kill(id) => if Some(id) == percpu_v2!(current_thread).read().as_ref().map(|tcb| *tcb.tcb_ref().thread_id) {
+				super::exit(i8::MIN);
+			} else {
+				match scheduler.kill(id) {
+					Ok(_) => {},
+					Err(_) => super::kill(id),
+				}
+			}
+		}
+	}
 	
-	if let Some(new_thread) = scheduler.get_next_thread(queue) {
+	let mut scheduler = ManuallyDrop::new(scheduler);
+	
+	if let Some(new_thread) = scheduler.get_next_thread() {
 		let mut guard = ManuallyDrop::new(percpu_v2!(current_thread).write());
 		let old_thread = core::mem::replace(&mut **guard, Some(new_thread));
 		let new_thread = guard.as_mut().expect("Just added `new_thread`");
@@ -124,7 +147,7 @@ pub fn yield_now() -> Option<WakeReason> {
 		let old_thread = guard.take();
 		
 		match old_thread {
-			Some(mut old_thread) => if old_thread.tcb_mut().state.is_running() || old_thread.tcb_mut().state.is_ready() {
+			Some(mut old_thread) => if old_thread.tcb_ref().state.load(Ordering::SeqCst).is_running() || old_thread.tcb_ref().state.load(Ordering::Relaxed).is_ready() {
 				debug!("no context switch");
 				
 				// No changes occur to scheduler so just return back to thread, but make sure scheduler gets unlocked
@@ -134,8 +157,8 @@ pub fn yield_now() -> Option<WakeReason> {
 				
 				let old_thread = guard.insert(old_thread);
 				
-				match old_thread.tcb_mut().state {
-					ThreadState::JustUnparked(reason) => Some(*reason),
+				match old_thread.tcb_ref().state.load(Ordering::SeqCst) {
+					ThreadState::JustUnparked(reason) => Some(reason),
 					_ => None,
 				}
 			} else {

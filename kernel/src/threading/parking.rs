@@ -1,7 +1,8 @@
 use alloc::sync::{Arc, Weak};
 use core::mem;
 use core::num::NonZeroU16;
-use log::{debug, warn};
+use core::sync::atomic::Ordering;
+use log::{debug, info, warn};
 use crate::prelude::percpu_v2;
 use super::{current_thread, scheduler, ThreadId, yield_now, scheduler::Scheduler, ThreadState, PointerState, ControlEvent};
 
@@ -63,7 +64,7 @@ pub fn park(wakers: &[&dyn Waker]) -> Result<WakeReason, ParkError> {
 		let thread = guard.as_mut().expect("Cannot park when not running a thread").tcb_mut();
 		let park_state = Arc::new(ParkGaurd { thread_id: *thread.thread_id });
 		let weak_ptr = Arc::downgrade(&park_state);
-		*thread.state = ThreadState::Parked(park_state);
+		thread.state.store(ThreadState::Parked(park_state), Ordering::SeqCst);
 		weak_ptr
 	};
 	// FIXME(preemption): any preemption after this point will cause an early park
@@ -119,7 +120,7 @@ pub(super) fn do_wake(thread: ThreadId, reason: WakeReason) {
 		},
 		PointerState::GloballyParked(ref mut ptr) => {
 			debug!("Enqueue thread {:?} from global parking lot with reason {reason:?}", ptr.tcb_mut().thread_id);
-			*ptr.tcb_mut().state = ThreadState::JustUnparked(reason);
+			ptr.tcb_ref().state.store(ThreadState::JustUnparked(reason), Ordering::SeqCst);
 			scheduler::enqueue(&mut global_thread.1);
 		},
 	};

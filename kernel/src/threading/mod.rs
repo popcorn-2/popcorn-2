@@ -49,7 +49,7 @@ use kernel_api::memory::{AllocError, Page, VirtualAddress};
 use kernel_api::memory::mapping::{Protection, RawStack, Stack};
 use kernel_api::memory::physical::{highmem, OwnedFrames};
 use kernel_api::memory::r#virtual::{Kernel, OwnedPages};
-use kernel_api::sync::{Spinlock, SpinlockGuard};
+use kernel_api::sync::{LazyLock, OnceLock, Spinlock, SpinlockGuard};
 use crate::{hashmap_new, non_zero};
 use scheduler::Scheduler;
 
@@ -72,6 +72,8 @@ use crate::hal::paging2::TTable;
 use crate::hal::TTableTy;
 use crate::ipc::handle::HandleMap;
 use crate::memory::r#virtual::AddressSpaceInner;
+use crate::threading::parking::ParkGaurd;
+use crate::threading::thread_control_block::AtomicThreadState;
 
 pub type SchedulerTy = impl Scheduler;
 
@@ -80,6 +82,24 @@ const INIT_THREAD_ID: ThreadId = ThreadId { id: non_zero!(INIT_THREAD_NUM) };
 
 /// Global list of all running threads
 static TASK_LIST: Spinlock<HashMap<ThreadId, (Thread, PointerState)>> = Spinlock::new(hashmap_new!());
+
+static THREAD_REAPER: LazyLock<ThreadId> = LazyLock::new(|| spawn_with(||
+	loop {
+		debug!("thread reaper loop running");
+		let mut guard = TASK_LIST.lock();
+		let iter = guard.extract_if(|_, (thread, pointer_state)| {
+			matches!(thread.tcb_ref().state.load(Ordering::SeqCst), ThreadState::Dead)
+			&& matches!(pointer_state, PointerState::GloballyParked(_))
+		});
+		for (_, (thread, pointer)) in iter {
+			debug!("killing {:?}", thread.tcb_ref().thread_id);
+			let PointerState::GloballyParked(pointer) = pointer else { unreachable!("just filtered for globally parked threads") };
+			drop(ThreadControlBlock::from_owned(thread, pointer));
+		}
+		drop(guard);
+		let _ = park(&[]);
+	}, Cow::Borrowed("thread reaper")).expect("could not spawn thread reaper")
+);
 
 #[derive(Debug)]
 enum PointerState {
@@ -176,7 +196,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		Default::default(),
 		Cow::Borrowed("init"),
 		unsafe { Stack::from_contiguous_raw_parts(stack_frames, stack_pages, Protection::RWX, RawStack) }, // FIXME: this should only be RW but that doesn't exist
-		ThreadState::Running,
+		AtomicThreadState::new(ThreadState::Running),
 		INIT_THREAD_ID,
 		Arc::new(HandleMap::new()),
 	);
@@ -288,8 +308,8 @@ pub fn start_uninit_thread(thread_pointer: ThreadPointerGuard<'static>) {
 	
 	match global_thread.1 {
 		PointerState::GloballyParked(ref mut ptr) => {
-			debug!("Enqueue thread {:?} from uninit", ptr.tcb_mut().thread_id);
-			*ptr.tcb_mut().state = ThreadState::Ready;
+			debug!("Enqueue thread {:?} from uninit", ptr.tcb_ref().thread_id);
+			ptr.tcb_ref().state.store(ThreadState::Ready, Ordering::SeqCst);
 			scheduler::enqueue(&mut global_thread.1);
 		},
 		_ => unreachable!("uninit thread cannot be in scheduler"),
@@ -350,8 +370,11 @@ pub fn try_get_thread_pointer(id: ThreadId) -> Option<ThreadPointerGuard<'static
 	ThreadPointerGuard::try_new(guard, id)
 }
 
-fn move_to_global_parking_lot(mut thread: ThreadPointer) {
-	assert!(thread.tcb_mut().state.is_parked(), "Cannot place unparked thread in parking lot");
+fn move_to_global_parking_lot(thread: ThreadPointer) {
+	assert!(
+		matches!(thread.tcb_ref().state.load(Ordering::SeqCst), ThreadState::Parked(_) | ThreadState::Dead),
+		"Cannot place unparked thread in parking lot"
+	);
 
 	debug!("Move {thread:?} to global parking lot");
 
@@ -370,13 +393,40 @@ fn move_to_global_parking_lot(mut thread: ThreadPointer) {
 			);
 		},
 	};
+	
+	if matches!(global_thread.0.tcb_ref().state.load(Ordering::SeqCst), ThreadState::Dead) {
+		drop(guard);
+		parking::do_wake(*THREAD_REAPER, WakeReason::Custom(non_zero!(1)));
+	}
 }
 
 pub fn exit(_exit_code: i8) -> ! {
 	debug!("Exit thread with code {_exit_code}");
-	let _ = park(&[]);
-	// todo: send this to a cleaner thread
+
+	percpu_v2!(current_thread).read().as_ref().expect("cannot exit from idle thread").tcb_ref()
+			.state.store(ThreadState::Dead, Ordering::SeqCst);
+	yield_now();
+	
 	unreachable!("Failed to exit thread");
+}
+
+pub fn kill(thread: ThreadId) {
+	let mut guard = TASK_LIST.lock();
+	let Some(global_thread) = guard.get_mut(&thread) else {
+		warn!("Bad thread id {thread:?}");
+		return;
+	};
+
+	match global_thread.1 {
+		PointerState::InScheduler(core_id) => {
+			scheduler::send_control_event(core_id, ControlEvent::Kill(thread));
+		},
+		PointerState::GloballyParked(ref mut ptr) => {
+			global_thread.0.tcb_ref().state.store(ThreadState::Dead, Ordering::SeqCst);
+			drop(guard);
+			parking::do_wake(*THREAD_REAPER, WakeReason::Custom(non_zero!(1)));
+		},
+	};
 }
 
 #[unsafe(naked)]
@@ -402,5 +452,5 @@ pub unsafe extern "C" fn thread_startup() {
 
 #[doc(hidden)]
 pub fn debug() {
-	debug!("current_thread = {:?}\n{:#?}", *percpu_v2!(current_thread).read(), scheduler::local_scheduler().0);
+	info!("current_thread = {:?}\n{:#?}\n\n{:#?}", *percpu_v2!(current_thread).read(), TASK_LIST, scheduler::local_scheduler().0);
 }

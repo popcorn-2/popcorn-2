@@ -52,10 +52,7 @@ pub trait Scheduler: Debug {
 	/// Prepares to switch threads
 	fn get_next_thread_(&mut self) -> Option<ThreadPointer>;
 	
-	fn get_next_thread(&mut self, control_queue: &SegQueue<ControlEvent>) -> Option<ThreadPointer> {
-		while let Some(event) = control_queue.pop() {
-			handle_control_event(self, event);
-		}
+	fn get_next_thread(&mut self) -> Option<ThreadPointer> {
 		self.get_next_thread_()
 	}
 
@@ -75,24 +72,6 @@ pub trait Scheduler: Debug {
 
 	fn unpark(&mut self, thread_id: ThreadId, reason: WakeReason) -> Result<(), ()>;
 	fn kill(&mut self, thread_id: ThreadId) -> Result<(), ()>;
-}
-
-pub fn handle_control_event(this: &mut (impl Scheduler + ?Sized), event: ControlEvent) {
-	debug!("handle scheduler event {event:?}");
-	match event {
-		ControlEvent::Unpark(thread_id, reason) => {
-			match this.unpark(thread_id, reason) {
-				Ok(_) => {},
-				Err(_) => super::parking::do_wake(thread_id, reason),
-			}
-		},
-		ControlEvent::Kill(thread_id) => {
-			match this.kill(thread_id) {
-				Ok(_) => {},
-				Err(_) => super::do_kill(thread_id),
-			}
-		}
-	}
 }
 
 pub fn send_control_event(core: CoreId, event: ControlEvent) {
@@ -131,7 +110,7 @@ pub fn enqueue(thread: &mut PointerState) {
 
 	let PointerState::GloballyParked(mut ptr) = mem::replace(thread, PointerState::InScheduler(CoreId { id: injector_idx as isize })) else { unreachable!() };
 
-	assert!(ptr.tcb_mut().state.is_ready());
+	assert!(ptr.tcb_ref().state.load(Ordering::SeqCst).is_ready());
 
 	// fixme: this needs to send an IPI to the corresponding core in case it's idling and needs waking up
 	injector.enqueue(ptr);
