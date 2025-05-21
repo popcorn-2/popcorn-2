@@ -1,9 +1,10 @@
 use alloc::sync::{Arc, Weak};
 use core::mem;
 use core::num::NonZeroU16;
-use log::{debug, warn};
+use core::sync::atomic::Ordering;
+use log::{debug, info, warn};
 use crate::prelude::percpu_v2;
-use super::{current_thread, scheduler, ThreadId, yield_now, scheduler::Scheduler, ThreadState, PointerState};
+use super::{current_thread, scheduler, ThreadId, yield_now, scheduler::Scheduler, ThreadState, PointerState, ControlEvent};
 
 /// Park the current thread until it is woken up
 ///
@@ -63,7 +64,7 @@ pub fn park(wakers: &[&dyn Waker]) -> Result<WakeReason, ParkError> {
 		let thread = guard.as_mut().expect("Cannot park when not running a thread").tcb_mut();
 		let park_state = Arc::new(ParkGaurd { thread_id: *thread.thread_id });
 		let weak_ptr = Arc::downgrade(&park_state);
-		*thread.state = ThreadState::Parked(park_state);
+		thread.state.store(ThreadState::Parked(park_state), Ordering::SeqCst);
 		weak_ptr
 	};
 	// FIXME(preemption): any preemption after this point will cause an early park
@@ -101,27 +102,28 @@ impl WakeTrigger {
 		if let Some(state) = self.park_guard.upgrade() {
 			// FIXME: race condition between upgrading and actually waking which could cause a spurious wakeup
 			let tid = state.thread_id;
-			let mut guard = super::TASK_LIST.lock();
-			let Some(global_thread) = guard.get_mut(&tid) else {
-				warn!("Bad thread id {tid:?}");
-				return;
-			};
-
-			match global_thread.1 {
-				PointerState::InScheduler => {
-					// todo(smp): actually get the right scheduler instead of the current core
-					scheduler::local_scheduler().lock().unpark(tid, reason);
-				},
-				PointerState::GloballyParked(_) => {
-					let PointerState::GloballyParked(mut ptr) = mem::replace(&mut global_thread.1, PointerState::InScheduler) else { unreachable!() };
-					
-					debug!("Enqueue thread {:?} from global parking lot with reason {reason:?}", ptr.tcb_mut().thread_id);
-					*ptr.tcb_mut().state = ThreadState::JustUnparked(reason);
-					scheduler::enqueue(ptr);
-				},
-			};
+			do_wake(tid, reason);
 		}
 	}
+}
+
+pub(super) fn do_wake(thread: ThreadId, reason: WakeReason) {
+	let mut guard = super::TASK_LIST.lock();
+	let Some(global_thread) = guard.get_mut(&thread) else {
+		warn!("Bad thread id {thread:?}");
+		return;
+	};
+
+	match global_thread.1 {
+		PointerState::InScheduler(core_id) => {
+			scheduler::send_control_event(core_id, ControlEvent::Unpark(thread, reason));
+		},
+		PointerState::GloballyParked(ref mut ptr) => {
+			debug!("Enqueue thread {:?} from global parking lot with reason {reason:?}", ptr.tcb_mut().thread_id);
+			ptr.tcb_ref().state.store(ThreadState::JustUnparked(reason), Ordering::SeqCst);
+			scheduler::enqueue(&mut global_thread.1);
+		},
+	};
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

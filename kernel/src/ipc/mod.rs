@@ -15,7 +15,13 @@ use crate::ipc::protocol::{ArgPairTy, ArgTy, HandledMethod, Method};
 use server::Server as _;
 use crate::memory::r#virtual::AddressSpaceInner;
 
-mod core {
+mod core_protos {
+	pub mod server {
+		pub const SYNC: u128 = 0x7;
+		
+		pub const SYNC_GET: u128 = 0;
+		pub const SYNC_POST: u128 = 1<<96;
+	}
 	pub mod io {
 		pub const WRITE: u128 = 0x2;
 		pub const READ: u128 = 0x3;
@@ -29,11 +35,13 @@ mod core {
 		pub const PROC: u128 = 0x5;
 		pub const THREAD: u128 = 0x6;
 
-		pub const PROC_EXIT: u128 = 0;
+		pub const PROC_EXIT: u128 = 0<<96;
 		pub const PROC_DEBUG: u128 = 1<<96;
 		pub const PROC_ALLOC: u128 = 2<<96;
 		pub const PROC_DEALLOC: u128 = 3<<96;
-		pub const THREAD_SET_TCB: u128 = 0;
+		pub const THREAD_SET_TCB: u128 = 0<<96;
+		pub const THREAD_EXEC: u128 = 1<<96;
+		pub const THREAD_YIELD: u128 = 2<<96;
 	}
 }
 
@@ -41,7 +49,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 	let mut map = HashMap::new();
 
 	map.try_insert(
-		core::io::WRITE | core::io::WRITE_WRITE,
+		core_protos::io::WRITE | core_protos::io::WRITE_WRITE,
 		HandledMethod {
 			a: ArgTy::None,
 			b: ArgPairTy::String, // todo
@@ -49,7 +57,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core::io::READ | core::io::READ_READ,
+		core_protos::io::READ | core_protos::io::READ_READ,
 		HandledMethod {
 			a: ArgTy::None,
 			b: ArgPairTy::OutMemory,
@@ -57,7 +65,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core::proc::PROC | core::proc::PROC_DEBUG,
+		core_protos::proc::PROC | core_protos::proc::PROC_DEBUG,
 		HandledMethod {
 			a: ArgTy::None,
 			b: ArgPairTy::String,
@@ -65,7 +73,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core::proc::PROC | core::proc::PROC_EXIT,
+		core_protos::proc::PROC | core_protos::proc::PROC_EXIT,
 		HandledMethod {
 			a: ArgTy::Value,
 			b: ArgPairTy::None,
@@ -73,7 +81,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core::proc::PROC | core::proc::PROC_ALLOC,
+		core_protos::proc::PROC | core_protos::proc::PROC_ALLOC,
 		HandledMethod {
 			a: ArgTy::Value,
 			b: ArgPairTy::None,
@@ -81,7 +89,7 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core::proc::PROC | core::proc::PROC_DEALLOC,
+		core_protos::proc::PROC | core_protos::proc::PROC_DEALLOC,
 		HandledMethod {
 			a: ArgTy::Value,
 			b: ArgPairTy::None,
@@ -89,10 +97,42 @@ static METHODS: LazyLock<HashMap<u128, Method>> = LazyLock::new(|| {
 		}
 	).unwrap();
 	map.try_insert(
-		core::proc::THREAD | core::proc::THREAD_SET_TCB,
+		core_protos::proc::THREAD | core_protos::proc::THREAD_SET_TCB,
 		HandledMethod {
 			a: ArgTy::Value,
 			b: ArgPairTy::None,
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+	map.try_insert(
+		core_protos::proc::THREAD | core_protos::proc::THREAD_EXEC,
+		HandledMethod {
+			a: ArgTy::Value,
+			b: ArgPairTy::Pair(ArgTy::Value, ArgTy::Value),
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+	map.try_insert(
+		core_protos::proc::THREAD | core_protos::proc::THREAD_YIELD,
+		HandledMethod {
+			a: ArgTy::None,
+			b: ArgPairTy::None,
+			ret: ArgTy::None,
+		}
+	).unwrap();
+	map.try_insert(
+		core_protos::server::SYNC | core_protos::server::SYNC_GET,
+		HandledMethod {
+			a: ArgTy::None,
+			b: ArgPairTy::OutMemory,
+			ret: ArgTy::Value,
+		}
+	).unwrap();
+	map.try_insert(
+		core_protos::server::SYNC | core_protos::server::SYNC_POST,
+		HandledMethod {
+			a: ArgTy::None,
+			b: ArgPairTy::Memory,
 			ret: ArgTy::Value,
 		}
 	).unwrap();
@@ -112,6 +152,9 @@ pub enum Error {
 	InvalidArg = 5,
 	NameInUse = 6,
 	BadServer = 7,
+	BadHandle = 8,
+	ServerDead = 9,
+	AllocationFailure = 10,
 }
 
 #[repr(transparent)]
@@ -199,7 +242,8 @@ fn syscall(proto_method: u128, a: usize, b: usize, c: usize, d: usize) -> Result
 		debug!("dispatch to {handle:x?}");
 		
 		let servers = server::servers();
-		let srv = servers.get_server(handle.server_id())?;
+		let srv = servers.get_server(handle.server_id())?.clone();
+		drop(servers);
 		
 		match (meta.a, meta.b, meta.ret) {
 			(ArgTy::Value | ArgTy::None, ArgPairTy::Pair(ArgTy::Value | ArgTy::None, ArgTy::Value | ArgTy::None) | ArgPairTy::None, ArgTy::Value | ArgTy::None) => {

@@ -86,6 +86,7 @@ use elf::header::program::SegmentType;
 use crate::threading::ThreadControlBlock;
 use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
+use kernel_api::dbg;
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
 use kernel_api::memory::mapping::{Mapping, self, Location, Stack, Protection, new_mapping_in, new_stack_in};
@@ -185,12 +186,13 @@ macro_rules! assert_unsafe_precondition {
 
 #[inline]
 extern "C" fn syscall_handler(num_low: u64, num_high: u64, a: usize, b: usize, c: usize, d: usize, ip: usize) -> isize {
-	debug!("syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x}) @ {ip:#x}");
+	debug!("syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x}) @ {ip:#x} on {:?}", percpu_v2!(current_thread).read().as_ref().unwrap().tcb_ref().thread_id);
 
-	return ipc::syscall_entry(
+	let syscall_result = ipc::syscall_entry(
 		(num_high as u128) << 64 | (num_low as u128),
 		a, b, c, d
 	);
+	dbg!(syscall_result)
 }
 
 #[inline]
@@ -624,7 +626,10 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		let thread = guard.as_ref().unwrap().tcb_ref();
 
 		let stdio_handle = ipc::open("console:/").expect("unable to open console");
-		let thread_handle = Handle::new(ipc::server::proc_server(), thread.thread_id.get());
+		let thread_handle = Handle::new(
+			ipc::server::servers().get_server_at("proc").expect("unable to open `proc`").0,
+			thread.thread_id.get()
+		);
 
 		thread.handles.openat(0, stdio_handle)
 				.expect("unable to open fd 0");
