@@ -60,6 +60,7 @@ mod scheduler;
 mod sleeping;
 mod thread_control_block;
 mod yielding;
+mod subthread_killer;
 
 pub use parking::{park, ParkError, Waker, WakeReason, WakeTrigger};
 pub use pointers::{Thread, ThreadPointer};
@@ -73,6 +74,7 @@ use crate::hal::TTableTy;
 use crate::ipc::handle::HandleMap;
 use crate::memory::r#virtual::AddressSpaceInner;
 use crate::threading::parking::ParkGaurd;
+use crate::threading::subthread_killer::SubthreadKiller;
 use crate::threading::thread_control_block::AtomicThreadState;
 
 pub type SchedulerTy = impl Scheduler;
@@ -90,13 +92,13 @@ static THREAD_REAPER: LazyLock<ThreadId> = LazyLock::new(|| spawn_with(||
 		let iter = guard.extract_if(|_, (thread, pointer_state)| {
 			matches!(thread.tcb_ref().state.load(Ordering::SeqCst), ThreadState::Dead)
 			&& matches!(pointer_state, PointerState::GloballyParked(_))
-		});
+		}).collect::<Vec<_>>();
+		drop(guard);
 		for (_, (thread, pointer)) in iter {
 			debug!("killing {:?}", thread.tcb_ref().thread_id);
 			let PointerState::GloballyParked(pointer) = pointer else { unreachable!("just filtered for globally parked threads") };
 			drop(ThreadControlBlock::from_owned(thread, pointer));
 		}
-		drop(guard);
 		let _ = park(&[]);
 	}, Cow::Borrowed("thread reaper")).expect("could not spawn thread reaper")
 );
@@ -199,6 +201,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		AtomicThreadState::new(ThreadState::Running),
 		INIT_THREAD_ID,
 		Arc::new(HandleMap::new()),
+		SubthreadKiller::new(INIT_THREAD_ID),
 	);
 	percpu_v2!(kernel_stack_top).store(tcb.kernel_stack.virtual_end().start().addr, Ordering::Relaxed);
 	crate::hal::first_thread_init(&tcb);

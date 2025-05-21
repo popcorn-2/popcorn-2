@@ -14,6 +14,7 @@ use super::{parking::ParkGaurd, Thread, ThreadId, ThreadPointer, WakeReason};
 use crate::hal::SaveStateTr;
 use crate::ipc::handle::HandleMap;
 use crate::memory::r#virtual::AddressSpaceInner;
+use crate::threading::subthread_killer::SubthreadKiller;
 
 #[doc(hidden)]
 macro_rules! __tcb_gen_field {
@@ -124,8 +125,9 @@ tcb_views! {
 		state: AtomicThreadState,
 		/// The numerical ID of the thread
 		thread_id: ThreadId,
-		//// The currently open handles
+		/// The currently open handles
 		handles: Arc<HandleMap>,
+		subthread_killer: SubthreadKiller,
 	}
 }
 
@@ -177,6 +179,7 @@ impl ThreadControlBlock {
 			AtomicThreadState::new(ThreadState::Ready),
 			id,
 			Arc::new(HandleMap::new()),
+			SubthreadKiller::new(id),
 		);
 		new_thread.save_state = UnsafeCell::new(SaveState::new(&mut new_thread, startup, main, arg));
 
@@ -194,6 +197,8 @@ impl ThreadControlBlock {
 		).unwrap();
 
 		let id = ThreadId::new();
+		let killer = SubthreadKiller::clone(from.subthread_killer);
+		killer.add_thread(id);
 		let mut new_thread = ThreadControlBlock::new_inner(
 			Arc::clone(from.address_space),
 			Default::default(),
@@ -202,6 +207,7 @@ impl ThreadControlBlock {
 			AtomicThreadState::new(ThreadState::Uninit),
 			id,
 			Arc::clone(from.handles),
+			killer
 		);
 		new_thread.save_state = UnsafeCell::new(SaveState::new(&mut new_thread, startup, uninit_thread_panic, 0));
 
