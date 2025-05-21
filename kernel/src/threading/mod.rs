@@ -52,6 +52,7 @@ use kernel_api::memory::r#virtual::{Kernel, OwnedPages};
 use kernel_api::sync::{LazyLock, OnceLock, Spinlock, SpinlockGuard};
 use crate::{hashmap_new, non_zero};
 use scheduler::Scheduler;
+use crate::hal::SaveStateTr;
 
 mod cleanup;
 mod parking;
@@ -286,22 +287,51 @@ pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) ->
 	Ok(id)
 }
 
-pub fn clone_current_uninit(name: Cow<'static, str>) -> Result<ThreadId, AllocError> {
+fn clone(name: Cow<'static, str>) -> Result<(ThreadId, ThreadPointerGuard<'static>), AllocError> {
 	let (tcb, id) = ThreadControlBlock::clone_uninit_from(
 		percpu_v2!(current_thread).read().as_ref()
-				.expect("cannot clone non-existent thread")
-				.tcb_ref(),
+		                          .expect("cannot clone non-existent thread")
+		                          .tcb_ref(),
 		name,
 		thread_startup,
 	);
 
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
 
-	TASK_LIST.lock()
-	         .try_insert(id, (thread, PointerState::GloballyParked(ptr)))
-	         .expect("ThreadId reuse");
+	let mut guard = TASK_LIST.lock();
+	let thread = guard.try_insert(id, (thread, PointerState::GloballyParked(ptr)))
+	            .expect("ThreadId reuse");
+	let ptr = match &mut thread.1 {
+		PointerState::InScheduler(_) => unreachable!(),
+		PointerState::GloballyParked(ptr) => ptr
+	};
+	
+	let guard = ThreadPointerGuard {
+		pointer: ptr,
+		guard
+	};
 
+	Ok((id, guard))
+}
+
+pub fn clone_current(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) -> Result<ThreadId, AllocError> {
+	extern "C" fn main(ptr: usize) -> ! {
+		let boxed = unsafe { Box::<Box<dyn FnOnce()>>::from_raw(ptr as *mut _) };
+		boxed();
+		exit(0);
+	}
+
+	let boxed = Box::new(f) as Box<dyn FnOnce()>;
+	let boxed = Box::into_raw(Box::new(boxed));
+	
+	let (id, mut thread) = clone(name)?;
+	unsafe { thread.tcb_mut().save_state.set_entry(main, boxed as usize); }
+	start_uninit_thread(thread);
 	Ok(id)
+}
+
+pub fn clone_current_uninit(name: Cow<'static, str>) -> Result<ThreadId, AllocError> {
+	Ok(clone(name)?.0)
 }
 
 pub fn start_uninit_thread(thread_pointer: ThreadPointerGuard<'static>) {
