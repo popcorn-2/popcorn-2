@@ -38,6 +38,8 @@
 #![feature(once_cell_try_insert)]
 #![feature(unsigned_nonzero_div_ceil)]
 #![feature(generic_const_exprs)]
+#![feature(pointer_is_aligned_to)]
+#![feature(macro_metavar_expr)]
 
 #![feature(kernel_heap)]
 #![feature(kernel_allocation_new)]
@@ -82,6 +84,7 @@ use core::mem::ManuallyDrop;
 use core::num::NonZero;
 use core::task::{Poll};
 use core::time::Duration;
+use itertools::Itertools;
 use elf::header::program::SegmentType;
 use crate::threading::ThreadControlBlock;
 use handoff_protection::HandoffWrapper;
@@ -92,12 +95,14 @@ use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
 use kernel_api::memory::mapping::{Mapping, self, Location, Stack, Protection, new_mapping_in, new_stack_in};
 use kernel_api::memory::physical::highmem;
 use kernel_api::memory::r#virtual::address_space::AddressSpace;
+use kernel_api::memory::r#virtual::Userspace;
 use kernel_api::ptr::{slice_from_raw_parts, User};
 use kernel_api::time::Instant;
 use utils::handoff::MemoryType;
 use crate::hal::exception::Ty;
 use crate::hal::paging2::{KTable, TTable};
 use crate::ipc::handle::Handle;
+use crate::ipc::protocol::Protocol;
 use crate::memory::paging::ktable;
 use crate::memory::r#virtual::AddressSpaceInner;
 use crate::memory::watermark_allocator::WatermarkAllocator;
@@ -185,14 +190,30 @@ macro_rules! assert_unsafe_precondition {
 }
 
 #[inline]
-extern "C" fn syscall_handler(num_low: u64, num_high: u64, a: usize, b: usize, c: usize, d: usize, ip: usize) -> isize {
-	debug!("syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x}) @ {ip:#x} on {:?}", percpu_v2!(current_thread).read().as_ref().unwrap().tcb_ref().thread_id);
+extern "C" fn syscall_handler(
+	a: usize,
+	b: usize,
+	c: usize,
+	d: usize,
+	e: usize,
+	num_high: usize,
+	num_low: usize,
+	ip: usize,
+	flags: &mut usize,
+) -> u128 {
+	debug!("syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x}, {e:#x}) @ {ip:#x} on {:?}", percpu_v2!(current_thread).read().as_ref().unwrap().tcb_ref().thread_id);
 
-	let syscall_result = ipc::syscall_entry(
-		(num_high as u128) << 64 | (num_low as u128),
-		a, b, c, d
+	let syscall_result = ipc::entry(
+		((num_high & 0xFFFFFFFF) as u128) << 96 | (num_low as u128),
+		(num_high >> 32) as u32,
+		a, b, c, d, e
 	);
-	dbg!(syscall_result)
+	
+	dbg!(*flags);
+	if syscall_result.is_err() { *flags |= 1 } else { *flags &= !1 };
+	dbg!(*flags);
+	
+	dbg!(syscall_result).unwrap_or_else(|v| v as u128)
 }
 
 #[inline]
@@ -535,7 +556,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		let animation = move || {
 			let mut next_time = Instant::now();
 			loop {
-				next_time += Duration::from_nanos(1302083);
+				next_time += Duration::from_millis(500); //Duration::from_nanos(1302083);
 				update_line();
 				threading::sleep_until(next_time);
 			}
@@ -685,27 +706,27 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	{
 		debug!("opening init stdin/out/err/thread as handles 0..=3");
 
-		let _ = ipc::server::servers(); // force it to init builtin servers (root + proc)
+		let _ = ipc::server::server_registry(); // force it to init builtin servers (root + proc)
 
 		let guard = percpu_v2!(current_thread).read();
 		let thread = guard.as_ref().unwrap().tcb_ref();
 
-		let stdio_handle = ipc::open("console:/").expect("unable to open console");
+		let stdio_handle = ipc::open("console:/", [].into(), User::null()).expect("unable to open console");
 		let thread_handle = Handle::new(
-			ipc::server::servers().get_server_at("proc").expect("unable to open `proc`").0,
-			thread.thread_id.get()
+			ipc::server::server_registry().get_server_at("proc").expect("unable to open `proc`").0,
+			thread.thread_id.get() as isize,
+			&[<dyn ipc::protocol::generated::CoreProcThread>::UID]
 		);
 
-		thread.handles.openat(0, stdio_handle)
+		thread.handles.openat(0, stdio_handle.clone())
 				.expect("unable to open fd 0");
-		thread.handles.openat(1, stdio_handle)
+		thread.handles.openat(1, stdio_handle.clone())
 				.expect("unable to open fd 1");
 		thread.handles.openat(2, stdio_handle)
 				.expect("unable to open fd 2");
 		thread.handles.openat(3, thread_handle)
 				.expect("unable to open fd 3");
 	}
-
 	hal::switch_to_userspace_at(entrypoint, stack);
 }
 
