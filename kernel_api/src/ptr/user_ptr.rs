@@ -11,6 +11,7 @@ pub enum PointerError {
 }
 
 //#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy)]
 pub struct User<T>(T, NonNull<AddressSpaceInner>);
 
 macro_rules! user_ptr_impl_unsized {
@@ -27,14 +28,14 @@ macro_rules! user_ptr_impl_unsized {
 		    User(self.0.cast(), self.1)
 	    }
 
-	    /*pub unsafe fn byte_offset(self, count: isize) -> Self {
-		    User(self.0.byte_offset(count))
+	    pub unsafe fn byte_offset(self, count: isize) -> Self {
+		    User(self.0.byte_offset(count), self.1)
 	    }
 
-	    pub unsafe fn wrapping_byte_offset(self, count: isize) -> Self {
+	    /*pub unsafe fn wrapping_byte_offset(self, count: isize) -> Self {
 		    User(self.0.wrapping_byte_offset(count))
 	    }
-		
+
 	    pub unsafe fn byte_offset_from(self, origin: Self) -> isize {
 		    self.0.byte_offset_from(origin.0)
 	    }*/
@@ -54,6 +55,10 @@ macro_rules! user_ptr_impl_sized {
 	    pub unsafe fn offset_from(self, origin: Self) -> isize {
 		    self.0.offset_from(origin.0)
 	    }*/
+
+		pub fn align_offset(self, align: usize) -> usize {
+			self.0.align_offset(align)
+		}
 		
 	    /// # Safety
 	    /// 
@@ -180,10 +185,18 @@ impl<T: ?Sized> User<*mut T> {
 
 impl<T> User<*const T> {
 	user_ptr_impl_sized!(const);
+
+	pub fn null() -> Self {
+		User(core::ptr::null(), NonNull::dangling())
+	}
 }
 
 impl<T> User<*mut T> {
 	user_ptr_impl_sized!(mut);
+
+	pub fn null_mut() -> Self {
+		User(core::ptr::null_mut(), NonNull::dangling())
+	}
 
 	pub fn write(self, val: T) -> Result<(), PointerError> {
 		unsafe {
