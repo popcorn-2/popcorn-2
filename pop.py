@@ -16,6 +16,7 @@ parser.add_argument("-v", "--verbose", action='count', default=0)
 parser.add_argument("--arch", choices=["x86_64", "host"], default="host")
 parser.add_argument("-j", "--jobs", action="store", type=int)
 parser.add_argument("--release", action="store_true")
+parser.add_argument("--release-loader", action="store_true")
 parser.add_argument("--accel", choices=["none", "kvm", "hvf"], default="none")
 parser.add_argument("--symbol-map", action="store_true")
 parser.add_argument("--kernel-features", default="")
@@ -46,7 +47,7 @@ def run_cargo_command(subcommand: str, *cargo_args: [str], env: dict[str, str] |
         subcommand,
         "--message-format=json",
         *cargo_flags,
-        *cargo_args,
+        *list(filter(lambda x: x != "", cargo_args)),
     ]
     if args.verbose >= 1:
         print(env, " ".join(command), file=sys.stderr)
@@ -130,7 +131,8 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
     _, result = run_cargo_command(
         "build",
         "-p", "bootloader",
-        "--target", "x86_64-unknown-uefi"
+        "--target", "x86_64-unknown-uefi",
+        "--release" if args.release_loader else ""
     )
 
     if result.returncode != 0:
@@ -145,11 +147,14 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
             f"--features={args.kernel_features}",
             *kernel_cargo_flags,
             "--",
-            "-C", "link-args=-export-dynamic",
-            "-Z", "export-executable-symbols=on",
+            "-C", "link-args=-no-pie",
+            "-C", "code-model=kernel",
+            #"-C", "link-args=-export-dynamic",
+            "-Z", "macro-backtrace",
             "-C", "relocation-model=static",
             "-C", "panic=unwind",
             "-C", "link-args=-Tkernel/src/hal/arch/amd64/linker.ld",
+            "-Z", "tls-model=local-exec",
             env=kernel_build_env
         )
 
@@ -174,7 +179,10 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
     if result.returncode != 0:
         sys.exit("popfs build failed")
 
-    generate_iso(kernel_file, f"target/x86_64-unknown-uefi/{target_inner}/bootloader.efi", f"target/x86_64-unknown-uefi/{target_inner}/popfs_uefi_driver.efi", f"target/{target_inner}/kernel.map", f"target/{target_inner}")
+    target_inner_bootloader = target_inner
+    if args.release_loader:
+        target_inner_bootloader = "release"
+    generate_iso(kernel_file, f"target/x86_64-unknown-uefi/{target_inner_bootloader}/bootloader.efi", f"target/x86_64-unknown-uefi/{target_inner}/popfs_uefi_driver.efi", f"target/{target_inner}/kernel.map", f"target/{target_inner}")
 
 
 match args.subcommand:

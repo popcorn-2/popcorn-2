@@ -58,7 +58,9 @@
 #![feature(kernel_irq_cell)]
 #![feature(kernel_allocation_zeroing)]
 #![feature(kernel_mmap_trait)]
-
+#![feature(bstr)]
+#![feature(array_try_map)]
+#![feature(new_zeroed_alloc)]
 #![no_std]
 #![no_main]
 
@@ -73,17 +75,20 @@ extern crate self as kernel;
 
 #[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
+use alloc::collections::BTreeMap;
 use core::alloc::Layout;
 use core::cell::UnsafeCell;
 use core::panic::PanicInfo;
 use core::ptr::{addr_of, slice_from_raw_parts_mut};
 use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
 use core::{future, mem, ptr};
+use core::bstr::ByteStr;
 use core::cmp::{max, min};
 use core::mem::ManuallyDrop;
 use core::num::NonZero;
 use core::task::{Poll};
 use core::time::Duration;
+use hashbrown::HashMap;
 use itertools::Itertools;
 use elf::header::program::SegmentType;
 use crate::threading::ThreadControlBlock;
@@ -92,7 +97,7 @@ use hal::exception::DebugTy;
 use kernel_api::dbg;
 use kernel_api::memory::{Frame};
 use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
-use kernel_api::memory::mapping::{Mapping, self, Location, Stack, Protection, new_mapping_in, new_stack_in};
+use kernel_api::memory::mapping::{Mapping, self, Location, Stack, Protection, new_mapping_in, new_stack_in, new_unsafe_mapping_in};
 use kernel_api::memory::physical::highmem;
 use kernel_api::memory::r#virtual::address_space::AddressSpace;
 use kernel_api::memory::r#virtual::Userspace;
@@ -126,6 +131,7 @@ mod ipc;
 mod prelude;
 mod io_ext;
 mod percpu;
+mod loader;
 
 #[cfg(test)]
 pub mod test_harness;
@@ -158,7 +164,7 @@ macro_rules! yeet {
 macro_rules! non_zero {
     ($num:tt) => {
         const {
-            match NonZero::new($num) {
+            match ::core::num::NonZero::new($num) {
                 Some(x) => x,
                 None => panic!("Cannot use `0` as a NonZero constant"),
             }
@@ -212,7 +218,8 @@ extern "C" fn syscall_handler(
 	dbg!(*flags);
 	if syscall_result.is_err() { *flags |= 1 } else { *flags &= !1 };
 	dbg!(*flags);
-	
+
+	debug!("result for syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x}, {e:#x}) @ {ip:#x} on {:?}", percpu_v2!(current_thread).read().as_ref().unwrap().tcb_ref().thread_id);
 	dbg!(syscall_result).unwrap_or_else(|v| v as u128)
 }
 
@@ -548,6 +555,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	hal::post_acpi_init();
 
 	let init_data = Box::from(handoff_data.init_exec);
+	let ramdisk_server = ipc::init_ramdisk(Box::from(handoff_data.ramdisk));
 
 	let init_thread = threading::init(handoff_data);
 	debug!("Init running on {init_thread:?}");
@@ -562,103 +570,78 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 			}
 		};
 
-		let task = threading::spawn_with(animation, Cow::Borrowed("Boot animation")).unwrap();
-		debug!("Boot animation running on {task:?}");
+		/*let task = threading::spawn_kernel(animation, Cow::Borrowed("Boot animation")).unwrap();
+		debug!("Boot animation running on {task:?}");*/
 	}
 	threading::debug();
 	threading::yield_now();
 
+	/*threading::spawn_kernel(|| {
+		threading::sleep(Duration::from_secs(2));
+		let dangly_ptr = User::<*const u8>::new_in(
+			ptr::dangling(),
+			AddressSpaceInner::to_api(
+				percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
+				                          .tcb_ref().address_space
+			)
+		);
+
+		let handle = ipc::open(
+			"fs:/foo.txt",
+			&[<dyn ipc::protocol::generated::CoreIoRead>::UID, <dyn ipc::protocol::generated::CoreIoSeek>::UID],
+			dangly_ptr,
+		);
+		let handle = dbg!(handle).unwrap();
+		let res = percpu_v2!(current_thread).read().as_ref()
+		                                    .unwrap()
+		                                    .tcb_ref().handles.push(handle).unwrap();
+
+		let mut buf = [0u8; 16];
+		let buf_ptr = buf.as_mut_ptr();
+		let buf_size = 16;
+
+		let res = ipc::entry(
+			<dyn ipc::protocol::generated::CoreIoRead>::UID,
+			1,
+			res as usize,
+			buf_ptr as usize,
+			buf_size,
+			0, 0
+		);
+		if let Ok(bytes) = res {
+			let buf = ByteStr::new(&buf[..(bytes as usize)]);
+			info!("read bytes {} from `/foo.txt`", &buf)
+		}
+	}, Cow::Borrowed("fs tester")).unwrap();*/
+
 	let (entrypoint, stack) = {
 		let guard = percpu_v2!(current_thread).read();
 		let address_space = guard.as_ref().unwrap().tcb_ref().address_space;
-
+		
 		let stack_top = {
-			let config = mapping::Config::new_in(NonZero::new(4).unwrap(), AddressSpaceInner::to_api(address_space))
+			let config = mapping::Config::new_in(NonZero::new(8).unwrap(), AddressSpaceInner::to_api(&address_space))
 					.virtual_location(Location::At(Page::new(VirtualAddress::new(0x40000000))))
 					.protection(Protection::RWXU);
 
-			let mut stack = new_stack_in(config, u16::MAX).unwrap();
-			
-			fn set_up_stack<'arg, 'env, 'handle>(
-				stack: &mut Stack<Userspace>,
-				arg: impl IntoIterator<Item = &'arg str>,
-				env: impl IntoIterator<Item = &'env str>,
-				handles: impl IntoIterator<IntoIter = impl Clone + Iterator<Item = (&'handle str, isize)>>
-			) -> VirtualAddress {
-				let (arg, env, handles) = (arg.into_iter(), env.into_iter(), handles.into_iter());
-				let mut stack_ptr = stack.virtual_end().as_ptr();
+			let stack = new_stack_in(config, u16::MAX)?;
 
-				fn write_strings<'a>(stack_ptr: &mut *mut u8, strings: impl Iterator<Item = &'a str>) -> Vec<usize> {
-					let mut ptrs = Vec::with_capacity(strings.size_hint().0);
-					for str in strings {
-						// write null terminator
-						*stack_ptr = unsafe { stack_ptr.offset(-1) };
-						unsafe { stack_ptr.write(0) };
-
-						// write string content
-						*stack_ptr = unsafe { stack_ptr.sub(str.len()) };
-						unsafe { ptr::copy_nonoverlapping(str.as_bytes().as_ptr(), *stack_ptr, str.len()); }
-
-						debug!("{:#p} = {str}", *stack_ptr);
-
-						// store start ptr
-						ptrs.push(stack_ptr.addr());
-					}
-					ptrs
-				}
-
-				let (handle_ids, handle_nums) = (handles.clone().map(|(s, _)| s), handles.map(|(_, i)| i as usize));
-				let arg_ptrs = write_strings(&mut stack_ptr, arg);
-				let env_ptrs = write_strings(&mut stack_ptr, env);
-				let handle_ptrs = write_strings(&mut stack_ptr, handle_ids);
-
-				let align_offset = stack_ptr.align_offset(size_of::<usize>());
-				let mut stack_ptr = unsafe { stack_ptr.cast::<usize>().byte_sub(size_of::<usize>() - align_offset) };
-
-				let total_count = 1 // argc
-						+ arg_ptrs.len()
-						+ 1 // argv terminator
-						+ env_ptrs.len()
-						+ 1 // envp terminator
-						+ 2 // auxv terminator
-						+ 2 * handle_ptrs.len() // handle map
-						+ 1; // handle terminator
-				stack_ptr = unsafe { stack_ptr.sub(total_count) };
-				if !stack_ptr.is_aligned_to(16) { stack_ptr = unsafe { stack_ptr.sub(1) }; }
-
-				for (offset, ptr) in core::iter::once(arg_ptrs.len()) // argc
-								.chain(arg_ptrs.into_iter()) // argv
-								.chain(core::iter::once(0)) // argv terminator
-								.chain(env_ptrs.into_iter()) // env
-								.chain(core::iter::once(0)) // env terminator
-								.chain(core::iter::repeat_n(0, 2)) // auxv terminator
-								.chain(handle_ptrs.into_iter().interleave_shortest(handle_nums)) // handle list
-								.chain(core::iter::once(0)) // handle list terminator
-						        .enumerate()
-				{
-					unsafe { stack_ptr.add(offset).write(ptr) };
-					debug!("{:#p} = {ptr:#x}", unsafe { stack_ptr.add(offset) });
-				}
-
-				assert!(stack_ptr.is_aligned_to(16), "userspace stack pointer not 16-byte aligned");
-
-				VirtualAddress::from(stack_ptr)
-			}
-
-			let addr = set_up_stack(
-				&mut stack,
+			let stack_top = loader::set_up_stack(
+				&stack,
 				["init", "hello", "world"],
-				["LANG=en_GB.UTF-8"],
-				[
+				["LANG=en_GB.UTF-8", "MLIBC_DEBUG_MALLOC=0"],
+				HashMap::from([
 					("io.stdin", 0),
 					("io.stdout", 1),
 					("io.stderr", 2),
-				],
+					("thread.main", 3),
+					("popcorn.init.ramdisk", 4),
+					("popcorn.init.root-bus-descriptor", 4),
+				])
 			);
 
-			address_space.add_mapping("[stack@3]", stack);
+			address_space.add_mapping("[stack]", stack);
 
-			addr
+			stack_top
 		};
 
 		let file = elf::File::try_new(&init_data).unwrap();
@@ -677,7 +660,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 				let config = mapping::Config::new_in(len.try_into().unwrap(), AddressSpaceInner::to_api(address_space))
 						.virtual_location(Location::At(Page::new(addr.align_down())))
 						.protection(Protection::RWXU);
-				new_mapping_in(config, u16::MAX).unwrap()
+				new_unsafe_mapping_in(config, u16::MAX).unwrap()
 			};
 
 			assert!(segment.file_size <= segment.memory_size);
@@ -704,18 +687,33 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	};
 	drop(init_data);
 	{
-		debug!("opening init stdin/out/err/thread as handles 0..=3");
+		debug!("opening init stdin/out/err/thread/ramdisk as handles 0..=4");
 
 		let _ = ipc::server::server_registry(); // force it to init builtin servers (root + proc)
 
 		let guard = percpu_v2!(current_thread).read();
 		let thread = guard.as_ref().unwrap().tcb_ref();
 
-		let stdio_handle = ipc::open("console:/", [].into(), User::null()).expect("unable to open console");
+		let stdio_handle = ipc::open(
+			"console:/",
+			&[<dyn ipc::protocol::generated::CoreIoRead>::UID, <dyn ipc::protocol::generated::CoreIoWrite>::UID],
+			User::<*const u8>::new_in(
+				ptr::dangling(),
+				AddressSpaceInner::to_api({ // braces needed to force early drop of the read guard
+					percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
+					                          .tcb_ref().address_space
+				})
+			)
+		).expect("unable to open console");
 		let thread_handle = Handle::new(
 			ipc::server::server_registry().get_server_at("proc").expect("unable to open `proc`").0,
 			thread.thread_id.get() as isize,
 			&[<dyn ipc::protocol::generated::CoreProcThread>::UID]
+		);
+		let ramdisk_handle = Handle::new(
+			ramdisk_server,
+			1,
+			&[<dyn ipc::protocol::generated::CoreIoRead>::UID]
 		);
 
 		thread.handles.openat(0, stdio_handle.clone())
@@ -726,6 +724,8 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 				.expect("unable to open fd 2");
 		thread.handles.openat(3, thread_handle)
 				.expect("unable to open fd 3");
+		thread.handles.openat(4, ramdisk_handle)
+		      .expect("unable to open fd 4");
 	}
 	hal::switch_to_userspace_at(entrypoint, stack);
 }

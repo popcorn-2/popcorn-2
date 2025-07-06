@@ -3,7 +3,7 @@
 #![feature(kernel_allocation_new)]
 #![feature(kernel_frame_zero)]
 #![feature(kernel_physical_allocator_location)]
-
+#![feature(kernel_memory_addr_access)]
 extern crate alloc;
 
 use alloc::boxed::Box;
@@ -15,7 +15,7 @@ use core::ops::Range;
 use kernel_api::memory::{Frame, AllocError};
 use kernel_api::memory::allocator::{AllocationMeta, PhysicalAllocator, Config, SizedBackingAllocator, SpecificLocation};
 use kernel_api::sync::Spinlock;
-use log::debug;
+use log::{debug, trace};
 
 const BITS_PER_BITMAP_UNIT: usize = mem::size_of::<usize>() * 8;
 
@@ -202,11 +202,15 @@ unsafe impl PhysicalAllocator for Wrapped {
 
         let mut guard = self.0.lock();
 
-        if frame_count == 1 { guard.allocate_one() }
+        let alloc = if frame_count == 1 { guard.allocate_one()? }
         else {
             guard.allocate_multiple_fast(frame_count)
-                    .or_else(|_| guard.allocate_multiple_slow(frame_count))
-        }
+                    .or_else(|_| guard.allocate_multiple_slow(frame_count))?
+        };
+
+        trace!("=== bmp a {:#018x} -> {:#018x}", alloc.start().addr, (alloc + frame_count).start().addr);
+
+        Ok(alloc)
     }
 
     unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZero<usize>) {
@@ -217,6 +221,8 @@ unsafe impl PhysicalAllocator for Wrapped {
             guard.set_frame(frame, FrameState::Free)
                     .expect("Attempted to free frame that wasn't allocated by this allocator");
         }
+
+        trace!("=== bmp d {:#018x} -> {:#018x}", base.start().addr, (base + frame_count.get()).start().addr);
     }
 
     fn push(&mut self, allocation: AllocationMeta) {
@@ -224,6 +230,7 @@ unsafe impl PhysicalAllocator for Wrapped {
 
         for frame in allocation.region {
             let _ = allocator.set_frame(frame, FrameState::Allocated);
+            //trace!("=== bmp a {:#018x} -> {:#018x}", frame.start().addr, (frame + 1usize).start().addr);
         }
     }
 
@@ -242,6 +249,9 @@ unsafe impl PhysicalAllocator for Wrapped {
                 });
                 if !free { alloc_err!("Requested memory at {:x?} already allocated", addr); }
                 (addr..end).for_each(|f| guard.set_frame(f, FrameState::Allocated).expect("Must be in range"));
+
+                trace!("=== bmp a {:#018x} -> {:#018x}", addr.start().addr, (addr + frame_count).start().addr);
+
                 Ok(addr)
             }
             SpecificLocation::Below { .. } => todo!(),

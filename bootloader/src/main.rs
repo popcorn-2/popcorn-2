@@ -290,7 +290,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         debug!("Loaded at base addr {:p}", image.info().0);
     }
 
-    let (mut kernel, symbol_map, test_program) = locate_kernel(&image_handle, &services);
+    let (mut kernel, symbol_map, init_program, ramdisk) = locate_kernel(&image_handle, &services);
 
 
     // =========== test code using kernel from efi part ===========
@@ -403,6 +403,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         let framebuffer_addr = fb.0 as usize;
 
+        debug!("fb map {:#x} -> {:#x}", fb_start.addr, framebuffer_addr);
+
         page_table.try_map_range_with::<(), _>(
             Page(fb_start.addr.try_into().unwrap()),
             Frame(framebuffer_addr.try_into().unwrap()),
@@ -427,7 +429,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             stride: mode_info.stride(),
             width,
             height,
-            color_format
+            color_format,
+	        physical_address: PhysicalAddress::new(framebuffer_addr),
         }
     };
 
@@ -438,6 +441,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         let Ok(allocation) = services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, STACK_PAGE_COUNT) else {
             panic!("Failed to allocate enough memory to load popcorn2");
         };
+
+        debug!("stack map {:#x} -> {:#x}", address_range.start.addr+4096, allocation);
 
         page_table.try_map_range_with::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, paging_reasons::KERNEL_STACK)
                          .unwrap();
@@ -450,7 +455,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     };
 
     let symbol_map = symbol_map.map(|m| &*Box::leak(m.into_boxed_slice()));
-    let test_program = &*Box::leak(test_program.into_boxed_slice());
+    let init_program = &*Box::leak(init_program.into_boxed_slice());
+    let ramdisk = &*Box::leak(ramdisk.into_boxed_slice());
 
     info!("new stack at {:#x?}", stack);
 
@@ -609,7 +615,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         },
         tls: (Range(kernel_tls.0.start, kernel_tls.0.end), kernel_tls.1),
         rsdp,
-        init_exec: test_program,
+        init_exec: init_program,
+        ramdisk,
     });
 
     let _ = system_table.exit_boot_services();
@@ -653,7 +660,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     }
 }
 
-fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Option<Vec<u8>>, Vec<u8>) {
+fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Option<Vec<u8>>, Vec<u8>, Vec<u8>) {
     // FIXME: this doesn't check which disk is being used so it'll happily load popcorn from any random disk
 
     let mut root_partition_handle: Option<Handle> = None;
@@ -679,7 +686,8 @@ fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Op
 
     // TODO: versioning
     let symbol_map = fs.read(Path::new(cstr16!(r"\kernel\kernel.map"))).ok();
-    let test_program = fs.read(Path::new(cstr16!(r"\user\init.exec"))).expect("Could not find `init`");
+    let init_program = fs.read(Path::new(cstr16!(r"\user\init.exec"))).expect("Could not find `init`");
+    let ramdisk = fs.read(Path::new(cstr16!(r"\user\init.tar"))).expect("Could not find ramdisk");
     let kernel_data = fs.read(Path::new(cstr16!(r"\kernel\kernel.exec"))).expect("Unable to find a bootable kernel");
 
     /*
@@ -690,7 +698,7 @@ fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Op
         unsafe { NonNull::new_unchecked(p) }
     });
      */
-    (kernel_data, symbol_map, test_program)
+    (kernel_data, symbol_map, init_program, ramdisk)
 }
 
 #[panic_handler]

@@ -92,7 +92,7 @@ impl Ioapic {
 
 	fn registers(&self) -> *mut Registers {
 		unsafe {
-			self.mmap.virtual_start().as_ptr()
+			self.mmap.virtual_valid_start().as_ptr()
 			    .byte_add(self.offset)
 			    .cast()
 		}

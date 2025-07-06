@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 use hashbrown::HashMap;
+use log::debug;
 use kernel_api::ptr::{slice_from_raw_parts, User};
 use crate::hashmap_new;
 use crate::ipc::{Error, protocol};
@@ -12,7 +13,7 @@ pub struct ProtocolVisitor<U: ?Sized> {
 impl<U: ?Sized> ProtocolVisitor<U> {
 	pub const fn new() -> Self { Self { table: hashmap_new!() } }
 
-	pub fn add_visitor<T: protocol::Protocol + ?Sized>(mut self, f: fn(&mut U, &T::Ctor<'_>) -> Result<(), Error>) -> Self {
+	pub fn add_visitor<T: protocol::Protocol + ?Sized>(mut self, f: fn(&mut U, &T::Ctor) -> Result<(), Error>) -> Self {
 		self.table.insert(T::UID, unsafe { core::mem::transmute(f) });
 		self
 	}
@@ -27,8 +28,10 @@ impl<'a> CtorArgs<'a> {
 	pub fn process_with<S: Server>(&mut self, s: &S, context: &mut S::CtorContext) -> Result<(), Error> {
 		let table = s.dispatch_table();
 		for &uid in self.uids {
-			let deserialize = table.ctor_deserialize(uid)?;
-			let ctor = deserialize(&mut self.args)?;
+			// todo: pull ctor layout out of protocol meta
+			// let deserialize = table.ctor_deserialize(uid)?;
+			debug!("deserialize for {uid:#x}");// @ {deserialize:#p}");
+			let ctor = Box::<[u8]>::from([]); //deserialize(&mut self.args)?;
 			let f = context.visitors().table.get(&uid).ok_or(Error::UnsupportedProtocol)?;
 			f(&mut *context, ctor.as_ptr())?;
 		}
@@ -38,6 +41,9 @@ impl<'a> CtorArgs<'a> {
 	pub fn new(uids: &'a [u128], args: User<*const u8>) -> Self {
 		Self { uids, args }
 	}
+	
+	pub fn uids(&self) -> &[u128] { self.uids }
+	pub fn args(&self) -> User<*const u8> { self.args }
 }
 
 pub trait CtorContext where Self: 'static + Default {

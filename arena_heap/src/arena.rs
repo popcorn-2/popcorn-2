@@ -28,8 +28,8 @@ impl Arena {
 			25
 		)?;
 		
-		let start = mapping.virtual_start().as_ptr().cast::<ChunkHeader>();
-		let end = unsafe { mapping.virtual_end().as_ptr().cast::<ChunkHeader>().offset(-1) };
+		let start = mapping.virtual_valid_start().as_ptr().cast::<ChunkHeader>();
+		let end = unsafe { mapping.virtual_valid_end().as_ptr().cast::<ChunkHeader>().offset(-1) };
 
 		// SAFETY: Pointer returned by Mapping::new is guaranteed to be valid for RW access for 16 KiB
 		// start - pointer returned by Mapping::new is 4K aligned which is greater than `align_of::<ChunkHeader>()`
@@ -54,7 +54,7 @@ impl Arena {
 	}
 
 	fn first_chunk(&self) -> NonNull<ChunkHeader> {
-		let ptr = self.mapping.virtual_start().as_ptr().cast::<ChunkHeader>();
+		let ptr = self.mapping.virtual_valid_start().as_ptr().cast::<ChunkHeader>();
 		NonNull::new(ptr).expect("arena mapping should not be null")
 	}
 
@@ -188,14 +188,14 @@ impl Arena {
 		let alloc_expansion = (size + 2*size_of::<ChunkHeader>()).div_ceil((4096 * 2) / 3);
 		let expansion = core::cmp::max(alloc_expansion, min_expansion.get());
 
-		let alloc_start = self.mapping.virtual_end().as_ptr();
+		let alloc_start = self.mapping.virtual_valid_end().as_ptr();
 		let old_sentinel = unsafe { &mut *alloc_start.cast::<ChunkHeader>().offset(-1) };
 
 		dbg!(expansion, min_expansion, alloc_expansion);
 
 		dbg!(self.mapping.resize_in_place(self.mapping.physical_len().checked_add(expansion).ok_or(AllocError)?))?;
 
-		let new_sentinel = unsafe { self.mapping.virtual_end().as_ptr().cast::<ChunkHeader>().offset(-1) };
+		let new_sentinel = unsafe { self.mapping.virtual_valid_end().as_ptr().cast::<ChunkHeader>().offset(-1) };
 
 		unsafe {
 			new_sentinel.write(ChunkHeader::new(
@@ -210,8 +210,8 @@ impl Arena {
 
 	pub fn bounds(&self) -> Range<NonNull<u8>> {
 		Range {
-			start: NonNull::new(self.mapping.virtual_start().as_ptr()).expect("arena should not be at null"),
-			end: NonNull::new(self.mapping.virtual_end().as_ptr()).expect("arena should not be at null"),
+			start: NonNull::new(self.mapping.virtual_valid_start().as_ptr()).expect("arena should not be at null"),
+			end: NonNull::new(self.mapping.virtual_valid_end().as_ptr()).expect("arena should not be at null"),
 		}
 	}
 }

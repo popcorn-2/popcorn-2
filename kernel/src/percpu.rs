@@ -34,6 +34,7 @@ macro_rules! percpu_gen {
             $(($field) => {{
                 let val: *mut $crate::percpu::Percpu;
 
+                #[allow(unused_unsafe)]
                 unsafe {
                     ::core::arch::asm!(
                         "mov {}, gs:[{}]",
@@ -43,6 +44,7 @@ macro_rules! percpu_gen {
                     );
                 }
 
+                #[allow(unused_unsafe)]
                 unsafe { &(*val).$field }
             }};)*
         }

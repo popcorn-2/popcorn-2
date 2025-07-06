@@ -14,6 +14,7 @@ pub struct Data {
 	pub tls: (Range<VirtualAddress>, usize),
 	pub rsdp: PhysicalAddress,
 	pub init_exec: &'static [u8],
+	pub ramdisk: &'static [u8],
 }
 
 impl Debug for Data {
@@ -36,7 +37,8 @@ pub struct Framebuffer {
 	pub stride: usize,
 	pub width: usize,
 	pub height: usize,
-	pub color_format: ColorMask
+	pub color_format: ColorMask,
+	pub physical_address: PhysicalAddress,
 }
 
 impl Debug for Framebuffer {
@@ -49,6 +51,7 @@ impl Debug for Framebuffer {
 				.field("width", &self.width)
 				.field("height", &self.height)
 				.field("color_format", &self.color_format)
+				.field("physical_address", &self.physical_address)
 				.finish()
 	}
 }

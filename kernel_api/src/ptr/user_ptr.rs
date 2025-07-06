@@ -1,18 +1,26 @@
 use core::mem::MaybeUninit;
 use crate::ptr::impls;
 use alloc::boxed::Box;
-use core::cmp;
+use core::{cmp, fmt};
+use core::fmt::Formatter;
 use core::ptr::NonNull;
 use log::debug;
 use crate::memory::r#virtual::address_space::{AddressSpace, AddressSpaceInner};
 
+#[derive(Debug)]
 pub enum PointerError {
 	InvalidAddress,
 }
 
 //#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct User<T>(T, NonNull<AddressSpaceInner>);
+
+impl<T: fmt::Pointer> fmt::Pointer for User<T> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		self.0.fmt(f)
+	}
+}
 
 macro_rules! user_ptr_impl_unsized {
 	($ty: ident) => {
@@ -31,6 +39,10 @@ macro_rules! user_ptr_impl_unsized {
 	    pub unsafe fn byte_offset(self, count: isize) -> Self {
 		    User(self.0.byte_offset(count), self.1)
 	    }
+		
+		pub fn addr(self) -> usize {
+			self.0.addr()
+		}
 
 	    /*pub unsafe fn wrapping_byte_offset(self, count: isize) -> Self {
 		    User(self.0.wrapping_byte_offset(count))
@@ -58,6 +70,10 @@ macro_rules! user_ptr_impl_sized {
 
 		pub fn align_offset(self, align: usize) -> usize {
 			self.0.align_offset(align)
+		}
+		
+		pub fn is_aligned_to(&self, align: usize) -> bool {
+			self.0.is_aligned_to(align)
 		}
 		
 	    /// # Safety
@@ -180,6 +196,18 @@ impl<T: ?Sized> User<*mut T> {
 
 	pub fn cast_const(self) -> User<*const T> {
 		User(self.0.cast_const(), self.1)
+	}
+}
+
+impl<T> User<*const [T]> {
+	pub fn as_ptr(self) -> User<*const T> {
+		User(self.0.as_ptr(), self.1)
+	}
+}
+
+impl<T> User<*mut [T]> {
+	pub fn as_mut_ptr(self) -> User<*const T> {
+		User(self.0.as_mut_ptr(), self.1)
 	}
 }
 

@@ -38,7 +38,7 @@ impl<T> MappedVec<T> {
 		}
 
 		let ptr = storage
-				.virtual_start().as_ptr()
+				.virtual_valid_start().as_ptr()
 				.cast::<T>();
 
 		debug_assert!(self.capacity() > self.len() + 1);
@@ -86,7 +86,7 @@ impl<'vec, T: 'vec> IntoIterator for &'vec MappedVec<T> {
 
 	fn into_iter(self) -> Self::IntoIter {
 		let ptr = self.storage.as_ref()
-				.map(|map| map.virtual_start().as_ptr().cast_const().cast())
+				.map(|map| map.virtual_valid_start().as_ptr().cast_const().cast())
 				.unwrap_or(core::ptr::dangling());
 		Iter {
 			items: unsafe { &*slice_from_raw_parts(ptr, self.len()) }

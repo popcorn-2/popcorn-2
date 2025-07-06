@@ -42,7 +42,7 @@ pub unsafe trait Hal {
 	fn get_and_disable_interrupts() -> usize;
 	fn set_interrupts(old_state: usize);
 	unsafe fn load_tls(ptr: *mut u8);
-	unsafe fn load_user_tls(ptr: *mut u8);
+	fn load_user_tls(ptr: *mut u8);
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
 	unsafe extern "C" fn switch_thread(from: &mut PointerView, to: &mut PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve;
 
@@ -79,24 +79,24 @@ mod hal_impl {
 	pub type KTableTy = <arch::Arch as Hal>::KTableTy;
 	pub type TTableTy = <arch::Arch as Hal>::TTableTy;
 	pub type SaveState = <arch::Arch as Hal>::SaveState;
-	
-	pub fn breakpoint() { <arch::Arch as Hal>::breakpoint() }
-	pub fn exit(result: Result) -> ! { <arch::Arch as Hal>::exit(result) }
-	pub fn debug_output(data: &[u8]) -> core::result::Result<(), ()> { <arch::Arch as Hal>::debug_output(data) }
-	pub fn early_init() { <arch::Arch as Hal>::early_init() }
-	pub fn post_acpi_init() { <arch::Arch as Hal>::post_acpi_init() }
-	#[export_name = "__popcorn_enable_irq"] pub fn enable_interrupts() { <arch::Arch as Hal>::enable_interrupts() }
-	#[export_name = "__popcorn_disable_irq"] pub fn get_and_disable_interrupts() -> usize { <arch::Arch as Hal>::get_and_disable_interrupts() }
-	#[export_name = "__popcorn_set_irq"] pub fn set_interrupts(old_state: usize) { <arch::Arch as Hal>::set_interrupts(old_state) }
-	pub unsafe fn load_tls(ptr: *mut u8) { <arch::Arch as Hal>::load_tls(ptr) }
-	pub unsafe fn construct_tables() -> (KTableTy, TTableTy) { <arch::Arch as Hal>::construct_tables() }
-	#[inline] pub unsafe fn load_user_tls(ptr: *mut u8) { <arch::Arch as Hal>::load_user_tls(ptr) }
+
+	#[inline] pub fn breakpoint() { <arch::Arch as Hal>::breakpoint() }
+	#[inline] pub fn exit(result: Result) -> ! { <arch::Arch as Hal>::exit(result) }
+	#[inline] pub fn debug_output(data: &[u8]) -> core::result::Result<(), ()> { <arch::Arch as Hal>::debug_output(data) }
+	#[inline] pub fn early_init() { <arch::Arch as Hal>::early_init() }
+	#[inline] pub fn post_acpi_init() { <arch::Arch as Hal>::post_acpi_init() }
+	#[inline] #[export_name = "__popcorn_enable_irq"] pub fn enable_interrupts() { <arch::Arch as Hal>::enable_interrupts() }
+	#[inline] #[export_name = "__popcorn_disable_irq"] pub fn get_and_disable_interrupts() -> usize { <arch::Arch as Hal>::get_and_disable_interrupts() }
+	#[inline] #[export_name = "__popcorn_set_irq"] pub fn set_interrupts(old_state: usize) { <arch::Arch as Hal>::set_interrupts(old_state) }
+	#[inline] pub unsafe fn load_tls(ptr: *mut u8) { <arch::Arch as Hal>::load_tls(ptr) }
+	#[inline] pub fn load_user_tls(ptr: *mut u8) { <arch::Arch as Hal>::load_user_tls(ptr) }
+	#[inline] pub unsafe fn construct_tables() -> (KTableTy, TTableTy) { <arch::Arch as Hal>::construct_tables() }
 	#[inline] pub unsafe extern "C" fn switch_thread(from: &mut PointerView, to: &mut PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve { <arch::Arch as Hal>::switch_thread(from, to, preserve) }
 
-	pub fn send_ipi(target: IpiTarget) -> ::core::result::Result<(), ()> { <arch::Arch as Hal>::send_ipi(target) }
-	
-	pub fn send_local_eoi(vector: Vector) { <arch::Arch as Hal>::send_local_eoi(vector) }
-	pub fn wait_for_interrupt() { <arch::Arch as Hal>::wait_for_interrupt() }
+	#[inline] pub fn send_ipi(target: IpiTarget) -> ::core::result::Result<(), ()> { <arch::Arch as Hal>::send_ipi(target) }
+
+	#[inline] pub fn send_local_eoi(vector: Vector) { <arch::Arch as Hal>::send_local_eoi(vector) }
+	#[inline] pub fn wait_for_interrupt() { <arch::Arch as Hal>::wait_for_interrupt() }
 	#[inline] pub fn first_thread_init(tcb: &ThreadControlBlock) { <arch::Arch as Hal>::first_thread_init(tcb) }
 	#[inline] pub fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! { <arch::Arch as Hal>::switch_to_userspace_at(addr, stack_top) }
 

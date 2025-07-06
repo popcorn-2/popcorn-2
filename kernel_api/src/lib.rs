@@ -20,7 +20,8 @@
 #![feature(dispatch_from_dyn)]
 #![feature(coerce_unsized)]
 #![feature(impl_trait_in_assoc_type)]
-
+#![feature(pointer_is_aligned_to)]
+#![feature(slice_ptr_get)]
 #![doc(issue_tracker_base_url = "https://github.com/popcorn-2/popcorn-2/issues/")]
 #![doc(cfg_hide(all(not(feature = "use_std"), feature = "full")))]
 #![doc(cfg_hide(feature = "full"))]

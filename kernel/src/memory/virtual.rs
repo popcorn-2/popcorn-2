@@ -1,14 +1,15 @@
 use alloc::sync::Arc;
 use core::fmt::{Debug, Formatter};
-use core::ops::Range;
+use core::ops::{Deref, Range};
 #[allow(unused_imports)] use crate::prelude::*;
 use core::ptr::{addr_of, NonNull};
 use core::sync::atomic::{AtomicPtr, Ordering};
+use slab::Slab;
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
 use kernel_api::memory::mapping::{DynMapping, Mappable, Mapping, RawMapping};
 use kernel_api::memory::physical::highmem;
 use kernel_api::memory::r#virtual::{address_space::AddressSpace, Userspace, VirtualAllocator};
-use kernel_api::sync::{RwSpinlock, Spinlock};
+use kernel_api::sync::{RwSpinlock, Spinlock, SpinlockGuard};
 use ranged_btree_allocator::RangedBtreeAllocator;
 
 #[export_name = "__popcorn_memory_virtual_kernel_global"]
@@ -76,17 +77,20 @@ use crate::hal::paging2::TTable;
 use crate::hal::TTableTy;
 use crate::memory::paging::ktable;
 
+#[derive(Debug, Copy, Clone)]
+pub struct MappingKey(pub usize);
+
 pub(crate) struct AddressSpaceInner {
 	ttable: TTableTy,
 	allocator: RangedBtreeAllocator,
-	maps: Spinlock<Vec<(&'static str, RawMapping<'static, DynMapping, Userspace>)>>,
+	maps: Spinlock<Slab<(&'static str, RawMapping<'static, DynMapping, Userspace>)>>,
 }
 
 impl Debug for AddressSpaceInner {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		writeln!(f, "AddressSpaceInner {{")?;
-		for (name, map) in &*self.maps.lock() {
-			writeln!(f, "    {:x}-{:x} {} {:?}", map.virtual_start().as_ptr().addr(), map.virtual_end().as_ptr().addr(), name, map.protection())?;
+		for (_, (name, map)) in &*self.maps.lock() {
+			writeln!(f, "    {:x}({:x})-{:x}({:x}) {} {:?}", map.virtual_valid_start().as_ptr().addr(), map.virtual_start().as_ptr().addr(), map.virtual_valid_end().as_ptr().addr(), map.virtual_end().as_ptr().addr(), name, map.protection())?;
 		}
 		writeln!(f, "}}")?;
 		Ok(())
@@ -98,7 +102,7 @@ const _: () = { assert!(align_of::<AddressSpaceInner>() == 8); };
 
 impl AddressSpaceInner {
 	pub fn new(ttable: TTableTy, allocator: RangedBtreeAllocator) -> Arc<AddressSpaceInner> {
-		Arc::new(Self { ttable, allocator, maps: Spinlock::new(vec![]) })
+		Arc::new(Self { ttable, allocator, maps: Spinlock::new(Slab::new()) })
 	}
 	
 	pub fn empty() -> Result<Arc<AddressSpaceInner>, AllocError> {
@@ -126,8 +130,20 @@ impl AddressSpaceInner {
 		unsafe { core::mem::transmute::<_, &Arc<Self>>(this) }
 	}
 	
-	pub fn add_mapping<M: Mappable>(&self, name: &'static str, map: RawMapping<'static, M, Userspace>) where [(); 1 / ((size_of::<M>() == 0) as usize)]: {
-		self.maps.lock().push((name, DynMapping::coerce(map)));
+	pub fn add_mapping<M: Mappable>(&self, name: &'static str, map: RawMapping<'static, M, Userspace>) -> MappingKey where [(); 1 / ((size_of::<M>() == 0) as usize)]: {
+		MappingKey(self.maps.lock().insert((name, DynMapping::coerce(map))))
+	}
+
+	pub fn get_mapping(&self, key: MappingKey) -> Option<impl Deref<Target = (&'static str, RawMapping<'static, DynMapping, Userspace>)> + use<'_>> {
+		let guard = self.maps.lock();
+		if guard.contains(key.0) {
+			// SAFETY: just checked the key is valid
+			Some(SpinlockGuard::map(guard, |val| unsafe { val.get_unchecked_mut(key.0) }))
+		} else { None }
+	}
+
+	pub fn drop_mapping(&self, key: MappingKey) {
+		self.maps.lock().try_remove(key.0);
 	}
 }
 

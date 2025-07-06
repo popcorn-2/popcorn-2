@@ -43,7 +43,7 @@ use core::arch::{asm, naked_asm};
 use core::fmt::Debug;
 use core::num::NonZero;
 use core::ops::{Deref, DerefMut, Range};
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use hashbrown::HashMap;
 use kernel_api::memory::{AllocError, Page, VirtualAddress};
 use kernel_api::memory::mapping::{Protection, RawStack, Stack};
@@ -63,7 +63,7 @@ mod thread_control_block;
 mod yielding;
 mod subthread_killer;
 
-pub use parking::{park, ParkError, Waker, WakeReason, WakeTrigger};
+pub use parking::{park, maybe_park, ParkError, Waker, WakeReason, WakeTrigger};
 pub use pointers::{Thread, ThreadPointer};
 pub use scheduler::ControlEvent;
 use ranged_btree_allocator::RangedBtreeAllocator;
@@ -80,13 +80,13 @@ use crate::threading::thread_control_block::AtomicThreadState;
 
 pub type SchedulerTy = impl Scheduler;
 
-const INIT_THREAD_NUM: usize = 1;
+const INIT_THREAD_NUM: isize = 1;
 const INIT_THREAD_ID: ThreadId = ThreadId { id: non_zero!(INIT_THREAD_NUM) };
 
 /// Global list of all running threads
 static TASK_LIST: Spinlock<HashMap<ThreadId, (Thread, PointerState)>> = Spinlock::new(hashmap_new!());
 
-static THREAD_REAPER: LazyLock<ThreadId> = LazyLock::new(|| spawn_with(||
+static THREAD_REAPER: LazyLock<ThreadId> = LazyLock::new(|| spawn_kernel(||
 	loop {
 		debug!("thread reaper loop running");
 		let mut guard = TASK_LIST.lock();
@@ -115,7 +115,7 @@ enum PointerState {
 /// See the [module level documentation](crate::threading#threadcontrolblock-vs-thread-vs-threadpointer-vs-threadid) for more information
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct ThreadId {
-	id: NonZero<usize>,
+	id: NonZero<isize>,
 }
 
 impl ThreadId {
@@ -133,10 +133,14 @@ impl ThreadId {
 	/// assert_ne!(thread_a, thread_b);
 	/// ```
 	fn new() -> Self {
-		static THREAD_IDS: AtomicUsize = AtomicUsize::new(INIT_THREAD_NUM + 1);
+		static THREAD_IDS: AtomicIsize = AtomicIsize::new(INIT_THREAD_NUM + 1);
 
-		let id = THREAD_IDS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-		let id = NonZero::<usize>::new(id)
+		let id = THREAD_IDS.fetch_add(1, Ordering::Relaxed);
+		if id < 0 {
+			THREAD_IDS.store(isize::MIN, Ordering::Relaxed);
+			panic!("`ThreadId` value overflowed");
+		}
+		let id = NonZero::<isize>::new(id)
 				.expect("`ThreadId` value overflowed");
 
 		ThreadId {
@@ -144,13 +148,13 @@ impl ThreadId {
 		}
 	}
 	
-	pub fn new_from(val: NonZero<usize>) -> Self {
+	pub fn new_from(val: NonZero<isize>) -> Self {
 		Self {
 			id: val,
 		}
 	}
 	
-	pub fn get(self) -> usize {
+	pub fn get(self) -> isize {
 		self.id.get()
 	}
 }
@@ -204,7 +208,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		Arc::new(HandleMap::new()),
 		SubthreadKiller::new(INIT_THREAD_ID),
 	);
-	percpu_v2!(kernel_stack_top).store(tcb.kernel_stack.virtual_end().start().addr, Ordering::Relaxed);
+	percpu_v2!(kernel_stack_top).store(tcb.kernel_stack.virtual_valid_end().start().addr, Ordering::Relaxed);
 	crate::hal::first_thread_init(&tcb);
 	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
 
@@ -233,10 +237,10 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 /// # Examples
 /// 
 /// ```
-/// use kernel::threading::spawn_with;
+/// use kernel::threading::spawn_kernel;
 /// # use kernel::prelude::debug;
 /// 
-/// let new_id = spawn_with(|| {
+/// let new_id = spawn_kernel(|| {
 ///     debug!("`My new thread` is running!");
 /// }, "My new thread".into());
 /// 
@@ -245,10 +249,10 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 /// ```
 ///
 /// ```
-/// use kernel::threading::{spawn_with, exit};
+/// use kernel::threading::{spawn_kernel, exit};
 /// # use kernel::prelude::debug;
 ///
-/// let new_id = spawn_with(|| {
+/// let new_id = spawn_kernel(|| {
 ///     error!("Oh no something went wrong");
 ///     exit(-1);
 /// }, "Bad thread".into());
@@ -256,62 +260,9 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 /// // TODO: get the exit state of the thread
 /// ```
 /// 
-pub fn spawn_with(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) -> Result<ThreadId, AllocError> {
-	extern "C" fn main(ptr: usize) -> ! {
-		let boxed = unsafe { Box::<Box<dyn FnOnce()>>::from_raw(ptr as *mut _) };
-		boxed();
-		exit(0);
-	}
-
-	let boxed = Box::new(f) as Box<dyn FnOnce()>;
-	let boxed = Box::into_raw(Box::new(boxed));
-
+pub fn spawn_kernel(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) -> Result<ThreadId, AllocError> {
 	let address_space = AddressSpaceInner::empty()?;
-
-	let (tcb, id) = ThreadControlBlock::new(
-		name,
-		address_space,
-		thread_startup,
-		main,
-		boxed as usize,
-	);
-
-	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
-
-	let mut guard = TASK_LIST.lock();
-	let thread = guard.try_insert(id, (thread, PointerState::GloballyParked(ptr)))
-	         .expect("ThreadId reuse");
-
-	scheduler::enqueue(&mut thread.1);
-
-	Ok(id)
-}
-
-fn clone(name: Cow<'static, str>) -> Result<(ThreadId, ThreadPointerGuard<'static>), AllocError> {
-	let (tcb, id) = ThreadControlBlock::clone_uninit_from(
-		percpu_v2!(current_thread).read().as_ref()
-		                          .expect("cannot clone non-existent thread")
-		                          .tcb_ref(),
-		name,
-		thread_startup,
-	);
-
-	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
-
-	let mut guard = TASK_LIST.lock();
-	let thread = guard.try_insert(id, (thread, PointerState::GloballyParked(ptr)))
-	            .expect("ThreadId reuse");
-	let ptr = match &mut thread.1 {
-		PointerState::InScheduler(_) => unreachable!(),
-		PointerState::GloballyParked(ptr) => ptr
-	};
-	
-	let guard = ThreadPointerGuard {
-		pointer: ptr,
-		guard
-	};
-
-	Ok((id, guard))
+	spawn_into(f, name, address_space, HandleMap::new())
 }
 
 pub fn clone_current(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>) -> Result<ThreadId, AllocError> {
@@ -324,29 +275,55 @@ pub fn clone_current(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>)
 	let boxed = Box::new(f) as Box<dyn FnOnce()>;
 	let boxed = Box::into_raw(Box::new(boxed));
 	
-	let (id, mut thread) = clone(name)?;
-	unsafe { thread.tcb_mut().save_state.set_entry(main, boxed as usize); }
-	start_uninit_thread(thread);
+	let (tcb, id) = ThreadControlBlock::clone_from(
+		percpu_v2!(current_thread).read().as_ref()
+		                          .expect("cannot clone non-existent thread")
+		                          .tcb_ref(),
+		name,
+		thread_startup,
+		main,
+		boxed as usize,
+	);
+
+	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
+
+	let mut guard = TASK_LIST.lock();
+	let thread = guard.try_insert(id, (thread, PointerState::GloballyParked(ptr)))
+	                  .expect("ThreadId reuse");
+
+	scheduler::enqueue(&mut thread.1);
+
 	Ok(id)
 }
 
-pub fn clone_current_uninit(name: Cow<'static, str>) -> Result<ThreadId, AllocError> {
-	Ok(clone(name)?.0)
-}
-
-pub fn start_uninit_thread(thread_pointer: ThreadPointerGuard<'static>) {
-	let tid = *thread_pointer.tcb_ref().thread_id;
-	let ThreadPointerGuard { mut guard, .. } = thread_pointer;
-	let global_thread = guard.get_mut(&tid).expect("we already had a guard to this thread");
-	
-	match global_thread.1 {
-		PointerState::GloballyParked(ref mut ptr) => {
-			debug!("Enqueue thread {:?} from uninit", ptr.tcb_ref().thread_id);
-			ptr.tcb_ref().state.store(ThreadState::Ready, Ordering::SeqCst);
-			scheduler::enqueue(&mut global_thread.1);
-		},
-		_ => unreachable!("uninit thread cannot be in scheduler"),
+pub fn spawn_into(f: impl FnOnce() + Send + 'static, name: Cow<'static, str>, address_space: Arc<AddressSpaceInner>, handles: HandleMap) -> Result<ThreadId, AllocError> {
+	extern "C" fn main(ptr: usize) -> ! {
+		let boxed = unsafe { Box::<Box<dyn FnOnce()>>::from_raw(ptr as *mut _) };
+		boxed();
+		exit(0);
 	}
+
+	let boxed = Box::new(f) as Box<dyn FnOnce()>;
+	let boxed = Box::into_raw(Box::new(boxed));
+
+	let (tcb, id) = ThreadControlBlock::new(
+		name,
+		address_space,
+		handles,
+		thread_startup,
+		main,
+		boxed.addr(),
+	);
+
+	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
+
+	let mut guard = TASK_LIST.lock();
+	let thread = guard.try_insert(id, (thread, PointerState::GloballyParked(ptr)))
+	                  .expect("ThreadId reuse");
+
+	scheduler::enqueue(&mut thread.1);
+
+	Ok(id)
 }
 
 /// Gets the [`ThreadId`] for the thread currently running on this core

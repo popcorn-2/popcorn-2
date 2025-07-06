@@ -2,9 +2,11 @@ use alloc::sync::Arc;
 use core::num::NonZero;
 use crate::prelude::*;
 use core::ptr::{addr_of, addr_of_mut};
+use core::time::Duration;
 use acpi::madt::{Madt, MadtEntry};
 use bit_field::BitField;
 use kernel::hal::arch::apic::lapic::Lvt;
+use kernel_api::is_x86_feature_detected;
 use kernel_api::memory::mapping::{Config, Location, Mapping, new_mapping};
 use kernel_api::memory::{Frame, PhysicalAddress};
 use kernel_api::time::Instant;
@@ -20,7 +22,7 @@ pub(in crate::hal) struct XApicInner {
 }
 
 pub(super) struct XApic(XApicInner);
-pub(in crate::hal) struct XApicTimer(pub(in crate::hal) XApicInner);
+pub(in crate::hal) struct XApicTimer(pub(in crate::hal) XApicInner, u32);
 
 impl XApic {
 	pub(super) fn init(madt: &Madt) {
@@ -79,17 +81,38 @@ impl XApic {
 			}
 		}
 
-		unsafe {
-			let _ = addr_of_mut!((*xapic.registers()).timer_lvt.0.0).fetch_update_io(|mut old| {
-				Some(
-					*old.set_bits(17..=18, 0b10) // TSC deadline
-						.set_bit(16, true) // masked
-						.set_bits(0..=7, 0x40) // vector
-				)
-			});
-		}
+		let ticks_per_50ms = if is_x86_feature_detected!("tsc_deadline") {
+			unsafe {
+				let _ = addr_of_mut!((*xapic.registers()).timer_lvt.0.0).store_io(
+					// TSC-deadline, unmasked, vector 0x40
+					0x40040
+				);
+			}
+			0
+		} else {
+			info!("No `tsc-deadline` - fall back to APIC one-shot - calibrating...");
+			unsafe {
+				addr_of_mut!((*xapic.registers()).timer_lvt.0.0).store_io(
+					// one-shot, masked, vector 0x40
+					0x10040
+				);
+				addr_of_mut!((*xapic.registers()).timer_divide_config).store_io(0b11); // div by 16
 
-		let xapic_timer = TimerMeta::new(Vector(0x40), Box::leak(Box::new(XApicTimer(xapic))));
+				// time 50ms and see how far LAPIC timer ticks down
+				let start = Instant::now();
+				addr_of_mut!((*xapic.registers()).timer_initial_count).store_io(0xFFFFFFFF);
+				while (Instant::now() - start) < Duration::from_millis(50) {};
+				let counted = 0xFFFFFFFF - addr_of_mut!((*xapic.registers()).timer_current_count).load_io();
+				addr_of_mut!((*xapic.registers()).timer_initial_count).store_io(0);
+				addr_of_mut!((*xapic.registers()).timer_lvt.0.0).store_io(
+					// one-shot, unmasked, vector 0x40
+					0x00040
+				);
+				counted
+			}
+		};
+
+		let xapic_timer = TimerMeta::new(Vector(0x40), Box::leak(Box::new(XApicTimer(xapic, ticks_per_50ms))));
 		hal::timing::init_local_timer(xapic_timer);
 	}
 }
@@ -97,7 +120,7 @@ impl XApic {
 impl XApicInner {
 	fn registers(&self) -> *mut Registers {
 		unsafe {
-			self.mmap.virtual_start().as_ptr()
+			self.mmap.virtual_valid_start().as_ptr()
 			    .byte_add(self.offset)
 			    .cast()
 		}
@@ -113,19 +136,31 @@ impl XApicInner {
 
 impl Timer for XApicTimer {
 	fn mask(&self, masked: bool) {
-		let registers = self.0.registers();
+		/*let registers = self.0.registers();
 		unsafe {
 			let _ = addr_of_mut!((*registers).timer_lvt.0.0).fetch_update_io(|mut old| {
 				Some(
 					*old.set_bit(16, masked) // masked
 				)
 			});
-		}
+		}*/
 	}
 
 	fn set_deadline(&self, time: Instant) -> Result<(), ()> {
-		debug!("Set TSC for {time:?}");
-		msr::wrmsr(msr::IA32_TSC_DEADLINE, time.get().try_into().map_err(|_| ())?);
+		if is_x86_feature_detected!("tsc_deadline") {
+			info!("Set TSC for {time:?}");
+			msr::wrmsr(msr::IA32_TSC_DEADLINE, time.get().try_into().map_err(|_| ())?);
+		} else {
+			info!("Set APIC one-shot for {time:?}");
+			if let Some(delta) = time.checked_duration_since(Instant::now()) && !delta.is_zero() {
+				let ticks = delta.as_millis() * (self.1 as u128) / 50;
+				unsafe {
+					addr_of_mut!((*self.0.registers()).timer_initial_count).store_io(ticks.try_into().map_err(|_| ())?);
+				}
+			} else {
+				warn!("ignoring one-shot request in the past");
+			}
+		}
 		Ok(())
 	}
 }

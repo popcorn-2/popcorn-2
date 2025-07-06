@@ -95,6 +95,7 @@ impl<L: Level> Table<L> {
 impl<L: ParentLevel> Table<L> {
 	pub(super) fn child_table(&self, idx: usize) -> Option<&Table<L::Child>> {
 		let entry = self.entries[idx];
+		debug!("follow entry {entry:#x?}");
 		let table_frame = entry.pointed_frame()?;
 		let table_page = table_frame.to_page();
 		Some(unsafe { &*table_page.as_ptr().cast() })

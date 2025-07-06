@@ -9,6 +9,7 @@ use kernel_api::memory::{Frame, VirtualAddress};
 use crate::hal::{ContextSwitchPreserve, IpiTarget};
 use crate::hal::{Hal, SaveStateTr, ThreadControlBlock};
 use crate::hal::arch::amd64::interrupts::handler::InterruptStackFrame;
+use crate::hal::arch::amd64::msr::{rdmsr, wrmsr};
 use crate::hal::interrupts_v2::Vector;
 use crate::hal::timing::TimerMeta;
 use crate::threading::{ThreadPointer, PointerView};
@@ -31,12 +32,15 @@ unsafe impl Hal for Amd64Hal {
 	type TTableTy = paging2::Amd64TTable;
 	type SaveState = Amd64SaveState;
 
+	#[inline]
 	fn breakpoint() { unsafe { asm!("int3"); } }
 
+	#[inline]
 	fn exit(result: crate::hal::Result) -> ! {
 		qemu::debug_exit(result)
 	}
 
+	#[inline]
 	fn debug_output(data: &[u8]) -> Result<(), ()> {
 		qemu::debug_con_write(data);
 		Ok(())
@@ -82,14 +86,17 @@ unsafe impl Hal for Amd64Hal {
 		Self::enable_interrupts();
 	}
 
+	#[inline]
 	fn post_acpi_init() {
 		super::apic::init();
 	}
 
+	#[inline]
 	fn enable_interrupts() {
 		unsafe { asm!("sti", options(preserves_flags)); }
 	}
 
+	#[inline]
 	fn get_and_disable_interrupts() -> usize {
 		let flags: usize;
 		unsafe {
@@ -103,6 +110,7 @@ unsafe impl Hal for Amd64Hal {
 		flags & 0x0200
 	}
 
+	#[inline]
 	fn set_interrupts(old_state: usize) {
 		if old_state != 0 {
 			unsafe { asm!("sti", options(preserves_flags)); }
@@ -113,20 +121,26 @@ unsafe impl Hal for Amd64Hal {
 		msr::wrmsr(msr::GS_BASE, ptr.addr() as _);
 	}
 
-	unsafe fn load_user_tls(ptr: *mut u8) {
+	fn load_user_tls(ptr: *mut u8) {
 		msr::wrmsr(msr::FS_BASE, ptr.addr() as _);
 	}
 
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy) {
 		paging2::construct_tables()
 	}
-	
+
+	#[inline]
 	unsafe extern "C" fn switch_thread(from: &mut PointerView, to: &mut PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve {
 		// currently in kernel mode so even if we get an interrupt on the new TSS.privilege_stack_table[0] value
 		// the CPU won't pay attention to it
 		let ptr = tss::TSS.get().expect("TSS should be initialised")
-				.set_rsp0(to.kernel_stack.virtual_end().start().align_down());
-		percpu_v2!(kernel_stack_top).store(to.kernel_stack.virtual_end().start().addr, Ordering::Relaxed);
+				.set_rsp0(to.kernel_stack.virtual_valid_end().start().align_down());
+		percpu_v2!(kernel_stack_top).store(to.kernel_stack.virtual_valid_end().start().addr, Ordering::Relaxed);
+		
+		from.save_state.fs = rdmsr(msr::FS_BASE) as usize;
+		from.save_state.gs = rdmsr(msr::KERNEL_GS_BASE) as usize; // since we're in the kernel, KERNEL_GS_BASE will be the userspace gs
+		wrmsr(msr::FS_BASE, to.save_state.fs as u64);
+		wrmsr(msr::KERNEL_GS_BASE, to.save_state.gs as u64);
 		
 		return inner(from.save_state, to.save_state, preserve);
 
@@ -189,6 +203,7 @@ unsafe impl Hal for Amd64Hal {
 		xapic.0.eoi(vector);
 	}
 
+	#[inline]
 	fn wait_for_interrupt() {
 		unsafe {
 			let val: u64;
@@ -207,7 +222,7 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	fn first_thread_init(tcb: &ThreadControlBlock) {
-		let tss_rsp0 = tcb.kernel_stack.virtual_end().start();
+		let tss_rsp0 = tcb.kernel_stack.virtual_valid_end().start();
 		tss::TSS.get().expect("no TSS").set_rsp0(tss_rsp0.align_down());
 	}
 
@@ -231,46 +246,40 @@ unsafe impl Hal for Amd64Hal {
 	const SPURIOUS_VECTOR: Vector = Vector(0xFF);
 }
 
+#[derive(Debug)]
 pub struct Amd64SaveState {
-	pub rbx: MaybeUninit<usize>,
-	pub rsp: MaybeUninit<usize>,
-	pub rbp: MaybeUninit<usize>,
-	pub r12: MaybeUninit<usize>,
-	pub r13: MaybeUninit<usize>,
-	pub r14: MaybeUninit<usize>,
-	pub r15: MaybeUninit<usize>,
-	pub rflags: MaybeUninit<usize>,
+	pub rbx: usize,
+	pub rsp: usize,
+	pub rbp: usize,
+	pub r12: usize,
+	pub r13: usize,
+	pub r14: usize,
+	pub r15: usize,
+	pub rflags: usize,
+	pub fs: usize,
+	pub gs: usize,
+	//pub xsave: Box<XSaveArea>,
 }
 
-impl Debug for Amd64SaveState {
-	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Amd64SaveState")
-				.field("rbx", unsafe { &self.rbx.assume_init_read() })
-				.field("rsp", unsafe { &self.rsp.assume_init_read() })
-				.field("rbp", unsafe { &self.rbp.assume_init_read() })
-				.field("r12", unsafe { &self.r12.assume_init_read() })
-				.field("r13", unsafe { &self.r13.assume_init_read() })
-				.field("r14", unsafe { &self.r14.assume_init_read() })
-				.field("r15", unsafe { &self.r15.assume_init_read() })
-				.field("rflags", unsafe { &self.rflags.assume_init_read() })
-				.finish()
-	}
-}
+#[repr(align(64))]
+struct XSaveArea([MaybeUninit<u8>]);
 
 impl Default for Amd64SaveState {
 	fn default() -> Self {
 		Self {
-			rbx: MaybeUninit::zeroed(),
-			rsp: MaybeUninit::zeroed(),
-			rbp: MaybeUninit::zeroed(),
-			r12: MaybeUninit::zeroed(),
-			r13: MaybeUninit::zeroed(),
-			r14: MaybeUninit::zeroed(),
-			r15: MaybeUninit::zeroed(),
+			rbx: 0,
+			rsp: 0,
+			rbp: 0,
+			r12: 0,
+			r13: 0,
+			r14: 0,
+			r15: 0,
+			fs: 0,
+			gs: 0,
 			// According to Sys V entry convention
 			// Reserved bit 1 = 1
 			// IE = 0
-			rflags: MaybeUninit::new(0x02),
+			rflags: 0x02,
 		}
 	}
 }
@@ -279,7 +288,7 @@ impl SaveStateTr for Amd64SaveState {
 	fn new(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, arg: usize) -> Self {
 		let stack = &mut tcb.kernel_stack;
 		let stack_start = unsafe {
-			let stack_top = stack.virtual_end().start().as_ptr().cast::<usize>();
+			let stack_top = stack.virtual_valid_end().start().as_ptr().cast::<usize>();
 			stack_top.sub(1).write(0);
 			stack_top.sub(2).write(main as usize);
 			stack_top.sub(3).write(arg); // Intentionally skip stack slot 4 here for alignment
@@ -289,13 +298,13 @@ impl SaveStateTr for Amd64SaveState {
 		};
 
 		Self {
-			rsp: MaybeUninit::new(stack_start as usize),
+			rsp: stack_start as usize,
 			.. Self::default()
 		}
 	}
 
 	unsafe fn set_entry(&mut self, main: extern "C" fn(usize) -> !, args: usize) {
-		let stack_ptr = self.rsp.assume_init_read() as *mut usize;
+		let stack_ptr = self.rsp as *mut usize;
 		stack_ptr.offset(4).write(main as usize);
 		stack_ptr.offset(3).write(args);
 	}

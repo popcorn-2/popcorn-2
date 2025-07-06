@@ -55,6 +55,7 @@ pub fn yield_defer() {
 /// # Interrupt safety
 /// This function is **not** interrupt safe, and will block any pending interrupts
 pub fn yield_now() -> Option<WakeReason> {
+	#[inline]
 	fn do_thread_switch(from: ThreadPointer, mut to_view: PointerView) -> Option<WakeReason> {
 		// We need to duplicate the `ThreadPointer` so we can pass it to `switch_thread` while it is borrowed
 		// so wrap the first copy in a `ManuallyDrop` to prevent a double free

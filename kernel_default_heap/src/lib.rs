@@ -60,7 +60,7 @@ impl Heap for SyncHeap {
         let start = if let Some(mapping) = &mut guard.mapping {
             let start = guard.watermark.align_up_runtime(layout.align());
             let end = start + size.get();
-            let heap_end = mapping.virtual_end().start();
+            let heap_end = mapping.virtual_valid_end().start();
             if end > heap_end {
                 debug!("Increment heap end");
                 // FIXME: HACK
@@ -74,7 +74,7 @@ impl Heap for SyncHeap {
         } else {
             let page_count = NonZero::new(size.get().div_ceil(4096)).unwrap();
             let mapping = Mapping::new(Config::new(page_count), 25)?;
-            let start = mapping.virtual_start().start().align_up::<1>();
+            let start = mapping.virtual_valid_start().start().align_up::<1>();
             guard.mapping = Some(mapping);
             start
         };

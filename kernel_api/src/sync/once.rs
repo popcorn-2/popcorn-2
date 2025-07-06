@@ -111,6 +111,7 @@ impl<T> OnceLock<T> {
         }
     }
 
+    #[inline]
     pub fn get(&self) -> Option<&T> {
         if !self.once.is_complete() { return None; }
         fence(Ordering::Acquire);
@@ -120,6 +121,7 @@ impl<T> OnceLock<T> {
         }
     }
 
+    #[inline]
     pub fn get_mut(&mut self) -> Option<&mut T> {
         if !self.once.is_complete() { return None; }
         fence(Ordering::Acquire);
@@ -129,6 +131,7 @@ impl<T> OnceLock<T> {
         }
     }
 
+    #[inline]
     pub fn get_or_init(&self, f: impl FnOnce() -> T) -> &T {
         self.once.call_once(|| unsafe { (*self.data.get()).write(f()); });
         unsafe { (*self.data.get()).assume_init_ref() }

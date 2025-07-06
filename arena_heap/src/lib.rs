@@ -4,6 +4,7 @@
 #![feature(allocator_api)]
 #![feature(kernel_mmap_to_parts)]
 #![feature(let_chains)]
+#![feature(debug_closure_helpers)]
 
 use core::alloc::{AllocError, Layout};
 use core::ops::Range;

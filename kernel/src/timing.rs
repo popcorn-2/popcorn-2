@@ -162,7 +162,7 @@ impl TimerQueue {
 	
 	fn append(&self, event: TimerEvent) {
 		if event.time <= Instant::now() {
-			debug!("Waking just pushed timer event ({event:?})");
+			info!("Waking just pushed timer event ({event:?})");
 			event.waker.wake(WakeReason::Timeout);
 			return;
 		}

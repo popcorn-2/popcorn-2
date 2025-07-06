@@ -112,6 +112,7 @@ impl<const ALIGN: usize> PhysicalAddress<ALIGN> {
 
     /// Returns the [`PhysicalAddress`] less than or equal to `self` with the given runtime alignment
     #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
+    #[inline]
     pub const fn align_down_runtime(self, new_alignment: usize) -> PhysicalAddress<1> {
         PhysicalAddress {
             addr: self.addr & !(new_alignment - 1)
@@ -120,6 +121,7 @@ impl<const ALIGN: usize> PhysicalAddress<ALIGN> {
 
     /// Returns the [`PhysicalAddress`] greater than or equal to `self` with the given runtime alignment
     #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
+    #[inline]
     pub const fn align_up_runtime(self, new_alignment: usize) -> PhysicalAddress<1> {
         let a: PhysicalAddress = PhysicalAddress {
             addr: self.addr + new_alignment - 1
@@ -139,6 +141,7 @@ impl Frame {
 
     /// Returns the zero frame
     #[unstable(feature = "kernel_frame_zero", issue = "none")]
+    #[inline]
     pub const fn zero() -> Frame {
         Frame::new(PhysicalAddress::new(0))
     }
@@ -146,6 +149,7 @@ impl Frame {
     /// Creates a [`Frame`] using `base` as the first address within it
     #[stable(feature = "kernel_core_api", since = "1.0.0")]
     #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[inline]
     pub const fn new(base: PhysicalAddress<PAGE_SIZE>) -> Self {
         Self { base }
     }
@@ -166,6 +170,7 @@ impl Frame {
     /// Returns the first address within the [`Frame`]
     #[stable(feature = "kernel_core_api", since = "1.0.0")]
     #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[inline]
     pub const fn start(&self) -> PhysicalAddress<PAGE_SIZE> {
         self.base
     }
@@ -196,6 +201,7 @@ impl<const ALIGN: usize> VirtualAddress<ALIGN> {
     /// Converts a [`VirtualAddress`] into a raw pointer
     #[stable(feature = "kernel_core_api", since = "1.0.0")]
     #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[inline]
     pub const fn as_ptr(self) -> *mut u8 {
         self.addr as _
     }
@@ -233,6 +239,7 @@ impl<const ALIGN: usize> VirtualAddress<ALIGN> {
 
     /// Returns the [`VirtualAddress`] less than or equal to `self` with the given runtime alignment
     #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
+    #[inline]
     pub const fn align_down_runtime(self, new_alignment: usize) -> VirtualAddress<1> {
         VirtualAddress {
             addr: self.addr & !(new_alignment - 1)
@@ -241,6 +248,7 @@ impl<const ALIGN: usize> VirtualAddress<ALIGN> {
 
     /// Returns the [`VirtualAddress`] greater than or equal to `self` with the given runtime alignment
     #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
+    #[inline]
     pub const fn align_up_runtime(self, new_alignment: usize) -> VirtualAddress<1> {
         let a: VirtualAddress = VirtualAddress {
             addr: self.addr + new_alignment - 1
@@ -259,6 +267,7 @@ impl Page {
     /// Converts a [`Page`] into a raw pointer pointing to the first address within the page
     #[stable(feature = "kernel_core_api", since = "1.0.0")]
     #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[inline]
     pub const fn as_ptr(&self) -> *mut u8 {
         self.base.as_ptr()
     }
@@ -273,6 +282,7 @@ impl Page {
     /// Returns the first address within the [`Page`]
     #[stable(feature = "kernel_core_api", since = "1.0.0")]
     #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[inline]
     pub const fn start(&self) -> VirtualAddress<PAGE_SIZE> {
         self.base
     }
@@ -280,6 +290,7 @@ impl Page {
     /// Returns the address one after the end of the [`Page`]
     #[stable(feature = "kernel_core_api", since = "1.0.0")]
     #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[inline]
     pub const fn end(&self) -> VirtualAddress<PAGE_SIZE> {
         // FIXME(const): use normal add implementation
         VirtualAddress::<4096>::new(self.base.addr + PAGE_SIZE)

@@ -1,12 +1,15 @@
 use crate::prelude::*;
 use alloc::string::String;
+use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 use kernel_api::sync::OnceLock;
 use crate::hal::FormatWriter;
 use crate::ipc::ctor::{CtorContext, ProtocolVisitor};
 use crate::ipc::{Error, protocol};
+use crate::ipc::dispatch::Return;
+use crate::ipc::handle::Handle;
 use crate::ipc::protocol::DispatchTable;
-use crate::ipc::server::Server;
+use crate::ipc::server::{ReturnHandle, Server};
 
 /// IO server for the kernel debug console
 ///
@@ -27,11 +30,11 @@ impl ConsoleServer {
 impl Server for ConsoleServer {
 	type CtorContext = CtorCtx;
 
-	fn ctor(&self, endpoint: &str, _ctx: CtorCtx) -> Result<isize, Error> {
+	fn ctor(&self, endpoint: &str, _ctx: CtorCtx) -> Result<ReturnHandle, Error> {
 		if endpoint != "" { return Err(Error::EndpointNotFound); }
 		
 		let res = self.lock.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed);
-		if res.is_ok() { Ok(1) }
+		if res.is_ok() { Ok(ReturnHandle::NewDefault(1)) }
 		else { Err(Error::NameInUse) }
 	}
 
@@ -51,14 +54,18 @@ impl Server for ConsoleServer {
 }
 
 impl protocol::generated::CoreIoWrite for ConsoleServer {
+	fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
+
 	fn write(&self, _handle: isize, buf: &[u8]) -> Result<usize, Error> {
 		let s = String::from_utf8_lossy(buf);
-		sprint!("{s}");
+		sprint!("[C] {s}");
 		Ok(buf.len())
 	}
 }
 
 impl protocol::generated::CoreIoRead for ConsoleServer {
+	fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
+
 	fn read(&self, _handle: isize, count: usize) -> Result<Box<[u8]>, Error> {
 		let mut buf = Box::new_uninit_slice(count);
 		for i in 0..count {

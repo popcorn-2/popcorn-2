@@ -18,16 +18,16 @@ impl<H: AcpiHandler> Ioapic<H> {
 	fn write_at(&mut self, offset: u32, value: u32) {
 		unsafe {
 			let _guard = self.select_register.get_mut();
-			self.mapping.virtual_start().as_ptr().write_volatile(offset);
-			self.mapping.virtual_start().as_ptr().byte_add(0x10).write_volatile(value);
+			self.mapping.virtual_valid_start().as_ptr().write_volatile(offset);
+			self.mapping.virtual_valid_start().as_ptr().byte_add(0x10).write_volatile(value);
 		}
 	}
 
 	fn read_at(&self, offset: u32) -> u32 {
 		unsafe {
 			let _guard = self.select_register.borrow_mut();
-			self.mapping.virtual_start().as_ptr().write_volatile(offset);
-			self.mapping.virtual_start().as_ptr().byte_add(0x10).read_volatile()
+			self.mapping.virtual_valid_start().as_ptr().write_volatile(offset);
+			self.mapping.virtual_valid_start().as_ptr().byte_add(0x10).read_volatile()
 		}
 	}
 

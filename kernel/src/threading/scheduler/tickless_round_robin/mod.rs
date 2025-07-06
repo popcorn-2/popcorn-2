@@ -67,7 +67,7 @@ impl Scheduler for TicklessRoundRobin {
 		match old_state {
 			ThreadState::Parked(_) | ThreadState::Dead => threading::move_to_global_parking_lot(old_thread),
 			ThreadState::Ready | ThreadState::JustUnparked(_) => self.enqueue(old_thread),
-			ThreadState::Running | ThreadState::Uninit => unreachable!(),
+			ThreadState::Running => unreachable!(),
 		}
 	}
 
@@ -77,13 +77,12 @@ impl Scheduler for TicklessRoundRobin {
 
 	fn unpark(&mut self, thread_id: ThreadId, reason: WakeReason) -> Result<(), ()> {
 		debug!("scheduler local unpark of {thread_id:?} for {reason:?}");
-		let mut guard = percpu_v2!(current_thread).write();
-		let t = guard.as_mut().ok_or(())?;
-		if !matches!(t.tcb_ref().state.load(Ordering::SeqCst), ThreadState::Parked(_) | ThreadState::JustUnparked(_)) { return Ok(()); }
+		let guard = percpu_v2!(current_thread).read();
+		let t = guard.as_ref().ok_or(())?;
 		if *t.tcb_ref().thread_id == thread_id {
 			t.tcb_ref().state.store(ThreadState::JustUnparked(reason), Ordering::SeqCst);
-			Ok(())
-		} else { Err(()) } 
+		} else { debug!("non-active thread so must be running already"); }
+		Ok(())
 	}
 
 	fn kill(&mut self, thread_id: ThreadId) -> Result<(), ()> {

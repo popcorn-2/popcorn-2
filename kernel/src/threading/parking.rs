@@ -57,28 +57,44 @@ use super::{current_thread, scheduler, ThreadId, yield_now, scheduler::Scheduler
 /// park(&[&ImmediateWaker]).expect("failed to park thread");
 /// ```
 pub fn park(wakers: &[&dyn Waker]) -> Result<WakeReason, ParkError> {
+	// FIXME(preemption): any preemption after this point will cause an early park
+	// Set the state to `Parked` before calling the closure, so if events are triggered
+	// during the closure, the thread already appears parked and will get unparked before yielding
+	// Also drop the scheduler lock so that waking doesn't cause a deadlock
+	Ok(maybe_park(|trigger| {
+		for waker in wakers {
+			waker.add_wake_trigger(trigger.clone());
+		}
+		None::<()>
+	}).expect_err("`park` always parks thread"))
+}
+
+pub fn maybe_park<T>(f: impl FnOnce(WakeTrigger) -> Option<T>) -> Result<T, WakeReason> {
 	let id = current_thread();
-	debug!("Parking thread {:?}", id.unwrap());
+	debug!("Pre-parking thread {:?}", id.unwrap());
 	let weak_ptr = {
-		let mut guard = percpu_v2!(current_thread).write();
-		let thread = guard.as_mut().expect("Cannot park when not running a thread").tcb_mut();
+		let guard = percpu_v2!(current_thread).read();
+		let thread = guard.as_ref().expect("Cannot park when not running a thread").tcb_ref();
 		let park_state = Arc::new(ParkGaurd { thread_id: *thread.thread_id });
 		let weak_ptr = Arc::downgrade(&park_state);
 		thread.state.store(ThreadState::Parked(park_state), Ordering::SeqCst);
 		weak_ptr
 	};
-	// FIXME(preemption): any preemption after this point will cause an early park
-	// Set the state to `Parked` before calling the closure, so if events are triggered
-	// during the closure, the thread already appears parked and will get unparked before yielding
-	// Also drop the scheduler lock so that waking doesn't cause a deadlock
-	let trigger = WakeTrigger { park_guard: weak_ptr };
-	for waker in wakers {
-		waker.add_wake_trigger(trigger.clone());
+
+	match f(WakeTrigger { park_guard: weak_ptr }) {
+		Some(v) => {
+			debug!("un-parking self");
+			let guard = percpu_v2!(current_thread).read();
+			let thread = guard.as_ref().expect("Cannot park when not running a thread").tcb_ref();
+			let park_state = Arc::new(ParkGaurd { thread_id: *thread.thread_id });
+			thread.state.compare_exchange(ThreadState::Parked(park_state), ThreadState::Running, Ordering::SeqCst, Ordering::SeqCst);
+			Ok(v)
+		}
+		None => {
+			debug!("parking self");
+			Err(yield_now().expect("parking should cause wake reason"))
+		}
 	}
-	
-	Ok(
-		yield_now().expect("State was set to `Parked` before yielding so must have a reason to wake")
-	)
 }
 
 #[derive(Debug)]
@@ -99,11 +115,12 @@ impl PartialEq for WakeTrigger {
 
 impl WakeTrigger {
 	pub fn wake(&self, reason: WakeReason) {
+		debug!("wake with reason {reason:?}");
 		if let Some(state) = self.park_guard.upgrade() {
 			// FIXME: race condition between upgrading and actually waking which could cause a spurious wakeup
 			let tid = state.thread_id;
 			do_wake(tid, reason);
-		}
+		} else { warn!("stale WakeTrigger"); }
 	}
 }
 
@@ -114,6 +131,7 @@ pub(super) fn do_wake(thread: ThreadId, reason: WakeReason) {
 		return;
 	};
 
+	debug!("wake {thread:?} currently in state {:?}", global_thread.0.tcb_ref().state.load(Ordering::Relaxed));
 	match global_thread.1 {
 		PointerState::InScheduler(core_id) => {
 			scheduler::send_control_event(core_id, ControlEvent::Unpark(thread, reason));

@@ -55,6 +55,12 @@ pub fn main() {
 		BufReader::new(f)
 	};
 
+	let mut ramdisk = {
+		let ramdisk_path = cargo_env!("ramdisk");
+		let f = File::open(ramdisk_path).expect("ramdisk does not exist");
+		BufReader::new(f)
+	};
+
 	let disk_image_path = {
 		let out_dir = PathBuf::from(cargo_env!("OUT_DIR"));
 		out_dir.join("popcorn2.iso")
@@ -90,7 +96,7 @@ pub fn main() {
 
 		match partition.part_type {
 			PartitionType::Efi => init_efi_partition(fs, &mut bootloader, &mut popfs_driver),
-			PartitionType::System => init_system_partition(fs, &mut kernel, kernel_map.as_mut(), &mut init_exec),
+			PartitionType::System => init_system_partition(fs, &mut kernel, kernel_map.as_mut(), &mut init_exec, &mut ramdisk),
 			_ => {}
 		}
 	}
@@ -115,7 +121,7 @@ fn init_efi_partition(fs: FileSystem<impl ReadWriteSeek>, mut bootloader_data: i
 	io::copy(&mut popfs_data, &mut popfs).unwrap();
 }
 
-fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: impl Read, map_data: Option<impl Read>, mut init_exec: impl Read) {
+fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: impl Read, map_data: Option<impl Read>, mut init_exec: impl Read, mut ramdisk: impl Read) {
 	let root_dir = fs.root_dir();
 	root_dir.create_dir("kernel").unwrap();
 	let mut kernel = root_dir.create_file("kernel/kernel.exec").unwrap();
@@ -132,6 +138,9 @@ fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: im
 	let mut init = root_dir.create_file("user/init.exec").unwrap();
 	init.truncate().unwrap();
 	io::copy(&mut init_exec, &mut init).unwrap();
+	let mut ramdisk_disk = root_dir.create_file("user/init.tar").unwrap();
+	ramdisk_disk.truncate().unwrap();
+	io::copy(&mut ramdisk, &mut ramdisk_disk).unwrap();
 }
 
 fn create_fat_partition<T: Read + Write + Seek + Debug>(mut disk: T, size: u64, name: &str, part_type: Type) -> FileSystem<impl ReadWriteSeek> {
