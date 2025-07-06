@@ -9,6 +9,7 @@ use kernel_api::memory::physical::highmem;
 use kernel_api::sync::{IrqCell, IrqGuard};
 use crate::hal::{ContextSwitchPreserve, self, IpiTarget, TTableTy};
 use crate::hal::paging2::TTable;
+use crate::ipc::handle::HandleMap;
 use crate::memory::paging::ktable;
 use crate::memory::r#virtual::AddressSpaceInner;
 use super::{scheduler, WakeReason, ThreadState, scheduler::Scheduler, ThreadPointer, PointerView, Thread, ThreadControlBlock, ThreadId, ControlEvent};
@@ -26,6 +27,7 @@ pub fn create_idle_thread() -> (ThreadId, Thread, UnsafeCell<ThreadPointer>) {
 	let (tcb, id) = ThreadControlBlock::new(
 		"<idle>".into(),
 		address_space,
+		HandleMap::new(),
 		crate::threading::thread_startup,
 		idle_loop,
 		0,

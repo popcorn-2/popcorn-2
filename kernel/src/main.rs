@@ -617,19 +617,19 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let (entrypoint, stack) = {
 		let guard = percpu_v2!(current_thread).read();
 		let address_space = guard.as_ref().unwrap().tcb_ref().address_space;
-		
+
 		let stack_top = {
 			let config = mapping::Config::new_in(NonZero::new(8).unwrap(), AddressSpaceInner::to_api(&address_space))
 					.virtual_location(Location::At(Page::new(VirtualAddress::new(0x40000000))))
 					.protection(Protection::RWXU);
 
-			let stack = new_stack_in(config, u16::MAX)?;
+			let stack = new_stack_in(config, u16::MAX).expect("could not create stack");
 
 			let stack_top = loader::set_up_stack(
 				&stack,
 				["init", "hello", "world"],
 				["LANG=en_GB.UTF-8", "MLIBC_DEBUG_MALLOC=0"],
-				HashMap::from([
+				HashMap::<&'static str, u32>::from([
 					("io.stdin", 0),
 					("io.stdout", 1),
 					("io.stderr", 2),
