@@ -243,7 +243,7 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 				backtrace();
 				loop {}
 			} else {
-				error!("Userspace exception occurred at {:#x}:\n{ty}", at);
+				error!("Userspace exception occurred at {:#x} {:?}:\n{ty}", at, percpu_v2!(current_thread).read().as_ref().unwrap().tcb_ref().thread_id);
 				debug!("{:#x?}", exception.registers);
 				todo!()
 			}
@@ -282,7 +282,7 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 
 				loop {}
 			} else {
-				error!("Userspace page fault occurred at {:#x}:\n{ty}", at);
+				error!("Userspace page fault occurred at {:#x} {:?}:\n{ty}", at, percpu_v2!(current_thread).read().as_ref().unwrap().tcb_ref().thread_id);
 				debug!("{:#x?}", exception.registers);
 				todo!()
 			}
