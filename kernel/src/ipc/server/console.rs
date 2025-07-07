@@ -54,9 +54,9 @@ impl Server for ConsoleServer {
 }
 
 impl protocol::generated::CoreIoWrite for ConsoleServer {
-	fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
+	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
 
-	fn write(&self, _handle: isize, buf: &[u8]) -> Result<usize, Error> {
+	async fn write(&self, _handle: isize, buf: &[u8]) -> Result<usize, Error> {
 		let s = String::from_utf8_lossy(buf);
 		sprint!("[C] {s}");
 		Ok(buf.len())
@@ -64,9 +64,9 @@ impl protocol::generated::CoreIoWrite for ConsoleServer {
 }
 
 impl protocol::generated::CoreIoRead for ConsoleServer {
-	fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
+	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
 
-	fn read(&self, _handle: isize, count: usize) -> Result<Box<[u8]>, Error> {
+	async fn read(&self, _handle: isize, count: usize) -> Result<Box<[u8]>, Error> {
 		let mut buf = Box::new_uninit_slice(count);
 		for i in 0..count {
 			buf[i].write(crate::hal::SerialOut::read());

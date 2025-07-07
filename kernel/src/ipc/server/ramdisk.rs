@@ -41,9 +41,9 @@ impl Server for RamdiskServer {
 }
 
 impl protocol::generated::CoreIoRead for RamdiskServer {
-	fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
+	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
 
-	fn read(&self, _handle: isize, output_size: usize) -> Result<Box<[u8]>, Error> {
+	async fn read(&self, _handle: isize, output_size: usize) -> Result<Box<[u8]>, Error> {
 		let position = self.position.load(Ordering::Relaxed);
 		if position >= self.data.len() { return Ok(Box::<[_]>::from([])); }
 		

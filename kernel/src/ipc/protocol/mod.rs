@@ -1,3 +1,6 @@
+use core::future::Future;
+use core::pin::{Pin, pin};
+use core::task::{Context, Poll, Waker};
 use crate::prelude::*;
 use hashbrown::HashMap;
 use kernel_api::sync::{LazyLock, RwSpinlock};
@@ -133,12 +136,12 @@ pub mod meta {
 }
 
 pub struct DispatchTable {
-	map: HashMap<u128, fn(*const (), usize, usize, usize, usize, usize) -> Result<MethodResult, Error>>,
+	map: HashMap<u128, for<'a> fn(&'a (), usize, usize, usize, usize, usize) -> Pin<Box<dyn 'a + Future<Output = Result<MethodResult, Error>>>>>,
 }
 
 impl DispatchTable {
 	pub fn new() -> Self { Self { map: HashMap::new() } }
-	pub fn add_vtable(mut self, vtable: HashMap<u128, fn(*const (), usize, usize, usize, usize, usize) -> Result<MethodResult, Error>>) -> Self {
+	pub fn add_vtable(mut self, vtable: HashMap<u128, for<'a> fn(&'a (), usize, usize, usize, usize, usize) -> Pin<Box<dyn 'a + Future<Output = Result<MethodResult, Error>>>>>) -> Self {
 		self.map.extend(vtable);
 		self
 	}
@@ -156,7 +159,14 @@ impl DispatchTable {
 	) -> Result<MethodResult, Error> {
 		let uid = protocol | (method as u128) << 96;
 		let f = self.map.get(&uid).ok_or(Error::UnsupportedProtocol)?;
-		f(f_self, arg0, arg1, arg2, arg3, arg4)
+		let mut ctx = Context::from_waker(Waker::noop());
+		let mut fut = pin!(f(unsafe { &*f_self }, arg0, arg1, arg2, arg3, arg4));
+		loop {
+			match fut.as_mut().poll(&mut ctx) {
+				Poll::Pending => continue,
+				Poll::Ready(val) => break val,
+			}
+		}
 	}
 	
 	/*pub fn ctor_deserialize(&self, protocol: u128) -> Result<fn(buffer: &mut User<*const u8>) -> Result<Box<[u8]>, Error>, Error> {

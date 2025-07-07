@@ -64,9 +64,9 @@ fn unsupported_other_thread(handle: isize) -> Result<(), Error> {
 }
 
 impl protocol::generated::CoreProcThread for ProcServer {
-	fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
+	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
 
-	fn unstable_anon_alloc(&self, handle: isize, size: usize) -> Result<*const u8, Error> {
+	async fn unstable_anon_alloc(&self, handle: isize, size: usize) -> Result<*const u8, Error> {
 		unsupported_other_thread(handle)?;
 
 		let Some(len) = NonZero::new(size) else { return Ok(core::ptr::null()); };
@@ -88,7 +88,7 @@ impl protocol::generated::CoreProcThread for ProcServer {
 		Ok(ret.cast_const())
 	}
 
-	fn unstable_anon_dealloc(&self, handle: isize, pointer: *const u8) -> Result<(), Error> {
+	async fn unstable_anon_dealloc(&self, handle: isize, pointer: *const u8) -> Result<(), Error> {
 		unsupported_other_thread(handle)?;
 
 		warn!("ignoring thread dealloc request of {pointer:#p}");
@@ -96,14 +96,14 @@ impl protocol::generated::CoreProcThread for ProcServer {
 		Ok(())
 	}
 
-	fn set_tcb(&self, handle: isize, pointer: *const u8) -> Result<(), Error> {
+	async fn set_tcb(&self, handle: isize, pointer: *const u8) -> Result<(), Error> {
 		unsupported_other_thread(handle)?;
 		debug!("load tcb with {pointer:#p}");
 		crate::hal::load_user_tls(pointer.cast_mut());
 		Ok(())
 	}
 
-	fn spawn_thread(&self, handle: isize, name: &str, stack_top: *const u8, entry: *const u8) -> Result<ReturnHandle, Error> {
+	async fn spawn_thread(&self, handle: isize, name: &str, stack_top: *const u8, entry: *const u8) -> Result<ReturnHandle, Error> {
 		unsupported_other_thread(handle)?;
 		
 		let entry = VirtualAddress::from(entry);
@@ -116,7 +116,7 @@ impl protocol::generated::CoreProcThread for ProcServer {
 				)).map_err(Error::from)
 	}
 
-	fn yield_now(&self, handle: isize) -> Result<(), Error> {
+	async fn yield_now(&self, handle: isize) -> Result<(), Error> {
 		unsupported_other_thread(handle)?;
 		
 		let _ = threading::yield_now();
@@ -125,7 +125,7 @@ impl protocol::generated::CoreProcThread for ProcServer {
 }
 
 impl protocol::generated::CoreProcBuilder for ProcServer {
-	fn spawn(&self, handle: isize) -> Result<ReturnHandle, Error> {
+	async fn spawn(&self, handle: isize) -> Result<ReturnHandle, Error> {
 		debug_assert!(handle < 0, "builder handles should have MSB set");
 		let key = handle.unsigned_abs() - 1;
 		let builder = self.builders.lock()
@@ -163,7 +163,7 @@ impl protocol::generated::CoreProcBuilder for ProcServer {
 		))
 	}
 
-	fn add_handle(&self, handle: isize, name: &str, add_handle: Arc<Handle>) -> Result<(), Error> {
+	async fn add_handle(&self, handle: isize, name: &str, add_handle: Arc<Handle>) -> Result<(), Error> {
 		debug_assert!(handle < 0, "builder handles should have MSB set");
 		let key = handle.unsigned_abs() - 1;
 		let mut guard = self.builders.lock();
@@ -178,7 +178,7 @@ impl protocol::generated::CoreProcBuilder for ProcServer {
 		Ok(())
 	}
 
-	fn new_from(&self, endpoint: &str, handle: Arc<Handle>) -> Result<ReturnHandle, Error> {
+	async fn new_from(&self, endpoint: &str, handle: Arc<Handle>) -> Result<ReturnHandle, Error> {
 		info!("spawn process `{endpoint}` with handle {handle:#x?}");
 
 		if !handle.has_protocols(&[<dyn CoreIoRead>::UID, <dyn CoreIoSeek>::UID]) { return Err(Error::InvalidArg); }

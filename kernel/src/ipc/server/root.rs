@@ -64,10 +64,10 @@ impl Server for RootServer {
 }
 
 impl protocol::generated::CoreServerSync for RootServer {
-	fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
+	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
 
 	// fixme: the buffer ptr is actually a User<*mut u8>
-	fn next(&self, handle: isize, buffer: *const u8) -> Result<(), Error> {
+	async fn next(&self, handle: isize, buffer: *const u8) -> Result<(), Error> {
 		let buffer = User::<*mut u8>::new_in(
 			buffer.cast_mut(),
 			AddressSpaceInner::to_api(
@@ -97,7 +97,7 @@ impl protocol::generated::CoreServerSync for RootServer {
 	}
 
 	// fixme: the buffer ptr is actually a User<*const u8>
-	fn reply(&self, handle: isize, buffer: *const u8) -> Result<(), Error> {
+	async fn reply(&self, handle: isize, buffer: *const u8) -> Result<(), Error> {
 		let buffer = User::<*const u8>::new_in(
 			buffer,
 			AddressSpaceInner::to_api(
@@ -125,7 +125,7 @@ impl protocol::generated::CoreServerSync for RootServer {
 		Ok(())
 	}
 
-	fn forge(&self, handle: isize, handle_num: isize, protocols: &[u128]) -> Result<ReturnHandle, Error> {
+	async fn forge(&self, handle: isize, handle_num: isize, protocols: &[u128]) -> Result<ReturnHandle, Error> {
 		let Some(&server) = self.handle_map.lock().get(&handle) else {
 			return Err(Error::InvalidHandle);
 		};
