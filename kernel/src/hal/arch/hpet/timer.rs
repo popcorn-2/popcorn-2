@@ -1,10 +1,8 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{Debug, Formatter};
 use bit_field::BitField;
-use macros::Fields;
 
 #[repr(C)]
-#[derive(Fields, Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Timer {
 	capabilities: Capabilities,
 	comparator: u64,

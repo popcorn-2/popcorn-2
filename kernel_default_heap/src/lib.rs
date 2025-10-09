@@ -2,11 +2,7 @@
 
 #![feature(int_roundings)]
 
-#![feature(kernel_heap)]
-#![feature(kernel_address_alignment_runtime)]
-#![feature(kernel_sync_once)]
-#![feature(kernel_mmap_to_parts)]
-#![feature(kernel_virtual_memory)]
+#![deny(warnings)]
 
 use core::alloc::Layout;
 use core::fmt::Debug;
@@ -63,9 +59,8 @@ impl Heap for SyncHeap {
             let heap_end = mapping.virtual_valid_end().start();
             if end > heap_end {
                 debug!("Increment heap end");
-                // FIXME: HACK
                 let increment = isize::try_from(end - heap_end).map_err(|_| AllocError)?
-                        .div_ceil(4096)*10;
+                        .div_ceil(4096);
                 let new_len = mapping.physical_len().checked_add(increment.unsigned_abs()).ok_or(AllocError)?;
                 debug!("Trying to remap");
                 mapping.resize_in_place(new_len)?;

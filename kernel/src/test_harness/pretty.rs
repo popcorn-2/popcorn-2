@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::Arguments;
 use test::{ShouldPanic, TestName};
 use super::Formatter;

@@ -1,5 +1,3 @@
-#![unstable(feature = "kernel_sync_once", issue = "none")]
-
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 use core::ops::Deref;
@@ -37,7 +35,6 @@ impl State {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl From<State> for u8 {
     fn from(value: State) -> Self {
         value.const_into_u8()
@@ -138,14 +135,14 @@ impl<T> OnceLock<T> {
     }
 }
 
-pub struct LazyLock<T, F: FnOnce() -> T = fn() -> T> {
+pub struct LazyLock<T, F = fn() -> T> {
     once: OnceLock<T>,
     // FIXME: actually drop this when needed
     f: MaybeUninit<F>
 }
 
-unsafe impl<T, F: FnOnce() -> T> Send for LazyLock<T, F> {}
-unsafe impl<T, F: FnOnce() -> T> Sync for LazyLock<T, F> {}
+//unsafe impl<T, F: FnOnce() -> T> Send for LazyLock<T, F> {}
+unsafe impl<T: Sync + Send, F: Send> Sync for LazyLock<T, F> {}
 
 impl<T, F: FnOnce() -> T> LazyLock<T, F> {
     pub const fn new(f: F) -> Self {

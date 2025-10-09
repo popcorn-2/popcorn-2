@@ -6,54 +6,51 @@ use core::mem;
 
 features_macro! {
 	@TARGET: x86;
-	@CFG: any(target_arch = "x86", target_arch = "x86_64");
+	@CFG: any(target_arch = "x86", target_arch = "x86_64", doc);
 	@MACRO_NAME: is_x86_feature_detected;
-	@MACRO_ATTRS: #[unstable(feature = "kernel_feature_detect", issue = "none")]
-	@FEATURE: tsc: "tsc";
-	@FEATURE: msr: "msr";
-	@FEATURE: apic: "apic";
-	@FEATURE: cx16: "cx16";
-	@FEATURE: pcid: "pcid";
-	@FEATURE: x2apic: "x2apic";
-	@FEATURE: tsc_deadline: "tsc_deadline";
-	@FEATURE: xsave: "xsave";
-	@FEATURE: hypervisor: "hypervisor";
-	@FEATURE: arat: "arat";
-	@FEATURE: intel_thread_director: "intel_thread_director";
-	@FEATURE: fsgsbase: "fsgsbase";
-	@FEATURE: tsc_adjust: "tsc_adjust";
-	@FEATURE: smep: "smep";
-	@FEATURE: invpcid: "invpcid";
-	@FEATURE: smap: "smap";
-	@FEATURE: la57: "la57";
-	@FEATURE: rdpid: "rdpid";
-	@FEATURE: hybrid: "hybrid";
-	@FEATURE: lass: "lass";
-	@FEATURE: nmi_src: "nmi_src";
-	@FEATURE: sipi64: "sipi64";
-	@FEATURE: xsave_x87: "xsave_x87";
-	@FEATURE: xsave_sse: "xsave_sse";
-	@FEATURE: xsave_avx: "xsave_avx";
-	@FEATURE: xsave_mpx_bounds: "xsave_mpx_bounds";
-	@FEATURE: xsave_mpx_cfg_status: "xsave_mpx_cfg_status";
-	@FEATURE: xsave_avx512_opmask: "xsave_avx512_opmask";
-	@FEATURE: xsave_avx512_zmm_hi256: "xsave_avx512_zmm_hi256";
-	@FEATURE: xsave_avx512_zmm_hi16: "xsave_avx512_zmm_hi16";
-	@FEATURE: xsave_pkru: "xsave_pkru";
-	@FEATURE: xsave_amx_cfg: "xsave_amx_cfg";
-	@FEATURE: xsave_amx_tile_data: "xsave_amx_tile_data";
-	@FEATURE: xsave_apx_gpr: "xsave_apx_gpr";
-	@FEATURE: nx: "nx";
-	@FEATURE: pdpe1gb: "pdpe1gb";
-	@FEATURE: rdtscp: "rdtscp";
-	@FEATURE: extapic: "extapic";
-	@FEATURE: invlpgb: "invlpgb";
+	@MACRO_ATTRS: #[doc(cfg(any(target_arch = "x86", target_arch = "x86_64")))]
+	@FEATURE: tsc: "tsc": "system has a timestamp counter accessible through `rdtsc`";
+	@FEATURE: msr: "msr": "system supports reading and writing model specific registers through `rdmsr` and `wrmsr`";
+	@FEATURE: apic: "apic": "system has an APIC";
+	@FEATURE: cx16: "cx16": "system support 16-byte atomics";
+	@FEATURE: pcid: "pcid": "system supports PCIDs in page tables";
+	@FEATURE: x2apic: "x2apic": "APIC supports x2APIC features";
+	@FEATURE: tsc_deadline: "tsc_deadline": "local APIC timer supports TSC deadline mode";
+	@FEATURE: xsave: "xsave": "system supports the `xsave` instruction";
+	@FEATURE: hypervisor: "hypervisor": "system is running in a hypervisor";
+	@FEATURE: arat: "arat": "local APIC timer continues counting while sleeping";
+	@FEATURE: intel_thread_director: "intel_thread_director": "system supports Intel Thread Director";
+	@FEATURE: fsgsbase: "fsgsbase": "system supports writing to the `fs` and `gs` registers from userspace";
+	@FEATURE: tsc_adjust: "tsc_adjust": "system supports adjusting TSC value per-core";
+	@FEATURE: smep: "smep": "system supports Supervisor Mode Execution Prevention";
+	@FEATURE: invpcid: "invpcid": "system supports invalidating an entire PCID from the TLB";
+	@FEATURE: smap: "smap": "system supports Supervisor Mode Access Prevention";
+	@FEATURE: la57: "la57": "system supports 57-bit virtual addresses";
+	@FEATURE: rdpid: "rdpid": "system supports reading OS core ID from `IA32_TSC_AUX`";
+	@FEATURE: hybrid: "hybrid": "system has AMP";
+	@FEATURE: lass: "lass": "system supports trapping access based on MSB of address";
+	@FEATURE: nmi_src: "nmi_src": "system supports reporting source of NMI exceptions";
+	@FEATURE: xsave_x87: "xsave_x87": "system supports saving x87 registers with `xsave`";
+	@FEATURE: xsave_sse: "xsave_sse": "system supports saving SSE registers with `xsave`";
+	@FEATURE: xsave_avx: "xsave_avx": "system supports saving AVX registers with `xsave`";
+	@FEATURE: xsave_avx512_opmask: "xsave_avx512_opmask": "system supports saving AVX512 opmask registers with `xsave`";
+	@FEATURE: xsave_avx512_zmm_hi256: "xsave_avx512_zmm_hi256": "system supports saving upper 256 bits of `zmm0` through `zmm15` with `xsave`";
+	@FEATURE: xsave_avx512_zmm_hi16: "xsave_avx512_zmm_hi16": "system supports saving `zmm16` through `zmm31` with `xsave`";
+	@FEATURE: xsave_pkru: "xsave_pkru": "system supports saving PKRU register with `xsave`";
+	@FEATURE: xsave_amx_cfg: "xsave_amx_cfg": "system supports saving AMX `tilecfg` register with `xsave`";
+	@FEATURE: xsave_amx_tile_data: "xsave_amx_tile_data": "system supports saving AMX `tmm0` through `tmm7` registers with `xsave`";
+	@FEATURE: xsave_apx_gpr: "xsave_apx_gpr": "system supports saving `r16` through `r31` GPRs with `save`";
+	@FEATURE: nx: "nx": "page tables support no-execute bit";
+	@FEATURE: pdpe1gb: "pdpe1gb": "page tables support 1 GiB huge pages";
+	@FEATURE: rdtscp: "rdtscp": "system supports `rdtscp` instruction to read TSC and `IA32_TSC_AUX`";
+	@FEATURE: extapic: "extapic": "APIC support Extended APIC Space";
+	@FEATURE: invlpgb: "invlpgb": "system supports `invlpgb` instruction";
 }
 
-pub fn detect() -> Initializer {
+pub(super) fn detect() -> Initializer {
 	let mut initializer = Initializer::new();
 
-	let (max_basic_leaf, vendor_id) = unsafe {
+	let (max_basic_leaf, _vendor_id) = unsafe {
 		let CpuidResult {
 			eax: max_basic_leaf,
 			ebx,
@@ -61,9 +58,9 @@ pub fn detect() -> Initializer {
 			edx,
 		} = __cpuid(0);
 		let vendor_id: [[u8; 4]; 3] = [
-			mem::transmute(ebx),
-			mem::transmute(edx),
-			mem::transmute(ecx),
+			u32::to_ne_bytes(ebx),
+			u32::to_ne_bytes(edx),
+			u32::to_ne_bytes(ecx),
 		];
 		let vendor_id: [u8; 12] = mem::transmute(vendor_id);
 		(max_basic_leaf, vendor_id)
@@ -152,12 +149,9 @@ pub fn detect() -> Initializer {
 		enable(extended_features_edx, 15, Feature::hybrid);
 		enable(extended_features_1_eax, 6, Feature::lass);
 		enable(extended_features_1_eax, 20, Feature::nmi_src);
-		enable(extended_features_1_ecx, 4, Feature::sipi64);
 		enable(xsave_xcr0_low, 0, Feature::xsave_x87);
 		enable(xsave_xcr0_low, 1, Feature::xsave_sse);
 		enable(xsave_xcr0_low, 2, Feature::xsave_avx);
-		enable(xsave_xcr0_low, 3, Feature::xsave_mpx_bounds);
-		enable(xsave_xcr0_low, 4, Feature::xsave_mpx_cfg_status);
 		enable(xsave_xcr0_low, 5, Feature::xsave_avx512_opmask);
 		enable(xsave_xcr0_low, 6, Feature::xsave_avx512_zmm_hi256);
 		enable(xsave_xcr0_low, 7, Feature::xsave_avx512_zmm_hi16);

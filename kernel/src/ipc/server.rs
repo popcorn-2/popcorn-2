@@ -1,19 +1,24 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::cmp::min;
+use core::future::Future;
 use core::ops::{Deref, DerefMut};
+use core::pin::Pin;
 use core::sync::atomic::{AtomicU16, Ordering};
+use core::task::{Context, Poll};
 use hashbrown::HashMap;
-use kernel_api::sync::{LazyLock, RwSpinlock};
+use log::trace;
+use kernel_api::sync::{LazyLock, RwSpinlock, Syncify};
+use kernel_api::syscall;
+use kernel_api::syscall::Error;
+use kernel_api::syscall::handle::Handle;
+use kernel_api::syscall::server::ServerId;
 use utils::better_cow::Cow;
 use crate::ipc::ctor::{CtorArgs, CtorContext};
-use crate::ipc::{dispatch, Error};
-use crate::ipc::handle::{Handle, ServerId};
 use crate::ipc::protocol::DispatchTable;
-use crate::ipc::dispatch::{Arg, Return};
+use crate::ipc::serde::{Deserialized, MethodResult, Serializer};
 
 mod console;
-mod proc;
+pub(super) mod proc;
 pub(super) mod ramdisk;
 mod root;
 mod userspace;
@@ -21,12 +26,12 @@ mod userspace;
 pub trait Server {
 	type CtorContext: CtorContext;
 
-	fn ctor(&self, endpoint: &str, ctx: Self::CtorContext) -> Result<ReturnHandle, Error>;
-	fn destroy(&self, handle: isize) -> Result<(), Error>;
+	async fn ctor(&self, endpoint: &str, ctx: Self::CtorContext) -> syscall::Result<ReturnHandle>;
+	async fn destroy(&self, handle: isize) -> syscall::Result<()>;
 	fn dispatch_table(&self) -> &'static DispatchTable;
 
-	fn dispatch(
-		&self,
+	fn dispatch<'a>(
+		&'a self,
 		protocol: u128,
 		method: u32,
 		arg0: usize,
@@ -34,14 +39,14 @@ pub trait Server {
 		arg2: usize,
 		arg3: usize,
 		arg4: usize
-	) -> Result<MethodResult, Error> {
+	) -> syscall::Result<Pin<Box<dyn Send + 'a + Future<Output = syscall::Result<MethodResult>>>>> where Self: Sized {
 		let dispatch_table = self.dispatch_table();
-		dispatch_table.dispatch(
+		Ok(dispatch_table.dispatch(
 			protocol,
 			method,
-			self as *const _ as *const (),
+			unsafe { &*(self as *const _ as *const ()) },
 			arg0, arg1, arg2, arg3, arg4
-		)
+		)?)
 	}
 }
 
@@ -52,13 +57,6 @@ pub enum ServerTy {
 	Ramdisk(ramdisk::RamdiskServer),
 	Root(root::RootServer),
 	Userspace(userspace::UserspaceServer),
-}
-
-pub enum MethodResult {
-	SelfHandle(isize, Box<[u128]>),
-	SelfDefaultHandle(isize),
-	TransferHandle(Arc<Handle>),
-	Value(u128),
 }
 
 pub enum ReturnHandle {
@@ -73,103 +71,103 @@ pub enum ReturnHandle {
 	NewDefault(isize),
 }
 
-impl From<ReturnHandle> for MethodResult {
-	fn from(value: ReturnHandle) -> Self {
-		match value {
-			ReturnHandle::Transfer(handle) => MethodResult::TransferHandle(handle),
-			ReturnHandle::New(internal_id, protos) => MethodResult::SelfHandle(internal_id, protos),
-			ReturnHandle::NewDefault(internal_id) => MethodResult::SelfDefaultHandle(internal_id),
+enum Either<T, U> {
+	Left(T),
+	Right(U),
+}
+
+impl<'a, T: Future + 'a, U: Future<Output = T::Output> + 'a> Future for Either<T, U> {
+	type Output = T::Output;
+
+	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+		match unsafe { self.get_unchecked_mut() } {
+			Self::Left(this) => unsafe { Pin::new_unchecked(this) }.poll(cx),
+			Self::Right(this) => unsafe { Pin::new_unchecked(this) }.poll(cx),
 		}
 	}
 }
 
 impl ServerTy {
-	pub fn ctor(&self, endpoint: &str, mut args: CtorArgs) -> Result<ReturnHandle, Error> {
+	pub async fn ctor(&self, endpoint: &str, mut args: CtorArgs<'_>) -> syscall::Result<ReturnHandle> {
 		match self {
 			Self::Console(s) => {
 				let mut ctx = <console::ConsoleServer as Server>::CtorContext::default();
 				args.process_with(s, &mut ctx)?;
-				s.ctor(endpoint, ctx)
+				s.ctor(endpoint, ctx).await
 			}
 			Self::Proc(s) => {
 				let mut ctx = <proc::ProcServer as Server>::CtorContext::default();
 				args.process_with(s, &mut ctx)?;
-				s.ctor(endpoint, ctx)
+				s.ctor(endpoint, ctx).await
 			}
 			Self::Ramdisk(s) => {
 				let mut ctx = <ramdisk::RamdiskServer as Server>::CtorContext::default();
 				args.process_with(s, &mut ctx)?;
-				s.ctor(endpoint, ctx)
+				s.ctor(endpoint, ctx).await
 			}
 			Self::Root(s) => {
 				let mut ctx = <root::RootServer as Server>::CtorContext::default();
 				args.process_with(s, &mut ctx)?;
-				s.ctor(endpoint, ctx)
+				s.ctor(endpoint, ctx).await
 			}
-			Self::Userspace(s) => s.ctor(endpoint, args),
+			Self::Userspace(s) => s.ctor(endpoint, args).await,
 		}
 	}
 	
-	pub fn destroy(&self, handle: isize) -> Result<(), Error> {
+	pub async fn destroy(&self, handle: isize) -> syscall::Result<()> {
 		match self {
-			Self::Console(s) => s.destroy(handle),
-			Self::Proc(s) => s.destroy(handle),
-			Self::Ramdisk(s) => s.destroy(handle),
-			Self::Root(s) => s.destroy(handle),
-			Self::Userspace(s) => s.destroy(handle),
-		}
-	}
-	
-	pub fn dispatch_table(&self) -> &'static DispatchTable {
-		match self {
-			Self::Console(s) => s.dispatch_table(),
-			Self::Proc(s) => s.dispatch_table(),
-			Self::Ramdisk(s) => s.dispatch_table(),
-			Self::Root(s) => s.dispatch_table(),
-			Self::Userspace(_) => unimplemented!(),
+			Self::Console(s) => s.destroy(handle).await,
+			Self::Proc(s) => s.destroy(handle).await,
+			Self::Ramdisk(s) => s.destroy(handle).await,
+			Self::Root(s) => s.destroy(handle).await,
+			Self::Userspace(s) => s.destroy(handle).await,
 		}
 	}
 	
 	pub fn dispatch(
-		&self,
+		self: Arc<Self>,
 		protocol: u128,
 		method: u32,
-		mut serialized: dispatch::DeserializedArgs,
-	) -> Result<Return, Error> {
-		if let ServerTy::Userspace(s) = self {
-			return s.dispatch(protocol, method, serialized);
+		args: Deserialized,
+	) -> Result<impl Future<Output = (Result<MethodResult, Error>, Serializer)> + 'static, Error> {
+		let self_ptr = unsafe { Syncify::new(Arc::as_ptr(&self)) };
+		let this = unsafe { &*Arc::into_raw(self) };
+		
+		if let ServerTy::Userspace(s) = this {
+			return Ok(Either::Left(async move {
+				let res = s.dispatch(protocol, method, args).await;
+				unsafe { Arc::from_raw(self_ptr.into_inner()); }
+				res
+			}));
 		}
 
-		let mut return_buffer = if let Some(size) = serialized.return_size {
-			unsafe { Box::<[u8]>::new_zeroed_slice(size).assume_init() }
-		} else { Box::from([]) };
+		let (args, serializer) = args.into_args();
 
-		let buffer = serialized.buffer.as_mut_ptr();
-		let args = serialized.args.map(|arg| match arg {
-			Arg::Primitive(val) => val,
-			Arg::BufferOffset(offset) => unsafe { buffer.byte_add(offset) }.addr(),
-			Arg::NewBuffer => return_buffer.as_mut_ptr().addr(),
-			Arg::Handle(handle) => Arc::into_raw(handle).addr(),
-		});
+		trace!("args: {args:x?}");
 
-		let val = match self {
-			ServerTy::Console(s) => s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4]),
-			ServerTy::Proc(s) => s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4]),
-			ServerTy::Ramdisk(s) => s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4]),
-			ServerTy::Root(s) => s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4]),
+		let fut = match this {
+			ServerTy::Console(s) => {
+				s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4])?
+			},
+			ServerTy::Proc(s) => {
+				s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4])?
+			},
+			ServerTy::Ramdisk(s) => {
+				s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4])?
+			},
+			ServerTy::Root(s) => {
+				s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4])?
+			},
 			ServerTy::Userspace(_) => unreachable!(),
-		}?;
+		};
 
-		if let Some(return_size) = serialized.return_size {
-			let MethodResult::Value(val) = val else {
-				unreachable!("kernel server returned non-primitive return for memory return type")	
-			};
-			let return_size = min(return_size, val as usize);
-			let slice = &return_buffer[..return_size];
-			Ok(Return::Boxed(Box::from(slice)))
-		} else {
-			Ok(Return::from(val))
-		}
+		Ok(Either::Right(async move {
+			let res = fut.await;
+			unsafe {
+				let _ = Arc::from_raw(self_ptr.into_inner());
+			}
+			(res, serializer)
+		}))
 	}
 }
 
@@ -199,25 +197,20 @@ impl ServerRegistry {
 		list.insert_server(Some(Cow::Borrowed("")), ServerTy::Root(root::RootServer::new()))
 		    .expect("Not enough servers inserted yet for overflow");
 
-		let proc = list.insert_server(Some(Cow::Borrowed("proc")), ServerTy::Proc(proc::ProcServer::new()))
-		    .expect("Not enough servers inserted yet for overflow");
-		
-		list.name_lookup.try_insert(Cow::Borrowed("elf"), proc).expect("`elf` shouldn't exist");
-
 		list.insert_server(Some(Cow::Borrowed("console")), ServerTy::Console(console::ConsoleServer::new()))
 		    .expect("Not enough servers inserted yet for overflow");
 
 		list
 	}
 
-	pub(super) fn new_id(&self) -> Result<ServerId, Error> {
-		if usize::from(self.next_id.load(Ordering::Relaxed)) == ServerId::MAX { panic!("overflow"); } // todo: better
+	pub(super) fn new_id(&self) -> syscall::Result<ServerId> {
+		if usize::from(self.next_id.load(Ordering::Relaxed)) == ServerId::MAX { return Err(Error::Overflow); } // todo: better
 
 		let id = self.next_id.fetch_add(1, Ordering::Relaxed);
 		Ok(ServerId::new(id))
 	}
 
-	pub(super) fn insert_server(&mut self, name: Option<Cow<'static, Box<str>, str>>, server: ServerTy) -> Result<ServerId, Error> {
+	pub(super) fn insert_server(&mut self, name: Option<Cow<'static, Box<str>, str>>, server: ServerTy) -> syscall::Result<ServerId> {
 		let id = self.new_id()?;
 
 		if let Some(name) = name {
@@ -231,7 +224,7 @@ impl ServerRegistry {
 		Ok(id)
 	}
 
-	pub fn get_server_at(&self, name: &str) -> Result<(ServerId, Arc<ServerTy>), Error> {
+	pub fn get_server_at(&self, name: &str) -> syscall::Result<(ServerId, Arc<ServerTy>)> {
 		let id = self.name_lookup.get(name)
 		             .ok_or(Error::EndpointNotFound)?;
 		match self.get_server(*id) {
@@ -240,7 +233,7 @@ impl ServerRegistry {
 		}
 	}
 
-	pub fn get_server(&self, id: ServerId) -> Result<Arc<ServerTy>, Error> {
+	pub fn get_server(&self, id: ServerId) -> syscall::Result<Arc<ServerTy>> {
 		let srv = self.server_map.get(&id)
 		              .ok_or(Error::EndpointNotFound)?;
 		Ok(Arc::clone(srv))

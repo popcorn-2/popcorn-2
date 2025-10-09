@@ -1,4 +1,3 @@
-use crate::prelude::*;
 use alloc::string::String;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -6,8 +5,7 @@ use kernel_api::sync::OnceLock;
 use crate::hal::FormatWriter;
 use crate::ipc::ctor::{CtorContext, ProtocolVisitor};
 use crate::ipc::{Error, protocol};
-use crate::ipc::dispatch::Return;
-use crate::ipc::handle::Handle;
+use kernel_api::syscall::handle::Handle;
 use crate::ipc::protocol::DispatchTable;
 use crate::ipc::server::{ReturnHandle, Server};
 
@@ -30,7 +28,7 @@ impl ConsoleServer {
 impl Server for ConsoleServer {
 	type CtorContext = CtorCtx;
 
-	fn ctor(&self, endpoint: &str, _ctx: CtorCtx) -> Result<ReturnHandle, Error> {
+	async fn ctor(&self, endpoint: &str, _ctx: CtorCtx) -> Result<ReturnHandle, Error> {
 		if endpoint != "" { return Err(Error::EndpointNotFound); }
 		
 		let res = self.lock.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed);
@@ -38,7 +36,7 @@ impl Server for ConsoleServer {
 		else { Err(Error::NameInUse) }
 	}
 
-	fn destroy(&self, handle: isize) -> Result<(), Error> {
+	async fn destroy(&self, handle: isize) -> Result<(), Error> {
 		if handle != 1 { return Err(Error::InvalidHandle); }
 		self.lock.store(false, Ordering::Relaxed);
 		Ok(())
@@ -57,6 +55,7 @@ impl protocol::generated::CoreIoWrite for ConsoleServer {
 	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
 
 	async fn write(&self, _handle: isize, buf: &[u8]) -> Result<usize, Error> {
+		trace!("write buffer: {:#p}", buf as *const _);
 		let s = String::from_utf8_lossy(buf);
 		sprint!("[C] {s}");
 		Ok(buf.len())

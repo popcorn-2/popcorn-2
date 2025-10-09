@@ -1,10 +1,11 @@
 use core::marker::PhantomData;
 use core::num::NonZero;
 use core::ptr::slice_from_raw_parts;
-use kernel_api::memory::mapping::{Config, Mapping, new_mapping};
+use kernel_api::address_space::Kernel;
+use kernel_api::mapping::{Config, Mapping, Mmap, Ty};
 
 pub struct MappedVec<T> {
-	storage: Option<Mapping<'static>>,
+	storage: Option<Mapping<Mmap, Kernel>>,
 	length: usize,
 	_phantom: PhantomData<[T]>,
 }
@@ -22,23 +23,24 @@ impl<T> MappedVec<T> {
 		if self.storage.is_none() {
 			debug_assert!(self.capacity() == 0);
 			debug_assert!(self.len() == 0);
-			self.storage = Some(new_mapping(Config::new(NonZero::new(1).unwrap()), 25).expect("allocation failed"));
+			self.storage = Some(
+				Config::new(NonZero::new(1).unwrap(), Ty::HEAP)
+						.protection(true, false, false)
+						.map()
+						.expect("allocation failed")
+			);
 			debug_assert!(self.capacity() > self.len());
 		}
 
 		let storage = self.storage.as_mut().expect("storage must exist because capacity must be non-zero");
 
 		// fixme(borrow views): replace with self.capacity()/len()
-		if (storage.physical_len().get() * 4096 / size_of::<T>()) < (self.length + 1) {
-			storage.resize_in_place(
-				storage.physical_len().checked_mul(
-					NonZero::new(2).unwrap()
-				).expect("allocation overflowed")
-			).expect("allocation expansion failed");
+		if (storage.byte_len() / size_of::<T>()) < (self.length + 1) {
+			storage.grow_in_place_by(storage.page_len()).expect("allocation expansion failed");
 		}
 
 		let ptr = storage
-				.virtual_valid_start().as_ptr()
+				.as_mut_ptr()
 				.cast::<T>();
 
 		debug_assert!(self.capacity() > self.len() + 1);
@@ -50,7 +52,7 @@ impl<T> MappedVec<T> {
 
 	pub fn capacity(&self) -> usize {
 		let Some(storage) = &self.storage else { return 0; };
-		storage.physical_len().get() * 4096 / size_of::<T>()
+		storage.byte_len() / size_of::<T>()
 	}
 
 	pub fn len(&self) -> usize {
@@ -86,7 +88,7 @@ impl<'vec, T: 'vec> IntoIterator for &'vec MappedVec<T> {
 
 	fn into_iter(self) -> Self::IntoIter {
 		let ptr = self.storage.as_ref()
-				.map(|map| map.virtual_valid_start().as_ptr().cast_const().cast())
+				.map(|map| map.as_ptr().cast())
 				.unwrap_or(core::ptr::dangling());
 		Iter {
 			items: unsafe { &*slice_from_raw_parts(ptr, self.len()) }

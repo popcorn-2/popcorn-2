@@ -1,9 +1,5 @@
-#[allow(unused_imports)] use crate::prelude::*;
-use acpi::madt::MadtEntry;
-use crate::hal::timing::Timer;
 use crate::hal;
 //use crate::hal::arch::apic::ioapic::{ActiveLevel, TriggerMode};
-use kernel_api::time::Instant;
 
 //mod ioapic;
 pub(in crate::hal) mod lapic;
@@ -44,7 +40,7 @@ pub(in crate::hal) fn init() {
 	}
 
 	{
-		macro_rules! ioapic_legacy_setup {
+		/*macro_rules! ioapic_legacy_setup {
             ($ioapics:ident.$entry:ident) => {
 	            let entry_meta = ioapics.legacy_map(). $entry;
 				if let Some(mut redirection_entry) = $ioapics .redirection_entry(entry_meta.0) {
@@ -57,7 +53,7 @@ pub(in crate::hal) fn init() {
             };
 		}
 		
-		/*ioapic_legacy_setup!(ioapics.pit);
+		ioapic_legacy_setup!(ioapics.pit);
 		ioapic_legacy_setup!(ioapics.ps2_keyboard);
 		ioapic_legacy_setup!(ioapics.com2);
 		ioapic_legacy_setup!(ioapics.com1);
@@ -81,10 +77,11 @@ pub(in crate::hal) fn init() {
 	//IOAPICS.get_or_init(|| unsafe { Spinlock::new(Syncify::new(ioapics)) });
 }
 
+#[expect(dead_code)]
 pub fn send_self_ipi(vector: usize) {
 	assert!(48 <= vector && vector < 256, "Invalid IPI vector");
 	#[cfg(feature = "log.scheduler")] debug!("self IPI vector {vector:#x}");
-	let vector = vector as u32;
+	// let vector = vector as u32;
 	
 	todo!()
 	

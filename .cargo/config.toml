@@ -1,2 +1,9 @@
 [env]
 DEP_LV_CONFIG_PATH = { relative = true, value = "bootloader/lvgl" }
+
+[build]
+rustflags = ["--cfg", "kernel_version=\"0.1.0\""]
+
+[doc.extern-map.registries]
+crates-io = "https://docs.rs/"
+std = "remote"

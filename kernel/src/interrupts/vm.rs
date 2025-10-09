@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
 use core::fmt::{Display, Formatter};
 

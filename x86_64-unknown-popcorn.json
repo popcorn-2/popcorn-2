@@ -19,6 +19,9 @@
   "stack-probes": {
     "kind": "inline"
   },
-  "target-pointer-width": "64",
-  "rustc-abi": "x86-softfloat"
+  "target-pointer-width": 64,
+  "rustc-abi": "x86-softfloat",
+  "supported-sanitizers": [
+    "kernel-address"
+  ]
 }

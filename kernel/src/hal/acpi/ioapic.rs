@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::cell::RefCell;
 use core::fmt::{Debug, Formatter};
 use acpi::{AcpiHandler, PhysicalMapping};

@@ -8,6 +8,7 @@ mod private {
 	pub trait Sealed {}
 }
 
+#[allow(unused)]
 pub trait IoExt: private::Sealed + Sized {
 	unsafe fn compare_exchange_io(
 		self: *mut Self,

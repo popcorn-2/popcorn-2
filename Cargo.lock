@@ -76,19 +76,9 @@ dependencies = [
 name = "arena_heap"
 version = "0.1.0"
 dependencies = [
+ "aliasable",
  "kernel_api",
  "log",
-]
-
-[[package]]
-name = "auto_impl"
-version = "1.1.0"
-source = "git+https://github.com/popcorn-2/auto_impl.git#5a5366cb0a15bc590c55c6d758ea004868369c60"
-dependencies = [
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn 2.0.48",
 ]
 
 [[package]]
@@ -139,28 +129,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "bitmap_memory_allocator"
-version = "0.1.0"
-dependencies = [
- "utils",
-]
-
-[[package]]
 name = "bootloader"
 version = "0.1.0"
 dependencies = [
- "aliasable",
  "bitflags 2.4.2",
  "derive_more",
  "elf",
- "hashbrown 0.14.5",
  "kernel_api",
  "log",
  "more-asserts",
- "num_enum 0.7.2",
- "psf",
  "serde",
- "targa",
  "toml",
  "uefi",
  "uefi-services",
@@ -250,9 +228,9 @@ checksum = "19d374276b40fb8bbdee95aef7c7fa6b5316ec764510eb64b8dd0e2ed0d7e7f5"
 
 [[package]]
 name = "crossbeam-queue"
-version = "0.3.11"
+version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df0346b5d5e76ac2fe4e327c5fd1118d6be7c51dfb18f9b7922923f287471e35"
+checksum = "0f58bbc28f91df819d0aa2a2c00cd19754769c2fad90579b3592b1c9ba7a3115"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -305,18 +283,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "enum_dispatch"
-version = "0.3.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa18ce2bc66555b3218614519ac839ddb759a7d6720732f979ef8d13be147ecd"
-dependencies = [
- "once_cell",
- "proc-macro2",
- "quote",
- "syn 2.0.48",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -350,6 +316,67 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65bc07b1a8bc7c85c5f2e110c476c7389b4554ba72af57d8445ea63a576b0876"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-io",
+ "futures-sink",
+ "futures-task",
+ "futures-util",
+]
+
+[[package]]
+name = "futures-channel"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2dff15bf788c671c1934e366d07e30c1814a8ef514e1af724a602e8a2fbe1b10"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+]
+
+[[package]]
+name = "futures-core"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05f29059c0c2090612e8d742178b0580d2dc940c837851ad723096f87af6663e"
+
+[[package]]
+name = "futures-io"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e5c1b78ca4aae1ac06c48a526a655760685149f0d465d21f37abfe57ce075c6"
+
+[[package]]
+name = "futures-sink"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e575fab7d1e0dcb8d0c7bcf9a63ee213816ab51902e6d244a95819acacf1d4f7"
+
+[[package]]
+name = "futures-task"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f90f7dce0722e95104fcb095585910c0977252f286e354b5e3bd38902cd99988"
+
+[[package]]
+name = "futures-util"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fa08315bb612088cc391249efdc3bc77536f16c91f6cf495e6fbe85b20a4a81"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "futures-task",
+ "pin-project-lite",
+ "pin-utils",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -368,9 +395,9 @@ checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
 
 [[package]]
 name = "gimli"
-version = "0.31.1"
+version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07e28edb80900c19c28f1072f2e8aeca7fa06b23cd4169cefe1af5aa3260783f"
+checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
 name = "gpt"
@@ -402,7 +429,6 @@ checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 dependencies = [
  "ahash 0.8.7",
  "allocator-api2",
- "serde",
 ]
 
 [[package]]
@@ -465,19 +491,17 @@ dependencies = [
  "bit_field",
  "bitflags 2.4.2",
  "bitmap_allocator",
- "crossbeam-queue",
  "derive_more",
  "elf",
- "enum_dispatch",
+ "futures",
  "hashbrown 0.14.5",
  "itertools",
  "kernel_api",
  "log",
- "macros",
  "minicov",
  "num_enum 0.7.2",
+ "oneshot",
  "paste",
- "ranged_btree",
  "ranged_btree_allocator",
  "slab",
  "test",
@@ -489,8 +513,10 @@ dependencies = [
 name = "kernel_api"
 version = "1.1.0"
 dependencies = [
- "auto_impl",
- "kernel_module_macros",
+ "crossbeam-queue",
+ "futures",
+ "hashbrown 0.14.5",
+ "libc",
  "lock_api",
  "log",
  "parking_lot",
@@ -515,9 +541,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.153"
+version = "0.2.176"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
+checksum = "58f929b4d672ea937a23a1ab494143d968337a5f47e56d0815df1e0890ddf174"
 
 [[package]]
 name = "lock_api"
@@ -638,6 +664,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
+name = "oneshot"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ce411919553d3f9fa53a0880544cda985a112117a0444d5ff1e870a893d6ea"
+
+[[package]]
 name = "parking_lot"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -680,6 +712,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pin-project-lite"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
+
+[[package]]
+name = "pin-utils"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
+
+[[package]]
 name = "popcorn2"
 version = "0.1.0"
 
@@ -690,30 +734,6 @@ dependencies = [
  "uefi",
  "uefi-raw",
  "uefi-services",
-]
-
-[[package]]
-name = "proc-macro-error"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da25490ff9892aab3fcf7c36f08cfb902dd3e71ca0f9f9517bea02a73a5ce38c"
-dependencies = [
- "proc-macro-error-attr",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
- "version_check",
-]
-
-[[package]]
-name = "proc-macro-error-attr"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1be40180e52ecc98ad80b184934baf3d0d29f979574e439af5a55274b35f869"
-dependencies = [
- "proc-macro2",
- "quote",
- "version_check",
 ]
 
 [[package]]
@@ -771,7 +791,7 @@ name = "ranged_btree_allocator"
 version = "0.1.0"
 dependencies = [
  "kernel_api",
- "ranged_btree",
+ "log",
 ]
 
 [[package]]
@@ -781,6 +801,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4722d768eff46b75989dd134e5c353f0d6296e5aaa3132e776cbdb56be7731aa"
 dependencies = [
  "bitflags 1.3.2",
+]
+
+[[package]]
+name = "round_robin"
+version = "0.1.0"
+dependencies = [
+ "kernel_api",
+ "log",
 ]
 
 [[package]]
@@ -850,13 +878,6 @@ name = "slab"
 version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04dc19736151f35336d325007ac991178d504a119863a2fcb3758cdb5e52c50d"
-
-[[package]]
-name = "slab_allocator"
-version = "0.1.0"
-dependencies = [
- "more-asserts",
-]
 
 [[package]]
 name = "smallvec"
@@ -988,10 +1009,10 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 
 [[package]]
 name = "unwinding"
-version = "0.2.6"
-source = "git+https://github.com/popcorn-2/unwinding.git#ba2bb77bec4f1f0803784d0bc8eeda761d3dac7e"
+version = "0.2.8"
+source = "git+https://github.com/popcorn-2/unwinding.git#604c2f86b69752256da66f328273342e90e72c00"
 dependencies = [
- "gimli 0.31.1",
+ "gimli 0.32.3",
  "log",
 ]
 
@@ -1000,7 +1021,6 @@ name = "utils"
 version = "0.1.0"
 dependencies = [
  "kernel_api",
- "log",
 ]
 
 [[package]]

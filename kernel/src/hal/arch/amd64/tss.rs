@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
 use core::cell::SyncUnsafeCell;
 use core::ptr::addr_of;
@@ -8,9 +7,10 @@ use kernel_api::sync::OnceLock;
 // todo: make this thread_local
 pub static TSS: OnceLock<Tss> = OnceLock::new();
 
-struct StaticStack([u8; 3*4096]);
+#[repr(transparent)]
+struct StaticStack([usize; 3*4096/size_of::<usize>()]);
 
-static DOUBLE_FAULT_STACK: SyncUnsafeCell<StaticStack> = SyncUnsafeCell::new(StaticStack([0; 4096*3]));
+static DOUBLE_FAULT_STACK: SyncUnsafeCell<StaticStack> = SyncUnsafeCell::new(StaticStack([0; 4096*3/size_of::<usize>()]));
 
 #[repr(C, packed(4))]
 pub struct Tss {
@@ -47,12 +47,14 @@ impl Tss {
     
     #[inline]
     pub extern "C" fn set_rsp0(&self, addr: VirtualAddress) {
+        assert!(addr.aligned_to(16), "rsp0 must be 16 byte aligned");
+
         unsafe {
             asm!("lock xchg qword ptr [{}], {}", in(reg) addr_of!(self.privilege_stack_table[0]), inout(reg) addr.addr => _);
         }
     }
 
     pub unsafe fn load(gdt_index: u16) {
-        asm!("ltr {0:x}", in(reg) gdt_index);
+        unsafe { asm!("ltr {0:x}", in(reg) gdt_index) };
     }
 }

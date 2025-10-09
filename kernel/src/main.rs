@@ -4,22 +4,16 @@
 #![reexport_test_harness_main = "test_main"]
 #![feature(const_trait_impl)]
 #![feature(allocator_api)]
-#![feature(let_chains)]
 #![feature(const_type_name)]
 #![feature(decl_macro)]
 #![feature(abi_x86_interrupt)]
-#![feature(generic_arg_infer)]
 #![feature(gen_blocks)]
 #![feature(type_changing_struct_update)]
 #![feature(maybe_uninit_array_assume_init)]
-#![feature(inherent_associated_types)]
-#![feature(pointer_like_trait)]
 #![feature(int_roundings)]
 #![feature(vec_into_raw_parts)]
-#![feature(strict_provenance_atomic_ptr)]
 #![feature(maybe_uninit_uninit_array_transpose)]
 #![feature(ptr_metadata)]
-#![feature(naked_functions)]
 #![feature(type_alias_impl_trait)]
 #![feature(sync_unsafe_cell)]
 #![feature(arbitrary_self_types)]
@@ -37,107 +31,93 @@
 #![feature(linkage)]
 #![feature(once_cell_try_insert)]
 #![feature(unsigned_nonzero_div_ceil)]
-#![feature(generic_const_exprs)]
 #![feature(pointer_is_aligned_to)]
 #![feature(macro_metavar_expr)]
-
-#![feature(kernel_heap)]
-#![feature(kernel_allocation_new)]
-#![feature(kernel_sync_once)]
-#![feature(kernel_physical_page_offset)]
-#![feature(kernel_memory_addr_access)]
-#![feature(kernel_virtual_memory)]
-#![feature(kernel_mmap_to_parts)]
-#![feature(kernel_mmap_config)]
-#![feature(kernel_internals)]
-#![feature(kernel_physical_allocator_non_contiguous)]
-#![feature(kernel_physical_allocator_location)]
-#![feature(kernel_ptr)]
-#![feature(kernel_time)]
-#![feature(kernel_feature_detect)]
-#![feature(kernel_irq_cell)]
-#![feature(kernel_allocation_zeroing)]
-#![feature(kernel_mmap_trait)]
 #![feature(bstr)]
 #![feature(array_try_map)]
 #![feature(new_zeroed_alloc)]
+#![feature(vec_push_within_capacity)]
+#![feature(context_ext)]
+#![feature(local_waker)]
+#![feature(maybe_uninit_as_bytes)]
+#![feature(extern_types)]
+#![feature(prelude_import)]
+#![feature(super_let)]
+#![feature(try_blocks)]
+#![feature(sanitize)]
+#![feature(derive_const)]
+#![feature(const_default)]
+#![feature(const_convert)]
+
 #![no_std]
 #![no_main]
 
-#![deny(deprecated)]
-#![allow(refining_impl_trait)]
+#![allow(internal_features)]
+#![deny(warnings)]
 
 extern crate alloc;
 #[cfg(panic = "unwind")]
 extern crate unwinding;
+extern crate kernel_api; // to pull in asan runtime
 
-extern crate self as kernel;
-
-#[allow(unused_imports)] use crate::prelude::*;
-use alloc::borrow::Cow;
-use alloc::collections::BTreeMap;
-use core::alloc::Layout;
-use core::cell::UnsafeCell;
-use core::panic::PanicInfo;
-use core::ptr::{addr_of, slice_from_raw_parts_mut};
-use kernel_api::memory::{Page, PhysicalAddress, VirtualAddress};
-use core::{future, mem, ptr};
-use core::bstr::ByteStr;
+#[cfg(not(test))] use core::panic::PanicInfo;
+#[cfg(feature = "kasan")] use core::ptr::NonNull;
+#[cfg(feature = "kasan")] use kernel_api::allocator::Pmm;
+use core::ptr::{addr_of, addr_of_mut, slice_from_raw_parts_mut};
+use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
+use core::ptr;
 use core::cmp::{max, min};
-use core::mem::ManuallyDrop;
+#[cfg(feature = "kasan")] use core::marker::PhantomData;
 use core::num::NonZero;
-use core::task::{Poll};
+use core::panic::AssertUnwindSafe;
 use core::time::Duration;
 use hashbrown::HashMap;
-use itertools::Itertools;
-use elf::header::program::SegmentType;
-use crate::threading::ThreadControlBlock;
+use elf::header::program::{SegmentFlags, SegmentType};
 use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
-use kernel_api::dbg;
-use kernel_api::memory::{Frame};
-use kernel_api::memory::allocator::{Config, SizedBackingAllocator};
-use kernel_api::memory::mapping::{Mapping, self, Location, Stack, Protection, new_mapping_in, new_stack_in, new_unsafe_mapping_in};
-use kernel_api::memory::physical::highmem;
-use kernel_api::memory::r#virtual::address_space::AddressSpace;
-use kernel_api::memory::r#virtual::Userspace;
-use kernel_api::ptr::{slice_from_raw_parts, User};
+use kernel_api::{dbg, is_x86_feature_detected, mapping};
+use kernel_api::mapping::Stack;
+use kernel_api::ptr::LocalUser;
 use kernel_api::time::Instant;
 use utils::handoff::MemoryType;
+#[cfg(feature = "kasan")] use utils::handoff::MemoryMapEntry;
 use crate::hal::exception::Ty;
-use crate::hal::paging2::{KTable, TTable};
-use crate::ipc::handle::Handle;
+#[cfg(feature = "kasan")] use crate::hal::paging2::Flags;
+use crate::hal::paging2::KTable;
+use kernel_api::syscall::handle::Handle;
 use crate::ipc::protocol::Protocol;
 use crate::memory::paging::ktable;
-use crate::memory::r#virtual::AddressSpaceInner;
 use crate::memory::watermark_allocator::WatermarkAllocator;
-use crate::task::executor::Executor;
-use crate::threading::{WakeTrigger, WakeReason};
+use crate::panicking::SymbolMap;
 
-mod sync;
+//mod sync;
 mod memory;
 mod panicking;
 mod logging;
 mod bridge;
-mod task;
+//mod task;
 mod threading;
 mod bmp;
 mod hal;
 mod timing;
-mod projection;
-mod mmio;
+//mod mmio;
 mod interrupts;
 mod ipc;
-mod prelude;
 mod io_ext;
 mod percpu;
 mod loader;
+
+// The compiler expects the prelude definition to be defined before it's use statement
+mod prelude;
+#[prelude_import]
+#[allow(unused_imports)]
+pub use prelude::*;
 
 #[cfg(test)]
 pub mod test_harness;
 
 fn get_foo() -> usize {
-	unsafe { *percpu_v2!(foo).get() }
+	unsafe { *percpu::percpu_v2!(foo).get() }
 }
 
 #[macro_export]
@@ -195,6 +175,13 @@ macro_rules! assert_unsafe_precondition {
     };
 }
 
+#[derive(Debug)]
+#[repr(C)]
+pub struct SyscallStack {
+	flags: usize,
+	ip: usize,
+}
+
 #[inline]
 extern "C" fn syscall_handler(
 	a: usize,
@@ -204,140 +191,226 @@ extern "C" fn syscall_handler(
 	e: usize,
 	num_high: usize,
 	num_low: usize,
-	ip: usize,
-	flags: &mut usize,
+	stack: *mut SyscallStack,
+	async_data: usize,
 ) -> u128 {
-	debug!("syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x}, {e:#x}) @ {ip:#x} on {:?}", percpu_v2!(current_thread).read().as_ref().unwrap().tcb_ref().thread_id);
+	//threading::exit_trampoline(move || {
+		debug!("foo{num_high:#x}");
+	//});
 
-	let syscall_result = ipc::entry(
-		((num_high & 0xFFFFFFFF) as u128) << 96 | (num_low as u128),
-		(num_high >> 32) as u32,
-		a, b, c, d, e
-	);
-	
-	dbg!(*flags);
-	if syscall_result.is_err() { *flags |= 1 } else { *flags &= !1 };
-	dbg!(*flags);
+	threading::exit_trampoline(move || {
+		let flags = unsafe { addr_of!((*stack).flags).read_volatile() };
+		let ip = unsafe { addr_of!((*stack).ip).read_volatile() };
+		let is_async = (flags & 1) != 0;
+		let is_async_text = if is_async { "async " } else { "" };
+		let async_key = if is_async { Some(async_data) } else { None };
+		let tid = percpu::percpu_v2!(current_thread)
+				.read()
+				.as_ref()
+				.map(|tcb| tcb.thread_id);
 
-	debug!("result for syscall({num_high:#x}{num_low:016x}, {a:#x}, {b:#x}, {c:#x}, {d:#x}, {e:#x}) @ {ip:#x} on {:?}", percpu_v2!(current_thread).read().as_ref().unwrap().tcb_ref().thread_id);
-	dbg!(syscall_result).unwrap_or_else(|v| v as u128)
+		let protocol = ((num_high & 0xFFFFFFFF) as u128) << 96 | (num_low as u128);
+		let method = (num_high >> 32) as u32;
+
+		#[cfg(debug_assertions)] let syscall = ipc::protocol::syscall_name(protocol, method);
+		#[cfg(not(debug_assertions))] let syscall = format!("{:#x}@{:024x}", method, protocol);
+
+		debug!("{is_async_text}syscall({syscall}, {a:#x}, {b:#x}, {c:#x}, {d:#x}, {e:#x}) @ {ip:#x} on {tid:?}");
+
+		let syscall_result = ipc::entry(
+			protocol,
+			method,
+			a, b, c, d, e,
+			async_key,
+		);
+
+		dbg!(flags);
+		if syscall_result.is_err() {
+			unsafe { addr_of_mut!((*stack).flags).write_volatile(flags | 1) };
+		} else {
+			unsafe { addr_of_mut!((*stack).flags).write_volatile(flags & !1) };
+		};
+		let stack = unsafe { stack.read_volatile() };
+		debug!("return stack: {:#x?}", stack);
+
+		debug!("result for {is_async_text}syscall({syscall}, {a:#x}, {b:#x}, {c:#x}, {d:#x}, {e:#x}) @ {ip:#x} on {:?}", percpu::percpu_v2!(current_thread).read().as_ref().unwrap().thread_id);
+		dbg!(syscall_result).unwrap_or_else(|v| v as u128)
+	})
 }
 
 #[inline]
 fn exception_handler(exception: &mut hal::exception::Exception) {
-	let backtrace = || {
-		sprintln!("---");
-		sprintln!("{:#x?}", exception.registers);
-		sprintln!("---");
-		panicking::stack_trace();
-		sprintln!("---");
-	};
+	let mut exception = AssertUnwindSafe(exception);
+	threading::exit_trampoline(move || {
+		let backtrace = || {
+			sprintln!("---");
+			sprintln!("{:#x?}", exception.registers);
+			sprintln!("---");
+			panicking::stack_trace();
+			sprintln!("---");
+		};
 
-	let at = exception.registers.ip();
+		let at = exception.registers.ip();
 
-	match &exception.ty {
-		// Signalling exceptions
-		ty @ (Ty::FloatingPoint | Ty::IllegalInstruction | Ty::BusFault | Ty::Generic(_)) => {
-			if !exception.user_mode {
-				error!("Kernel exception occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
-				backtrace();
-				loop {}
-			} else {
-				error!("Userspace exception occurred at {:#x} {:?}:\n{ty}", at, percpu_v2!(current_thread).read().as_ref().unwrap().tcb_ref().thread_id);
-				debug!("{:#x?}", exception.registers);
-				todo!()
-			}
-		},
-		ty @ Ty::PageFault(_) => {
-			// todo: check for CoW etc.
-			if !exception.user_mode {
-				error!("Kernel page fault occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
-				backtrace();
+		match &exception.ty {
+			// Signalling exceptions
+			ty @ (Ty::FloatingPoint | Ty::IllegalInstruction | Ty::BusFault | Ty::Generic(_)) => {
+				if !exception.user_mode {
+					error!("Kernel exception occurred at {at:#x} - {}:\n{ty}", panicking::get_symbol_from_ip(at).name);
+					backtrace();
+					loop {}
+				} else {
+					let tid = percpu::percpu_v2!(current_thread)
+							.read()
+							.as_ref()
+							.map(|tcb| tcb.thread_id);
 
-				extern "C" {
-					static __popcorn_deref_handlers_check_start: u64;
-					static __popcorn_deref_handlers_handle_start: u64;
-					static __popcorn_deref_handlers_end: u64;
+					error!("Userspace exception occurred at {at:#x} {tid:?}:\n{ty}");
+					sprintln!("{:#x?}", exception.registers);
+					todo!()
 				}
-
-				let checkpoints = unsafe {
-					core::slice::from_raw_parts(
-						addr_of!(__popcorn_deref_handlers_check_start),
-						addr_of!(__popcorn_deref_handlers_handle_start).offset_from(addr_of!(__popcorn_deref_handlers_check_start)) as usize
-					)
+			},
+			ty @ Ty::PageFault(fault) => {
+				// todo: check for CoW etc.
+				let phys = || if fault.access_addr.is_higher_half() {
+					ktable().translate_address(fault.access_addr, true)
+				} else {
+					percpu::percpu_v2!(@current_thread)?
+							.try_read()?
+							.as_ref()?
+							.address_space.ttable().translate_address(fault.access_addr, true)
 				};
-				
-				if let Some(idx) = checkpoints.iter().map(|x| *x as usize).position(|x| x == at) {
-					let jumppoints = unsafe {
+
+				if !exception.user_mode {
+					error!("Kernel page fault occurred at {at:#x} - {}:\n{ty}", panicking::get_symbol_from_ip(at).name);
+
+					dbg!(fault.meta.present());
+					dbg!(fault.access_addr >= kernel_api::memory::asan::SHADOW_MAP_START);
+					dbg!(fault.access_addr < kernel_api::memory::asan::SHADOW_MAP_END);
+					dbg!(phys());
+					#[cfg(feature = "kasan")]
+					if !fault.meta.present()
+							&& fault.access_addr >= kernel_api::memory::asan::SHADOW_MAP_START
+							&& fault.access_addr < kernel_api::memory::asan::SHADOW_MAP_END {
+						use kernel_api::allocator::highmem;
+
+						debug!("allocating extra shadow mem");
+						match highmem().allocate_one_raw() {
+							Ok(frame) => {
+								let page = fault.access_addr.align_down_to_page();
+
+								ktable().map_page(
+									page,
+									frame,
+									mapping::Ty::SHADOW_MEM,
+									Flags::WRITE,
+								).expect("we just got a page fault for this page being not preset");
+
+								unsafe {
+									kernel_api::memory::asan::set_shadow_uninit_vmem(
+										*page,
+										4096 / 8,
+									);
+								}
+
+								debug!("new shadow mem added");
+
+								return;
+							},
+							Err(_) => {
+								error!("failed to lazy allocate shadow mem");
+								backtrace();
+								loop {}
+							}
+						}
+					}
+
+					backtrace();
+
+					unsafe extern "C" {
+						static __popcorn_deref_handlers_check_start: u64;
+						static __popcorn_deref_handlers_handle_start: u64;
+						static __popcorn_deref_handlers_end: u64;
+					}
+
+					let checkpoints = unsafe {
 						core::slice::from_raw_parts(
-							addr_of!(__popcorn_deref_handlers_handle_start),
-							addr_of!(__popcorn_deref_handlers_end).offset_from(addr_of!(__popcorn_deref_handlers_handle_start)) as usize
+							addr_of!(__popcorn_deref_handlers_check_start),
+							addr_of!(__popcorn_deref_handlers_handle_start).offset_from(addr_of!(__popcorn_deref_handlers_check_start)) as usize
 						)
 					};
-					let jump = jumppoints.iter().map(|x| *x as usize).nth(idx).expect("Malformed deref jumptable");
-					debug!("Checked access - jumping to {jump:#x}");
-					exception.registers.set_ip(jump);
-					return;
-				}
 
-				loop {}
-			} else {
-				error!("Userspace page fault occurred at {:#x} {:?}:\n{ty}", at, percpu_v2!(current_thread).read().as_ref().unwrap().tcb_ref().thread_id);
-				debug!("{:#x?}", exception.registers);
-				todo!()
+					if let Some(idx) = checkpoints.iter().map(|x| *x as usize).position(|x| x == at) {
+						let jumppoints = unsafe {
+							core::slice::from_raw_parts(
+								addr_of!(__popcorn_deref_handlers_handle_start),
+								addr_of!(__popcorn_deref_handlers_end).offset_from(addr_of!(__popcorn_deref_handlers_handle_start)) as usize
+							)
+						};
+						let jump = jumppoints.iter().map(|x| *x as usize).nth(idx).expect("Malformed deref jumptable");
+						debug!("Checked access - jumping to {jump:#x}");
+						exception.registers.set_ip(jump);
+						return;
+					}
+
+					loop {}
+				} else {
+					let tid = percpu::percpu_v2!(current_thread)
+							.read()
+							.as_ref()
+							.map(|tcb| tcb.thread_id);
+					error!("Userspace page fault occurred at {at:#x} {tid:?}:\n{ty}");
+					sprintln!("{:#x?}", exception.registers);
+					dbg!(phys());
+					todo!()
+				}
 			}
+			ty @ (Ty::Nmi | Ty::Panic) => {
+				// todo: BSOD equivalent?
+				error!("Unhandled exception occurred at {at:#x} - {}:\n{ty}", panicking::get_symbol_from_ip(at).name);
+				if !exception.user_mode { backtrace(); }
+				loop {}
+			},
+			ty @ Ty::Debug(DebugTy::Breakpoint) => {
+				warn!("Breakpoint: {at:#x} - {}:\n{ty}", panicking::get_symbol_from_ip(at).name);
+				if !exception.user_mode { backtrace(); }
+			},
+			ty @ Ty::Unknown(_) => {
+				warn!("Ignoring exception at {at:#x} - {}:\n{ty}", panicking::get_symbol_from_ip(at).name);
+				if !exception.user_mode { backtrace(); }
+			},
 		}
-		ty @ (Ty::Nmi | Ty::Panic) => {
-			// todo: BSOD equivalent?
-			error!("Unhandled exception occurred at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
-			if !exception.user_mode { backtrace(); }
-			loop {}
-		},
-		ty @ Ty::Debug(DebugTy::Breakpoint) => {
-			warn!("Breakpoint: {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
-			if !exception.user_mode { backtrace(); }
-		},
-		ty @ Ty::Unknown(_) => {
-			warn!("Ignoring exception at {:#x} - {}:\n{ty}", at, panicking::get_symbol_from_ip(at).name);
-			if !exception.user_mode { backtrace(); }
-		},
-	}
+	})
 }
 
 mod handoff_protection {
-	use core::fmt::{Debug, Formatter};
 	use core::ops::Deref;
 	use derive_more::Constructor;
 	use crate::{hal, panicking};
+	use crate::panicking::SymbolMap;
 
 	#[derive(Constructor)]
-	pub struct HandoffWrapper(&'static utils::handoff::Data, hal::TTableTy);
+	pub struct HandoffWrapper(*const utils::handoff::Data, hal::TTableTy);
 
 	impl HandoffWrapper {
 		pub fn to_empty_ttable(self) -> hal::TTableTy {
 			// todo!("empty the ttable");
-			*panicking::SYMBOL_MAP.write() = None; // HACK
+			*panicking::SYMBOL_MAP.write() = SymbolMap::from(None); // fixme: HACK
 			self.1
 		}
 	}
 
 	impl Deref for HandoffWrapper {
-		type Target = utils::handoff::Data;
+		type Target = *const utils::handoff::Data;
 
 		fn deref(&self) -> &Self::Target {
-			self.0
-		}
-	}
-
-	impl Debug for HandoffWrapper {
-		fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-			self.0.fmt(f)
+			&self.0
 		}
 	}
 }
 
-#[export_name = "_start"]
-extern "sysv64" fn kstart(handoff_data: &'static utils::handoff::Data) -> ! {
+#[unsafe(export_name = "_start")]
+extern "sysv64" fn kstart(handoff_data: *const utils::handoff::Data) -> ! {
 	sprintln!("Hello world!");
 
 	let ttable = unsafe {
@@ -369,16 +442,79 @@ extern "sysv64" fn kstart(handoff_data: &'static utils::handoff::Data) -> ! {
 
 fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let _ = logging::init();
+	sprintln!("logging initialised");
 
-	// fixme: lifetime here is wrong and when `handoff_data` gets dropped the symbol map is useless
-	let map = handoff_data.log.symbol_map;
-	*panicking::SYMBOL_MAP.write() = map;
-
-	trace!("Handoff data:\n{handoff_data:x?}");
+	#[cfg(not(feature = "kasan"))] {
+		let map = unsafe { (**handoff_data).log.symbol_map };
+		*panicking::SYMBOL_MAP.write() = SymbolMap::from(map);
+		
+		sprintln!("Handoff data:\n{:x?}", unsafe { &**handoff_data });
+	}
+	#[cfg(feature = "kasan")] {
+		#[sanitize(address = "off")]
+		#[inline(never)]
+		fn no_sanitizer_shim(data: &HandoffWrapper) -> Option<NonNull<[u8]>> {
+			unsafe {
+				(***data).log.symbol_map
+			}
+		}
+		let map = no_sanitizer_shim(&handoff_data);
+		
+		*panicking::SYMBOL_MAP.write() = SymbolMap::from(map);
+	}
 
 	hal::early_init();
+	
+	#[cfg(feature = "kasan")] let usable_memory = {
+		#[sanitize(address = "off")]
+		#[inline(never)]
+		fn no_sanitizer_shim(data: &HandoffWrapper) -> impl DoubleEndedIterator<Item = MemoryMapEntry> + Clone + '_ {
+			#[derive(Clone)]
+			struct Iter<'data> {
+				map: core::ops::Range<*const MemoryMapEntry>,
+				_phantom: PhantomData<&'data HandoffWrapper>,
+			}
+			
+			unsafe impl Send for Iter<'_> {}
+			
+			impl Iterator for Iter<'_> {
+				type Item = MemoryMapEntry;
 
-	let usable_memory = handoff_data.memory.map.iter().filter(|entry|
+				#[sanitize(address = "off")]
+				#[inline(never)]
+				fn next(&mut self) -> Option<Self::Item> {
+					if self.map.is_empty() { return None; }
+					let item = unsafe { *self.map.start };
+					self.map.start = unsafe { self.map.start.offset(1) };
+					Some(item)
+				}
+			}
+
+			impl DoubleEndedIterator for Iter<'_> {
+				#[sanitize(address = "off")]
+				#[inline(never)]
+				fn next_back(&mut self) -> Option<Self::Item> {
+					if self.map.is_empty() { return None; }
+					let item = unsafe { *self.map.end.offset(-1) };
+					self.map.end = unsafe { self.map.end.offset(-1) };
+					Some(item)
+				}
+			}
+			
+			unsafe {
+				let map = (***data).memory.map.as_ptr_range();
+				Iter {
+					map,
+					_phantom: PhantomData
+				}
+			}
+		}
+		
+		no_sanitizer_shim(&handoff_data)
+	};
+
+	#[cfg(not(feature = "kasan"))] let usable_memory = unsafe { (**handoff_data).memory.map.iter() };
+	let usable_memory = usable_memory.filter(|entry|
 		entry.ty == MemoryType::Free || entry.ty == MemoryType::BootloaderCode
 	);
 
@@ -399,8 +535,6 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	info!("Split allocator: {}", if split_allocators { "enabled" } else { "disabled" });
 
 	{
-		use kernel_api::memory::PhysicalAddress;
-
 		if split_allocators {
 			todo!("split allocators not supported yet :(");
 		}
@@ -412,7 +546,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 		let mut spaces = usable_memory.clone()
 		                              .map(|entry| {
-			                              Frame::new(entry.start().align_up())..Frame::new(entry.end().align_down())
+			                              entry.start().align_up_to_frame() .. entry.end().align_down_to_frame()
 		                              });
 
 		let mut spaces2 = spaces.clone();
@@ -420,35 +554,43 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 		debug!("Initialising highmem");
 
-		let allocator = memory::physical::with_highmem_as(&watermark_allocator, || {
-			<bitmap_allocator::Wrapped as SizedBackingAllocator>::new(
-				Config {
-					allocation_range: Frame::new(PhysicalAddress::new(0))..Frame::new(max_usable_memory.align_down()),
-					regions: &mut spaces
-				}
-			)
+		let allocator = memory::physical::with_highmem_as(&watermark_allocator, || unsafe {
+			bitmap_allocator::Wrapped::new(
+				RawFrame::new(0)..max_usable_memory.align_down_to_frame(),
+				&mut spaces,
+			).expect("unable to create highmem")
 		});
 
-		watermark_allocator.drain_into(allocator);
 		memory::physical::init_highmem(allocator);
 		memory::physical::init_dmamem(allocator);
 
 		let btree_alloc = {
-			const PAGE_MAP_OFFSET: usize = 0xffff_8000_0000_0000;
-			const PAGE_MAP_OFFSET_LEN: usize = 2usize.pow(46);
-
 			let mut btree_alloc = ranged_btree_allocator::RangedBtreeAllocator::new(
 				// unfortunately this means a page is missing :(
-				Page::new(VirtualAddress::new(PAGE_MAP_OFFSET+PAGE_MAP_OFFSET_LEN))..Page::new(VirtualAddress::new(0xffff_ffff_ffff_f000))
-			);
+				RawPage::new(kernel_api::memory::asan::SHADOW_MAP_END.addr) ..RawPage::new(memory::r#virtual::vmem_bootstrap_end() as usize)
+			).unwrap();
 
 			let virtual_reserved = [
 				// entire bootstrap region in case adding allocations uses more heap
-				// realisation: this will now cause an OOM on all subsequent heap allocations
-				Page::new(VirtualAddress::new(memory::r#virtual::VMEM_BOOTSTRAP_START.0 as usize))..Page::new(VirtualAddress::new(memory::r#virtual::VMEM_BOOTSTRAP_END.0 as usize)),
+				//Page::new(VirtualAddress::new(memory::r#virtual::vmem_bootstrap_start() as usize))..Page::new(VirtualAddress::new(memory::r#virtual::vmem_bootstrap_end() as usize)),
+				// ^ vmem is now included in the handoff used struct
 
-				Page::new(handoff_data.memory.used.start())..Page::new(handoff_data.memory.used.end())
+				{
+					let used = if cfg!(not(feature = "kasan")) { unsafe { (**handoff_data).memory.used } }
+						else {
+							#[sanitize(address = "off")]
+							#[inline(never)]
+							fn no_sanitizer_shim(data: &HandoffWrapper) -> utils::handoff::Range<RawPage> {
+								unsafe {
+									(***data).memory.used
+								}
+							}
+							no_sanitizer_shim(&handoff_data)
+						};
+					used.start()..used.end()
+				}
 			].into_iter();
+			debug!("virtual_reserved = {virtual_reserved:#x?}");
 
 			btree_alloc.add_allocations(virtual_reserved);
 
@@ -459,14 +601,39 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 		*memory::r#virtual::GLOBAL_VIRTUAL_ALLOCATOR.write() = Box::leak(Box::new(btree_alloc));
 	}
+	drop(usable_memory);
 
 	percpu::Percpu::init();
 
-	unsafe {
-		hal::acpi::init_tables(handoff_data.rsdp.addr);
-	}
+	let rsdp = unsafe {
+		if cfg!(not(feature = "kasan")) {
+			(**handoff_data).rsdp.addr
+		} else {
+			#[sanitize(address = "off")]
+			#[inline(never)]
+			fn no_sanitizer_shim(data: &HandoffWrapper) -> usize {
+				unsafe {
+					(***data).rsdp.addr
+				}
+			}
+			no_sanitizer_shim(&handoff_data)
+		}
+	};
+	unsafe { hal::acpi::init_tables(rsdp) };
 
-	let (mut update_line, picos_per_tick) = if let Some(ref fb) = handoff_data.framebuffer {
+	let fb = if cfg!(not(feature = "kasan")) { unsafe { (**handoff_data).framebuffer } }
+		else {
+			#[sanitize(address = "off")]
+			#[inline(never)]
+			fn no_sanitizer_shim(data: &HandoffWrapper) -> Option<utils::handoff::Framebuffer> {
+				unsafe {
+					(***data).framebuffer
+				}
+			}
+			no_sanitizer_shim(&handoff_data)
+		};
+
+	let (update_line, _picos_per_tick) = if let Some(fb) = fb {
 		let size = fb.stride * fb.height;
 		let stride = fb.stride;
 		let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.as_ptr().cast::<u32>(), size) };
@@ -553,20 +720,66 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	}*/
 
 	hal::post_acpi_init();
+	
+	let init_data = if cfg!(not(feature = "kasan")) {
+		unsafe { Box::<[_]>::from((**handoff_data).init_exec) }
+	} else {
+		#[sanitize(address = "off")]
+		#[inline(never)]
+		fn no_sanitizer_shim(data: &HandoffWrapper) -> Box<[u8]> {
+			unsafe {
+				let data = (***data).init_exec;
+				let mut ret = Box::<[u8]>::new_zeroed_slice(data.len());
+				let core::ops::Range { start: mut start_dest, end: end_dest } = (&mut *ret).as_mut_ptr_range();
+				let core::ops::Range { start: mut start_src, .. } = data.as_ptr_range();
+				while start_dest != end_dest {
+					// do it this way instead of calls to memcpy or similar so that it's all contained in the no_sanitize function
+					*start_dest.cast() = *start_src;
+					
+					start_src = start_src.offset(1);
+					start_dest = start_dest.offset(1);
+				}
+				ret.assume_init()
+			}
+		}
+		no_sanitizer_shim(&handoff_data)
+	};
 
-	let init_data = Box::from(handoff_data.init_exec);
-	let ramdisk_server = ipc::init_ramdisk(Box::from(handoff_data.ramdisk));
+	let ramdisk_data = if cfg!(not(feature = "kasan")) {
+		unsafe { Box::<[_]>::from((**handoff_data).ramdisk) }
+	} else {
+		#[sanitize(address = "off")]
+		#[inline(never)]
+		fn no_sanitizer_shim(data: &HandoffWrapper) -> Box<[u8]> {
+			unsafe {
+				let data = (***data).ramdisk;
+				let mut ret = Box::<[u8]>::new_zeroed_slice(data.len());
+				let core::ops::Range { start: mut start_dest, end: end_dest } = (&mut *ret).as_mut_ptr_range();
+				let core::ops::Range { start: mut start_src, .. } = data.as_ptr_range();
+				while start_dest != end_dest {
+					// do it this way instead of calls to memcpy or similar so that it's all contained in the no_sanitize function
+					*start_dest.cast() = *start_src;
+
+					start_src = start_src.offset(1);
+					start_dest = start_dest.offset(1);
+				}
+				ret.assume_init()
+			}
+		}
+		no_sanitizer_shim(&handoff_data)
+	};
+	let ramdisk_server = ipc::init_ramdisk(ramdisk_data, PhysicalAddress::new(rsdp));
 
 	let init_thread = threading::init(handoff_data);
 	debug!("Init running on {init_thread:?}");
 
 	if let Some(mut update_line) = update_line {
-		let animation = move || {
+		let _animation = move || {
 			let mut next_time = Instant::now();
 			loop {
 				next_time += Duration::from_millis(500); //Duration::from_nanos(1302083);
 				update_line();
-				threading::sleep_until(next_time);
+				kernel_api::executor::block_on(threading::sleep_until(next_time));
 			}
 		};
 
@@ -615,18 +828,22 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	}, Cow::Borrowed("fs tester")).unwrap();*/
 
 	let (entrypoint, stack) = {
-		let guard = percpu_v2!(current_thread).read();
-		let address_space = guard.as_ref().unwrap().tcb_ref().address_space;
+		let guard = percpu::percpu_v2!(current_thread).read();
+		let address_space = &guard
+				.as_ref()
+				.expect("init must be in a thread")
+				.address_space;
 
 		let stack_top = {
-			let config = mapping::Config::new_in(NonZero::new(8).unwrap(), AddressSpaceInner::to_api(&address_space))
-					.virtual_location(Location::At(Page::new(VirtualAddress::new(0x40000000))))
-					.protection(Protection::RWXU);
+			let config = mapping::Config::new(NonZero::new(8).unwrap(), mapping::Ty::USER_STACK)
+					.protection(true, false, true)
+					.virtual_location(RawPage::new(0x7fff_f000_0000));
 
-			let stack = new_stack_in(config, u16::MAX).expect("could not create stack");
+			let (_, mut stack) = config.map_in::<Stack>("[stack:3]".into(), address_space)
+					.expect("failed to allocate stack");
 
 			let stack_top = loader::set_up_stack(
-				&stack,
+				&mut stack,
 				["init", "hello", "world"],
 				["LANG=en_GB.UTF-8", "MLIBC_DEBUG_MALLOC=0"],
 				HashMap::<&'static str, u32>::from([
@@ -635,12 +852,10 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 					("io.stderr", 2),
 					("thread.main", 3),
 					("popcorn.init.ramdisk", 4),
-					("popcorn.init.root-bus-descriptor", 4),
+					("popcorn.init.root-bus-descriptor", 5),
 				])
 			);
-
-			address_space.add_mapping("[stack]", stack);
-
+			
 			stack_top
 		};
 
@@ -648,37 +863,62 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 		for segment in file.segments()
 		                   .filter(|s| s.segment_type == SegmentType::LOAD) {
-			assert!(segment.alignment <= 4096, "Not designed for >1 page alignment");
+			assert_eq!(segment.alignment, 4096, "Not designed for !=1 page alignment");
 
-			let addr = VirtualAddress::<1>::new(segment.vaddr.try_into().unwrap());
-			let segment_page_offset = addr - addr.align_down::<4096>();
+			let addr = VirtualAddress::new(segment.vaddr.try_into().unwrap());
+			let segment_page_offset = addr - *addr.align_down_to_page();
 
 			let len = segment_page_offset + usize::try_from(segment.memory_size).unwrap();
 			let len = len.div_ceil(4096);
 			
-			let mapping = {
-				let config = mapping::Config::new_in(len.try_into().unwrap(), AddressSpaceInner::to_api(address_space))
-						.virtual_location(Location::At(Page::new(addr.align_down())))
-						.protection(Protection::RWXU);
-				new_unsafe_mapping_in(config, u16::MAX).unwrap()
-			};
+			let (_, mut mapping) = mapping::Config::new(len.try_into().unwrap(), mapping::Ty::USER_CODE)
+						.virtual_location(addr.align_down_to_page())
+						.protection(
+							segment.segment_flags.contains(SegmentFlags::Writeable),
+							segment.segment_flags.contains(SegmentFlags::Executable),
+							true,
+						)
+						.map_in::<mapping::UnsafeMmap>("/user/init.exec".into(), address_space)
+						.unwrap();
 
 			assert!(segment.file_size <= segment.memory_size);
 
+			let base = unsafe {
+				LocalUser::try_from(mapping.as_mut_ptr())
+						.expect("`initd` should be loaded in loader thread")
+						.byte_add(segment_page_offset)
+			};
+			debug_assert_eq!(base.addr(), addr, "mapping for elf executable should be same as addr in file");
+
 			unsafe {
+				// todo: replace with proper local pointer and permissions adjustments
+				if is_x86_feature_detected!("smap") { core::arch::asm!("stac", options(nomem, nostack, preserves_flags)); }
+				core::arch::asm!(
+					"mov {0:r}, cr0",
+                    "and {0:r}, ~0x10000",
+					"mov cr0, {0:r}",
+					out(reg) _,
+					options(nomem, nostack, preserves_flags)
+				);
 				ptr::copy_nonoverlapping(
 					file[segment.file_location()].as_ptr(),
-					addr.as_ptr(),
+					base.addr().as_ptr(),
 					segment.file_size.try_into().unwrap(),
 				);
 				ptr::write_bytes(
-					addr.as_ptr().byte_add(segment.file_size.try_into().unwrap()),
+					base.addr().as_ptr().byte_add(segment.file_size.try_into().unwrap()),
 					0,
 					(segment.memory_size - segment.file_size).try_into().unwrap(),
 				);
+				core::arch::asm!(
+					"mov {0:r}, cr0",
+					"or {0:r}, 0x10000",
+					"mov cr0, {0:r}",
+					out(reg) _,
+					options(nomem, nostack, preserves_flags)
+				);
+				if is_x86_feature_detected!("smap") { core::arch::asm!("clac", options(nomem, nostack, preserves_flags)); }
 			}
-
-			address_space.add_mapping("/user/init.exec", mapping);
 		}
 		
 		debug!("{address_space:?}");
@@ -691,19 +931,13 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 		let _ = ipc::server::server_registry(); // force it to init builtin servers (root + proc)
 
-		let guard = percpu_v2!(current_thread).read();
-		let thread = guard.as_ref().unwrap().tcb_ref();
+		let guard = percpu::percpu_v2!(current_thread).read();
+		let thread = guard.as_ref().unwrap();
 
 		let stdio_handle = ipc::open(
 			"console:/",
 			&[<dyn ipc::protocol::generated::CoreIoRead>::UID, <dyn ipc::protocol::generated::CoreIoWrite>::UID],
-			User::<*const u8>::new_in(
-				ptr::dangling(),
-				AddressSpaceInner::to_api({ // braces needed to force early drop of the read guard
-					percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
-					                          .tcb_ref().address_space
-				})
-			)
+			kernel_api::ptr::null(),
 		).expect("unable to open console");
 		let thread_handle = Handle::new(
 			ipc::server::server_registry().get_server_at("proc").expect("unable to open `proc`").0,
@@ -715,6 +949,15 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 			1,
 			&[<dyn ipc::protocol::generated::CoreIoRead>::UID]
 		);
+		let acpi_handle = Handle::new(
+			ramdisk_server,
+			2,
+			&[<dyn ipc::protocol::generated::CoreIoRead>::UID]
+		);
+
+		dbg!(&stdio_handle);
+		dbg!(&thread_handle);
+		dbg!(&acpi_handle);
 
 		thread.handles.openat(0, stdio_handle.clone())
 				.expect("unable to open fd 0");
@@ -726,6 +969,8 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 				.expect("unable to open fd 3");
 		thread.handles.openat(4, ramdisk_handle)
 		      .expect("unable to open fd 4");
+		thread.handles.openat(5, acpi_handle)
+		      .expect("unable to open fd 5");
 	}
 	hal::switch_to_userspace_at(entrypoint, stack);
 }
@@ -737,49 +982,26 @@ fn panic_handler(info: &PanicInfo) -> ! {
 	if let Some(location) = info.location() {
 		sprint!(" {location}");
 	}
+	if let Some(current_thread) = percpu_v2!(@current_thread)
+			&& let Some(current_thread) = current_thread.try_read()
+			&& let Some(current_thread) = current_thread.as_ref() {
+		sprint!(" on thread {:?}", current_thread.thread_id);
+	}
 	sprintln!("\u{001b}[0m");
 
 	sprintln!("{}", info.message());
 
+	panicking::stack_trace();
 	panicking::do_panic()
 }
-
-#[no_mangle]
-pub extern "Rust" fn __popcorn_module_panic(info: &PanicInfo) -> ! {
-	panic!("Panic from module: {info}");
-}
-
-#[no_mangle]
-pub unsafe extern "Rust" fn __popcorn_module_alloc(layout: Layout) -> *mut u8 {
-	alloc::alloc::alloc(layout)
-}
-
-#[no_mangle]
-pub unsafe extern "Rust" fn __popcorn_module_dealloc(ptr: *mut u8, layout: Layout) {
-	alloc::alloc::dealloc(ptr, layout);
-}
-
-#[no_mangle]
-pub unsafe extern "Rust" fn __popcorn_module_alloc_zeroed(layout: Layout) -> *mut u8 {
-	alloc::alloc::alloc_zeroed(layout)
-}
-
-#[no_mangle]
-pub unsafe extern "Rust" fn __popcorn_module_realloc(ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-	alloc::alloc::realloc(ptr, layout, new_size)
-}
-
-#[no_mangle]
-pub unsafe extern "Rust" fn __popcorn_module_is_panicking() -> bool { panicking::panicking() }
-
 
 mod allocator {
 	use core::alloc::{AllocError, GlobalAlloc, Layout};
 	use core::ptr;
 	use core::ptr::NonNull;
-	use log::debug;
+	use log::trace;
 
-	extern "Rust" {
+	unsafe extern "Rust" {
 		fn __popcorn_kernel_heap_allocate(layout: Layout) -> Result<NonNull<u8>, AllocError>;
 		fn __popcorn_kernel_heap_deallocate(ptr: NonNull<u8>, layout: Layout);
 		fn __popcorn_kernel_heap_reallocate(ptr: NonNull<u8>, layout: Layout, new_size: usize) -> Result<NonNull<u8>, AllocError>;
@@ -793,7 +1015,7 @@ mod allocator {
 		
 		extern crate arena_heap;
 
-		#[no_mangle]
+		#[unsafe(no_mangle)]
 		#[linkage = "weak"]
 		fn __popcorn_kernel_heap_reallocate(ptr: NonNull<u8>, layout: Layout, new_size: usize) -> Result<NonNull<u8>, AllocError> {
 			let new_layout = unsafe { Layout::from_size_align_unchecked(new_size, layout.align()) };
@@ -810,8 +1032,13 @@ mod allocator {
 
 	unsafe impl GlobalAlloc for HookAllocator {
 		unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-			debug!("alloc({layout:?})");
-			match __popcorn_kernel_heap_allocate(layout) {
+			trace!("alloc({layout:?})");
+
+			if log::max_level() >= log::LevelFilter::Trace && layout.size() > 2*kernel_api::memory::PAGE_SIZE {
+				crate::panicking::stack_trace();
+			}
+
+			let ptr = match unsafe { __popcorn_kernel_heap_allocate(layout) } {
 				Ok(ptr) => {
 					assert_unsafe_precondition!(
 						"pointer returned by `alloc` not valid for layout",
@@ -821,50 +1048,37 @@ mod allocator {
 					ptr.as_ptr()
 				},
 				Err(_) => ptr::null_mut()
-			}
+			};
+			trace!("alloc({layout:?}) = {ptr:#p}");
+			ptr
 		}
 
 		unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-			debug!("dealloc({layout:?})");
+			trace!("dealloc({layout:?}, {ptr:#p})");
 			match NonNull::new(ptr) {
-				Some(ptr) => __popcorn_kernel_heap_deallocate(ptr, layout),
+				Some(ptr) => unsafe { __popcorn_kernel_heap_deallocate(ptr, layout) },
 				None => {}
 			}
 		}
 
 		unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-			debug!("realloc({layout:?},{new_size})");
-			match NonNull::new(ptr) {
+			trace!("realloc({layout:?},{ptr:#p},{new_size})");
+			let new_ptr = match NonNull::new(ptr) {
 				Some(ptr) => {
-					match __popcorn_kernel_heap_reallocate(ptr, layout, new_size) {
+					match unsafe { __popcorn_kernel_heap_reallocate(ptr, layout, new_size) } {
 						Ok(ptr) => ptr.as_ptr(),
 						Err(_) => ptr::null_mut()
 					}
 				},
 				None => ptr::null_mut(),
-			}
+			};
+			trace!("realloc({layout:?},{ptr:#p},{new_size}) = {new_ptr:#p}");
+			new_ptr
 		}
 	}
 
 	#[cfg_attr(not(test), global_allocator)]
 	static ALLOCATOR: HookAllocator = HookAllocator;
-}
-
-mod paging_codes {
-	pub const BGRT_BMP_HEADER: u16 = 10;
-	pub const IOAPIC_REGISTERS: u16 = 11;
-	pub const APIC_REGISTERS: u16 = 12;
-	pub const HPET_HEADER: u16 = 13;
-	pub const HPET_FULL: u16 = 14;
-	pub const PHYSMAP_OTHER: u16 = 15;
-	pub const ACPI_SDT_HEADER: u16 = 16;
-	pub const ACPI_RSDP: u16 = 17;
-	pub const ACPI_HPET: u16 = 18;
-	pub const ACPI_FADT: u16 = 19;
-	pub const ACPI_BGRT: u16 = 20;
-	pub const BYTE_ARRAY: u16 = 21;
-	pub const THREAD_KERNEL_STACK: u16 = 22;
-	pub const TLS: u16 = 23;
 }
 
 #[cfg(test)]

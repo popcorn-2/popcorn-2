@@ -1,4 +1,5 @@
 #![feature(decl_macro)]
+#![deny(warnings)]
 
 use fatfs::{FatType, FileSystem, format_volume, FormatVolumeOptions, FsOptions, ReadWriteSeek};
 use fscommon::StreamSlice;
@@ -40,12 +41,6 @@ pub fn main() {
 		let bootloader_path = cargo_env!("CARGO_BIN_FILE_BOOTLOADER");
 		println!("cargo:warning={bootloader_path}");
 		let f = File::open(bootloader_path).expect("bootloader file does not exist");
-		BufReader::new(f)
-	};
-
-	let mut popfs_driver = {
-		let popfs_driver_path = cargo_env!("CARGO_BIN_FILE_POPFS_popfs_uefi_driver");
-		let f = File::open(popfs_driver_path).expect("popfs driver file does not exist");
 		BufReader::new(f)
 	};
 
@@ -95,7 +90,7 @@ pub fn main() {
 		);
 
 		match partition.part_type {
-			PartitionType::Efi => init_efi_partition(fs, &mut bootloader, &mut popfs_driver),
+			PartitionType::Efi => init_efi_partition(fs, &mut bootloader),
 			PartitionType::System => init_system_partition(fs, &mut kernel, kernel_map.as_mut(), &mut init_exec, &mut ramdisk),
 			_ => {}
 		}
@@ -104,7 +99,7 @@ pub fn main() {
 	println!("cargo:rustc-env=ISO_IMAGE={}", disk_image_path.display());
 }
 
-fn init_efi_partition(fs: FileSystem<impl ReadWriteSeek>, mut bootloader_data: impl Read, mut popfs_data: impl Read) {
+fn init_efi_partition(fs: FileSystem<impl ReadWriteSeek>, mut bootloader_data: impl Read) {
 	let root_dir = fs.root_dir();
 	root_dir.create_dir("efi").unwrap();
 	root_dir.create_dir("efi/boot").unwrap();
@@ -116,9 +111,6 @@ fn init_efi_partition(fs: FileSystem<impl ReadWriteSeek>, mut bootloader_data: i
 	let mut conf = root_dir.create_file("efi/popcorn/config.toml").unwrap();
 	let data = "";
 	conf.write(data.as_bytes()).unwrap();
-
-	let mut popfs = root_dir.create_file("efi/popcorn/popfs.efi").unwrap();
-	io::copy(&mut popfs_data, &mut popfs).unwrap();
 }
 
 fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: impl Read, map_data: Option<impl Read>, mut init_exec: impl Read, mut ramdisk: impl Read) {

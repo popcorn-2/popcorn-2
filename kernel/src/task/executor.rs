@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::task::Wake;

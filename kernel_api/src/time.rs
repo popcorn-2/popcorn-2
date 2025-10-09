@@ -1,8 +1,9 @@
-#![unstable(feature = "kernel_time", issue = "none")]
+//! Temporal quantification
 
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 use core::time::Duration;
 
+/// An opaque measure of the current system time
 #[derive(Copy, Clone, Hash, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Instant {
 	arch_val: u128
@@ -14,19 +15,20 @@ impl Instant {
 	}
 	
 	fn arch_to_nanos(arch_val: u128) -> u128 {
-		let (num, denom) = unsafe { crate::bridge::time::system_time_to_nanos() };
+		let (num, denom) = crate::bridge::time::system_time_to_nanos();
 
 		arch_val * num / denom.get()
 	}
 
 	fn nanos_to_arch(nanos: u128) -> u128 {
-		let (num, denom) = unsafe { crate::bridge::time::system_time_to_nanos() };
+		let (num, denom) = crate::bridge::time::system_time_to_nanos();
 
 		nanos * denom.get() / num
 	}
 	
+	/// The current system time
 	pub fn now() -> Self {
-		let arch_val = unsafe { crate::bridge::time::system_time() };
+		let arch_val = crate::bridge::time::system_time();
 		Self {
 			arch_val
 		}
@@ -52,6 +54,7 @@ impl Instant {
 		)
 	}
 
+	/// The elapsed [`Duration`] between `self` and the current time as returned by [`Instant::now()`]
 	pub fn elapsed(&self) -> Duration {
 		Self::now() - *self
 	}
@@ -66,10 +69,18 @@ impl Instant {
 		Some(Instant { arch_val })
 	}
 	
+	/// The number of nanoseconds since the system booted
+	/// 
+	/// No guarantees are (yet) provided on time before overflow
 	pub fn nanos_since_boot(&self) -> u128 {
 		self.nanos()
 	}
 	
+	/// Returns the opaque numeric value of the [`Instant`]
+	/// 
+	/// The meaning of the returned value is architecture dependant.
+	/// Behaviour is as follows:
+	/// - `x86`/`x86_64` - value of the timestamp counter as provided by `rdtsc`
 	pub fn get(&self) -> u128 { self.arch_val }
 }
 

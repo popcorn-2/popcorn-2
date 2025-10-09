@@ -2,34 +2,83 @@ use core::alloc::Layout;
 use core::num::NonZero;
 use core::ops::Range;
 use core::ptr::NonNull;
-use log::debug;
-use kernel_api::dbg;
-use kernel_api::memory::AllocError;
-use kernel_api::memory::mapping::{Mapping, Config, new_mapping};
+use log::{debug, trace};
+#[cfg(not(test))] use kernel_api::address_space::Kernel;
+use kernel_api::allocator::AllocError;
+#[cfg(not(test))] use kernel_api::mapping::{Mapping, Config, Mmap, Ty};
 use crate::chunk::ChunkHeader;
+#[cfg(feature = "kasan")] use kernel_api::memory::asan::{asan_free_range, set_shadow_heap_left, count_to_shadow, mem_to_shadow};
+use kernel_api::memory::PAGE_SIZE;
+
+#[cfg(test)]
+mod mock {
+	use alloc::boxed::Box;
+	use core::num::NonZero;
+	use core::ops::Range;
+
+	#[repr(C, align(4096))]
+	struct Page([u8; 4096]);
+
+	pub struct Mapping {
+		backing: aliasable::boxed::AliasableBox<[Page]>,
+	}
+
+	impl Mapping {
+		pub fn new(page_count: NonZero<usize>) -> Self {
+			let backing = Box::new_zeroed_slice(page_count.get());
+			let backing = unsafe { backing.assume_init() };
+			Self {
+				backing: backing.into(),
+			}
+		}
+
+		pub fn as_mut_ptr_range(&mut self) -> Range<*mut u8> {
+			let pages = self.backing.as_mut_ptr_range();
+			Range {
+				start: pages.start.cast(),
+				end: pages.end.cast(),
+			}
+		}
+
+		pub fn as_ptr_range(&self) -> Range<*const u8> {
+			let pages = self.backing.as_ptr_range();
+			Range {
+				start: pages.start.cast(),
+				end: pages.end.cast(),
+			}
+		}
+
+		pub fn page_len(&self) -> usize { self.backing.len() }
+
+		pub fn as_ptr(&self) -> *const u8 { self.as_ptr_range().start }
+		pub fn as_mut_ptr(&mut self) -> *mut u8 { self.as_mut_ptr_range().start }
+	}
+}
 
 pub struct Arena {
-	mapping: Mapping<'static>,
+	#[cfg(not(test))] mapping: Mapping<Mmap, Kernel>,
+	#[cfg(test)] mapping: mock::Mapping,
 }
 
 impl Arena {
 	const INITIAL_AREA_PAGE_COUNT: usize = 4; // 16 KiB
 	const GROW_FACTOR: usize = 2;
-	const MINIMUM_USABLE_ALLOC: usize = size_of::<usize>();
+	const MINIMUM_USABLE_ALLOC: usize = 2 * size_of::<usize>();
 	
 	pub fn with_capacity(capacity: usize) -> Result<Self, AllocError> {
 		let page_count = core::cmp::max(
 			Self::INITIAL_AREA_PAGE_COUNT,
 			(capacity + 2*size_of::<ChunkHeader>()).div_ceil((4096 * 2) / 3), // add a bit of extra space
 		);
-
-		let mapping = new_mapping(
-			Config::new(NonZero::new(page_count).unwrap()),
-			25
-		)?;
 		
-		let start = mapping.virtual_valid_start().as_ptr().cast::<ChunkHeader>();
-		let end = unsafe { mapping.virtual_valid_end().as_ptr().cast::<ChunkHeader>().offset(-1) };
+		#[cfg(not(test))] let mut mapping = Config::new(NonZero::new(page_count).unwrap(), Ty::HEAP)
+				.protection(true, false, false)
+				.map()?;
+		#[cfg(test)] let mut mapping = mock::Mapping::new(NonZero::new(page_count).unwrap());
+		
+		let Range { start, end } = mapping.as_mut_ptr_range();
+		let start = start.cast::<ChunkHeader>();
+		let end = unsafe { end.cast::<ChunkHeader>().offset(-1) };
 
 		// SAFETY: Pointer returned by Mapping::new is guaranteed to be valid for RW access for 16 KiB
 		// start - pointer returned by Mapping::new is 4K aligned which is greater than `align_of::<ChunkHeader>()`
@@ -50,12 +99,19 @@ impl Arena {
 			)
 		}
 
+		#[cfg(feature = "kasan")] unsafe {
+			set_shadow_heap_left(
+				mem_to_shadow(start.into()),
+				count_to_shadow(page_count * 4096)
+			);
+		}
+
 		Ok(Self { mapping })
 	}
 
 	fn first_chunk(&self) -> NonNull<ChunkHeader> {
-		let ptr = self.mapping.virtual_valid_start().as_ptr().cast::<ChunkHeader>();
-		NonNull::new(ptr).expect("arena mapping should not be null")
+		let ptr = self.mapping.as_ptr().cast::<ChunkHeader>();
+		NonNull::new(ptr.cast_mut()).expect("arena mapping should not be null")
 	}
 
 	fn alloc_in_aligned(chunk: &mut ChunkHeader, layout: Layout) -> Result<NonNull<u8>, AllocError> {
@@ -86,7 +142,7 @@ impl Arena {
 
 		if let Some(new_end) = new_end && new_end < end_pointer.addr() {
 			let new_header = new_header.unwrap();
-			debug!("insert new chunk at {new_header:#x}");
+			trace!("insert new chunk at {new_header:#x}");
 
 			// provenance of `start_pointer` covers the entire chunk and we just checked that `new_end..(new_end + aligned<ChunkHeader>)`
 			// is within the chunk
@@ -112,6 +168,10 @@ impl Arena {
 		chunk.set_busy(true);
 
 		// provenance-exposition: reduce bounds on this to only cover `start_pointer..end_pointer`
+		#[cfg(feature = "kasan")] asan_free_range(
+			start_pointer.as_ptr().into(),
+			layout.size(),
+		);
 		return Ok(start_pointer);
 	}
 
@@ -123,10 +183,9 @@ impl Arena {
 		assert!(!chunk.busy());
 
 		let start_pointer = chunk.start();
-		let end_pointer = chunk.end();
 
 		let align_offset = start_pointer.align_offset(align);
-		if chunk.size() < (size + align_offset) { return Err(AllocError); }
+		if chunk.size() < (size + align_offset) { return Err(AllocError::heap()); }
 
 		if align_offset == 0 {
 			Self::alloc_in_aligned(chunk, layout)
@@ -136,7 +195,7 @@ impl Arena {
 			let mut new_chunk_ptr = unsafe { split_point.cast::<ChunkHeader>().offset(-1) };
 			
 			if align_offset > size_of::<ChunkHeader>() + Self::MINIMUM_USABLE_ALLOC {
-				debug!("insert new chunk at {new_chunk_ptr:p}");
+				trace!("insert new chunk at {new_chunk_ptr:p}");
 
 				let new_chunk = unsafe { ChunkHeader::new(
 					chunk.next(),
@@ -153,11 +212,11 @@ impl Arena {
 
 				chunk.set_next(Some(new_chunk_ptr.cast()));
 			} else {
-				debug!("expand previous alloc");
+				trace!("expand previous alloc");
 				
 				let Some(mut prev) = chunk.prev() else {
 					debug!("no previous alloc to expand");
-					return Err(AllocError);
+					return Err(AllocError::heap());
 				};
 				
 				let chunk_header = chunk.clone();
@@ -167,6 +226,25 @@ impl Arena {
 					unsafe { next.as_mut() }.set_prev(Some(new_chunk_ptr));
 				}
 				unsafe { new_chunk_ptr.write(chunk_header) };
+
+				#[cfg_attr(feature = "kasan", inline(never))]
+				#[cfg_attr(feature = "kasan", sanitize(address = "off"))]
+				#[cfg(feature = "generations")]
+				pub unsafe fn magic_into_expansion(mut start: *mut usize, end: *mut usize) {
+					while start != end {
+						#[cfg(not(feature = "kasan"))] unsafe { write.write_volatile(val); }
+						#[cfg(feature = "kasan")] unsafe { *start = super::chunk::MAGIC_2; }
+						unsafe { start = start.offset(1); }
+					}
+				}
+				
+				#[cfg(feature = "generations")] unsafe {
+					// fixme: this makes `chunk` no longer a valid reference since we overwrote `*chunk` with nonsense
+					magic_into_expansion(
+						chunk as *mut ChunkHeader as *mut _,
+						new_chunk_ptr.as_ptr().cast(),
+					);
+				}
 			}
 			
 			Self::alloc_in_aligned(unsafe { new_chunk_ptr.as_mut() }, layout)
@@ -177,6 +255,7 @@ impl Arena {
 		let size = layout.size();
 
 		for chunk in &mut *self {
+			#[cfg(feature = "generations")] chunk.update_generations();
 			if chunk.size() < size { continue; }
 			if chunk.busy() { continue; }
 
@@ -184,18 +263,16 @@ impl Arena {
 		}
 
 		// if no space in the existing chunks,
-		let min_expansion = self.mapping.physical_len().checked_mul(NonZero::new(Self::GROW_FACTOR - 1).unwrap()).ok_or(AllocError)?;
-		let alloc_expansion = (size + 2*size_of::<ChunkHeader>()).div_ceil((4096 * 2) / 3);
-		let expansion = core::cmp::max(alloc_expansion, min_expansion.get());
+		let min_expansion = self.mapping.page_len().checked_mul(Self::GROW_FACTOR - 1).ok_or(AllocError::heap())?;
+		let alloc_expansion = (size + 2*size_of::<ChunkHeader>()).div_ceil((PAGE_SIZE * 2) / 3);
+		let expansion = core::cmp::max(alloc_expansion, min_expansion);
 
-		let alloc_start = self.mapping.virtual_valid_end().as_ptr();
+		let alloc_start = self.mapping.as_mut_ptr_range().end;
 		let old_sentinel = unsafe { &mut *alloc_start.cast::<ChunkHeader>().offset(-1) };
 
-		dbg!(expansion, min_expansion, alloc_expansion);
+		self.mapping.grow_in_place_by(expansion)?;
 
-		dbg!(self.mapping.resize_in_place(self.mapping.physical_len().checked_add(expansion).ok_or(AllocError)?))?;
-
-		let new_sentinel = unsafe { self.mapping.virtual_valid_end().as_ptr().cast::<ChunkHeader>().offset(-1) };
+		let new_sentinel = unsafe { self.mapping.as_mut_ptr_range().end.cast::<ChunkHeader>().offset(-1) };
 
 		unsafe {
 			new_sentinel.write(ChunkHeader::new(
@@ -205,13 +282,21 @@ impl Arena {
 		}
 		old_sentinel.set_next(Some(NonNull::new(new_sentinel).expect("mmap should not end at null")));
 
+		#[cfg(feature = "kasan")] unsafe {
+			set_shadow_heap_left(
+				mem_to_shadow(new_sentinel.into()),
+				count_to_shadow(expansion * 4096)
+			);
+		}
+
 		Self::alloc_in(old_sentinel, layout)
 	}
 
 	pub fn bounds(&self) -> Range<NonNull<u8>> {
+		let Range { start, end } = self.mapping.as_ptr_range();
 		Range {
-			start: NonNull::new(self.mapping.virtual_valid_start().as_ptr()).expect("arena should not be at null"),
-			end: NonNull::new(self.mapping.virtual_valid_end().as_ptr()).expect("arena should not be at null"),
+			start: NonNull::new(start.cast_mut()).expect("arena should not be at null"),
+			end: NonNull::new(end.cast_mut()).expect("arena should not be at null"),
 		}
 	}
 }

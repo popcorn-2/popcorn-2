@@ -1,4 +1,12 @@
-#![unstable(feature = "kernel_ptr", issue = "none")]
+//! Provides pointer wrappers for safely accessing userspace
+//! 
+//! All pointers provided from userspace should be accessed through a [`User`] to
+//! prevent kernelspace page faults from invalid or misaligned pointers.
+//! 
+//! # SMAP
+//! 
+//! When SMAP is supported on the system, all memory access through a [`User`] will
+//! automatically set and clear the `AC` flag to prevent trapping.
 
 use core::fmt;
 use core::marker::PhantomData;
@@ -9,6 +17,12 @@ mod user_ptr;
 #[cfg(feature = "full")]
 pub use user_ptr::*;
 
+#[cfg(feature = "full")]
+mod user_local;
+#[cfg(feature = "full")]
+pub use user_local::*;
+
+#[doc(hidden)]
 pub struct Unique<T: ?Sized> {
 	pointer: NonNull<T>,
 	_marker: PhantomData<T>,
@@ -89,5 +103,9 @@ impl<T: ?Sized> fmt::Pointer for Unique<T> {
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[path = "x86_64.rs"]
 #[cfg(feature = "full")]
-#[unstable(feature = "kernel_internals", issue = "none")]
-pub mod impls;
+mod impls;
+
+/// The error returned when a memory access to userspace failed
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct PointerError {}

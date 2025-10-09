@@ -1,10 +1,9 @@
-#[allow(unused_imports)] use crate::prelude::*;
-use core::cell::OnceCell;
 use crate::hal;
 use crate::hal::interrupts_v2::Vector;
 
+#[expect(unreachable_code)]
 pub fn global_irq_handler(vector: Vector) {
-	if vector == hal::IPI_VECTOR { 
+	if vector == hal::IPI_VECTOR {
 		todo!("IPI");
 		hal::get_and_disable_interrupts();
 		hal::send_local_eoi(vector);

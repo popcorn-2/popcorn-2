@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 
 pub enum Global {}
 pub enum Upper {}

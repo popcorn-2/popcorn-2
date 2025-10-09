@@ -2,283 +2,215 @@ use core::arch::asm;
 use core::hint::unreachable_unchecked;
 use core::mem::MaybeUninit;
 
-#[no_mangle]
-#[inline]
-pub fn checked_read_1(ptr: *const MaybeUninit<u8>) -> Option<MaybeUninit<u8>> {
-	let r: MaybeUninit<_>;
-	let success: usize;
-	unsafe {
-		asm!(
-			// todo: "stac",
-			"2: mov {}, [{}]",
-			"   mov {}, 1",
-			// todo: "clac",
-			".pushsection .popcorn.deref_handlers.check",
-			".quad 2b",
-			".popsection",
-			".pushsection .popcorn.deref_handlers.handle",
-			".quad 3f",
-			".popsection",
-			"3: ",
-			inout(reg_byte) MaybeUninit::<u8>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-			in(reg) ptr,
-			inout(reg) 0usize => success,
-			options(nostack, preserves_flags, readonly)
-		);
-	}
-
-	match success {
-		0 => None,
-		1 => Some(r),
-		_ => unsafe { unreachable_unchecked() }
-	}
+macro_rules! gen_checked {
+    (@read $name:ident $ty:ty => $reg_constraint:tt $reg_modifier:tt) => {
+		#[inline]
+		pub fn $name (ptr: *const MaybeUninit<$ty>) -> Option<MaybeUninit<$ty>> {
+			let r: MaybeUninit<_>;
+			let success: usize;
+			unsafe {
+				if crate::detect::__detected::smap() {
+					asm!(
+						"stac",
+						concat!("2: mov {", $reg_modifier, "}, [{}]"),
+						"   mov {}, 1",
+						".pushsection .popcorn.deref_handlers.check",
+						".quad 2b",
+						".popsection",
+						".pushsection .popcorn.deref_handlers.handle",
+						".quad 3f",
+						".popsection",
+						"3: ",
+						"clac",
+						inout($reg_constraint) MaybeUninit::<$ty>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
+						in(reg) ptr,
+						inout(reg) 0usize => success,
+						options(nostack, preserves_flags, readonly)
+					);	
+				} else {
+					asm!(
+						concat!("2: mov {", $reg_modifier, "}, [{}]"),
+						"   mov {}, 1",
+						".pushsection .popcorn.deref_handlers.check",
+						".quad 2b",
+						".popsection",
+						".pushsection .popcorn.deref_handlers.handle",
+						".quad 3f",
+						".popsection",
+						"3: ",
+						inout($reg_constraint) MaybeUninit::<$ty>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
+						in(reg) ptr,
+						inout(reg) 0usize => success,
+						options(nostack, preserves_flags, readonly)
+					);
+				}
+			}
+		
+			match success {
+				0 => None,
+				1 => Some(r),
+				_ => unsafe { unreachable_unchecked() }
+			}
+		}
+    };
+	(@write $name:ident $ty:ty => $reg_constraint:tt $reg_modifier:tt) => {
+		#[inline]
+		pub fn $name(ptr: *mut MaybeUninit<$ty>, val: MaybeUninit<$ty>) -> Option<()> {
+			let success: usize;
+			unsafe {
+				if crate::detect::__detected::smap() {
+					asm!(
+						"stac",
+						".pushsection .popcorn.deref_handlers.check",
+						".quad 2f",
+						".popsection",
+						"2:",
+						concat!("mov [{}], {", $reg_modifier, "}"),
+						"mov {}, 1",
+						".pushsection .popcorn.deref_handlers.handle",
+						".quad 3f",
+						".popsection",
+						"3:",
+						"clac",
+						in(reg) ptr,
+						in($reg_constraint) val,
+						inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
+						options(nostack, preserves_flags, readonly)
+					);
+				} else {
+					asm!(
+						".pushsection .popcorn.deref_handlers.check",
+						".quad 2f",
+						".popsection",
+						"2:",
+						concat!("mov [{}], {", $reg_modifier, "}"),
+						"mov {}, 1",
+						".pushsection .popcorn.deref_handlers.handle",
+						".quad 3f",
+						".popsection",
+						"3:",
+						in(reg) ptr,
+						in($reg_constraint) val,
+						inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
+						options(nostack, preserves_flags, readonly)
+					);
+				}
+			}
+		
+			match success {
+				0 => None,
+				1 => Some(()),
+				_ => unsafe { unreachable_unchecked() }
+			}
+		}	
+	};
 }
 
-#[inline]
-pub fn checked_read_2(ptr: *const MaybeUninit<u16>) -> Option<MaybeUninit<u16>> {
-	let r: MaybeUninit<_>;
-	let success: usize;
-	unsafe {
-		asm!(
-			// todo: "stac",
-			".pushsection .popcorn.deref_handlers.check",
-			".quad 2f",
-			".popsection",
-			"2:",
-			"mov {:x}, [{}]",
-			"mov {}, 1",
-			".pushsection .popcorn.deref_handlers.handle",
-			".quad 3f",
-			".popsection",
-			"3:",
-			// todo: "clac",
-			inout(reg) MaybeUninit::<u16>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-			in(reg) ptr,
-			inout(reg) 0usize => success,
-			options(nostack, preserves_flags, readonly)
-		);
-	}
-
-	match success {
-		0 => None,
-		1 => Some(r),
-		_ => unsafe { unreachable_unchecked() }
-	}
-}
-
-#[inline]
-pub fn checked_read_4(ptr: *const MaybeUninit<u32>) -> Option<MaybeUninit<u32>> {
-	let r: MaybeUninit<_>;
-	let success: usize;
-	unsafe {
-		asm!(
-			// todo: "stac",
-			".pushsection .popcorn.deref_handlers.check",
-			".quad 2f",
-			".popsection",
-			"2:",
-			"mov {:e}, [{}]",
-			"mov {}, 1",
-			".pushsection .popcorn.deref_handlers.handle",
-			".quad 3f",
-			".popsection",
-			"3:",
-			// todo: "clac",
-			inout(reg) MaybeUninit::<u32>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-			in(reg) ptr,
-			inout(reg) 0usize => success,
-			options(nostack, preserves_flags, readonly)
-		);
-	}
-
-	match success {
-		0 => None,
-		1 => Some(r),
-		_ => unsafe { unreachable_unchecked() }
-	}
-}
-
-#[cfg(target_arch = "x86_64")]
-#[inline]
-pub fn checked_read_8(ptr: *const MaybeUninit<u64>) -> Option<MaybeUninit<u64>> {
-	let r: MaybeUninit<_>;
-	let success: usize;
-	unsafe {
-		asm!(
-			// todo: "stac",
-			".pushsection .popcorn.deref_handlers.check",
-			".quad 12",
-			".popsection",
-			"2:",
-			"mov {:r}, [{}]",
-			"mov {}, 1",
-			".pushsection .popcorn.deref_handlers.handle",
-			".quad 3f",
-			".popsection",
-			"3:",
-			// todo: "clac",
-			inout(reg) MaybeUninit::<u64>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-			in(reg) ptr,
-			inout(reg) 0usize => success,
-			options(nostack, preserves_flags, readonly)
-		);
-	}
-
-	match success {
-		0 => None,
-		1 => Some(r),
-		_ => unsafe { unreachable_unchecked() }
-	}
-}
-
-#[inline]
-pub fn checked_write_1(ptr: *mut MaybeUninit<u8>, val: MaybeUninit<u8>) -> Option<()> {
-	let success: usize;
-	unsafe {
-		asm!(
-			// todo: "stac",
-			".pushsection .popcorn.deref_handlers.check",
-			".quad 2f",
-			".popsection",
-			"2:",
-			"mov [{}], {}",
-			"mov {}, 1",
-			".pushsection .popcorn.deref_handlers.handle",
-			".quad 3f",
-			".popsection",
-			"3:",
-			// todo: "clac",
-			in(reg) ptr,
-			in(reg_byte) val,
-			inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-			options(nostack, preserves_flags, readonly)
-		);
-	}
-
-	match success {
-		0 => None,
-		1 => Some(()),
-		_ => unsafe { unreachable_unchecked() }
-	}
-}
-
-#[inline]
-pub fn checked_write_2(ptr: *mut MaybeUninit<u16>, val: MaybeUninit<u16>) -> Option<()> {
-	let success: usize;
-	unsafe {
-		asm!(
-			// todo: "stac",
-			".pushsection .popcorn.deref_handlers.check",
-			".quad 2f",
-			".popsection",
-			"2:",
-			"mov [{}], {:x}",
-			"mov {}, 1",
-			".pushsection .popcorn.deref_handlers.handle",
-			".quad 3f",
-			".popsection",
-			"3:",
-			// todo: "clac",
-			in(reg) ptr,
-			in(reg) val,
-			inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-			options(nostack, preserves_flags, readonly)
-		);
-	}
-
-	match success {
-		0 => None,
-		1 => Some(()),
-		_ => unsafe { unreachable_unchecked() }
-	}
-}
-
-#[inline]
-pub fn checked_write_4(ptr: *mut MaybeUninit<u32>, val: MaybeUninit<u32>) -> Option<()> {
-	let success: usize;
-	unsafe {
-		asm!(
-			// todo: "stac",
-			".pushsection .popcorn.deref_handlers.check",
-			".quad 2f",
-			".popsection",
-			"2:",
-			"mov [{}], {:e}",
-			"mov {}, 1",
-			".pushsection .popcorn.deref_handlers.handle",
-			".quad 3f",
-			".popsection",
-			"3:",
-			// todo: "clac",
-			in(reg) ptr,
-			in(reg) val,
-			inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-			options(nostack, preserves_flags, readonly)
-		);
-	}
-
-	match success {
-		0 => None,
-		1 => Some(()),
-		_ => unsafe { unreachable_unchecked() }
-	}
-}
-
-#[cfg(target_arch = "x86_64")]
-#[inline]
-pub fn checked_write_8(ptr: *mut MaybeUninit<u64>, val: MaybeUninit<u64>) -> Option<()> {
-	let success: usize;
-	unsafe {
-		asm!(
-			// todo: "stac",
-			".pushsection .popcorn.deref_handlers.check",
-			".quad 2f",
-			".popsection",
-			"2:",
-			"mov [{}], {:r}",
-			"mov {}, 1",
-			".pushsection .popcorn.deref_handlers.handle",
-			".quad 3f",
-			".popsection",
-			"3:",
-			// todo: "clac",
-			in(reg) ptr,
-			in(reg) val,
-			inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-			options(nostack, preserves_flags, readonly)
-		);
-	}
-
-	match success {
-		0 => None,
-		1 => Some(()),
-		_ => unsafe { unreachable_unchecked() }
-	}
-}
+gen_checked!(@read checked_read_1 u8 => reg_byte "");
+gen_checked!(@read checked_read_2 u16 => reg ":x");
+gen_checked!(@read checked_read_4 u32 => reg ":e");
+#[cfg(target_arch = "x86_64")] gen_checked!(@read checked_read_8 u64 => reg ":r");
+gen_checked!(@write checked_write_1 u8 => reg_byte "");
+gen_checked!(@write checked_write_2 u16 => reg ":x");
+gen_checked!(@write checked_write_4 u32 => reg ":e");
+#[cfg(target_arch = "x86_64")] gen_checked!(@write checked_write_8 u64 => reg ":r");
 
 #[inline]
 pub fn checked_memcpy(src: *const MaybeUninit<u8>, dest: *mut MaybeUninit<u8>, count: usize) -> Option<()> {
 	let success: usize;
 	unsafe {
-		asm!(
-			// todo: "stac",
+		if crate::detect::__detected::smap() {
+			asm!(
+				"stac",
+				".pushsection .popcorn.deref_handlers.check",
+				".quad 2f",
+				".popsection",
+				"2:",
+				"rep movsb [rdi], [rsi]",
+				"mov {}, 1",
+				".pushsection .popcorn.deref_handlers.handle",
+				".quad 3f",
+				".popsection",
+				"3:",
+				"clac",
+				inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
+				in("rdi") dest,
+				in("rsi") src,
+				inout("rcx") count => _,
+				options(nostack)
+			);
+		} else {
+			asm!(
+				".pushsection .popcorn.deref_handlers.check",
+				".quad 2f",
+				".popsection",
+				"2:",
+				"rep movsb [rdi], [rsi]",
+				"mov {}, 1",
+				".pushsection .popcorn.deref_handlers.handle",
+				".quad 3f",
+				".popsection",
+				"3:",
+				inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
+				in("rdi") dest,
+				in("rsi") src,
+				inout("rcx") count => _,
+				options(nostack)
+			);
+		}
+	}
+
+	match success {
+		0 => None,
+		1 => Some(()),
+		_ => unsafe { unreachable_unchecked() }
+	}
+}
+
+
+#[inline]
+pub fn checked_fill(val: MaybeUninit<u8>, dest: *mut MaybeUninit<u8>, count: usize) -> Option<()> {
+	let success: usize;
+	unsafe {
+		if crate::detect::__detected::smap() {
+			asm!(
+			"stac",
 			".pushsection .popcorn.deref_handlers.check",
 			".quad 2f",
 			".popsection",
 			"2:",
-			"rep movsb [rdi], [rsi]",
+			"rep stosb [rdi]",
 			"mov {}, 1",
 			".pushsection .popcorn.deref_handlers.handle",
 			".quad 3f",
 			".popsection",
 			"3:",
-			// todo: "clac",
+			"clac",
 			inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
 			in("rdi") dest,
-			in("rsi") src,
+			in("al") val,
 			inout("rcx") count => _,
 			options(nostack)
-		);
+			);
+		} else {
+			asm!(
+			".pushsection .popcorn.deref_handlers.check",
+			".quad 2f",
+			".popsection",
+			"2:",
+			"rep stosb [rdi]",
+			"mov {}, 1",
+			".pushsection .popcorn.deref_handlers.handle",
+			".quad 3f",
+			".popsection",
+			"3:",
+			inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
+			in("rdi") dest,
+			in("al") val,
+			inout("rcx") count => _,
+			options(nostack)
+			);
+		}
 	}
 
 	match success {

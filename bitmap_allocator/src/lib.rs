@@ -1,33 +1,32 @@
+#![feature(maybe_uninit_slice)]
+#![feature(step_trait)]
+#![feature(unsigned_nonzero_div_ceil)]
+#![feature(assert_matches)]
 #![cfg_attr(not(test), no_std)]
 
-#![feature(kernel_allocation_new)]
-#![feature(kernel_frame_zero)]
-#![feature(kernel_physical_allocator_location)]
-#![feature(kernel_memory_addr_access)]
-extern crate alloc;
+#![deny(unsafe_code)]
+#![deny(warnings)]
 
-use alloc::boxed::Box;
-use alloc::vec;
-use alloc::vec::Vec;
-use core::mem;
+use core::assert_matches::debug_assert_matches;
 use core::num::NonZero;
 use core::ops::Range;
-use kernel_api::memory::{Frame, AllocError};
-use kernel_api::memory::allocator::{AllocationMeta, PhysicalAllocator, Config, SizedBackingAllocator, SpecificLocation};
+use kernel_api::memory::{RawFrame, Frames, PAGE_SIZE};
 use kernel_api::sync::Spinlock;
 use log::{debug, trace};
+use kernel_api::allocator::{highmem, Pmm, AllocError};
+use kernel_api::dbg;
 
-const BITS_PER_BITMAP_UNIT: usize = mem::size_of::<usize>() * 8;
+const BITS_PER_BITMAP_UNIT: usize = size_of::<usize>() * 8;
 
 macro_rules! alloc_err {
     ($reason:literal) => {
         debug!(concat!("BitmapAllocator: ", $reason));
-        return Err(AllocError.into());
+        return Err(AllocError::pmm().into());
     };
 
     ($reason:literal, $($arg:tt)+) => {
         debug!(concat!("BitmapAllocator: ", $reason), $($arg)+);
-        return Err(AllocError.into());
+        return Err(AllocError::pmm().into());
     };
 }
 
@@ -41,46 +40,53 @@ enum FrameState {
 struct OutOfRangeError;
 
 struct BitmapAllocator {
-    first_frame: Frame,
-    bitmap: Box<[usize]>
+    first_frame: RawFrame,
+    bitmap: Frames<true, usize>,
 }
 
 impl BitmapAllocator {
-    fn last_frame(&self) -> Frame {
-        self.first_frame + (self.bitmap.len() * BITS_PER_BITMAP_UNIT)
+    fn last_frame(&self) -> RawFrame {
+        self.first_frame + self.bitmap.get().len() * BITS_PER_BITMAP_UNIT
     }
 
-    fn set_frame(&mut self, frame: Frame, state: FrameState) -> Result<(), OutOfRangeError> {
+    fn set_frame(&mut self, frame: RawFrame, state: FrameState) -> Result<(), OutOfRangeError> {
         if (frame < self.first_frame) || (frame >= self.last_frame()) { return Err(OutOfRangeError); }
 
         let (bitmap_index, bit_index) = self.frame_to_indices(frame);
+
+	    debug_assert_ne!(self.get_frame(frame)?, state);
+
         match state {
-            FrameState::Allocated => self.bitmap[bitmap_index] &= !(1 << bit_index),
-            FrameState::Free => self.bitmap[bitmap_index] |= 1 << bit_index,
+            FrameState::Allocated => self.bitmap.get_mut()[bitmap_index] &= !(1 << bit_index),
+            FrameState::Free => self.bitmap.get_mut()[bitmap_index] |= 1 << bit_index,
         }
 
         Ok(())
     }
 
-    fn get_frame(&self, frame: Frame) -> Result<FrameState, OutOfRangeError> {
+    fn get_frame(&self, frame: RawFrame) -> Result<FrameState, OutOfRangeError> {
         if (frame < self.first_frame) || (frame >= self.last_frame()) { return Err(OutOfRangeError); }
 
         let (bitmap_index, bit_index) = self.frame_to_indices(frame);
-        if (self.bitmap[bitmap_index] & (1 << bit_index)) == 0 { Ok(FrameState::Allocated) }
+        if (self.bitmap.get()[bitmap_index] & (1 << bit_index)) == 0 { Ok(FrameState::Allocated) }
         else { Ok(FrameState::Free) }
     }
 
-    fn new(first_frame: Frame, frame_count: usize) -> Self {
-        let bitmap_length = frame_count.div_ceil(BITS_PER_BITMAP_UNIT);
-        let bitmap = Vec::into_boxed_slice(vec![0; bitmap_length]);
+    fn new(first_frame: RawFrame, frame_count: NonZero<usize>) -> Result<Self, AllocError> {
+        let bitmap_length = frame_count.div_ceil(
+            const { NonZero::new(8 * PAGE_SIZE).unwrap() }
+        );
+	    let _ = dbg!(first_frame, frame_count, bitmap_length);
+        let bitmap = highmem().allocate(bitmap_length)?;
+        let bitmap = bitmap.cast::<usize>().into_filed(0);
 
-        Self {
+        Ok(Self {
             first_frame,
             bitmap
-        }
+        })
     }
 
-    fn frame_to_indices(&self, frame: Frame) -> (usize, usize) {
+    fn frame_to_indices(&self, frame: RawFrame) -> (usize, usize) {
         assert!(frame >= self.first_frame);
 
         let number_in_bitmap = frame - self.first_frame;
@@ -90,21 +96,27 @@ impl BitmapAllocator {
         (bitmap_index, bit_index)
     }
 
-    fn allocate_one(&mut self) -> Result<Frame, AllocError> {
-        for (i, entry) in self.bitmap.iter_mut().enumerate() {
-            let first_set_bit = usize::try_from(entry.trailing_zeros()).unwrap();
-            if first_set_bit != BITS_PER_BITMAP_UNIT {
-                *entry &= !(1usize << first_set_bit);
-                let bits_to_start = i * BITS_PER_BITMAP_UNIT;
-                let start = self.first_frame + bits_to_start + first_set_bit;
-                return Ok(start);
-            }
-        }
+    fn allocate_one(&mut self) -> Result<RawFrame, AllocError> {
+	    let mut iter = self.bitmap.get_mut().iter_mut().enumerate();
+	    let (i, first_set_bit) = loop {
+		    let Some((i, entry)) = iter.next() else { alloc_err!("No free memory"); };
 
-        alloc_err!("No free memory");
+		    let first_set_bit = entry.trailing_zeros() as usize;
+		    if first_set_bit != BITS_PER_BITMAP_UNIT {
+			    break (i, first_set_bit);
+		    }
+	    };
+
+	    let bits_to_start = i * BITS_PER_BITMAP_UNIT;
+	    let start = self.first_frame + bits_to_start + first_set_bit;
+	    debug_assert_matches!(self.get_frame(start), Ok(FrameState::Free));
+	    self.bitmap.get_mut()[i] &= !(1usize << first_set_bit);
+	    debug_assert_matches!(self.get_frame(start), Ok(FrameState::Allocated));
+	    Ok(start)
     }
 
-    fn allocate_multiple_fast(&mut self, frame_count: usize) -> Result<Frame, AllocError> {
+    #[expect(unused)]
+    fn allocate_multiple_fast(&mut self, frame_count: usize) -> Result<RawFrame, AllocError> {
         assert!(frame_count > 1);
 
         // Cannot allocate bigger than number of bits in usize since can't check across boundaries
@@ -114,7 +126,7 @@ impl BitmapAllocator {
         let mask = if frame_count == BITS_PER_BITMAP_UNIT { usize::MAX }
                           else { (1 << frame_count) - 1 };
 
-        for (i, entry) in self.bitmap.iter_mut().enumerate() {
+        for (i, entry) in self.bitmap.get_mut().iter_mut().enumerate() {
             // locate the first free frame so we don't waste time checking unnecessary bits
             let first_set_bit = usize::try_from(entry.trailing_zeros()).unwrap();
 
@@ -150,8 +162,8 @@ impl BitmapAllocator {
     }
 
     #[cold]
-    fn allocate_multiple_slow(&mut self, frame_count: usize) -> Result<Frame, AllocError> {
-        assert!(frame_count > 1);
+    fn allocate_multiple_slow(&mut self, frame_count: NonZero<usize>) -> Result<RawFrame, AllocError> {
+        assert!(frame_count.get() > 1);
 
         // TODO: Can this be sped up? I hope so
 
@@ -159,7 +171,7 @@ impl BitmapAllocator {
         let mut contiguous_frames_start = Option::<(usize, usize)>::None;
         let mut found = false;
 
-        'outer: for (word_idx, entry) in self.bitmap.iter_mut().enumerate() {
+        'outer: for (word_idx, entry) in self.bitmap.get_mut().iter_mut().enumerate() {
             for bit_idx in 0..BITS_PER_BITMAP_UNIT {
                 let free = ((*entry >> bit_idx) & 1) == 1;
                 if free {
@@ -167,7 +179,7 @@ impl BitmapAllocator {
                         contiguous_frames_start = Some((word_idx, bit_idx));
                     }
                     found_contiguous_frames += 1;
-                    if found_contiguous_frames == frame_count {
+                    if found_contiguous_frames == frame_count.get() {
                         found = true;
                         break 'outer;
                     }
@@ -184,7 +196,8 @@ impl BitmapAllocator {
             let contiguous_frames_start = contiguous_frames_start.expect("unreachable");
             let start = self.first_frame + (contiguous_frames_start.0 * BITS_PER_BITMAP_UNIT) + contiguous_frames_start.1;
 
-            for frame in start..(start + frame_count) {
+            for frame in start..(start + frame_count.get()) {
+	            debug_assert_matches!(self.get_frame(frame), Ok(FrameState::Free));
                 self.set_frame(frame, FrameState::Allocated)
                         .expect("Cannot have allocated an out of range frame");
             }
@@ -196,82 +209,90 @@ impl BitmapAllocator {
 
 pub struct Wrapped(Spinlock<BitmapAllocator>);
 
-unsafe impl PhysicalAllocator for Wrapped {
-    fn allocate_contiguous(&self, frame_count: usize) -> Result<Frame, AllocError> {
-        if frame_count == 0 { return Ok(Frame::zero()); }
-
+#[allow(unsafe_code)]
+unsafe impl Pmm<true> for Wrapped {
+    fn allocate_raw(&self, frame_count: NonZero<usize>) -> Result<RawFrame, AllocError> {
         let mut guard = self.0.lock();
 
-        let alloc = if frame_count == 1 { guard.allocate_one()? }
+        let alloc = if frame_count.get() == 1 { guard.allocate_one()? }
         else {
-            guard.allocate_multiple_fast(frame_count)
-                    .or_else(|_| guard.allocate_multiple_slow(frame_count))?
+            guard.allocate_multiple_slow(frame_count)?
+            /*guard.allocate_multiple_fast(frame_count)
+                    .or_else(|_| guard.allocate_multiple_slow(frame_count))?*/
         };
 
-        trace!("=== bmp a {:#018x} -> {:#018x}", alloc.start().addr, (alloc + frame_count).start().addr);
+        trace!("=== bmp a {:#018x} -> {:#018x}", alloc, alloc + frame_count.get());
 
         Ok(alloc)
     }
 
-    unsafe fn deallocate_contiguous(&self, base: Frame, frame_count: NonZero<usize>) {
+	fn allocate_raw_at(&self, at: RawFrame, count: NonZero<usize>) -> Result<RawFrame, AllocError> {
         let mut guard = self.0.lock();
 
-        for i in 0..frame_count.get() {
-            let frame = base + i;
-            guard.set_frame(frame, FrameState::Free)
-                    .expect("Attempted to free frame that wasn't allocated by this allocator");
-        }
+        let end = at + count.get();
+        let free = (at..end).all(|f| match guard.get_frame(f) {
+            Ok(state) => state == FrameState::Free,
+            Err(_) => false,
+        });
+        if !free { alloc_err!("Requested memory at {:x?} already allocated", at); }
+        (at..end).for_each(|f| guard.set_frame(f, FrameState::Allocated).expect("Must be in range"));
 
-        trace!("=== bmp d {:#018x} -> {:#018x}", base.start().addr, (base + frame_count.get()).start().addr);
+        trace!("=== bmp a {:#018x} -> {:#018x}", at, at + count.get());
+
+        Ok(at)
     }
 
-    fn push(&mut self, allocation: AllocationMeta) {
+    /*fn push(&mut self, allocation: AllocationMeta) {
         let allocator = self.0.get_mut();
 
         for frame in allocation.region {
             let _ = allocator.set_frame(frame, FrameState::Allocated);
             //trace!("=== bmp a {:#018x} -> {:#018x}", frame.start().addr, (frame + 1usize).start().addr);
         }
-    }
+    }*/
 
-    fn allocate_at(&self, frame_count: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
-        if frame_count == 0 { return Ok(Frame::zero()); }
+	unsafe fn deallocate_raw(&self, base: RawFrame, frame_count: NonZero<usize>) {
+	    let mut guard = self.0.lock();
 
-        let mut guard = self.0.lock();
+	    for i in 0..frame_count.get() {
+	        let frame = base + i;
+	        guard.set_frame(frame, FrameState::Free)
+	                .expect("Attempted to free frame that wasn't allocated by this allocator");
+	    }
 
-        match location {
-            SpecificLocation::Aligned(_) => todo!(),
-            SpecificLocation::At(addr) => {
-                let end = addr + frame_count;
-                let free = (addr..end).all(|f| match guard.get_frame(f) {
-                    Ok(state) => state == FrameState::Free,
-                    Err(_) => false,
-                });
-                if !free { alloc_err!("Requested memory at {:x?} already allocated", addr); }
-                (addr..end).for_each(|f| guard.set_frame(f, FrameState::Allocated).expect("Must be in range"));
-
-                trace!("=== bmp a {:#018x} -> {:#018x}", addr.start().addr, (addr + frame_count).start().addr);
-
-                Ok(addr)
-            }
-            SpecificLocation::Below { .. } => todo!(),
-        }
-    }
+	    trace!("=== bmp d {:#018x} -> {:#018x}", base, base + frame_count.get());
+	}
 }
 
-unsafe impl SizedBackingAllocator for Wrapped {
-    fn new(config: Config) -> &'static mut dyn PhysicalAllocator where Self: Sized {
-        let Range { start, end } = config.allocation_range;
-        let mut allocator = BitmapAllocator::new(start, end - start);
+impl Wrapped {
+	#[allow(unsafe_code)]
+    pub unsafe fn new(allocation_range: Range<RawFrame>, regions: impl Iterator<Item = Range<RawFrame>>) -> Result<&'static Self, AllocError> {
+        let Range { start, end } = dbg!(allocation_range);
+        let mut allocator = BitmapAllocator::new(start,  NonZero::new(end - start).unwrap())?;
+		let _ = dbg!(allocator.first_frame, allocator.last_frame());
 
-        for free_region in config.regions {
+        for free_region in regions {
             for frame in free_region {
-                allocator.set_frame(frame, FrameState::Free)
-                        .unwrap_or_else(|_| panic!("Free frame outside of bitmap"));
+	            if !allocator.bitmap.as_frame_range().contains(&frame) {
+		            allocator.set_frame(frame, FrameState::Free)
+		                     .unwrap_or_else(|_| panic!("Free frame outside of bitmap {frame:x?}"));
+	            } else {
+		            debug!("frame {frame:x?} in use");
+	            }
             }
         }
 
-        Box::leak(Box::new(Wrapped(Spinlock::new(allocator))))
+		const {
+			assert!(size_of::<Wrapped>() <= PAGE_SIZE);
+			assert!(align_of::<Wrapped>() <= PAGE_SIZE);
+		};
+		let allocator_frame = allocator.allocate_one()?;
+		trace!("=== bmp a {:#018x} -> {:#018x}", allocator_frame, allocator_frame + 1usize);
+		let allocator_ptr = allocator_frame.to_virtual().as_ptr().cast::<Wrapped>();
+		unsafe {
+			allocator_ptr.write(Wrapped(Spinlock::new(allocator)));
+			Ok(&*allocator_ptr)
+		}
     }
 }
 

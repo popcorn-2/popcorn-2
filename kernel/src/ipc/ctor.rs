@@ -1,7 +1,6 @@
 use alloc::boxed::Box;
 use hashbrown::HashMap;
 use log::debug;
-use kernel_api::ptr::{slice_from_raw_parts, User};
 use crate::hashmap_new;
 use crate::ipc::{Error, protocol};
 use crate::ipc::server::Server;
@@ -21,12 +20,11 @@ impl<U: ?Sized> ProtocolVisitor<U> {
 
 pub struct CtorArgs<'a> {
 	uids: &'a [u128],
-	args: User<*const u8>,
 }
 
 impl<'a> CtorArgs<'a> {
 	pub fn process_with<S: Server>(&mut self, s: &S, context: &mut S::CtorContext) -> Result<(), Error> {
-		let table = s.dispatch_table();
+		let _table = s.dispatch_table();
 		for &uid in self.uids {
 			// todo: pull ctor layout out of protocol meta
 			// let deserialize = table.ctor_deserialize(uid)?;
@@ -38,12 +36,11 @@ impl<'a> CtorArgs<'a> {
 		Ok(())
 	}
 	
-	pub fn new(uids: &'a [u128], args: User<*const u8>) -> Self {
-		Self { uids, args }
+	pub fn new(uids: &'a [u128]) -> Self {
+		Self { uids }
 	}
 	
 	pub fn uids(&self) -> &[u128] { self.uids }
-	pub fn args(&self) -> User<*const u8> { self.args }
 }
 
 pub trait CtorContext where Self: 'static + Default {

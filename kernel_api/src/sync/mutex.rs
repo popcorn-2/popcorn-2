@@ -1,23 +1,26 @@
-use core::cell::Cell;
 use core::convert::Into;
 use core::mem::ManuallyDrop;
-use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use core::panic::Location;
+use core::sync::atomic::{AtomicPtr, AtomicU8, AtomicUsize, Ordering};
+use log::warn;
 
 /// A mutual exclusion primitive useful for protecting shared data
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub type Spinlock<T: ?Sized> = lock_api::Mutex<RawSpinlock, T>;
 
-/// An RAII implementation of a “scoped lock” of a mutex. When this structure is dropped (falls out of scope), the lock will be unlocked.
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
+/// An RAII implementation of a “scoped lock” of a mutex.
+/// 
+/// When this structure is dropped (falls out of scope), the lock will be unlocked.
 pub type SpinlockGuard<'a, T: ?Sized> = lock_api::MutexGuard<'a, RawSpinlock, T>;
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
+pub type MappedSpinlockGuard<'a, T: ?Sized> = lock_api::MappedMutexGuard<'a, RawSpinlock, T>;
+
+/// Extension functions to [`SpinlockGuard`]
 pub trait SpinlockGuardExt {
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
+    /// Unlock the spinlock without enabling interrupts, regardless of whether interrupts were enabled
+    /// before the spinlock was locked
     fn unlock_no_interrupts(this: Self);
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl<T> SpinlockGuardExt for SpinlockGuard<'_, T> {
     fn unlock_no_interrupts(this: Self) {
         let this = ManuallyDrop::new(this);
@@ -51,7 +54,6 @@ impl State {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl From<State> for u8 {
     fn from(value: State) -> Self {
         value.const_into_u8()
@@ -66,16 +68,14 @@ impl TryFrom<u8> for State {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub struct RawSpinlock {
     state: AtomicU8,
-    irq_state: AtomicUsize
+    irq_state: AtomicUsize,
+    location: AtomicPtr<Location<'static>>,
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 unsafe impl Send for RawSpinlock {}
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 unsafe impl Sync for RawSpinlock {}
 
 impl RawSpinlock {
@@ -88,20 +88,27 @@ impl RawSpinlock {
             State::Locked => {},
         }
     }
+    
+    fn lock_location(&self) -> Option<&'static Location<'static>> {
+        let location = self.location.load(Ordering::Relaxed);
+        unsafe { location.as_ref::<'static>() }
+    }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 unsafe impl lock_api::RawMutex for RawSpinlock {
     const INIT: Self = Self {
         state: AtomicU8::new(State::Unlocked.const_into_u8()),
         irq_state: AtomicUsize::new(0),
+        location: AtomicPtr::new(core::ptr::null_mut()),
     };
 
     type GuardMarker = lock_api::GuardNoSend; // Dropping guard on other core would cause interrupts to be enabled in the wrong place
 
+    #[track_caller]
     fn lock(&self) {
-        let irq_state = unsafe { crate::bridge::hal::__popcorn_disable_irq() };
+        let irq_state = crate::bridge::irq::disable();
 
+        let mut p = true;
         while let Err(_) = self.state.compare_exchange_weak(
             State::Unlocked.into(),
             State::Locked.into(),
@@ -109,13 +116,18 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
             Ordering::Relaxed
         ) {
             core::hint::spin_loop();
+            if p {
+                p = false;
+                warn!("locked at {:?}", self.lock_location());
+            }
         }
 
         self.irq_state.store(irq_state, Ordering::Relaxed);
+        self.location.store(Location::caller() as *const _ as *mut _, Ordering::Relaxed);
     }
 
     fn try_lock(&self) -> bool {
-        let irq_state = unsafe { crate::bridge::hal::__popcorn_disable_irq() };
+        let irq_state = crate::bridge::irq::disable();
         let success = self.state.compare_exchange(
             State::Unlocked.into(),
             State::Locked.into(),
@@ -123,7 +135,7 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
             Ordering::Relaxed
         ).is_ok();
 
-        if !success { unsafe { crate::bridge::hal::__popcorn_set_irq(irq_state) } }
+        if !success { crate::bridge::irq::set(irq_state) }
         else { self.irq_state.store(irq_state, Ordering::Relaxed) }
 
         success
@@ -136,49 +148,7 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
 
         match old_state {
             State::Unlocked => unreachable!("Mutex was unlocked while unlocked"),
-            State::Locked => unsafe { crate::bridge::hal::__popcorn_set_irq(old_irq_state) },
+            State::Locked => crate::bridge::irq::set(old_irq_state),
         }
     }
 }
-
-/*
-fn enable_irq() {
-    #[cfg(target_arch = "x86_64")]
-    unsafe { asm!("sti", options(preserves_flags, nomem)); }
-
-    // FIXME: these flags should be the same as when interrupts were disabled
-    #[cfg(target_arch = "aarch64")]
-    unsafe { asm!("msr DAIFSet, #0b1111"); }
-}
-
-/// Returns whether interrupts were enabled before disablement
-fn disable_irq() -> bool {
-    #[cfg(target_arch = "x86_64")]
-    fn disable() -> bool {
-        let flags: u64;
-        unsafe {
-            asm!("
-			pushf
-			pop {}
-			cli
-		", out(reg) flags, options(preserves_flags, nomem))
-        }
-
-        (flags & 0x0200) != 0
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    fn disable() -> bool {
-        let daif: u64;
-        unsafe {
-            asm!("
-			mrs {}, DAIF
-			msr DAIFClr, #0b1111
-		", out(reg) daif)
-        }
-
-        (daif & 0b1111) != 0
-    }
-
-    disable()
-}*/

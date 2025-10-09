@@ -6,26 +6,20 @@ pub mod acpi;
 pub mod timing;
 pub mod interrupts_v2;
 
-#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::Debug;
-pub(crate) use macros::Hal;
+use core::mem::ManuallyDrop;
 use paging2::{KTable, TTable};
-use crate::threading::{ThreadControlBlock, ThreadPointer, WakeReason, PointerView};
+use crate::threading::ThreadControlBlock;
 use crate::hal::interrupts_v2::Vector;
 use kernel_api::memory::VirtualAddress;
+use kernel_api::address_space::Kernel;
+use kernel_api::mapping::{Mapping, Stack};
 
-pub enum Result { Success, Failure }
+#[expect(unused)] pub enum Result { Success, Failure }
 
 pub trait SaveStateTr: Debug + Default {
-	fn new(tcb: &mut ThreadControlBlock, init: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, args: usize) -> Self;
-	/// # Safety
-	/// 
-	/// The thread must never have been run
-	unsafe fn set_entry(&mut self, main: extern "C" fn(usize) -> !, args: usize);
+	fn new(tcb: &mut Mapping<Stack, Kernel>, main: extern "C" fn(usize) -> !, args: usize) -> core::result::Result<Self, AllocError>;
 }
-
-#[repr(C)]
-pub struct ContextSwitchPreserve(pub ThreadPointer, pub Option<WakeReason>);
 
 pub unsafe trait Hal {
 	type SerialOut: FormatWriter;
@@ -44,9 +38,9 @@ pub unsafe trait Hal {
 	unsafe fn load_tls(ptr: *mut u8);
 	fn load_user_tls(ptr: *mut u8);
 	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
-	unsafe extern "C" fn switch_thread(from: &mut PointerView, to: &mut PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve;
+	unsafe extern "C" fn switch_thread<'a>(from: &'a mut ManuallyDrop<ThreadControlBlock>, to: &ThreadControlBlock) -> &'a mut ManuallyDrop<ThreadControlBlock>;
 
-	fn send_ipi(target: IpiTarget) -> ::core::result::Result<(), ()>;
+	fn send_ipi(target: IpiTarget) -> core::result::Result<(), ()>;
 	fn send_local_eoi(vector: Vector);
 	fn wait_for_interrupt();
 	fn first_thread_init(tcb: &ThreadControlBlock);
@@ -68,10 +62,6 @@ pub trait FormatWriter {
 	fn read() -> u8;
 }
 
-pub trait InterruptTable {
-	unsafe fn set_syscall_handler(handler: unsafe fn());
-}
-
 mod hal_impl {
 	use super::*;
 
@@ -80,30 +70,48 @@ mod hal_impl {
 	pub type TTableTy = <arch::Arch as Hal>::TTableTy;
 	pub type SaveState = <arch::Arch as Hal>::SaveState;
 
-	#[inline] pub fn breakpoint() { <arch::Arch as Hal>::breakpoint() }
-	#[inline] pub fn exit(result: Result) -> ! { <arch::Arch as Hal>::exit(result) }
-	#[inline] pub fn debug_output(data: &[u8]) -> core::result::Result<(), ()> { <arch::Arch as Hal>::debug_output(data) }
+	#[inline] #[expect(unused)] pub fn breakpoint() { <arch::Arch as Hal>::breakpoint() }
+	#[inline] #[expect(unused)] pub fn exit(result: Result) -> ! { <arch::Arch as Hal>::exit(result) }
+	#[inline] #[expect(unused)] pub fn debug_output(data: &[u8]) -> core::result::Result<(), ()> { <arch::Arch as Hal>::debug_output(data) }
 	#[inline] pub fn early_init() { <arch::Arch as Hal>::early_init() }
 	#[inline] pub fn post_acpi_init() { <arch::Arch as Hal>::post_acpi_init() }
-	#[inline] #[export_name = "__popcorn_enable_irq"] pub fn enable_interrupts() { <arch::Arch as Hal>::enable_interrupts() }
-	#[inline] #[export_name = "__popcorn_disable_irq"] pub fn get_and_disable_interrupts() -> usize { <arch::Arch as Hal>::get_and_disable_interrupts() }
-	#[inline] #[export_name = "__popcorn_set_irq"] pub fn set_interrupts(old_state: usize) { <arch::Arch as Hal>::set_interrupts(old_state) }
-	#[inline] pub unsafe fn load_tls(ptr: *mut u8) { <arch::Arch as Hal>::load_tls(ptr) }
+	#[unsafe(export_name = "__popcorn_enable_irq")] pub fn enable_interrupts() { <arch::Arch as Hal>::enable_interrupts() }
+	#[unsafe(export_name = "__popcorn_disable_irq")] pub fn get_and_disable_interrupts() -> usize { <arch::Arch as Hal>::get_and_disable_interrupts() }
+	#[unsafe(export_name = "__popcorn_set_irq")] pub fn set_interrupts(old_state: usize) { <arch::Arch as Hal>::set_interrupts(old_state) }
+	#[inline] pub unsafe fn load_tls(ptr: *mut u8) { unsafe { <arch::Arch as Hal>::load_tls(ptr) } }
 	#[inline] pub fn load_user_tls(ptr: *mut u8) { <arch::Arch as Hal>::load_user_tls(ptr) }
-	#[inline] pub unsafe fn construct_tables() -> (KTableTy, TTableTy) { <arch::Arch as Hal>::construct_tables() }
-	#[inline] pub unsafe extern "C" fn switch_thread(from: &mut PointerView, to: &mut PointerView, preserve: ContextSwitchPreserve) -> ContextSwitchPreserve { <arch::Arch as Hal>::switch_thread(from, to, preserve) }
+	#[inline] pub unsafe fn construct_tables() -> (KTableTy, TTableTy) { unsafe { <arch::Arch as Hal>::construct_tables() } }
+	#[inline] pub unsafe extern "C" fn switch_thread<'a>(from: &'a mut ManuallyDrop<ThreadControlBlock>, to: &ThreadControlBlock) -> &'a mut ManuallyDrop<ThreadControlBlock> { unsafe { <arch::Arch as Hal>::switch_thread(from, to) } }
 
-	#[inline] pub fn send_ipi(target: IpiTarget) -> ::core::result::Result<(), ()> { <arch::Arch as Hal>::send_ipi(target) }
+	#[inline] pub fn send_ipi(target: IpiTarget) -> core::result::Result<(), ()> { <arch::Arch as Hal>::send_ipi(target) }
 
 	#[inline] pub fn send_local_eoi(vector: Vector) { <arch::Arch as Hal>::send_local_eoi(vector) }
 	#[inline] pub fn wait_for_interrupt() { <arch::Arch as Hal>::wait_for_interrupt() }
 	#[inline] pub fn first_thread_init(tcb: &ThreadControlBlock) { <arch::Arch as Hal>::first_thread_init(tcb) }
-	#[inline] pub fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! { <arch::Arch as Hal>::switch_to_userspace_at(addr, stack_top) }
+	#[inline] pub fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! {
+		#[cfg(feature = "kasan")] {
+			let guard = percpu_v2!(current_thread).read();
+			let thread_stack = &guard
+					.as_ref()
+					.expect("must be on thread to switch to userspace")
+					.kernel_stack;
+			kernel_api::memory::asan::asan_free_range(
+				*thread_stack.virtual_valid_start(),
+				thread_stack.byte_len(),
+			);
+			unsafe {
+				let x = 0xffffcfffefe610b0 as *const u8;
+				debug!("{:#x}", *x);
+			}
+		}
+		<arch::Arch as Hal>::switch_to_userspace_at(addr, stack_top)
+	}
 
 	pub const IPI_VECTOR: Vector = <arch::Arch as Hal>::IPI_VECTOR;
 	pub const SPURIOUS_VECTOR: Vector = <arch::Arch as Hal>::SPURIOUS_VECTOR;
 }
 pub use hal_impl::*;
+use kernel_api::allocator::AllocError;
 
 #[macro_export]
 macro_rules! sprintln {

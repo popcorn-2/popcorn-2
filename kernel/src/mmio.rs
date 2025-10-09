@@ -1,6 +1,4 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{Formatter, Pointer};
-use crate::projection::{Field, Project, ProjectSuper};
 
 // Based on `mmio::VolBox`
 #[repr(transparent)]
@@ -38,17 +36,5 @@ impl<T: Copy> MmioCell<T> {
 
 	pub fn write(&mut self, val: T) {
 		unsafe { self.ptr.write_volatile(val) }
-	}
-}
-
-impl<T> ProjectSuper<T> for MmioCell<T> {
-	type Projected<'a, A: 'a> = MmioCell<A>;
-}
-
-impl<T> Project<T> for MmioCell<T> {
-	fn project<'a, F: Field<Base = T>>(self) -> MmioCell<F::Inner> where Self: 'a {
-		unsafe {
-			MmioCell::new(self.ptr.byte_add(F::OFFSET).cast())
-		}
 	}
 }

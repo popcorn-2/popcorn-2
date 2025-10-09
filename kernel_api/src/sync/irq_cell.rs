@@ -1,5 +1,3 @@
-#![unstable(feature = "kernel_irq_cell", issue = "none")]
-
 use core::cell::{Cell, UnsafeCell};
 use core::fmt::{Debug, Formatter};
 use core::marker::{PhantomData, Unsize};
@@ -22,7 +20,7 @@ impl<T: ?Sized> IrqCell<T> {
 		// Unsafety: is this actually needed?
 		if self.state.get().is_some() { panic!("IrqCell cannot be borrowed multiple times"); }
 
-		self.state.set(Some(unsafe { crate::bridge::hal::__popcorn_disable_irq() }));
+		self.state.set(Some(crate::bridge::irq::disable()));
 		IrqGuard { cell: self, _phantom_not_send: PhantomData }
 	}
 
@@ -35,7 +33,7 @@ impl<T: ?Sized> IrqCell<T> {
 
 	pub unsafe fn unlock(&self) {
 		let old_state = self.state.take();
-		unsafe { crate::bridge::hal::__popcorn_set_irq(old_state.unwrap()); }
+		crate::bridge::irq::set(old_state.unwrap());
 	}
 }
 

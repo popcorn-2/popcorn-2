@@ -1,13 +1,12 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::arch::{asm, global_asm, naked_asm};
-use core::num::NonZero;
 use core::ops::{Index, IndexMut};
+use core::panic::AssertUnwindSafe;
 
 pub mod handler {
 	use bitflags::bitflags;
 	bitflags! {
 		#[derive(Debug)]
-		pub struct PageFaultError: u32 {
+		pub struct PageFaultError: u64 {
 			const PAGE_PRESENT = 1<<0;
 			const ATTEMPTED_WRITE = 1<<1;
 			const USER_FAIL = 1<<2;
@@ -21,21 +20,12 @@ pub mod handler {
 
 	#[derive(Debug)]
 	#[repr(u32)]
+	#[expect(unused)]
 	pub enum ControlFlowError {
 		NearReturn = 1,
 		FarRet = 2,
 		InvalidShadowStackRestore = 3,
 		InvalidShadowStackBusy = 4,
-	}
-
-	#[derive(Debug)]
-	#[repr(C)]
-	pub struct InterruptStackFrame {
-		pub instruction_pointer: u64,
-		pub code_segment: u64,
-		pub cpu_flags: u64,
-		pub stack_pointer: u64,
-		pub stack_segment: u64,
 	}
 }
 
@@ -46,7 +36,6 @@ pub mod entry {
 
 	pub enum Type {
 		InterruptGate,
-		InterruptTrap
 	}
 
 	#[derive(Clone, Copy)]
@@ -56,7 +45,6 @@ pub mod entry {
 	impl Type {
 		const fn const_u8(self) -> u8 {
 			match self {
-				Type::InterruptTrap => 0xF,
 				Type::InterruptGate => 0xE
 			}
 		}
@@ -102,7 +90,7 @@ pub mod entry {
 	}
 
 	impl Entry {
-		pub fn new_ptr(f: unsafe extern "C-unwind" fn(), ist_idx: Option<NonZero<u8>>, dpl: u8, ty: Type) -> Self {
+		pub fn new_ptr(f: unsafe extern "C" fn(), ist_idx: Option<NonZero<u8>>, dpl: u8, ty: Type) -> Self {
 			if let Some(ist) = ist_idx { assert!(ist.get() <= 7, "Only 7 IST stacks"); }
 			let addr = f as usize;
 			Self {
@@ -131,10 +119,11 @@ pub mod entry {
 }
 
 use entry::Entry;
+use kernel_api::memory::VirtualAddress;
 use kernel_api::sync::OnceLock;
-use crate::hal::arch::amd64::{Amd64Hal, msr};
+use crate::hal::arch::amd64::msr;
 use crate::hal::arch::amd64::interrupts::entry::Type;
-use crate::hal::exception::{DebugTy, Exception, ExceptionRegisters, PageFault, Ty};
+use crate::hal::exception::{DebugTy, Exception, ExceptionRegisters, PageFault, PageFaultMeta, Ty};
 use crate::hal::interrupts_v2::Vector;
 use crate::non_zero;
 
@@ -194,7 +183,7 @@ pub static IDT: OnceLock<Idt> = OnceLock::new();
 
 #[derive(Debug)]
 #[repr(C)]
-struct IrqData {
+struct StackFrame {
 	r11: u64,
 	r10: u64,
 	r9: u64,
@@ -214,8 +203,9 @@ struct IrqData {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 pub struct Amd64RegisterDump<'a> {
-	stack_frame: &'a mut IrqData,
+	stack_frame: &'a mut StackFrame,
 	rbx: u64,
 	rbp: u64,
 	r12: u64,
@@ -241,118 +231,132 @@ impl ExceptionRegisters for Amd64RegisterDump<'_> {
 	}
 }
 
-#[no_mangle]
-extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
-	info!("[amd64] vector {:#x}", data.num);
-	
-	const MIN_IRQ: u8 = 0x30;
-	const MAX_IRQ: u8 = 0xFF;
-	
-	#[allow(non_contiguous_range_endpoints)]
-	if let MIN_IRQ.. = data.num as u8 {
-		crate::interrupts::global_irq_handler(Vector(data.num as usize));
-		return;
-	}
-	
-	let fs = msr::rdmsr(msr::FS_BASE);
-	let gs = msr::rdmsr(msr::KERNEL_GS_BASE);
-	let gs_kernel = msr::rdmsr(msr::GS_BASE); // because they were swapped by swapgs
+#[unsafe(no_mangle)]
+extern "C" fn amd64_handler2(data: &mut StackFrame) {
+	let data = AssertUnwindSafe(data);
+	match crate::panicking::catch_unwind(move || {
+		info!("[amd64] vector {:#x}", data.num);
 
-	let mut reg_dump = Amd64RegisterDump {
-		stack_frame: data,
-		rbx: u64::MAX,
-		rbp: u64::MAX,
-		r12: u64::MAX,
-		r13: u64::MAX,
-		r14: u64::MAX,
-		r15: u64::MAX,
-		fs,
-		gs,
-		gs_kernel,
-	};
-	
-	let user_mode = reg_dump.stack_frame.cs > 0x10;
-	
-	let mut exception_payload = match reg_dump.stack_frame.num as u8 {
-		0 | 16 | 19 => Exception {
-			ty: Ty::FloatingPoint,
-			registers: &mut reg_dump,
-			user_mode,
-		},
-		1 | 3 => Exception {
-			ty: Ty::Debug(DebugTy::Breakpoint),
-			registers: &mut reg_dump,
-			user_mode,
-		},
-		6 => Exception {
-			ty: Ty::IllegalInstruction,
-			registers: &mut reg_dump,
-			user_mode,
-		},
-		14 => {
-			let cr2: usize;
-			unsafe { asm!("mov {}, cr2", out(reg) cr2); }
-			Exception {
-				ty: Ty::PageFault(PageFault { access_addr: cr2, meta: reg_dump.stack_frame.error.try_into().unwrap() }),
-				registers: &mut reg_dump,
-				user_mode,
-			}
-		},
-		7 | 17 => Exception {
-			ty: Ty::BusFault,
-			registers: &mut reg_dump,
-			user_mode,
-		},
-		2 => Exception {
-			ty: Ty::Nmi,
-			registers: &mut reg_dump,
-			user_mode,
-		},
-		8 => Exception {
-			ty: Ty::Panic,
-			registers: &mut reg_dump,
-			user_mode,
-		},
-		e @ (4 | 5 | 9..= 13 | 15 | 18 | 21..=27 | 31) => {
-			let reason = match e {
-				4 => "Overflow check",
-				5 => "Bound check",
-				9 | 15 | 22..=27 | 31 => "Reserved",
-				10 => "Invalid TSS",
-				11 => "Segment not present",
-				12 => "Stack segment fault",
-				13 => "General protection fault",
-				18 => "Machine check",
-				21 => "Control protection exception",
-				_ => unreachable!(),
-			};
-			Exception {
-				ty: Ty::Generic(reason),
-				registers: &mut reg_dump,
-				user_mode,
-			}
-		},
-		e @ (20 | 28..=30) => {
-			let reason = match e {
-				20 => "Virtualization exception",
-				28 => "Hypervisor injection",
-				29 => "VMM communication exception",
-				30 => "Security exception",
-				_ => unreachable!(),
-			};
-			Exception {
-				ty: Ty::Unknown(reason),
-				registers: &mut reg_dump,
-				user_mode,
-			}
-		},
-		e @ 32..48 => {
-			warn!("Spurious PIC irq - vector {}", e - 32);
+		const MIN_IRQ: u8 = 0x30;
+
+		#[allow(non_contiguous_range_endpoints)]
+		if let MIN_IRQ.. = data.num as u8 {
+			crate::interrupts::global_irq_handler(Vector(data.num as usize));
 			return;
-		},
-		MIN_IRQ.. => unreachable!(),
-	};
-	crate::exception_handler(&mut exception_payload);
+		}
+
+		let fs = msr::rdmsr(msr::FS_BASE);
+		let gs = msr::rdmsr(msr::KERNEL_GS_BASE);
+		let gs_kernel = msr::rdmsr(msr::GS_BASE); // because they were swapped by swapgs
+
+		let mut reg_dump = Amd64RegisterDump {
+			stack_frame: data.0,
+			rbx: u64::MAX,
+			rbp: u64::MAX,
+			r12: u64::MAX,
+			r13: u64::MAX,
+			r14: u64::MAX,
+			r15: u64::MAX,
+			fs,
+			gs,
+			gs_kernel,
+		};
+
+		let user_mode = reg_dump.stack_frame.cs > 0x10;
+
+		let mut exception_payload = match reg_dump.stack_frame.num as u8 {
+			0 | 16 | 19 => Exception {
+				ty: Ty::FloatingPoint,
+				registers: &mut reg_dump,
+				user_mode,
+			},
+			1 | 3 => Exception {
+				ty: Ty::Debug(DebugTy::Breakpoint),
+				registers: &mut reg_dump,
+				user_mode,
+			},
+			6 => Exception {
+				ty: Ty::IllegalInstruction,
+				registers: &mut reg_dump,
+				user_mode,
+			},
+			14 => {
+				let cr2: usize;
+				unsafe { asm!("mov {}, cr2", out(reg) cr2); }
+				Exception {
+					ty: Ty::PageFault(PageFault {
+						access_addr: VirtualAddress::new(cr2),
+						meta: PageFaultMeta {
+							meta: reg_dump.stack_frame.error.try_into().unwrap(),
+							arch_meta: &handler::PageFaultError::from_bits(reg_dump.stack_frame.error),
+						}
+					}),
+					registers: &mut reg_dump,
+					user_mode,
+				}
+			},
+			7 | 17 => Exception {
+				ty: Ty::BusFault,
+				registers: &mut reg_dump,
+				user_mode,
+			},
+			2 => Exception {
+				ty: Ty::Nmi,
+				registers: &mut reg_dump,
+				user_mode,
+			},
+			8 => Exception {
+				ty: Ty::Panic,
+				registers: &mut reg_dump,
+				user_mode,
+			},
+			e @ (4 | 5 | 9..=13 | 15 | 18 | 21..=27 | 31) => {
+				let reason = match e {
+					4 => "Overflow check",
+					5 => "Bound check",
+					9 | 15 | 22..=27 | 31 => "Reserved",
+					10 => "Invalid TSS",
+					11 => "Segment not present",
+					12 => "Stack segment fault",
+					13 => "General protection fault",
+					18 => "Machine check",
+					21 => "Control protection exception",
+					_ => unreachable!(),
+				};
+				Exception {
+					ty: Ty::Generic(reason),
+					registers: &mut reg_dump,
+					user_mode,
+				}
+			},
+			e @ (20 | 28..=30) => {
+				let reason = match e {
+					20 => "Virtualization exception",
+					28 => "Hypervisor injection",
+					29 => "VMM communication exception",
+					30 => "Security exception",
+					_ => unreachable!(),
+				};
+				Exception {
+					ty: Ty::Unknown(reason),
+					registers: &mut reg_dump,
+					user_mode,
+				}
+			},
+			e @ 32..48 => {
+				warn!("Spurious PIC irq - vector {}", e - 32);
+				return;
+			},
+			MIN_IRQ.. => unreachable!(),
+		};
+		crate::exception_handler(&mut exception_payload);
+	}) {
+		Ok(_) => {},
+		Err(_) => {
+			error!("panic in interrupt handler");
+			loop {}
+		}
+	}
 }
 
 /// rax: syscall_low => ret_low
@@ -373,7 +377,7 @@ extern "C-unwind" fn amd64_handler2(data: &mut IrqData) {
 /// r15: preserved
 /// rflags: preserved except carry flag
 #[unsafe(naked)]
-pub unsafe extern "C-unwind" fn amd64_syscall_handler() {
+pub unsafe extern "C" fn amd64_syscall_handler() {
 	naked_asm!(
 		".cfi_startproc simple",
 		".cfi_register rip, rcx",
@@ -392,16 +396,15 @@ pub unsafe extern "C-unwind" fn amd64_syscall_handler() {
 		"push r11",
 		".cfi_def_cfa_offset 16",
         ".cfi_offset r11, -16",
+		
+		"mov r11, rsp",
+		"sub rsp, 32",
 
-		"sub rsp, 8",
-		".cfi_def_cfa_offset 24",
-		"lea r11, [rsp+8]", // pointer to r11 (flags) storage
-		"push r11",
-		".cfi_def_cfa_offset 32",
+		"mov [rsp+16], r15", // async_data
+		
+		"mov [rsp+8], r11", // stack
 
-		"push rcx",
-		".cfi_def_cfa_offset 40",
-		"push rax",
+		"mov [rsp], rax", // num_low
 		".cfi_def_cfa_offset 48",
         ".cfi_offset rax, -48",
 
@@ -442,7 +445,7 @@ mod handlers {
 		    ::paste::paste! {
 			    #[unsafe(naked)]
 			    #[allow(dead_code)]
-		        pub(super) unsafe extern "C-unwind" fn [<amd64_irq_handler_ $num>]() {
+		        pub(super) unsafe extern "C" fn [<amd64_irq_handler_ $num>]() {
 					::core::arch::naked_asm!(
 						concat!("push ", stringify!($num)),
 						"jmp amd64_global_irq_handler");
@@ -454,7 +457,7 @@ mod handlers {
 		    ::paste::paste! {
 			    #[unsafe(naked)]
 			    #[allow(dead_code)]
-		        pub(super) unsafe extern "C-unwind" fn [<amd64_irq_handler_ $num>]() {
+		        pub(super) unsafe extern "C" fn [<amd64_irq_handler_ $num>]() {
 					::core::arch::naked_asm!(
 						"push 0",
 						concat!("push ", stringify!($num)),

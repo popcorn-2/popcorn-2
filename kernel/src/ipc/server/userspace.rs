@@ -1,350 +1,302 @@
-use core::cmp::min;
-use core::iter::zip;
-use core::mem::{ManuallyDrop, MaybeUninit};
+use core::future::Future;
 use core::num::NonZero;
-use core::ops::Range;
-use crate::prelude::*;
-use core::sync::atomic::{AtomicPtr, Ordering};
-use crossbeam_queue::SegQueue;
+use core::pin::Pin;
+use core::task::{Context, Poll, Waker};
 use slab::Slab;
-use kernel_api::memory::mapping;
-use kernel_api::memory::mapping::{new_mapping_in, Protection};
-use kernel_api::ptr::{slice_from_raw_parts, slice_from_raw_parts_mut, User};
+use kernel_api::{channel, dbg};
+use kernel_api::mapping::{Config, Mmap, Ty};
+use kernel_api::memory::VirtualAddress;
+use kernel_api::ptr::{local_slice_from_raw_parts, LocalUser};
 use kernel_api::sync::Spinlock;
-use crate::ipc::ctor::{CtorArgs, CtorContext, ProtocolVisitor};
-use crate::ipc::{dispatch, Error};
-use crate::ipc::protocol::{DispatchTable, meta};
-use crate::ipc::server::{ReturnHandle, Server};
-use crate::{non_zero, threading};
-use crate::ipc::dispatch::{Arg, Return, DeserializedArgs};
-use crate::ipc::handle::ServerId;
-use crate::ipc::protocol::meta::Meta;
-use crate::memory::r#virtual::{AddressSpaceInner, MappingKey};
-use crate::threading::{ThreadId, WakeReason, WakeTrigger};
+use crate::ipc::ctor::CtorArgs;
+use crate::ipc::Error;
+use crate::ipc::server::ReturnHandle;
+use crate::ipc::serde::{Deserialized, MethodResult, Serializer};
+use kernel_api::address_space::MappingKey;
+use kernel_api::channel::Receiver;
+use kernel_api::syscall::server::ServerId;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
 struct PacketKey(usize);
 
 #[derive(Debug)]
 pub struct UserspaceServer {
-	pending_queue: SegQueue<PacketKey>,
-	waker: AtomicPtr<u8>, // this is actually an Option<WakeTrigger>
-	in_flight: Spinlock<Slab<RawPacket>>,
+	pending_queue: Receiver<PacketKey>,
+	in_flight: Spinlock<Slab<(RawPacket, Waker)>>,
 }
 
 impl UserspaceServer {
 	pub fn new_current_thread() -> Self {
 		Self {
-			pending_queue: SegQueue::new(),
-			waker: AtomicPtr::new(core::ptr::null_mut()),
+			pending_queue: channel::unbounded().1,
 			in_flight: Spinlock::new(Slab::new()),
 		}
 	}
 
-	pub fn get_packet_blocking(&self) -> Packet {
-		let mut waker = core::ptr::null_mut();
-		let packet_key = loop {
-			if let Ok(val) = threading::maybe_park(|trigger| {
-				waker = unsafe { core::mem::transmute(trigger) };
-				self.waker.store(waker, Ordering::Relaxed);
-				self.pending_queue.pop()
-			}) { break val; }
-		};
-		let _ = self.waker.compare_exchange(waker, core::ptr::null_mut(), Ordering::Relaxed, Ordering::Relaxed);
+	pub async fn get_packet(&self) -> Packet {
+		let packet_key = self.pending_queue.pop().await;
 
 		let mut guard = self.in_flight.lock();
-		let raw = guard.get_mut(packet_key.0).expect("invalid key in pending queue");
-		let PacketState::Pending(args) = core::mem::replace(&mut raw.state, PacketState::None) else { panic!("unexpected packet in bagging area"); };
+		let (raw, _) = guard.get_mut(packet_key.0).expect("invalid key in pending queue");
+		let RawPacket::Pending(args) = core::mem::replace(raw, RawPacket::None) else { panic!("unexpected packet in bagging area"); };
+
+		let guard = percpu_v2!(current_thread).read();
+		let address_space = &guard
+				.as_ref()
+				.expect("cannot syscall from idle")
+				.address_space;
 
 		match args {
-			PacketArgs::Ctor { endpoint, protocols, args } => {
-				let buffer_size = protocols.len() * size_of::<u128>() + endpoint.len() + args.len();
+			PacketArgs::Ctor { endpoint, protocols } => {
+				let buffer_size = protocols.len() * size_of::<u128>() + endpoint.len();
 				let buffer_size = NonZero::new(buffer_size).expect("must have non-zero buffer size");
 				let buffer_size = buffer_size.div_ceil(NonZero::new(4096).unwrap());
 
-				let guard = percpu_v2!(current_thread).read();
-				let address_space = guard.as_ref().expect("cannot generate packet from idle thread")
-				                                              .tcb_ref().address_space;
+				let (mapping_key, mut buffer) = Config::new(buffer_size, Ty::USER_PACKET_BUFFER)
+						.protection(true, false, true)
+						.map_in::<Mmap>("[packet buffer]".into(), address_space)
+						.unwrap();
 
-				let config = mapping::Config::new_in(
-					buffer_size,
-					AddressSpaceInner::to_api(address_space)
-				).protection(Protection::RWXU);
+				let buffer_start = buffer.as_mut_ptr();
 
-				let buffer = new_mapping_in(config, u16::MAX).unwrap();
-
-				let buffer_start = User::<*mut u8>::new_in(
-					buffer.virtual_valid_start().as_ptr(),
-					AddressSpaceInner::to_api(address_space),
-				);
-
-				let mapping_key = address_space.add_mapping("[packet buffer]", buffer);
-				trace!("{address_space:?}");
+				debug!("{address_space:?}");
 
 				assert!(buffer_start.is_aligned_to(align_of::<u128>()));
 
 				let protocols_ptr = buffer_start.cast();
 				let endpoint_ptr = unsafe { buffer_start.byte_offset((protocols.len() * size_of::<u128>()) as isize) };
-				let args_ptr = unsafe { endpoint_ptr.byte_offset(endpoint.len() as isize) };
 
-				protocols_ptr.copy_from_nonoverlapping(protocols.as_ptr(), protocols.len()).unwrap();
-				endpoint_ptr.copy_from_nonoverlapping(endpoint.as_ptr(), endpoint.len()).unwrap();
-				args_ptr.copy_from_nonoverlapping(args.as_ptr(), args.len()).unwrap();
-
-				raw.state = PacketState::Processing { return_buffer: None };
-				raw.buffer = Some(mapping_key);
-
-				Packet {
-					uid: 1u128 << 96,
-					packet: packet_key,
-					arg0: endpoint_ptr.addr(),
-					arg1: endpoint.len(),
-					arg2: protocols_ptr.addr(),
-					arg3: protocols.len(),
-					arg4: args_ptr.addr(),
+				unsafe {
+					protocols_ptr.copy_from_other_address_space(protocols.as_ptr(), protocols.len()).unwrap();
+					endpoint_ptr.copy_from_other_address_space(endpoint.as_ptr(), endpoint.len()).unwrap();
 				}
+
+				*raw = RawPacket::Processing {
+					// serializer isn't actually used for `ctor` so just pass an invalid one that makes no allocation
+					serializer: Serializer::new(ServerId::INVALID, Box::from([])),
+					buffer: Some(mapping_key),
+				};
+
+				dbg!(Packet {
+					uid: (crate::ipc::abi_v1::NEW as u128) << 96 | crate::ipc::abi_v1::ABI_V1,
+					packet: packet_key,
+					arg0: endpoint_ptr.addr().addr,
+					arg1: endpoint.len(),
+					arg2: protocols_ptr.addr().addr,
+					arg3: protocols.len(),
+					arg4: 0,
+				})
 			},
 			PacketArgs::Dtor { handle } => {
-				raw.state = PacketState::Processing { return_buffer: None };
+				*raw = RawPacket::Processing {
+					// serializer isn't actually used for `dtor` so just pass an invalid one that makes no allocation
+					serializer: Serializer::new(ServerId::INVALID, Box::from([])),
+					buffer: None,
+				};
 
-				Packet {
-					uid: 3u128 << 96,
+				dbg!(Packet {
+					uid: (crate::ipc::abi_v1::DESTROY as u128) << 96 | crate::ipc::abi_v1::ABI_V1,
 					packet: packet_key,
 					arg0: handle as usize,
 					arg1: 0,
 					arg2: 0,
 					arg3: 0,
 					arg4: 0,
-				}
+				})
 			},
 			PacketArgs::Other {
 				uid,
 				args,
 			} => {
-				let buffer_size = args.buffer.len() + args.return_size.unwrap_or(0);
-				let (buffer_start, mapping_key) = if let Some(buffer_size) = NonZero::new(buffer_size) {
-					let buffer_size = buffer_size.div_ceil(NonZero::new(4096).unwrap());
+				let (mapping_key, mapping_addr) = {
+					let buffer_data = args.buffer();
+					let buffer_size = buffer_data.len().div_ceil(4096);
 
-					let guard = percpu_v2!(current_thread).read();
-					let address_space = guard.as_ref().expect("cannot generate packet from idle thread")
-					                         .tcb_ref().address_space;
+					match NonZero::new(buffer_size) {
+						None => (None, VirtualAddress::new(0)),
+						Some(buffer_size) => {
+							let (mapping_key, mut buffer) = Config::new(buffer_size, Ty::USER_PACKET_BUFFER)
+									.protection(true, false, true)
+									.map_in::<Mmap>("[packet buffer]".into(), address_space)
+									.unwrap();
 
-					let config = mapping::Config::new_in(
-						buffer_size,
-						AddressSpaceInner::to_api(address_space)
-					).protection(Protection::RWXU);
+							unsafe {
+								buffer.as_mut_ptr().copy_from_other_address_space(buffer_data.as_ptr().cast(), buffer_data.len()).unwrap();
+							}
 
-					let buffer = new_mapping_in(config, u16::MAX).unwrap();
-
-					let buffer_start = User::<*mut u8>::new_in(
-						buffer.virtual_valid_start().as_ptr(),
-						AddressSpaceInner::to_api(address_space),
-					);
-
-					let mapping_key = address_space.add_mapping("[packet buffer]", buffer);
-					trace!("{address_space:?}");
-
-					buffer_start.copy_from_nonoverlapping(args.buffer.as_ptr(), args.buffer.len()).unwrap();
-
-					(buffer_start, Some(mapping_key))
-				} else { (User::null_mut(), None) };
-
-				let to_arg = |arg| match arg {
-					Arg::Primitive(val) => val,
-					Arg::BufferOffset(off) => unsafe { buffer_start.byte_offset(off as isize) }.addr(),
-					Arg::NewBuffer => unsafe { buffer_start.byte_offset(args.buffer.len() as isize) }.addr(),
-					Arg::Handle(handle) => {
-						let handle = percpu_v2!(current_thread).read().as_ref()
-						                          .expect("must be running on a thread to syscall")
-						                          .tcb_ref().handles.push(handle).unwrap();
-						handle as usize
+							(Some(mapping_key), buffer.as_ptr().addr())
+						}
 					}
 				};
 
-				raw.state = PacketState::Processing {
-					return_buffer: if let Some(size) = args.return_size {
-						Some(slice_from_raw_parts(
-							unsafe { buffer_start.cast_const().byte_offset(args.buffer.len() as isize) },
-							size
-						))
-					} else { None },
-				};
-				raw.buffer = mapping_key;
-				
-				// Wrap this in a ManuallyDrop so we can pull them out the array without cloning
-				let mut args = args.args.map(ManuallyDrop::new);
+				let (args, serializer) = args.into_args_with_buffer(mapping_addr);
 
-				Packet {
+				*raw = RawPacket::Processing {
+					serializer,
+					buffer: mapping_key,
+				};
+
+				dbg!(Packet {
 					uid,
 					packet: packet_key,
-					arg0: to_arg(unsafe { ManuallyDrop::take(&mut args[0]) }),
-					arg1: to_arg(unsafe { ManuallyDrop::take(&mut args[1]) }),
-					arg2: to_arg(unsafe { ManuallyDrop::take(&mut args[2]) }),
-					arg3: to_arg(unsafe { ManuallyDrop::take(&mut args[3]) }),
-					arg4: to_arg(unsafe { ManuallyDrop::take(&mut args[4]) }),
-				}
+					arg0: args[0],
+					arg1: args[1],
+					arg2: args[2],
+					arg3: args[3],
+					arg4: args[4],
+				})
 			},
 		}
 	}
 
 	pub fn reply_packet(&self, response: Response) -> Result<(), Error> {
+		debug!("received response {response:?}");
 		let mut guard = self.in_flight.lock();
-		let raw = guard.get_mut(response.packet.0).expect("invalid key in pending queue");
+		let (raw, waker) = &mut guard.get_mut(response.packet.0).expect("invalid key in pending queue");
 
-		let result = if response.error { Err(response.result) } else { Ok(response.result) };
-		let result = match result {
-			Ok(ReturnVal::SelfHandle(id, ptr, len)) => {
-				let protocols = {
-					let protocol_ptr = User::<*const u128>::new_in(
-						ptr as _,
-						AddressSpaceInner::to_api(
-							percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
-							                          .tcb_ref().address_space
-						),
-					);
-					slice_from_raw_parts(protocol_ptr, len)
-				};
-				debug!("protocols: {protocols:#p}");
-				let protocols = unsafe { protocols.read_to_buffer() }?;
-				debug!("protocols: {protocols:#x?}");
-				
-				Ok(Return::NewHandle(id, protocols))
-			},
-			Ok(ReturnVal::SelfDefaultHandle(id)) => Ok(Return::NewDefaultHandle(id)),
-			Ok(ReturnVal::TransferHandle(id)) => {
-				let handle = percpu_v2!(current_thread).read().as_ref()
-				                                       .expect("can only syscall from thread")
-				                                       .tcb_ref().handles.pop(id.try_into().map_err(|_| Error::InvalidHandle)?)?;
-				Ok(Return::Handle(handle))
-			},
-			Ok(ReturnVal::Value(val)) => Ok(Return::Value(val)),
-			Err(ReturnVal::Value(val)) => Err(Error::from(val)),
-			Err(_) => return Err(Error::InvalidArg),
+		let result = if response.error {
+			match response.result {
+				ReturnVal::Value(val) => Err(Error::from(val)),
+				_ => return Err(Error::InvalidArg),
+			}
+		} else {
+			Ok(response.result.into_method_result()?)
 		};
 
-		let PacketState::Processing { return_buffer } = core::mem::replace(&mut raw.state, PacketState::None) else { panic!("unexpected packet in bagging area"); };
-		
-		let result = if let Ok(result) = &result && let Some(buffer) = return_buffer {
-			let Return::Value(result) = result else {
-				debug!("userspace returned non-primitive return for memory return");
-				return Err(Error::InvalidArg);
+		let RawPacket::Processing { mut serializer, buffer } = core::mem::replace(raw, RawPacket::None) else { panic!("unexpected packet in bagging area"); };
+
+		if let Some(buffer) = buffer {
+			let guard = percpu_v2!(current_thread).read();
+			let address_space = &guard
+					.as_ref()
+					.expect("cannot syscall from idle")
+					.address_space;
+			let buffer = address_space.get(buffer)
+					.expect("invalid buffer key");
+
+			if result.is_ok() {
+				let buffer_ptr = buffer.as_ptr().try_into()
+						.expect("mapping for current address space must be in current address space");
+				let ptr = unsafe { local_slice_from_raw_parts(buffer_ptr, buffer.byte_len()) };
+				ptr.read_to_buffer(serializer.buffer_uninit().get_mut())?;
 			};
-			let len = min(buffer.len(), *result as usize);
-			let buffer = slice_from_raw_parts(buffer.as_ptr(), len);
-			Ok(Return::Boxed(unsafe { buffer.read_to_buffer().expect("invalid buffer") }))
-		} else { result };
-		
-		if let Some(buffer) = raw.buffer {
-			warn!("ignoring dealloc of buffer {buffer:?}");
+			buffer.remove();
 		}
 		
-		raw.state = PacketState::Done {
+		*raw = RawPacket::Done {
 			result,
+			serializer,
 		};
+
+		debug!("userspace reply with {raw:#x?}");
 		
-		raw.waker.wake(WakeReason::Custom(non_zero!(2)));
+		waker.wake_by_ref();
 		
 		Ok(())
 	}
 
-	fn push_packet(&self, packet: RawPacket) -> PacketKey {
+	fn push_packet(&self, packet: RawPacket, waker: Waker) -> PacketKey {
 		debug!("push packet: {packet:#x?}");
 		
-		let key = self.in_flight.lock().insert(packet);
+		let key = self.in_flight.lock().insert((packet, waker));
 		self.pending_queue.push(PacketKey(key));
-		let waker = self.waker.load(Ordering::Relaxed);
-		if !waker.is_null() {
-			debug!("wake waiting userspace server");
-			let waker = unsafe { core::mem::transmute::<_, WakeTrigger>(waker) };
-			waker.wake(WakeReason::Custom(non_zero!(1)));
-		}
 		PacketKey(key)
 	}
 
-	fn pop_packet(&self, key: PacketKey) -> Option<RawPacket> {
-		self.in_flight.lock().try_remove(key.0)
+	fn pop_done_packet(&self, key: PacketKey, new_waker: Waker) -> Option<RawPacket> {
+		let mut guard = self.in_flight.lock();
+		if let Some(packet) = guard.get_mut(key.0) {
+			if matches!(packet.0, RawPacket::Done { .. }) {
+				Some(guard.remove(key.0).0)
+			} else {
+				packet.1 = new_waker;
+				None
+			}
+		} else { None }
 	}
 
-	pub fn ctor(&self, endpoint: &str, args: CtorArgs) -> Result<ReturnHandle, Error> {
-		let mut key = PacketKey(usize::MAX);
-		threading::maybe_park(|waker| {
-			key = self.push_packet(RawPacket {
-				state: PacketState::Pending(PacketArgs::Ctor {
-					endpoint: Box::from(endpoint),
-					protocols: Box::from(args.uids()),
-					args: Box::from([]),
-				}),
-				waker,
-				buffer: None,
-			});
-			None::<()>
-		}).expect_err("always parks");
+	pub async fn ctor(&self, endpoint: &str, args: CtorArgs<'_>) -> Result<ReturnHandle, Error> {
+		let result = UserspaceFuture::Unsubmitted(self, RawPacket::Pending(
+			PacketArgs::Ctor {
+				endpoint: Box::from(endpoint),
+				protocols: Box::from(args.uids()),
+			}),
+		).await.0;
 
-		let packet = self.pop_packet(key).expect("invalid packet key");
-		let PacketState::Done { result, .. } = packet.state else { panic!("unexpected state in bagging area"); };
-		
 		result.and_then(|v| {
 			match v {
-				Return::Boxed(_) | Return::Value(_) => Err(Error::InvalidArg),
-				Return::Handle(handle) => Ok(ReturnHandle::Transfer(handle)),
-				Return::NewHandle(id, protos) => Ok(ReturnHandle::New(id, protos)),
-				Return::NewDefaultHandle(id) => Ok(ReturnHandle::NewDefault(id)),
+				MethodResult::Value(_) => Err(Error::InvalidReturn),
+				MethodResult::TransferHandle(handle) => Ok(ReturnHandle::Transfer(handle)),
+				MethodResult::SelfHandle(id, protos) => Ok(ReturnHandle::New(id, protos)),
+				MethodResult::SelfDefaultHandle(id) => Ok(ReturnHandle::NewDefault(id)),
 			}
 		})
 	}
 
-	pub fn destroy(&self, handle: isize) -> Result<(), Error> {
-		threading::maybe_park(|waker| {
-			self.push_packet(RawPacket {
-				state: PacketState::Pending(PacketArgs::Dtor {
-					handle
-				}),
-				waker,
-				buffer: None,
-			});
-			None::<()>
-		}).expect_err("always parks");
-		todo!()
+	pub async fn destroy(&self, handle: isize) -> Result<(), Error> {
+		let _ = UserspaceFuture::Unsubmitted(self, RawPacket::Pending(
+			PacketArgs::Dtor {
+				handle
+			}),
+		).await.0?;
+		
+		Ok(())
 	}
 
 	pub fn dispatch(
 		&self,
 		protocol: u128,
 		method: u32,
-		args: DeserializedArgs,
-	) -> Result<Return, Error> {
+		args: Deserialized,
+	) -> impl Future<Output = (Result<MethodResult, Error>, Serializer)> + '_ {
 		let uid = protocol | (method as u128) << 96;
-		let mut key = PacketKey(usize::MAX);
-		let _ = threading::maybe_park(|waker| {
-			key = self.push_packet(RawPacket {
-				state: PacketState::Pending(PacketArgs::Other {
-					uid,
-					args,
-				}),
-				waker,
-				buffer: None,
-			});
-			None::<()>
-		}).expect_err("always parks");
-
-		let packet = self.pop_packet(key).expect("invalid packet key");
-		debug!("packet: {packet:#x?}");
-
-		let PacketState::Done { result } = packet.state else { panic!("unexpected state in bagging area"); };
-
-		result
+		
+		UserspaceFuture::Unsubmitted(self, RawPacket::Pending(
+			PacketArgs::Other {
+				uid,
+				args,
+			})
+		)
 	}
 }
 
-#[derive(Default)]
-pub struct CtorCtx;
-
-impl CtorContext for CtorCtx {
-	fn visitors(&self) -> &'static ProtocolVisitor<Self> { const { &ProtocolVisitor::new() } }
+enum UserspaceFuture<'a> {
+	Unsubmitted(&'a UserspaceServer, RawPacket),
+	Submitted(&'a UserspaceServer, PacketKey),
 }
 
-#[derive(Debug)]
+impl<'a> Future for UserspaceFuture<'a> {
+	type Output = (Result<MethodResult, Error>, Serializer);
+
+	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+		let this = self.get_mut();
+		match this {
+			Self::Unsubmitted(server, raw) => {
+				debug!("submit userspace packet {raw:#?}");
+				let raw = unsafe { core::ptr::read(raw) };
+				let server = unsafe { core::ptr::read(server) };
+				
+				let key = server.push_packet(raw, cx.waker().clone());
+				unsafe { core::ptr::write(this, Self::Submitted(server, key)) };
+				debug!("submitted packet to userspace - returning pending");
+				Poll::Pending
+			}
+			Self::Submitted(server, key) => {
+				match server.pop_done_packet(*key, cx.waker().clone()) {
+					None => {
+						debug!("userspace packet still pending");
+						Poll::Pending
+					},
+					Some(RawPacket::Done { result, serializer }) => dbg!(Poll::Ready((result, serializer))),
+					_ => unreachable!("unexpected PacketState in bagging area")
+				}
+			}
+		}
+	}
+}
+
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct Packet {
 	uid: u128,
@@ -356,7 +308,7 @@ pub struct Packet {
 	arg4: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct Response {
 	result: ReturnVal,
@@ -364,8 +316,9 @@ pub struct Response {
 	error: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
+#[allow(dead_code)]
 enum ReturnVal {
 	SelfHandle(isize, *const u128, usize),
 	SelfDefaultHandle(isize),
@@ -373,33 +326,51 @@ enum ReturnVal {
 	Value(u128),
 }
 
+impl ReturnVal {
+	fn into_method_result(self) -> Result<MethodResult, Error> {
+		Ok(match self {
+			ReturnVal::SelfHandle(num, ptr, len) => {
+				let ptr = {
+					let ptr = unsafe { LocalUser::<*const u128>::new(ptr.addr()) };
+					unsafe { local_slice_from_raw_parts(ptr, len) }
+				};
+				let protos = ptr.read_to_box()?;
+				MethodResult::SelfHandle(num, protos)
+			},
+			ReturnVal::SelfDefaultHandle(handle) => MethodResult::SelfDefaultHandle(handle),
+			ReturnVal::TransferHandle(id) => MethodResult::TransferHandle({
+				let id = id.try_into().map_err(|_| Error::InvalidHandle)?;
+				percpu_v2!(current_thread)
+						.read()
+						.as_ref()
+						.expect("cannot syscall from idle")
+						.handles
+						.pop(id)?
+			}),
+			ReturnVal::Value(val) => MethodResult::Value(val),
+		})
+	}
+}
+
 #[derive(Debug)]
 pub enum PacketArgs {
 	Ctor {
 		endpoint: Box<str>,
 		protocols: Box<[u128]>,
-		args: Box<[u8]>,
 	},
 	Dtor {
 		handle: isize,
 	},
 	Other {
 		uid: u128,
-		args: DeserializedArgs,
+		args: Deserialized,
 	},
 }
 
 #[derive(Debug)]
-struct RawPacket {
-	state: PacketState,
-	waker: WakeTrigger,
-	buffer: Option<MappingKey>,
-}
-
-#[derive(Debug)]
-enum PacketState {
+enum RawPacket {
 	Pending(PacketArgs),
-	Processing { return_buffer: Option<User<*const [u8]>> },
-	Done { result: Result<Return, Error> },
+	Processing { serializer: Serializer, buffer: Option<MappingKey> },
+	Done { result: Result<MethodResult, Error>, serializer: Serializer },
 	None,
 }

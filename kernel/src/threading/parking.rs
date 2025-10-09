@@ -1,11 +1,6 @@
-use alloc::sync::{Arc, Weak};
-use core::mem;
-use core::num::NonZeroU16;
-use core::sync::atomic::Ordering;
-use log::{debug, info, warn};
-use crate::prelude::percpu_v2;
-use super::{current_thread, scheduler, ThreadId, yield_now, scheduler::Scheduler, ThreadState, PointerState, ControlEvent};
+use crate::threading::yielding::yield_now_inner;
 
+/*
 /// Park the current thread until it is woken up
 ///
 /// This will park the thread until a [`WakeTrigger`] for this park event wakes the thread.
@@ -67,94 +62,9 @@ pub fn park(wakers: &[&dyn Waker]) -> Result<WakeReason, ParkError> {
 		}
 		None::<()>
 	}).expect_err("`park` always parks thread"))
-}
+}*/
 
-pub fn maybe_park<T>(f: impl FnOnce(WakeTrigger) -> Option<T>) -> Result<T, WakeReason> {
-	let id = current_thread();
-	debug!("Pre-parking thread {:?}", id.unwrap());
-	let weak_ptr = {
-		let guard = percpu_v2!(current_thread).read();
-		let thread = guard.as_ref().expect("Cannot park when not running a thread").tcb_ref();
-		let park_state = Arc::new(ParkGaurd { thread_id: *thread.thread_id });
-		let weak_ptr = Arc::downgrade(&park_state);
-		thread.state.store(ThreadState::Parked(park_state), Ordering::SeqCst);
-		weak_ptr
-	};
-
-	match f(WakeTrigger { park_guard: weak_ptr }) {
-		Some(v) => {
-			debug!("un-parking self");
-			let guard = percpu_v2!(current_thread).read();
-			let thread = guard.as_ref().expect("Cannot park when not running a thread").tcb_ref();
-			let park_state = Arc::new(ParkGaurd { thread_id: *thread.thread_id });
-			thread.state.compare_exchange(ThreadState::Parked(park_state), ThreadState::Running, Ordering::SeqCst, Ordering::SeqCst);
-			Ok(v)
-		}
-		None => {
-			debug!("parking self");
-			Err(yield_now().expect("parking should cause wake reason"))
-		}
-	}
-}
-
-#[derive(Debug)]
-pub(super) struct ParkGaurd {
-	thread_id: ThreadId,
-}
-
-#[derive(Debug, Clone)]
-pub struct WakeTrigger {
-	park_guard: Weak<ParkGaurd>,
-}
-
-impl PartialEq for WakeTrigger {
-	fn eq(&self, other: &Self) -> bool {
-		self.park_guard.ptr_eq(&other.park_guard)
-	}
-}
-
-impl WakeTrigger {
-	pub fn wake(&self, reason: WakeReason) {
-		debug!("wake with reason {reason:?}");
-		if let Some(state) = self.park_guard.upgrade() {
-			// FIXME: race condition between upgrading and actually waking which could cause a spurious wakeup
-			let tid = state.thread_id;
-			do_wake(tid, reason);
-		} else { warn!("stale WakeTrigger"); }
-	}
-}
-
-pub(super) fn do_wake(thread: ThreadId, reason: WakeReason) {
-	let mut guard = super::TASK_LIST.lock();
-	let Some(global_thread) = guard.get_mut(&thread) else {
-		warn!("Bad thread id {thread:?}");
-		return;
-	};
-
-	debug!("wake {thread:?} currently in state {:?}", global_thread.0.tcb_ref().state.load(Ordering::Relaxed));
-	match global_thread.1 {
-		PointerState::InScheduler(core_id) => {
-			scheduler::send_control_event(core_id, ControlEvent::Unpark(thread, reason));
-		},
-		PointerState::GloballyParked(ref mut ptr) => {
-			debug!("Enqueue thread {:?} from global parking lot with reason {reason:?}", ptr.tcb_mut().thread_id);
-			ptr.tcb_ref().state.store(ThreadState::JustUnparked(reason), Ordering::SeqCst);
-			scheduler::enqueue(&mut global_thread.1);
-		},
-	};
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[repr(C)]
-pub enum WakeReason {
-	Timeout,
-	Custom(NonZeroU16),
-}
-
-#[derive(Debug)]
-#[non_exhaustive]
-pub struct ParkError {}
-
-pub trait Waker {
-	fn add_wake_trigger(&self, wake_trigger: WakeTrigger);
+#[unsafe(export_name = "__popcorn_async_park_inner_yield")]
+fn yield_from_park() {
+	yield_now_inner(true);
 }

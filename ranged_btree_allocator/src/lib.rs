@@ -1,87 +1,129 @@
+#![feature(allocator_api)]
+#![feature(gen_blocks)]
 #![cfg_attr(not(test), no_std)]
+#![feature(step_trait)]
+#![feature(int_roundings)]
+#![feature(unsigned_nonzero_div_ceil)]
+#![deny(warnings)]
 
-#![feature(kernel_virtual_memory)]
+#![cfg_attr(test, allow(unused_imports))]
 
+#[cfg(test)] extern crate alloc;
+
+mod linked_list;
+
+use linked_list::{LinkedList, Meta};
 use core::cmp::{max, min};
+use core::num::NonZero;
 use core::ops::Range;
-use kernel_api::memory::{AllocError, Page};
-use ranged_btree::RangedBTreeMap;
-use kernel_api::memory::r#virtual::VirtualAllocator;
+use log::{debug, trace};
+use kernel_api::memory::RawPage;
 use kernel_api::sync::Spinlock;
-
-#[derive(Debug)]
-struct Meta {
-    len: usize
-}
+use kernel_api::allocator::{Vmm, AllocError};
+#[cfg(feature = "kasan")] use kernel_api::memory::asan::{asan_free_range, set_shadow_free_vmem, mem_to_shadow, count_to_shadow};
 
 #[derive(Debug)]
 pub struct RangedBtreeAllocator {
-    range: Range<Page>,
-    map: Spinlock<RangedBTreeMap<Page, Meta>>
+    range: Range<RawPage>,
+    list: Spinlock<LinkedList>,
 }
 
 impl RangedBtreeAllocator {
-    pub fn new(range: Range<Page>) -> Self {
-        Self {
+    pub fn new(range: Range<RawPage>) -> Result<Self, AllocError> {
+	    let allocation_count = if range.is_empty() {
+		    const { NonZero::new(1).unwrap() }
+	    } else {
+		    const { NonZero::new(4096).unwrap() } // mostly going to be kernel stacks so lets say ~4k threads?
+	    };
+
+        Ok(Self {
             range,
-            map: Spinlock::new(RangedBTreeMap::new())
-        }
+            list: Spinlock::new(LinkedList::new(allocation_count)?),
+        })
     }
 
-    pub fn add_allocations(&mut self, allocations: impl IntoIterator<Item = Range<Page>>) {
-        let guard = self.map.get_mut();
+    pub fn add_allocations(&mut self, allocations: impl IntoIterator<Item = Range<RawPage>>) {
+        let guard = self.list.get_mut();
 
         for allocation in allocations {
             let isect = max(allocation.start, self.range.start)..min(allocation.end, self.range.end);
             if !isect.is_empty() {
-                let _ = guard.insert(allocation, Meta { len: isect.end - isect.start });
+                debug!("insert allocation at {isect:#x?}");
+                let _ = guard.insert(isect.clone(), Meta { len: isect.end - isect.start });
             }
         }
     }
 }
 
-impl VirtualAllocator for RangedBtreeAllocator {
-    fn allocate_contiguous(&self, len: usize) -> Result<Page, AllocError> {
-        let mut guard = self.map.lock();
+impl Vmm for RangedBtreeAllocator {
+    fn allocate_contiguous(&self, len: usize) -> Result<RawPage, AllocError> {
+        let mut guard = self.list.lock();
+        
+        let gap = 'iter: {
+            for gap in guard.iter_gaps(self.range.clone()) {
+                let gap_len = gap.end - gap.start;
+                if gap_len >= len {
+                    break 'iter gap;
+                }
+            }
 
-        let Some(first) = guard.first_key() else {
-            guard.insert(self.range.start..(self.range.start + len), Meta { len })
-                    .expect("BTree should be empty");
-            return Ok(self.range.start);
+            return Err(AllocError::vmm());
         };
 
-        if (*first - self.range.start) >= len {
-            guard.insert(self.range.start..(self.range.start + len), Meta { len })
-                 .expect("Just checked this region is free");
-            return Ok(self.range.start);
+        guard.insert(
+            gap.start..gap.start + len,
+            Meta { len },
+        ).map_err(|_| AllocError::vmm())?;
+
+	    trace!("{:#x?} {:?}", gap.start..gap.start + len, Meta { len });
+
+        #[cfg(feature = "kasan")] if self.range.start.is_higher_half() {
+            asan_free_range(
+                gap.start.into(),
+                len * 4096,
+            );
         }
 
-        let last_used = *guard.last_key().expect("Already checked for at least one entry");
-        if (self.range.end - last_used) >= len {
-            guard.insert(last_used..(last_used + len), Meta { len })
-                 .expect("Just checked this region is free");
-            return Ok(last_used);
-        }
-
-        todo!()
+        Ok(gap.start)
     }
 
-    fn allocate_contiguous_at(&self, at: Page, len: usize) -> Result<Page, AllocError> {
-        if at < self.range.start { return Err(AllocError); }
-        if (at + len) > self.range.end { return Err(AllocError); }
+    fn allocate_contiguous_at(&self, at: RawPage, len: usize) -> Result<RawPage, AllocError> {
+        if at < self.range.start { return Err(AllocError::vmm()); }
+        if (at + len) > self.range.end { return Err(AllocError::vmm()); }
         
-        let mut guard = self.map.lock();
-        match guard.insert(at..(at + len), Meta { len }) {
-            Ok(_) => Ok(at),
-            Err(_) => Err(AllocError)
+        let mut guard = self.list.lock();
+        match guard.insert(
+            at..at + len,
+            Meta { len },
+        ) {
+            Ok(_) => {
+                drop(guard);
+                #[cfg(feature = "kasan")] if at.is_higher_half() {
+                    asan_free_range(
+                        at.into(),
+                        len * 4096,
+                    );
+                }
+                Ok(at)
+            },
+            Err(_) => Err(AllocError::vmm())
         }
     }
 
-    fn deallocate_contiguous(&self, base: Page, len: usize) {
+    fn deallocate_contiguous(&self, base: RawPage, len: usize) {
         // assumes that deallocations cover an entire allocation
 
-        let mut guard = self.map.lock();
-        if let Some(meta) = guard.remove(base) {
+        #[cfg(feature = "kasan")] unsafe {
+            if base.is_higher_half() {
+                set_shadow_free_vmem(
+                    mem_to_shadow(base.into()),
+                    count_to_shadow(len * 4096),
+                );
+            }
+        }
+
+        let mut guard = self.list.lock();
+        if let Some(meta) = guard.remove(base.into()) {
             debug_assert_eq!(meta.len, len);
         } else {
             unreachable!("Attempted to deallocate memory that wasn't allocated by this allocator")
@@ -89,7 +131,7 @@ impl VirtualAllocator for RangedBtreeAllocator {
     }
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use kernel_api::memory::VirtualAddress;
     use super::*;

@@ -1,15 +1,12 @@
 #![feature(ptr_metadata)]
 #![feature(try_blocks)]
-#![feature(let_chains)]
 #![feature(split_array)]
 #![feature(slice_ptr_get)]
 #![feature(arbitrary_self_types)]
 #![feature(concat_bytes)]
 #![feature(allocator_api)]
 #![feature(iter_collect_into)]
-#![feature(kernel_memory_addr_access)]
-#![feature(kernel_address_alignment_runtime)]
-#![feature(kernel_ptr)]
+#![feature(step_trait)]
 #![no_main]
 #![no_std]
 
@@ -23,7 +20,8 @@ use alloc::vec::Vec;
 use core::{fmt, mem};
 use core::arch::asm;
 use core::fmt::Write;
-use core::ops::Deref;
+use core::iter::Step;
+use core::ops::{Add, Deref};
 use core::panic::PanicInfo;
 use core::ptr::{NonNull, slice_from_raw_parts};
 use core::time::Duration;
@@ -39,23 +37,21 @@ use uefi::prelude::*;
 use uefi::proto::console::gop::{BltOp, BltPixel, BltRegion, GraphicsOutput, PixelFormat};
 use uefi::proto::console::pointer::Pointer;
 use uefi::proto::console::serial::Serial;
-use uefi::proto::console::text::{Input, Key, ScanCode};
+use uefi::proto::console::text::{Input, Key};
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::fs::SimpleFileSystem;
-use uefi::proto::media::partition::PartitionInfo;
 use uefi::proto::unsafe_protocol;
-use uefi::table::boot::{AllocateType, EventType, MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams, PAGE_SIZE, SearchType, TimerTrigger, Tpl};
+use uefi::table::boot::{AllocateType, MemoryDescriptor, MemoryType, OpenProtocolAttributes, OpenProtocolParams, PAGE_SIZE, SearchType};
 use uefi::table::cfg;
-use uefi::table::runtime::ResetType;
 use uefi_services::system_table;
-
-use kernel_api::memory::{PhysicalAddress, VirtualAddress, Frame as KFrame, Page as KPage};
+use kernel_api::mapping::Ty;
+use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 use kernel_api::ptr::Unique;
 use utils::handoff;
 use utils::handoff::{ColorMask, MemoryMapEntry, Range};
 
 use crate::config::Config;
-use crate::paging::{Frame, Page, TableEntryFlags};
+use crate::paging::{Frame, MapError, Page, PageTable, TableEntryFlags};
 
 mod config;
 mod paging;
@@ -64,6 +60,10 @@ mod elf;
 
 const PAGE_MAP_OFFSET: u64 = 0xffff_8000_0000_0000;
 const PAGE_MAP_OFFSET_LEN: u64 = 2u64.pow(46);
+const SHADOW_MAP_OFFSET: u64 = 0xffff_d000_0000_0000;
+
+#[cfg(not(feature = "kasan"))] const STACK_PAGE_COUNT: usize = 34;
+#[cfg(feature = "kasan")] const STACK_PAGE_COUNT: usize = 34*4;
 
 struct DualWriter<T: Write, U: Write>(T, U);
 
@@ -268,7 +268,6 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let buffer: &[BltPixel] = unsafe {
         // SAFETY: alpha channel is 0 in BMP to comply with UEFI reserved byte requirements
-        // TODO: memory layout of BltPixel and LVGL Color is identical
         &*slice_from_raw_parts(
             bootimage.as_ptr().cast(),
             bootimage.len() / 4,
@@ -305,16 +304,20 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
      */
 
     // FIXME: This shouldn't just be KERNEL_CODE
-    let kernel = elf::load_kernel(&mut kernel, |count, ty| services.allocate_pages(ty, MemoryType::LOADER_DATA, count))
-            .expect("Unable to load kernel");
+    let kernel = elf::load_kernel(&mut kernel, |count, ty| {
+        let addr = services.allocate_pages(ty, MemoryType::LOADER_DATA, count)?;
+        trace!("=== btl a {addr:#018x} -> {:#018x} : kernel executable", addr as usize + count * 4096);
+        uefi::Result::Ok(addr)
+    }).expect("Unable to load kernel");
     let elf::KernelLoadInfo { kernel, mut page_table, address_range, tls: kernel_tls } = kernel;
     let mut address_range = {
-        VirtualAddress::align_down::<4096>(address_range.start)..VirtualAddress::align_up::<4096>(address_range.end)
+        address_range.start.align_down_to_page() .. address_range.end.align_up_to_page()
     };
 
     let kernel_symbols = kernel.exported_symbols();
     debug!("{:x?}", kernel_symbols);
     debug!("kernel tls data = {kernel_tls:x?}");
+    debug!("kernel placed at {address_range:#x?}");
 
     /*let mut testing_fn: u64 = 0;
     for module in &modules {
@@ -398,7 +401,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         let mode_info = fb.2;
         let page_count = (fb.1 + PAGE_SIZE - 1) / PAGE_SIZE;
-        address_range.start = (address_range.start - page_count * PAGE_SIZE).align_down();
+        address_range.start = address_range.start - page_count;
         let fb_start = address_range.start;
 
         let framebuffer_addr = fb.0 as usize;
@@ -409,9 +412,13 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             Page(fb_start.addr.try_into().unwrap()),
             Frame(framebuffer_addr.try_into().unwrap()),
             page_count.try_into().unwrap(),
-	        || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()),
+	        || {
+                let addr = services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ())?;
+                trace!("=== btl a {addr:#018x} -> {:#018x} : fb page tables", addr as usize + 4096);
+                Ok(addr)
+            },
 	        TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE | TableEntryFlags::MMIO,
-	        paging_reasons::FB,
+	        Ty::FB,
         ).ok()?;
 
         let color_format = match mode_info.pixel_format() {
@@ -435,24 +442,131 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     };
 
     let stack = {
-        const STACK_PAGE_COUNT: usize = 32;
-        address_range.start = VirtualAddress::align_down(address_range.start - (STACK_PAGE_COUNT + 1)*4096); // `+ 1` for guard page
+        address_range.start = address_range.start - (STACK_PAGE_COUNT + 1); // `+ 1` for guard page
 
         let Ok(allocation) = services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, STACK_PAGE_COUNT) else {
             panic!("Failed to allocate enough memory to load popcorn2");
         };
+        trace!("=== btl a {allocation:#018x} -> {:#018x} : kernel stack", allocation as usize + STACK_PAGE_COUNT * 4096);
 
         debug!("stack map {:#x} -> {:#x}", address_range.start.addr+4096, allocation);
 
-        page_table.try_map_range_with::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, paging_reasons::KERNEL_STACK)
+        page_table.try_map_range_with::<(), _>(Page((address_range.start.addr+4096).try_into().unwrap()), Frame(allocation), STACK_PAGE_COUNT.try_into().unwrap(), || {
+            let addr = services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ())?;
+            trace!("=== btl a {addr:#018x} -> {:#018x} : stack page table", addr as usize + 4096);
+            Ok(addr)
+        }, TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, Ty::KERNEL_STACK)
                          .unwrap();
 
         handoff::Stack {
-            bottom_virt: KPage::new(address_range.start.aligned()),
-            top_virt: KPage::new(address_range.start.aligned()) + STACK_PAGE_COUNT + 1usize,
-            top_phys: KFrame::new(PhysicalAddress::new(allocation.try_into().unwrap())) + STACK_PAGE_COUNT
+            bottom_virt: address_range.start,
+            top_virt: address_range.start + STACK_PAGE_COUNT + 1usize,
+            top_phys: RawFrame::new(allocation.try_into().unwrap()) + STACK_PAGE_COUNT,
         }
     };
+
+	#[cfg(feature = "kasan")]
+	let mut allocate_shadow_memory = |page_table: &mut PageTable, start: RawPage, end: RawPage, val: u8| {
+		use kernel_api::memory::asan;
+
+		// fixme: this incorrectly unpoisons memory below and above the actual location
+		let shadow_start = {
+			let val = (start.addr >> 3) + asan::SHADOW_MAP_SHIFT;
+			let aligned = VirtualAddress::new(val).align_down_to_page();
+			Page(aligned.addr as u64)
+		};
+		let shadow_end = {
+			let val = (end.addr >> 3) + asan::SHADOW_MAP_SHIFT;
+			let aligned = VirtualAddress::new(val).align_up_to_page();
+			Page(aligned.addr as u64)
+		};
+		debug!("map shadow memory for {shadow_start:x?} to {shadow_end:x?}");
+
+		let page_count = (shadow_end.0 - shadow_start.0) / 4096;
+
+		let Ok(allocation) = services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, page_count as usize) else {
+			panic!("Failed to allocate enough memory for shadow memory");
+		};
+		trace!("=== btl a {allocation:#018x} -> {:#018x} : shadow memory", allocation + 4096*page_count);
+
+		let mut allocate = || -> Result<u64, ()> {
+			let addr = services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ())?;
+			trace!("=== btl a {addr:#018x} -> {:#018x} : shadow memory page table", addr as usize + 4096);
+			Ok(addr)
+		};
+
+		for i in 0..page_count {
+			let page = Page(shadow_start.0 + i*4096);
+			let frame = Frame(Frame(allocation).0 + i*4096);
+
+			match page_table.try_map_page_with(page, frame, &mut allocate, TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, Ty::SHADOW_MEM) {
+				Ok(_) => {
+					unsafe {
+						core::ptr::write_bytes(
+							frame.0 as *mut u8,
+							val,
+							4096,
+						);
+					}
+				},
+				Err(MapError::AlreadyMapped(Ty::SHADOW_MEM)) => {
+					let translated = page_table.translate_page(page).expect("just got an error trying to map over this");
+					let read = unsafe { (translated.0 as *mut u8).read() };
+					if read != val { todo!("{read:#x} -> {val:#x} ({i})") }
+					//services.free_pages(frame.0, 1).unwrap();
+					//trace!("=== btl d {:#018x} -> {:#018x}", frame.0, frame.0 + 4096);
+					warn!("oopsie doopsie we're leaking memory ({:#018x})", frame.0);
+				},
+				e => e.unwrap(),
+			}
+		}
+
+		unsafe {
+			core::ptr::write_bytes(
+				allocation as *mut u8,
+				val,
+				(shadow_end.0 - shadow_start.0) as usize
+			);
+		}
+
+		(shadow_start, allocation)
+	};
+
+    #[cfg(feature = "kasan")] {
+	    use kernel_api::memory::asan;
+
+        // set up shadow memory for stack, framebuffer, and kernel executable
+        let core::ops::Range { start, end } = address_range.clone();
+
+	    let (true_start, allocation) = allocate_shadow_memory(&mut page_table, start, end, 0x00);
+
+	    let stack_shadow_offset = ((stack.bottom_virt.addr >> 3) + asan::SHADOW_MAP_SHIFT) - (true_start.0 as usize);
+	    debug!("set {} bytes of shadow to 0xf4 for stack guard page", 4096 / 8);
+	    debug!("set {} bytes of shadow to 0 for stack memory", STACK_PAGE_COUNT * 4096 / 8);
+	    unsafe {
+		    let stack_guard_shadow = (allocation as *mut u8).byte_add(stack_shadow_offset);
+		    let stack_shadow = stack_guard_shadow.byte_add(4096 / 8);
+		    debug!("stack_shadow = {stack_guard_shadow:#p}");
+		    core::ptr::write_bytes(
+			    stack_guard_shadow,
+			    0xf4,
+			    4096 / 8
+		    );
+		    core::ptr::write_bytes(
+			    stack_shadow,
+			    0,
+			    STACK_PAGE_COUNT * 4096 / 8
+		    );
+	    }
+
+        // set up shadow mem for shadow memory
+	    /*allocate_shadow_memory(
+		    &mut page_table,
+		    asan::SHADOW_MAP_START.align_down_to_page(),
+		    asan::SHADOW_MAP_END.align_up_to_page(),
+		    0xcc,
+	    );*/
+    }
 
     let symbol_map = symbol_map.map(|m| &*Box::leak(m.into_boxed_slice()));
     let init_program = &*Box::leak(init_program.into_boxed_slice());
@@ -460,19 +574,13 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     info!("new stack at {:#x?}", stack);
 
-    // allocate before getting memory map from UEFI
-    let mut kernel_mem_map = {
-        let size = services.memory_map_size();
-        Vec::with_capacity(size.map_size / size.entry_size + 16)
-    };
-
     let mut memory_map_buffer = {
         let size = services.memory_map_size();
         let size = size.map_size + size.entry_size * 16;
         vec![0u8; size]
     };
 
-    // Allocate handoff upfront so it's in the memory map
+    // Allocate handoff upfront so it's in the memory map and gets mapped into kernel page tables
     let handoff = Box::leak(Box::<handoff::Data>::new_uninit());
     debug!("Allocated handoff structure at {handoff:#p} -> {:#p}", handoff.as_ptr().wrapping_offset(1));
     debug!(
@@ -480,6 +588,12 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         memory_map_buffer.as_ptr(),
         memory_map_buffer.as_ptr().wrapping_byte_offset(memory_map_buffer.len() as isize)
     );
+
+	// Allocate mem map buffer upfront so it's in the memory map and gets mapped into kernel page tables
+	let mut kernel_mem_map = {
+		let size = services.memory_map_size();
+		Vec::with_capacity(size.map_size / size.entry_size + 64) // add more capacity because we have a bunch of allocations after this
+	};
     
     let mut memory_map = services.memory_map(
         MemoryDescriptor::align_buf(&mut memory_map_buffer).unwrap()
@@ -488,6 +602,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let stack_ptr: u64;
     unsafe { asm!("mov {}, rsp", out(reg) stack_ptr); }
 
+	// create page map region
     for mem in memory_map.entries().filter(|mem|
             mem.ty == MemoryType::BOOT_SERVICES_CODE ||
             mem.ty == MemoryType::BOOT_SERVICES_DATA ||
@@ -506,10 +621,30 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
             let virt_addr = addr + PAGE_MAP_OFFSET;
             assert!(addr < PAGE_MAP_OFFSET_LEN, "Too much physical memory");
-            page_table.try_map_page_with::<(), _>(Page(virt_addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, paging_reasons::MEM_MAP)
+            page_table.try_map_page_with::<(), _>(Page(virt_addr), Frame(addr), || {
+                let addr = services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ())?;
+                trace!("=== btl a {addr:#018x} -> {:#018x} : page map page table", addr as usize + 4096);
+                Ok(addr)
+            }, TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, Ty::MEM_MAP)
         }).unwrap();
+
+	    #[cfg(feature = "kasan")]
+	    {
+		    let virt_start = VirtualAddress::new((mem.phys_start + PAGE_MAP_OFFSET) as usize).align_up_to_page();
+		    let virt_end = VirtualAddress::new((mem.phys_start + PAGE_MAP_OFFSET) as usize)
+				    .add(mem.page_count as usize * 4096)
+				    .align_down_to_page();
+
+		    allocate_shadow_memory(
+			    &mut page_table,
+			    virt_start,
+			    virt_end,
+			    0x00,
+		    );
+	    }
     }
 
+	// identity map bootloader data and bootloader stack
     for mem in memory_map.entries().filter(|mem|
             mem.ty == MemoryType::LOADER_DATA ||
                     (mem.phys_start..mem.phys_start + mem.page_count * 4096).contains(&stack_ptr)
@@ -518,18 +653,40 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
         // UEFI memory sections are always aligned by firmware
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
-            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, paging_reasons::LOADER)
+            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || {
+                let addr = services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ())?;
+                trace!("=== btl a {addr:#018x} -> {:#018x} : bootloader data page table", addr as usize + 4096);
+                Ok(addr)
+            }, TableEntryFlags::NO_EXECUTE | TableEntryFlags::WRITABLE, Ty::LOADER_DATA)
         }).unwrap();
     }
 
+	// identity map bootloader code
     for mem in memory_map.entries().filter(|mem| mem.ty == MemoryType::LOADER_CODE) {
         debug!("{:x?} ({:#x} -> {:#x}) - {:?}", mem.ty, mem.phys_start, mem.phys_start + mem.page_count * 4096, mem.att);
 
         // UEFI memory sections are always aligned by firmware
         (0..mem.page_count).map(|page_num| mem.phys_start + page_num * 4096).try_for_each(|addr| {
-            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ()), TableEntryFlags::WRITABLE, paging_reasons::LOADER)
+            page_table.try_map_page_with::<(), _>(Page(addr), Frame(addr), || {
+                let addr = services.allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, 1).map_err(|_| ())?;
+                trace!("=== btl a {addr:#018x} -> {:#018x} : bootloader code page table", addr as usize + 4096);
+                Ok(addr)
+            }, TableEntryFlags::WRITABLE, Ty::LOADER_CODE)
         }).unwrap();
     }
+
+	// since the allocations above will have affected the memory map, regenerate it before converting to kernel handoff format
+	{
+		let size = services.memory_map_size();
+		let size = size.map_size + size.entry_size * 16;
+		memory_map_buffer.reserve(
+			size.saturating_sub(memory_map_buffer.capacity())
+		);
+	}
+
+	let mut memory_map = services.memory_map(
+		MemoryDescriptor::align_buf(&mut memory_map_buffer).unwrap()
+	).unwrap();
 
     debug!("Generating kernel memory map");
     let kernel_mem_map = {
@@ -601,14 +758,13 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         memory: handoff::Memory {
             map: kernel_mem_map,
             used: Range(address_range.start, address_range.end),
-            page_table_root: (&page_table).into(),
             stack,
         },
         modules: handoff::Modules {
 
         },
         log: handoff::Logging {
-            symbol_map,
+            symbol_map: symbol_map.map(NonNull::from),
         },
         test: handoff::Testing {
             module_func: unsafe { mem::transmute(1usize) }
@@ -618,6 +774,8 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         init_exec: init_program,
         ramdisk,
     });
+
+	trace!("{handoff:x?}");
 
     let _ = system_table.exit_boot_services();
 
@@ -651,12 +809,12 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             "push 0",
 
             "mov eax, 0xead10ca1",
-            "mov edx, 0xd", // edx:eax = 0xdead10cal
+            "mov edx, 0xd", // edx:eax = 0xdead10ca1 ('dead local')
             "mov ecx, 0xc0000101", // ecx = GSBase MSR
             "wrmsr",
 
             "jmp rsi",
-        in("rcx") stack.top_virt.start().addr, in("rsi") kernel_entry, in("rdi") handoff, options(noreturn))
+        in("rcx") stack.top_virt.addr, in("rsi") kernel_entry, in("rdi") handoff, options(noreturn))
     }
 }
 
@@ -706,7 +864,7 @@ fn panic_handler(info: &PanicInfo) -> ! {
     error!("{}", info);
 
     #[derive(Debug)]
-    struct Counter { count: usize };
+    struct Counter { count: usize }
     impl Write for Counter {
         fn write_str(&mut self, s: &str) -> fmt::Result {
             self.count += s.len();
@@ -787,22 +945,14 @@ fn panic_handler(info: &PanicInfo) -> ! {
 
 mod paging_reasons {
 	use elf::header::program::{SegmentFlags, SegmentType};
+	use kernel_api::mapping::Ty;
 
-	pub const FB: u16 = 1;
-	pub const KERNEL_DATA: u16 = 2;
-	pub const KERNEL_CODE: u16 = 3;
-	pub const KERNEL_TLS: u16 = 4;
-	pub const KERNEL_OTHER: u16 = 5;
-	pub const KERNEL_STACK: u16 = 6;
-	pub const MEM_MAP: u16 = 7;
-	pub const LOADER: u16 = 8;
-
-	pub fn kernel_seg_to_reason(ty: SegmentType, flags: SegmentFlags) -> u16 {
+	pub fn kernel_seg_to_mapping_ty(ty: SegmentType, flags: SegmentFlags) -> Ty {
 		match ty {
-			SegmentType::LOAD if flags.contains(SegmentFlags::Executable) => KERNEL_CODE,
-			SegmentType::LOAD => KERNEL_DATA,
-			SegmentType::TLS => KERNEL_TLS,
-			_ => KERNEL_OTHER,
+			SegmentType::LOAD if flags.contains(SegmentFlags::Executable) => Ty::KERNEL_CODE,
+			SegmentType::LOAD => Ty::KERNEL_DATA,
+			SegmentType::TLS => Ty::KERNEL_TLS,
+			_ => Ty::KERNEL_OTHER,
 		}
 	}
 }

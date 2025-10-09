@@ -1,40 +1,38 @@
-#[allow(unused_imports)] use crate::prelude::*;
-use alloc::collections::VecDeque;
+use alloc::collections::{BTreeSet, VecDeque};
 use alloc::sync::{Arc, Weak};
 use core::fmt::Debug;
-use core::sync::atomic::Ordering;
 use crate::threading::scheduler::Scheduler;
-use crate::threading::{ThreadPointer, WakeReason};
-use event::{Queue, Event};
-use kernel_api::sync::{IrqGuard, Spinlock};
-use crate::threading;
-use crate::threading::{PointerView, ThreadState, ThreadId};
+use crate::threading::ThreadControlBlock;
+use kernel_api::sync::Spinlock;
+use kernel_api::threading::ThreadId;
 
 mod event;
 
 #[derive(Debug)]
 pub struct TicklessRoundRobin {
-	run_queue: Arc<Spinlock<VecDeque<ThreadPointer>>>,
-	event_queue: Queue,
+	run_queue: Arc<Spinlock<VecDeque<ThreadControlBlock>>>,
+	blocked_list: BTreeSet<ThreadControlBlock>,
+	//event_queue: Queue,
 }
 
 #[derive(Debug)]
 pub struct Injector {
-	queue: Weak<Spinlock<VecDeque<ThreadPointer>>>
+	queue: Weak<Spinlock<VecDeque<ThreadControlBlock>>>
 }
 
 impl super::Injector for Injector {
-	fn enqueue(&self, thread: ThreadPointer) {
+	fn enqueue(&self, thread: ThreadControlBlock) -> Result<(), ThreadControlBlock> {
 		let queue = match self.queue.upgrade() {
 			Some(queue) => queue,
 			None => {
 				warn!("Attempted to inject into dead task queue");
-				return;
+				return Err(thread);
 			},
 		};
 		
 		queue.lock()
 				.push_back(thread);
+		Ok(())
 	}
 }
 
@@ -46,7 +44,8 @@ impl Scheduler for TicklessRoundRobin {
 	fn new() -> (Self, Box<dyn super::Injector>, Arc<dyn super::Stealer>) where Self: Sized {
 		let this = Self {
 			run_queue: Arc::new(Spinlock::new(VecDeque::new())),
-			event_queue: Queue::new(),
+			blocked_list: BTreeSet::new(),
+			//event_queue: Queue::new(),
 		};
 		let queue = Arc::downgrade(&this.run_queue);
 		
@@ -57,24 +56,38 @@ impl Scheduler for TicklessRoundRobin {
 		)
 	}
 
-	fn get_next_thread_(&mut self) -> Option<ThreadPointer> {
+	fn get_next_thread_(&mut self) -> Option<ThreadControlBlock> {
 		self.run_queue.lock().pop_front()
 	}
 
-	fn switch_thread_post(&mut self, old_thread: ThreadPointer) {
-		let old_state = old_thread.tcb_ref().state.load(Ordering::SeqCst);
-		debug_assert!(!old_state.is_running());
-		match old_state {
-			ThreadState::Parked(_) | ThreadState::Dead => threading::move_to_global_parking_lot(old_thread),
-			ThreadState::Ready | ThreadState::JustUnparked(_) => self.enqueue(old_thread),
-			ThreadState::Running => unreachable!(),
+	fn put_thread(&mut self, old_thread: ThreadControlBlock) {
+		let state = &old_thread.state;
+		debug_assert!(!state.running());
+		
+		if state.runnable() {
+			self.enqueue(old_thread);
+		} else {
+			self.blocked_list.insert(old_thread);
 		}
 	}
 
-	fn enqueue(&mut self, thread: ThreadPointer) {
+	fn on_thread_exit(&mut self, tid: ThreadId) {
+		let _ = self.blocked_list.remove(&tid);
+	}
+
+	fn enqueue(&mut self, thread: ThreadControlBlock) {
 		self.run_queue.lock().push_back(thread);
 	}
 
+	fn unpark(&mut self, thread_id: ThreadId) {
+		if let Some(tcb) = self.blocked_list.take(&thread_id) {
+			self.run_queue.lock().push_back(tcb);
+		} else {
+			warn!("attempted to unpark non-existent thread {:?}", thread_id);
+		}
+	}
+
+	/*
 	fn unpark(&mut self, thread_id: ThreadId, reason: WakeReason) -> Result<(), ()> {
 		debug!("scheduler local unpark of {thread_id:?} for {reason:?}");
 		let guard = percpu_v2!(current_thread).read();
@@ -94,4 +107,5 @@ impl Scheduler for TicklessRoundRobin {
 		threading::move_to_global_parking_lot(thread);
 		Ok(())
 	}
+	*/
 }

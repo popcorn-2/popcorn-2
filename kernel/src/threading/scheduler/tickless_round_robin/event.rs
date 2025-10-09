@@ -1,7 +1,8 @@
-#[allow(unused_imports)] use crate::prelude::*;
+#![allow(unused)]
+
 use core::cmp::Ordering;
 use kernel_api::time::Instant;
-use crate::threading::ThreadId;
+use kernel_api::threading::ThreadId;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Event {

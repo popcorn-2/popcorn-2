@@ -1,6 +1,3 @@
-use crate::prelude::*;
-use core::cell::OnceCell;
-
 /// An interrupt vector on a core
 /// 
 /// - RISC-V: `mcause` value
@@ -8,6 +5,7 @@ use core::cell::OnceCell;
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Vector(pub usize);
 
+/*
 /// An external interrupt line
 /// 
 /// ACPI GSI
@@ -21,3 +19,4 @@ trait LocalInterruptController {
 struct LocalInterruptControllerMeta {
 	
 }
+*/

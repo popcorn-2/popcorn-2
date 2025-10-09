@@ -1,312 +1,662 @@
-use core::mem::MaybeUninit;
-use crate::ptr::impls;
-use alloc::boxed::Box;
+use crate::ptr::{impls, LocalUser, PointerError};
 use core::{cmp, fmt};
 use core::fmt::Formatter;
-use core::ptr::NonNull;
-use log::debug;
-use crate::memory::r#virtual::address_space::{AddressSpace, AddressSpaceInner};
+use core::mem::{ManuallyDrop, MaybeUninit};
+use core::ptr::addr_of;
+use crate::address_space::AddressSpace;
+use crate::dbg;
+use crate::mapping::Mapping;
+use crate::memory::{VirtualAddress, PAGE_SIZE};
 
-#[derive(Debug)]
-pub enum PointerError {
-	InvalidAddress,
+/// A pointer to a potentially invalid address, tied to a specific address space
+///
+/// While the pointer may safely point to an invalid or unaligned address, in the case that
+/// it points to a valid address and is read from, then it is unsound for the address to not
+/// hold a valid bit-pattern for the type `T`.
+///
+/// For example, it is always sound to create a `User<*const u8>` regardless of the address it points
+/// to, and always safe to call `read()` on it, but it would be unsound to create a
+/// `User<*const bool>`if it's not guaranteed that the pointed value is either `1` or `0`.
+///
+/// Additionally, to make the API require less `unsafe` for common cases, `User<*mut T>` is always
+/// safe to construct, with the additional requirement that it becomes write-only.
+// todo: maybe don't allow access to kernel addresses
+#[derive(Clone, Copy)]
+pub struct User<'a, T> {
+	ptr: T,
+	address_space: Option<&'a AddressSpace>,
 }
 
-//#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
-#[derive(Clone, Copy, Debug)]
-pub struct User<T>(T, NonNull<AddressSpaceInner>);
+// SAFETY: All access goes through checked functions which ensure the pointer is valid
+// to dereference in the current address space. Therefore, when used on a different thread
+// the pointer will either be fine to use (as long as the type it points to is safe to
+// read from another thread) or it will return an error
+unsafe impl<T: Send + ?Sized> Send for User<'_, *mut T> {}
 
-impl<T: fmt::Pointer> fmt::Pointer for User<T> {
+// SAFETY: see above comment on `*mut T`
+unsafe impl<T: Send + ?Sized> Send for User<'_, *const T> {}
+
+impl<T: fmt::Pointer> fmt::Pointer for User<'_, T> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-		self.0.fmt(f)
+		fmt::Pointer::fmt(&self.ptr, f)
 	}
 }
 
-macro_rules! user_ptr_impl_unsized {
-	($ty: ident) => {
-		pub fn new_in(from: * $ty T, address_space: &AddressSpace) -> Self {
-			Self(from, address_space.as_ptr())
+impl<T: fmt::Pointer> fmt::Debug for User<'_, T> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+		fmt::Pointer::fmt(&self.ptr, f)
+	}
+}
+
+/// Produces a null pointer
+///
+/// See [`null_mut()`] for more details
+impl<T: core::ptr::Thin + ?Sized> Default for User<'_, *mut T> {
+	fn default() -> Self {
+		null_mut()
+	}
+}
+
+/// Produces a null pointer
+///
+/// See [`null()`] for more details
+impl<T: core::ptr::Thin + ?Sized> Default for User<'_, *const T> {
+	fn default() -> Self {
+		null()
+	}
+}
+
+/// Produces a null [`User<*mut T>`]
+///
+/// This will always return an error when writing to
+pub const fn null_mut<T: core::ptr::Thin + ?Sized>() -> User<'static, *mut T> {
+	User {
+		ptr: core::ptr::null_mut(),
+		address_space: None,
+	}
+}
+
+/// Produces a null [`User<*const T>`]
+///
+/// This will always return an error when reading from
+pub const fn null<T: core::ptr::Thin + ?Sized>() -> User<'static, *const T> {
+	User {
+		ptr: core::ptr::null(),
+		address_space: None,
+	}
+}
+
+/// Pointer equality is by address space, and [`<*mut T>::eq`].
+impl<T: ?Sized> PartialEq for User<'_, *mut T> {
+	#[expect(ambiguous_wide_pointer_comparisons, reason = "want same behaviour as `PartialEq` on raw pointer")]
+	fn eq(&self, other: &Self) -> bool {
+		let ptr_eq = self.ptr == other.ptr;
+		let address_space_eq = self.address_space.is_some_and(
+			|this| other.address_space.is_some_and(|other| AddressSpace::ptr_eq(this, other))
+		);
+		ptr_eq && address_space_eq
+	}
+}
+
+/// Pointer equality is by address space, and [`<*const T>::eq`].
+impl<T: ?Sized> PartialEq for User<'_, *const T> {
+	#[expect(ambiguous_wide_pointer_comparisons, reason = "want same behaviour as `PartialEq` on raw pointer")]
+	fn eq(&self, other: &Self) -> bool {
+		let ptr_eq = self.ptr == other.ptr;
+		let address_space_eq = self.address_space.is_some_and(
+			|this| other.address_space.is_some_and(|other| AddressSpace::ptr_eq(this, other))
+		);
+		ptr_eq && address_space_eq
+	}
+}
+
+/*
+impl<T: ?Sized> PartialOrd for User<'_, *mut T> {
+	#[expect(ambiguous_wide_pointer_comparisons, reason = "want same behaviour as `PartialOrd` on raw pointer")]
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		if self.address_space != other.address_space { None }
+		else { self.ptr.partial_cmp(&other.ptr) }
+	}
+}
+
+impl<T: ?Sized> PartialOrd for User<'_, *const T> {
+	#[expect(ambiguous_wide_pointer_comparisons, reason = "want same behaviour as `PartialOrd` on raw pointer")]
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		if self.address_space != other.address_space { None }
+		else { self.ptr.partial_cmp(&other.ptr) }
+	}
+}
+*/
+
+impl<T: ?Sized> Eq for User<'_, *const T> {}
+impl<T: ?Sized> Eq for User<'_, *mut T> {}
+
+impl<'a, T: ?Sized> User<'a, *const T> {
+	/// Creates a new `User<*const T>` with the provided address tied to the provided address space
+	///
+	/// # Safety
+	///
+	/// `addr`, if valid, must point to a valid bit pattern for `T` in the current address space.
+	/// This means that in almost all cases, it is unsound to create a `User<*const T>` where `T`
+	/// has a niche.
+	///
+	/// For all types with no invalid bit-patterns (i.e. all numeric types) it is sound to create
+	/// a `User<*const T>`.
+	pub(crate) unsafe fn new(ptr: *const T, address_space: &'a AddressSpace) -> Self where T: Sized {
+		Self {
+			ptr,
+			address_space: Some(address_space),
 		}
+	}
+
+	/// Returns `true` if the pointer has either a null address or address space
+	pub const fn is_null(&self) -> bool {
+		self.ptr.is_null() || self.address_space.is_none()
+	}
+
+	/// Adds a signed offset to a pointer.
+	///
+	/// `count` is in units of T; e.g., a `count` of 3 represents a pointer
+	/// offset of `3 * size_of::<T>()` bytes.
+	///
+	/// # Safety
+	///
+	/// See safety requirements for [`<*const T>::offset()`]
+	pub const unsafe fn offset(self, count: isize) -> Self where T: Sized {
+		Self {
+			// SAFETY: this function has the same safety requirements as `<*const T>::offset()`
+			ptr: unsafe { self.ptr.offset(count) },
+			address_space: self.address_space,
+		}
+	}
+
+	/// Adds a signed offset in bytes to a pointer.
+	///
+	/// # Safety
+	///
+	/// See safety requirements for [`<*const T>::byte_offset()`]
+	pub const unsafe fn byte_offset(self, count: isize) -> Self {
+		Self {
+			// SAFETY: this function has the same safety requirements as `<*const T>::byte_offset()`
+			ptr: unsafe { self.ptr.byte_offset(count) },
+			address_space: self.address_space,
+		}
+	}
+
+	/// Adds an offset to a pointer.
+	///
+	/// `count` is in units of T; e.g., a `count` of 3 represents a pointer
+	/// offset of `3 * size_of::<T>()` bytes.
+	///
+	/// # Safety
+	///
+	/// See safety requirements for [`<*const T>::add()`]
+	pub const unsafe fn add(self, count: usize) -> Self where T: Sized {
+		Self {
+			// SAFETY: this function has the same safety requirements as `<*const T>::add()`
+			ptr: unsafe { self.ptr.add(count) },
+			address_space: self.address_space,
+		}
+	}
+
+	/// Adds an offset in bytes to a pointer.
+	///
+	/// # Safety
+	///
+	/// See safety requirements for [`<*const T>::byte_add()`]
+	pub const unsafe fn byte_add(self, count: usize) -> Self {
+		Self {
+			// SAFETY: this function has the same safety requirements as `<*const T>::byte_add()`
+			ptr: unsafe { self.ptr.byte_add(count) },
+			address_space: self.address_space,
+		}
+	}
+
+	/// Subtracts an offset from a pointer.
+	///
+	/// `count` is in units of T; e.g., a `count` of 3 represents a pointer
+	/// offset of `3 * size_of::<T>()` bytes.
+	///
+	/// # Safety
+	///
+	/// See safety requirements for [`<*const T>::sub()`]
+	pub const unsafe fn sub(self, count: usize) -> Self where T: Sized {
+		Self {
+			// SAFETY: this function has the same safety requirements as `<*const T>::sub()`
+			ptr: unsafe { self.ptr.sub(count) },
+			address_space: self.address_space,
+		}
+	}
+
+	/// Subtracts an offset in bytes from a pointer.
+	///
+	/// # Safety
+	///
+	/// See safety requirements for [`<*const T>::byte_sub()`]
+	pub const unsafe fn byte_sub(self, count: usize) -> Self {
+		Self {
+			// SAFETY: this function has the same safety requirements as `<*const T>::byte_sub()`
+			ptr: unsafe { self.ptr.byte_sub(count) },
+			address_space: self.address_space,
+		}
+	}
+
+	/*
+	/// Tries to read the value pointed to by the pointer
+	///
+	/// # Errors
+	///
+	/// If the pointer is invalid due to unmapped memory or similar, returns [`PointerError`]
+	// todo: do we need the `Copy` bound
+	pub fn read(self) -> Result<T, PointerError> where T: Sized + Copy {
+		assert!(
+			crate::bridge::address_space::is_current(self.address_space),
+			"Address space of User<*> should match current address space",
+		);
 		
-		pub fn is_null(self) -> bool {
-		    self.0.is_null()
-	    }
-
-	    pub fn cast<U>(self) -> User<* $ty U> {
-		    User(self.0.cast(), self.1)
-	    }
-
-	    pub unsafe fn byte_offset(self, count: isize) -> Self {
-		    User(self.0.byte_offset(count), self.1)
-	    }
-		
-		pub fn addr(self) -> usize {
-			self.0.addr()
-		}
-
-	    /*pub unsafe fn wrapping_byte_offset(self, count: isize) -> Self {
-		    User(self.0.wrapping_byte_offset(count))
-	    }
-
-	    pub unsafe fn byte_offset_from(self, origin: Self) -> isize {
-		    self.0.byte_offset_from(origin.0)
-	    }*/
-	};
-}
-
-macro_rules! user_ptr_impl_sized {
-    ($ty: ident) => {
-	    /*pub unsafe fn offset(self, count: isize) -> Self {
-		    User(self.0.offset(count))
-	    }
-
-	    pub unsafe fn wrapping_offset(self, count: isize) -> Self {
-		    User(self.0.wrapping_offset(count))
-	    }
-
-	    pub unsafe fn offset_from(self, origin: Self) -> isize {
-		    self.0.offset_from(origin.0)
-	    }*/
-
-		pub fn align_offset(self, align: usize) -> usize {
-			self.0.align_offset(align)
-		}
-		
-		pub fn is_aligned_to(&self, align: usize) -> bool {
-			self.0.is_aligned_to(align)
-		}
-		
-	    /// # Safety
-	    /// 
-	    /// The memory pointed to must be valid for a read of `T`
-	    pub unsafe fn read(self) -> Result<T, PointerError> {
-		    unsafe {
-			    assert!(
-				    crate::bridge::memory::__popcorn_check_address_space(self.1),
-				    "Address space of User<*> should match current address space",
-			    );
-		    }
-		    match size_of::<T>() {
-			    1 => unsafe {
-				    impls::checked_read_1(self.0.cast())
-				        .map(|val| (&val as *const MaybeUninit<u8>).cast::<T>().read())
-			    },
-			    2 => unsafe {
-				    impls::checked_read_2(self.0.cast())
-				        .map(|val| (&val as *const MaybeUninit<u16>).cast::<T>().read())
-			    },
-			    4 => unsafe {
-				    impls::checked_read_4(self.0.cast())
-				        .map(|val| (&val as *const MaybeUninit<u32>).cast::<T>().read())
-			    },
-			    #[cfg(target_arch = "x86_64")] 8 => unsafe {
-				    impls::checked_read_8(self.0.cast())
-				        .map(|val| (&val as *const MaybeUninit<u64>).cast::<T>().read())
-			    },
-			    size => {
-				    let mut buf = MaybeUninit::<T>::uninit();
-				    impls::checked_memcpy(self.0.cast(), buf.as_mut_ptr().cast(), size)
-				        .map(|_| unsafe { buf.assume_init() })
-			    }
-		    }.ok_or(PointerError::InvalidAddress)
-	    }
-
-	    /// # Safety
-	    ///
-	    /// The memory pointed to must be valid for a read of `T`
-	    pub unsafe fn read_unaligned(self) -> Result<T, PointerError> {
-		    unsafe {
-			    assert!(
-				    crate::bridge::memory::__popcorn_check_address_space(self.1),
-				    "Address space of User<*> should match current address space",
-			    );
-		    }
-		    todo!()
-	    }
-
-	    /// # Safety
-	    ///
-	    /// The memory pointed to must be valid for a read of `T`
-	    /// 
-	    /// `dest` must be valid to write to as defined by [`core::ptr::write`]
-	    pub unsafe fn copy_to_nonoverlapping(self, dest: *mut T, count: usize) -> Result<(), PointerError> {
-		    unsafe {
-			    assert!(
-				    crate::bridge::memory::__popcorn_check_address_space(self.1),
-				    "Address space of User<*> should match current address space",
-			    );
-		    }
-		    impls::checked_memcpy(self.0.cast(), dest.cast(), size_of::<T>() * count).ok_or(PointerError::InvalidAddress)
-	    }
-
-	    pub fn copy_to_user(self, dest: User<*mut T>, _count: usize) -> Result<(), PointerError> {
-		    unsafe {
-			    assert!(
-				    crate::bridge::memory::__popcorn_check_address_space(self.1),
-				    "Address space of User<*> should match current address space",
-			    );
-			    assert!(
-				    crate::bridge::memory::__popcorn_check_address_space(dest.1),
-				    "Address space of User<*> should match current address space",
-			    );
-		    }
-		    todo!()
-	    }
-    };
-}
-
-macro_rules! user_ptr_impl_slice {
-    ($ty: ident) => {
-	    /// # Safety
-	    ///
-	    /// The memory pointed to must be valid for a read of `[T]`
-	    pub unsafe fn read_to_buffer(self) -> Result<Box<[T]>, PointerError> {
-		    unsafe {
-			    assert!(
-				    crate::bridge::memory::__popcorn_check_address_space(self.1),
-				    "Address space of User<*> should match current address space",
-			    );
-		    }
-		    let len = self.0.len();
-		    let mut buf = Box::new_uninit_slice(len);
-		    self.cast::<T>().copy_to_nonoverlapping(buf.as_mut_ptr().cast(), len)
-		        .map(|_| buf.assume_init())
-	    }
-	    
-	    pub fn is_empty(self) -> bool {
-		    self.len() == 0
-	    }
-	    
-	    pub fn len(self) -> usize {
-		    self.0.len()
-	    }
-    };
-}
-
-impl<T: ?Sized> User<*const T> {
-	user_ptr_impl_unsized!(const);
-
-	pub fn cast_mut(self) -> User<*mut T> {
-		User(self.0.cast_mut(), self.1)
-	}
-}
-
-impl<T: ?Sized> User<*mut T> {
-	user_ptr_impl_unsized!(mut);
-
-	pub fn cast_const(self) -> User<*const T> {
-		User(self.0.cast_const(), self.1)
-	}
-}
-
-impl<T> User<*const [T]> {
-	pub fn as_ptr(self) -> User<*const T> {
-		User(self.0.as_ptr(), self.1)
-	}
-}
-
-impl<T> User<*mut [T]> {
-	pub fn as_mut_ptr(self) -> User<*const T> {
-		User(self.0.as_mut_ptr(), self.1)
-	}
-}
-
-impl<T> User<*const T> {
-	user_ptr_impl_sized!(const);
-
-	pub fn null() -> Self {
-		User(core::ptr::null(), NonNull::dangling())
-	}
-}
-
-impl<T> User<*mut T> {
-	user_ptr_impl_sized!(mut);
-
-	pub fn null_mut() -> Self {
-		User(core::ptr::null_mut(), NonNull::dangling())
-	}
-
-	pub fn write(self, val: T) -> Result<(), PointerError> {
-		unsafe {
-			assert!(
-				crate::bridge::memory::__popcorn_check_address_space(self.1),
-				"Address space of User<*> should match current address space",
-			);
-		}
 		match size_of::<T>() {
 			1 => unsafe {
-				impls::checked_write_1(self.0.cast(), (&val as *const T).cast::<MaybeUninit<u8>>().read())
+				impls::checked_read_1(self.ptr.cast())
+						.map(|val| (&val as *const MaybeUninit<u8>).cast::<T>().read())
 			},
 			2 => unsafe {
-				impls::checked_write_2(self.0.cast(), (&val as *const T).cast::<MaybeUninit<u16>>().read())
+				impls::checked_read_2(self.ptr.cast())
+						.map(|val| (&val as *const MaybeUninit<u16>).cast::<T>().read())
 			},
 			4 => unsafe {
-				impls::checked_write_4(self.0.cast(), (&val as *const T).cast::<MaybeUninit<u32>>().read())
+				impls::checked_read_4(self.ptr.cast())
+						.map(|val| (&val as *const MaybeUninit<u32>).cast::<T>().read())
 			},
-			#[cfg(target_arch = "x86_64")] 8 => unsafe {
-				impls::checked_write_8(self.0.cast(), (&val as *const T).cast::<MaybeUninit<u64>>().read())
+			#[cfg(target_pointer_width = "64")] 8 => unsafe {
+				impls::checked_read_8(self.ptr.cast())
+						.map(|val| (&val as *const MaybeUninit<u64>).cast::<T>().read())
 			},
 			size => {
-				impls::checked_memcpy((&val as *const T).cast(), self.0.cast(), size)
+				let mut buf = MaybeUninit::<T>::uninit();
+				impls::checked_memcpy(self.ptr.cast(), buf.as_mut_ptr().cast(), size)
+						.map(|_| unsafe { buf.assume_init() })
 			}
-		}.ok_or(PointerError::InvalidAddress)
-	}
+		}.ok_or(PointerError {})
+	}*/
 
-	pub fn write_unaligned(self, _val: T) -> Result<(), PointerError> {
-		unsafe {
-			assert!(
-				crate::bridge::memory::__popcorn_check_address_space(self.1),
-				"Address space of User<*> should match current address space",
-			);
-		}
+	pub fn read_other_address_space(self) -> Result<T, PointerError> where T: Sized + Copy {
 		todo!()
 	}
 
+	/// Casts a pointer to another type
+	///
 	/// # Safety
 	///
-	/// `src` must be valid for a read of `T` as defined by [`core::ptr::read`]
-	pub fn copy_from_nonoverlapping(self, src: *const T, count: usize) -> Result<(), PointerError> {
-		unsafe {
-			assert!(
-				crate::bridge::memory::__popcorn_check_address_space(self.1),
-				"Address space of User<*> should match current address space",
-			);
+	/// If `self` has a valid address, then it must point to a valid bit pattern for `U` in the current
+	/// address space.
+	/// This means that in almost all cases, it is unsound to cast to a `User<*const U>` where `U`
+	/// has a niche.
+	///
+	/// For all types with no invalid bit-patterns (i.e. all numeric types) it is sound to cast to
+	/// a `User<*const U>`.
+	pub const unsafe fn cast<U>(self) -> User<'a, *const U> {
+		User {
+			ptr: self.ptr.cast(),
+			address_space: self.address_space,
 		}
-		impls::checked_memcpy( src.cast(), self.0.cast(),size_of::<T>() * count).ok_or(PointerError::InvalidAddress)
 	}
 
-	pub fn copy_from_user(self, src: User<*const T>, count: usize) -> Result<(), PointerError> {
-		src.copy_to_user(self, count)
-	}
-}
-
-impl<T> User<*const [T]> {
-	user_ptr_impl_slice!(const);
-}
-
-impl<T> User<*mut [T]> {
-	user_ptr_impl_slice!(mut);
-
-	pub fn write_from_buffer(self, val: &[T]) -> Result<usize, PointerError> {
-		unsafe {
-			assert!(
-				crate::bridge::memory::__popcorn_check_address_space(self.1),
-				"Address space of User<*> should match current address space",
-			);
+	/// Casts to a writable pointer
+	pub const fn cast_mut(self) -> User<'a, *mut T> {
+		User {
+			ptr: self.ptr.cast_mut(),
+			address_space: self.address_space,
 		}
-		let len = cmp::min(self.0.len(), val.len());
+	}
 
-		debug!("copy {} bytes from {:p} to {:p}", len * size_of::<T>(), self.0, val.as_ptr());
+	pub fn is_aligned_to(self, align: usize) -> bool {
+		self.ptr.is_aligned_to(align)
+	}
 
-		self.cast::<u8>().copy_from_nonoverlapping(val.as_ptr().cast(), len * size_of::<T>())?;
-		Ok(len)
+	pub fn addr(self) -> VirtualAddress {
+		VirtualAddress::new(self.ptr.addr())
+	}
+
+	pub fn align_offset(self, align: usize) -> usize where T: Sized {
+		self.ptr.align_offset(align)
 	}
 }
 
-pub fn slice_from_raw_parts<T>(data: User<*const T>, len: usize) -> User<*const [T]> {
-	User(core::ptr::slice_from_raw_parts(data.0, len), data.1)
+impl<'a, T: ?Sized> User<'a, *mut T> {
+	/// Creates a new `User<*mut T>` with the provided address tied to the provided address space
+	pub(crate) fn new(ptr: *mut T, address_space: &'a AddressSpace) -> Self where T: Sized {
+		Self {
+			ptr,
+			address_space: Some(address_space),
+		}
+	}
+
+	/// Returns `true` if the pointer has either a null address or address space
+	pub const fn is_null(&self) -> bool {
+		self.ptr.is_null() || self.address_space.is_none()
+	}
+
+	/// Adds a signed offset to a pointer.
+	///
+	/// `count` is in units of T; e.g., a `count` of 3 represents a pointer
+	/// offset of `3 * size_of::<T>()` bytes.
+	///
+	/// # Safety
+	///
+	/// See safety requirements for [`<*mut T>::offset()`]
+	pub const unsafe fn offset(self, count: isize) -> Self where T: Sized {
+		Self {
+			ptr: self.ptr.offset(count),
+			address_space: self.address_space,
+		}
+	}
+
+	/// Adds a signed offset in bytes to a pointer.
+	///
+	/// # Safety
+	///
+	/// See safety requirements for [`<*mut T>::byte_offset()`]
+	pub const unsafe fn byte_offset(self, count: isize) -> Self {
+		Self {
+			ptr: self.ptr.byte_offset(count),
+			address_space: self.address_space,
+		}
+	}
+
+	/// Adds an offset to a pointer.
+	///
+	/// `count` is in units of T; e.g., a `count` of 3 represents a pointer
+	/// offset of `3 * size_of::<T>()` bytes.
+	///
+	/// # Safety
+	///
+	/// See safety requirements for [`<*mut T>::add()`]
+	pub const unsafe fn add(self, count: usize) -> Self where T: Sized {
+		Self {
+			ptr: self.ptr.add(count),
+			address_space: self.address_space,
+		}
+	}
+
+	/// Adds an offset in bytes to a pointer.
+	///
+	/// # Safety
+	///
+	/// See safety requirements for [`<*mut T>::byte_add()`]
+	pub const unsafe fn byte_add(self, count: usize) -> Self {
+		Self {
+			ptr: self.ptr.byte_add(count),
+			address_space: self.address_space,
+		}
+	}
+
+	/// Subtracts an offset from a pointer.
+	///
+	/// `count` is in units of T; e.g., a `count` of 3 represents a pointer
+	/// offset of `3 * size_of::<T>()` bytes.
+	///
+	/// # Safety
+	///
+	/// See safety requirements for [`<*mut T>::sub()`]
+	pub const unsafe fn sub(self, count: usize) -> Self where T: Sized {
+		Self {
+			ptr: self.ptr.sub(count),
+			address_space: self.address_space,
+		}
+	}
+
+	/// Subtracts an offset in bytes from a pointer.
+	///
+	/// # Safety
+	///
+	/// See safety requirements for [`<*mut T>::byte_sub()`]
+	pub const unsafe fn byte_sub(self, count: usize) -> Self {
+		Self {
+			ptr: self.ptr.byte_sub(count),
+			address_space: self.address_space,
+		}
+	}
+
+	/*
+	/// Tries to write to the value pointed to by the pointer
+	///
+	/// # Errors
+	///
+	/// If the pointer is invalid due to unmapped memory or similar, returns [`PointerError`]
+	pub fn write(self, value: T) -> Result<(), PointerError> where T: Sized {
+		trace!("direct write <val> -> {:#p}", self);
+		
+		assert!(
+			crate::bridge::address_space::is_current(self.address_space),
+			"Address space of User<*> should match current address space",
+		);
+			
+		match size_of::<T>() {
+			1 => unsafe {
+				impls::checked_write_1(self.ptr.cast(), (&value as *const T).cast::<MaybeUninit<u8>>().read())
+			},
+			2 => unsafe {
+				impls::checked_write_2(self.ptr.cast(), (&value as *const T).cast::<MaybeUninit<u16>>().read())
+			},
+			4 => unsafe {
+				impls::checked_write_4(self.ptr.cast(), (&value as *const T).cast::<MaybeUninit<u32>>().read())
+			},
+			#[cfg(target_pointer_width = "64")] 8 => unsafe {
+				impls::checked_write_8(self.ptr.cast(), (&value as *const T).cast::<MaybeUninit<u64>>().read())
+			},
+			size => {
+				impls::checked_memcpy((&value as *const T).cast(), self.ptr.cast(), size)
+			}
+		}.ok_or(PointerError {})
+	}*/
+
+	pub fn write_other_address_space(self, value: T) -> Result<(), PointerError> where T: Sized {
+		unsafe { self.copy_from_other_address_space(addr_of!(value), 1)? };
+		core::mem::forget(value);
+		Ok(())
+	}
+
+	pub unsafe fn copy_from_other_address_space(self, start: *const T, count: usize) -> Result<(), PointerError> where T: Sized {
+		let Some(address_space) = self.address_space else {
+			return Err(PointerError {});
+		};
+
+		let dest_start = self.ptr.cast::<u8>();
+		let mut chunk_start = dest_start;
+		let end = unsafe { self.ptr.offset(count as isize).cast::<u8>() };
+
+		loop {
+			let chunk_end = {
+				let chunk_page_end = VirtualAddress::from(chunk_start).align_down_to_page() + 1usize;
+				dbg!(chunk_start, chunk_page_end);
+				if chunk_page_end.addr >= end.addr() {
+					end
+				} else {
+					chunk_page_end.as_ptr()
+				}
+			};
+
+			let physical = crate::bridge::address_space::user::translate_addr(address_space, VirtualAddress::from(chunk_start))
+					.ok_or(PointerError {})?;
+			let physical = physical.to_virtual().as_ptr();
+
+			let chunk_size = unsafe { chunk_end.offset_from_unsigned(chunk_start) };
+
+			unsafe {
+				let offset = chunk_start.offset_from(dest_start);
+				core::ptr::copy_nonoverlapping(
+					start.cast::<u8>().byte_offset(offset),
+					physical,
+					chunk_size,
+				);
+			}
+
+			if chunk_end == end { break; }
+			else { chunk_start = chunk_end; }
+		}
+
+		Ok(())
+	}
+
+	/// Casts a pointer to another type
+	pub const fn cast<U>(self) -> User<'a, *mut U> {
+		User {
+			ptr: self.ptr.cast(),
+			address_space: self.address_space,
+		}
+	}
+
+	/// Casts to a readable pointer
+	///
+	/// # Safety
+	///
+	/// `addr`, if valid, must point to a valid bit pattern for `T` in the current address space.
+	/// This means that in almost all cases, it is unsound to cast to a `User<*const T>` where `T`
+	/// has a niche.
+	///
+	/// For all types with no invalid bit-patterns (i.e. all numeric types) it is sound to cast to
+	/// a `User<*const T>`.
+	pub const unsafe fn cast_const(self) -> User<'a, *const T> {
+		User {
+			ptr: self.ptr.cast_const(),
+			address_space: self.address_space,
+		}
+	}
+
+	pub fn is_aligned_to(self, align: usize) -> bool {
+		self.ptr.is_aligned_to(align)
+	}
+
+	pub fn addr(self) -> VirtualAddress {
+		VirtualAddress::new(self.ptr.addr())
+	}
+
+	pub fn align_offset(self, align: usize) -> usize where T: Sized {
+		self.ptr.align_offset(align)
+	}
+}
+
+impl<'a, T> User<'a, *const [T]> {
+	pub const fn len(self) -> usize { self.ptr.len() }
+	
+	pub const fn is_empty(self) -> bool { self.ptr.is_empty() }
+	
+	pub const fn as_ptr(self) -> User<'a, *const T> {
+		User {
+			ptr: self.ptr.as_ptr(),
+			address_space: self.address_space,
+		}
+	}
+
+	/*
+	pub fn read_to_box(self) -> Result<Box<[T]>, PointerError> {
+		let mut buf = Box::new_uninit_slice(self.len());
+		let size = self.read_to_buffer(&mut buf)?;
+		assert_eq!(size, buf.len(), "box should be big enough");
+		Ok(unsafe { buf.assume_init() })
+	}
+	
+	pub fn read_to_buffer(self, buffer: &mut [MaybeUninit<T>]) -> Result<usize, PointerError> {
+		assert!(
+			crate::bridge::address_space::is_current(self.address_space),
+			"Address space of User<*> should match current address space",
+		);
+		
+		let count = min(buffer.len(), self.len());
+		
+		impls::checked_memcpy(
+			self.ptr.cast(),
+			buffer.as_mut_ptr().cast(),
+			size_of::<T>() * count
+		).ok_or(PointerError {})?;
+		
+		Ok(count)
+	}*/
+
+	/*
+	pub fn read_to_buffer_other_address_space(self, buffer: &mut [MaybeUninit<T>]) -> Result<usize, PointerError> {
+		todo!()
+	}*/
+}
+
+impl<'a, T> User<'a, *mut [T]> {
+	pub const fn len(self) -> usize { self.ptr.len() }
+
+	pub const fn is_empty(self) -> bool { self.ptr.is_empty() }
+
+	pub const fn as_mut_ptr(self) -> User<'a, *mut T> {
+		User {
+			ptr: self.ptr.as_mut_ptr(),
+			address_space: self.address_space,
+		}
+	}
+
+	/*
+	pub fn write_from_slice(self, slice: &[T]) -> Result<usize, PointerError> {
+		assert!(
+			crate::bridge::address_space::is_current(self.address_space),
+			"Address space of User<*> should match current address space",
+		);
+
+		let count = min(slice.len(), self.len());
+
+		impls::checked_memcpy(
+			slice.as_ptr().cast(),
+			self.ptr.cast(),
+			size_of::<T>() * count
+		).ok_or(PointerError {})?;
+
+		Ok(count)
+	}
+	*/
+
+	pub fn write_from_slice_other_address_space(self, slice: &[T]) -> Result<usize, PointerError> {
+		todo!()
+	}
+	
+	pub fn fill(self, value: u8) -> Result<(), PointerError> {
+		impls::checked_fill(
+			MaybeUninit::new(value),
+			self.ptr.cast(),
+			size_of::<T>() * self.len(),
+		).ok_or(PointerError {})?;
+		
+		Ok(())
+	}
+}
+
+pub unsafe fn slice_from_raw_parts<T>(data: User<*const T>, len: usize) -> User<*const [T]> {
+	let ptr = core::ptr::slice_from_raw_parts(data.ptr, len);
+	User {
+		ptr,
+		address_space: data.address_space,
+	}
 }
 
 pub fn slice_from_raw_parts_mut<T>(data: User<*mut T>, len: usize) -> User<*mut [T]> {
-	User(core::ptr::slice_from_raw_parts_mut(data.0, len), data.1)
+	let ptr = core::ptr::slice_from_raw_parts_mut(data.ptr, len);
+	User {
+		ptr,
+		address_space: data.address_space,
+	}
+}
+
+impl<T: ?Sized> TryFrom<User<'_, *const T>> for LocalUser<*const T> {
+	type Error = ();
+
+	fn try_from(value: User<*const T>) -> Result<Self, Self::Error> {
+		if crate::bridge::address_space::is_current(value.address_space) {
+			Ok(LocalUser { ptr: value.ptr })
+		} else { Err(()) }
+	}
+}
+
+impl<T: ?Sized> TryFrom<User<'_, *mut T>> for LocalUser<*mut T> {
+	type Error = ();
+
+	fn try_from(value: User<*mut T>) -> Result<Self, Self::Error> {
+		if crate::bridge::address_space::is_current(value.address_space) {
+			Ok(LocalUser { ptr: value.ptr })
+		} else { Err(()) }
+	}
 }

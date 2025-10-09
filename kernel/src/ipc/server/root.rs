@@ -1,18 +1,19 @@
 use alloc::sync::Arc;
-use crate::prelude::*;
-use core::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
+use core::future::Future;
+use core::sync::atomic::{AtomicIsize, Ordering};
 use hashbrown::HashMap;
-use kernel_api::ptr::User;
+use kernel_api::ptr::LocalUser;
 use kernel_api::sync::{OnceLock, Spinlock};
+use kernel_api::syscall;
 use utils::better_cow::Cow;
-use crate::{hashmap_new, ipc};
+use crate::hashmap_new;
 use crate::ipc::{Error, protocol, server};
 use crate::ipc::ctor::{CtorContext, ProtocolVisitor};
-use crate::ipc::handle::{Handle, ServerId};
+use kernel_api::syscall::handle::Handle;
+use kernel_api::syscall::server::ServerId;
 use crate::ipc::protocol::DispatchTable;
 use crate::ipc::server::{ReturnHandle, Server, ServerTy};
 use crate::ipc::server::userspace::{Packet, Response, UserspaceServer};
-use crate::memory::r#virtual::AddressSpaceInner;
 
 #[derive(Debug)]
 pub struct RootServer {
@@ -32,7 +33,7 @@ impl RootServer {
 impl Server for RootServer {
 	type CtorContext = CtorCtx;
 
-	fn ctor(&self, endpoint: &str, _ctx: Self::CtorContext) -> Result<ReturnHandle, Error> {
+	async fn ctor(&self, endpoint: &str, _ctx: Self::CtorContext) -> Result<ReturnHandle, Error> {
 		let path = endpoint.trim_start_matches('/');
 		if path.contains('/') { yeet!(Error::InvalidName); }
 		
@@ -45,7 +46,10 @@ impl Server for RootServer {
 		};
 
 		let new_server = ServerTy::Userspace(UserspaceServer::new_current_thread());
-		let id = server::server_registry_mut().insert_server(Some(Cow::Owned(endpoint.into())), new_server)?; // fixme: silly allocation
+		
+		let name = if path.is_empty() { None }
+			else { Some(Cow::Owned(endpoint.into())) };
+		let id = server::server_registry_mut().insert_server(name, new_server)?; // fixme: silly allocation
 
 		self.handle_map.lock().try_insert(handle, id)
 		    .expect("Handle reuse should not happen");
@@ -53,7 +57,7 @@ impl Server for RootServer {
 		Ok(ReturnHandle::NewDefault(handle))
 	}
 
-	fn destroy(&self, _handle: isize) -> Result<(), Error> { Ok(()) }
+	async fn destroy(&self, _handle: isize) -> Result<(), Error> { Ok(()) }
 
 	fn dispatch_table(&self) -> &'static DispatchTable {
 		static DISPATCH_TABLE: OnceLock<DispatchTable> = OnceLock::new();
@@ -67,62 +71,64 @@ impl protocol::generated::CoreServerSync for RootServer {
 	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
 
 	// fixme: the buffer ptr is actually a User<*mut u8>
-	async fn next(&self, handle: isize, buffer: *const u8) -> Result<(), Error> {
-		let buffer = User::<*mut u8>::new_in(
-			buffer.cast_mut(),
-			AddressSpaceInner::to_api(
-				percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
-				                          .tcb_ref().address_space
-			),
-		);
-		
-		let Some(&server) = self.handle_map.lock().get(&handle) else {
-			return Err(Error::InvalidHandle);
-		};
-		let Ok(server) = server::server_registry_mut().get_server(server) else {
-			self.handle_map.lock().remove(&handle);
-			return Err(Error::DeadServer);
-		};
+	fn next(&self, handle: isize, buffer: *const u8) -> impl Future<Output = syscall::Result<()>> {
+		let buffer = buffer.addr();
+		let server: syscall::Result<_> = try {
+			let Some(&server) = self.handle_map.lock().get(&handle) else {
+				Err(Error::InvalidHandle)?;
+				unreachable!()
+			};
+			let Ok(server) = server::server_registry_mut().get_server(server) else {
+				self.handle_map.lock().remove(&handle);
+				Err(Error::DeadServer)?;
+				unreachable!()
+			};
 
-		let userspace = match &*server {
-			ServerTy::Userspace(server) => server,
-			_ => unreachable!("root server should not contain kernel servers"),
+			server
 		};
 		
-		let packet = userspace.get_packet_blocking();
-		
-		buffer.cast::<Packet>().copy_from_nonoverlapping(&packet, 1)?;
-		
-		Ok(())
+		async move {
+			let server = server?;
+			let userspace = match &*server {
+				ServerTy::Userspace(server) => server,
+				_ => unreachable!("root server should not contain kernel servers"),
+			};
+
+			let packet = userspace.get_packet().await;
+			
+			let buffer = LocalUser::<*mut Packet>::new(buffer);
+			buffer.write(packet)?;
+
+			Ok(())
+		}
 	}
 
 	// fixme: the buffer ptr is actually a User<*const u8>
-	async fn reply(&self, handle: isize, buffer: *const u8) -> Result<(), Error> {
-		let buffer = User::<*const u8>::new_in(
-			buffer,
-			AddressSpaceInner::to_api(
-				percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
-				                          .tcb_ref().address_space
-			),
-		);
-		let packet = unsafe { buffer.cast::<Response>().read() }?;
+	fn reply(&self, handle: isize, buffer: *const u8) -> impl Future<Output = syscall::Result<()>> {
+		let res: syscall::Result<()> = try {
+			let buffer = unsafe { LocalUser::<*const Response>::new(buffer.addr()) };
 
-		let Some(&server) = self.handle_map.lock().get(&handle) else {
-			return Err(Error::InvalidHandle);
-		};
-		let Ok(server) = server::server_registry_mut().get_server(server) else {
-			self.handle_map.lock().remove(&handle);
-			return Err(Error::DeadServer);
+			let packet = buffer.read()?;
+
+			let Some(&server) = self.handle_map.lock().get(&handle) else {
+				Err(Error::InvalidHandle)?;
+				unreachable!()
+			};
+			let Ok(server) = server::server_registry_mut().get_server(server) else {
+				self.handle_map.lock().remove(&handle);
+				Err(Error::DeadServer)?;
+				unreachable!()
+			};
+
+			let userspace = match &*server {
+				ServerTy::Userspace(server) => server,
+				_ => unreachable!("root server should not contain kernel servers"),
+			};
+
+			userspace.reply_packet(packet)?;
 		};
 
-		let userspace = match &*server {
-			ServerTy::Userspace(server) => server,
-			_ => unreachable!("root server should not contain kernel servers"),
-		};
-		
-		userspace.reply_packet(packet)?;
-		
-		Ok(())
+		core::future::ready(res)
 	}
 
 	async fn forge(&self, handle: isize, handle_num: isize, protocols: &[u128]) -> Result<ReturnHandle, Error> {
