@@ -1,4 +1,4 @@
-#![unstable(feature = "kernel_feature_detect", issue = "none")]
+//! Provides system feature detection
 
 #[cfg(target_arch = "x86_64")]
 mod x86;
@@ -16,10 +16,13 @@ macro_rules! features_macro {
         @MACRO_NAME: $macro_name:ident;
         @MACRO_ATTRS: $(#[$macro_attrs:meta])*
         $(@BIND_FEATURE_NAME: $bind_feature:tt; $feature_impl:tt;)*
-        $(@FEATURE: /*#[$stability_attr:meta]*/ $feature:ident: $feature_lit:tt;)*
+        $(@FEATURE: $feature:ident: $feature_lit:tt: $feature_doc:tt;)*
     ) => {
         #[macro_export]
         $(#[$macro_attrs])*
+        #[doc = "Returns a bool if the current system supports the requested feature"]
+        #[doc = "\n\nThe features available to test are:"]
+        $(#[doc = concat!("- `", $feature_lit, "` - ", $feature_doc, "\n")])*
         macro_rules! $macro_name {
             $(
                 ($feature_lit) => {
@@ -49,7 +52,7 @@ macro_rules! features_macro {
         #[derive(Copy, Clone, Debug)]
         #[repr(u32)]
         #[cfg($cfg)]
-        pub(crate) enum Feature {
+        pub enum Feature {
             $(
                 $feature,
             )*
@@ -72,7 +75,6 @@ macro_rules! features_macro {
             $(
                 #[inline]
                 #[doc(hidden)]
-                #[stable(feature = "kernel_core_api", since = "1.0.0")]
                 pub fn $feature() -> bool {
                     $crate::detect::cache::test($crate::detect::Feature::$feature)
                 }
@@ -83,6 +85,7 @@ macro_rules! features_macro {
 
 pub(crate) use features_macro;
 
+/// Returns an iterator over feature names and their support on the current system
 pub fn features() -> impl Iterator<Item = (&'static str, bool)> {
     (0_u32..Feature::_last as u32).map(|discriminant: u32| {
         let f: Feature = unsafe { core::mem::transmute(discriminant) };

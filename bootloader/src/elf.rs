@@ -25,7 +25,7 @@ struct LoadedSegment {
 	alignment: usize,
 }
 
-fn load_segment<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(kernel: &File, segment: &ProgramHeaderEntry64, mut allocator: F) -> Result<LoadedSegment, ()> {
+fn load_segment<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(kernel: &File, segment: &ProgramHeaderEntry64, mut allocator: F) -> Result<LoadedSegment, Error> {
 	let allocation_type = if segment.segment_flags.contains(SegmentFlags::LowMem) {
 		AllocateType::MaxAddress(0x10_0000)
 	} else { AllocateType::AnyPages };
@@ -65,9 +65,15 @@ pub struct KernelLoadInfo<'a> {
 	pub tls: (Range<VirtualAddress>, usize),
 }
 
-pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(from: &mut [u8], mut allocator: F) -> Result<KernelLoadInfo<'_>, ()> {
-	let kernel = File::try_new(from).map_err(|_| ())?;
-	let mut page_table = unsafe { PageTable::try_new(|count| allocator(count, AllocateType::AnyPages)) }.map_err(|_| ())?;
+#[derive(Debug)]
+pub enum Error {
+	ElfError(elf::header::file::Error),
+	AllocError,
+}
+
+pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(from: &mut [u8], mut allocator: F) -> Result<KernelLoadInfo<'_>, Error> {
+	let kernel = File::try_new(from).map_err(|e| Error::ElfError(e))?;
+	let mut page_table = unsafe { PageTable::try_new(|count| allocator(count, AllocateType::AnyPages)) }.map_err(|_| Error::AllocError)?;
 
 	let mut kernel_last_page = VirtualAddress::new(usize::MIN);
 	let mut kernel_first_page = VirtualAddress::new(usize::MAX);
@@ -101,11 +107,13 @@ pub fn load_kernel<E: Debug, F: FnMut(usize, AllocateType) -> Result<u64, E>>(fr
 			      segment.page_count.try_into().unwrap(),
 			      || allocator(1, AllocateType::AnyPages),
 			      flags,
-			      crate::paging_reasons::kernel_seg_to_reason(segment_meta.segment_type, segment_meta.segment_flags),
+			      crate::paging_reasons::kernel_seg_to_mapping_ty(segment_meta.segment_type, segment_meta.segment_flags),
 		      ).unwrap();
 
 		      Ok(())
 	      })?;
+	
+	kernel_first_page = kernel_first_page - 8usize*1024*1024; // vmem bootstrap region
 
 	Ok(KernelLoadInfo {
 		kernel,

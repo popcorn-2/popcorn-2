@@ -1,79 +1,92 @@
-#[allow(unused_imports)] use crate::prelude::*;
-
 use core::fmt::Debug;
-use kernel_api::bridge::paging::MapPageError;
-use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress, AllocError};
+use bitflags::bitflags;
+use kernel_api::allocator::{AllocError, DynPmm};
+use kernel_api::mapping::Ty;
+use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
+use crate::hal::paging::MapPageError;
+use crate::memory::paging::ktable;
 use super::{KTableTy, TTableTy};
-use kernel_api::memory::allocator::{PhysicalAllocator};
-use kernel_api::memory::mapping::Protection;
-use crate::memory::r#virtual::AddressSpaceInner;
+
+bitflags! {
+	#[derive(Copy, Clone, Debug)]
+	#[repr(transparent)]
+	pub struct Flags: u8 {
+		//const READ = 1 << 0;
+		const WRITE = 1 << 1;
+		const EXEC = 1 << 2;
+		const USER = 1 << 3;
+		const WRITE_COMBINE = 1 << 4;
+		const UNCACHED = 1 << 5;
+	}
+}
 
 pub trait KTable: Debug + Sized {
-	fn translate_page(&self, page: Page) -> Option<Frame>;
+	fn translate_page(&self, page: RawPage, debug: bool) -> Option<RawFrame>;
 
-	fn translate_address(&self, addr: VirtualAddress) -> Option<PhysicalAddress> {
-		let aligned = addr.align_down();
-		let diff = addr - aligned;
-		let physical = self.translate_page(Page::new(aligned))?;
-		Some(physical.start() + diff)
+	fn translate_address(&self, addr: VirtualAddress, debug: bool) -> Option<PhysicalAddress> {
+		let aligned = addr.align_down_to_page();
+		let diff = addr - *aligned;
+		let physical = self.translate_page(aligned, debug)?;
+		Some(*physical + diff)
 	}
 
-	fn map_page(&mut self, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError>;
-	fn unmap_page(&mut self, page: Page) -> Result<(), ()>;
+	fn map_page(&mut self, page: RawPage, frame: RawFrame, ty: Ty, flags: Flags) -> Result<(), MapPageError>;
+	fn unmap_page(&mut self, page: RawPage) -> Result<(), ()>;
 }
 
 pub trait TTable: KTable + Sized {
 	/// # Safety
 	///
-	/// Page table must be alive until unloaded
-	///
-	/// # To Do
-	///
-	/// Figure out a better signature involving `Arc` or something
-	unsafe fn load(&self);
+	/// - Page table must be alive until unloaded
+	/// - All types held across the call to `load` must be [`Send`] and [`Sync`]
+	unsafe fn load(&self) -> usize;
+	
+	/// # Safety
+	/// 
+	/// See safety requirements of [`TTable::load()`]
+	unsafe fn load_raw(ptr: usize) -> usize;
 
-	fn new(ktable: &KTableTy, allocator: &'static dyn PhysicalAllocator) -> Result<Self, AllocError>;
+	fn new(ktable: &KTableTy, allocator: DynPmm<'static, true>) -> Result<Self, AllocError>;
 
-	fn map_page(&self, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError>;
-	fn unmap_page(&self, page: Page) -> Result<(), ()>;
+	fn map_page(&self, page: RawPage, frame: RawFrame, ty: Ty, flags: Flags) -> Result<(), MapPageError>;
+	fn unmap_page(&self, page: RawPage) -> Result<(), ()>;
 }
 
-#[no_mangle]
-fn __popcorn_paging_ktable_translate_page(this: &KTableTy, page: Page) -> Option<Frame> {
-	<KTableTy as KTable>::translate_page(this, page)
+#[unsafe(no_mangle)]
+fn __popcorn_kpt_map_contiguous(base_page: RawPage, base_frame: RawFrame, count: usize, ty: Ty, flags: Flags) -> Result<(), MapPageError> {
+	let mut ktable = ktable();
+
+	let mut remaining = count;
+	while remaining > 0 {
+		match ktable.map_page(
+			base_page + (count - remaining),
+			base_frame + (count - remaining),
+			ty,
+			flags,
+		) {
+			Ok(_) => {},
+			Err(e) => {
+				for page in base_page .. (base_page + (count - remaining)) {
+					let res = ktable.unmap_page(page);
+					debug_assert!(res.is_ok(), "just mapped this page");
+				}
+				return Err(e);
+			}
+		}
+		remaining -= 1;
+	}
+
+	Ok(())
 }
 
-#[no_mangle]
-fn __popcorn_paging_ktable_translate_address(this: &KTableTy, addr: VirtualAddress) -> Option<PhysicalAddress> {
-	<KTableTy as KTable>::translate_address(this, addr)
-}
+#[unsafe(no_mangle)]
+fn __popcorn_kpt_unmap(page: RawPage) -> Result<(), ()> { ktable().unmap_page(page) }
 
-#[no_mangle]
-fn __popcorn_paging_ktable_map_page(this: &mut KTableTy, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError> {
-	<KTableTy as KTable>::map_page(this, page, frame, reason, protection)
-}
+#[unsafe(no_mangle)]
+fn __popcorn_kpt_translate_page(page: RawPage) -> Option<RawFrame> { ktable().translate_page(page, false) }
 
-#[no_mangle]
-fn __popcorn_paging_ktable_unmap_page(this: &mut KTableTy, page: Page) -> Result<(), ()> {
-	<KTableTy as KTable>::unmap_page(this, page)
-}
+#[unsafe(no_mangle)]
+fn __popcorn_kpt_translate_addr(addr: VirtualAddress) -> Option<PhysicalAddress> { ktable().translate_address(addr, false) }
 
-#[no_mangle]
-fn __popcorn_paging_ttable_translate_page(this: &AddressSpaceInner, page: Page) -> Option<Frame> {
-	<TTableTy as KTable>::translate_page(this.ttable(), page)
-}
-
-#[no_mangle]
-fn __popcorn_paging_ttable_translate_address(this: &AddressSpaceInner, addr: VirtualAddress) -> Option<PhysicalAddress> {
-	<TTableTy as KTable>::translate_address(this.ttable(), addr)
-}
-
-#[no_mangle]
-fn __popcorn_paging_ttable_map_page(this: &AddressSpaceInner, page: Page, frame: Frame, reason: u16, protection: Protection) -> Result<(), MapPageError> {
-	<TTableTy as TTable>::map_page(this.ttable(), page, frame, reason, protection)
-}
-
-#[no_mangle]
-fn __popcorn_paging_ttable_unmap_page(this: &AddressSpaceInner, page: Page) -> Result<(), ()> {
-	<TTableTy as TTable>::unmap_page(this.ttable(), page)
-}
+#[unsafe(no_mangle)]
+fn __popcorn_upt_unmap(this: &TTableTy, page: RawPage) -> Result<(), ()> { this.unmap_page(page) }

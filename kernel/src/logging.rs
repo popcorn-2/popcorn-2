@@ -1,11 +1,15 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use log::{Record, Level, Metadata, SetLoggerError};
 
 struct SimpleLogger;
 
 impl log::Log for SimpleLogger {
-	fn enabled(&self, _: &Metadata) -> bool {
-		true
+	fn enabled(&self, meta: &Metadata) -> bool {
+		if meta.level() > Level::Debug {
+			!(false
+				|| meta.target().contains("unwinder")
+				|| meta.target().contains("paging")
+			)
+		} else { true }
 	}
 
 	fn log(&self, record: &Record) {
@@ -19,9 +23,16 @@ impl log::Log for SimpleLogger {
 			}
 			sprint!(": ");
 
-			if let Some(file) = record.file() && let Some(line) = record.line() {
-				let _ = sprint!("{}:{} - ", file, line);
+			if let Some(current_thread) = percpu_v2!(@current_thread)
+					&& let Some(current_thread) = current_thread.try_read()
+					&& let Some(current_thread) = current_thread.as_ref() {
+				sprint!("[{} `{}`] ", current_thread.thread_id.get(), current_thread.name);
 			}
+
+			if let Some(file) = record.file() && let Some(line) = record.line() {
+				sprint!("{}:{} - ", file, line);
+			}
+
 			sprintln!("{}\u{001b}[0m", record.args());
 		}
 	}

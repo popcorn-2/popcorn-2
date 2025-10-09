@@ -1,36 +1,36 @@
 [package]
 name = "kernel"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# main depedencies
 bitflags = { version = "2.3.1", features = [] }
-log = { version = "0.4.20", features = ["max_level_debug", "release_max_level_debug"] }
-utils = { path = "../utils" }
-#kernel_exports = { path = "../kernel_exports", default-features = false, features = ["smp"] }
-kernel_api = { path = "../kernel_api" }
+log = { version = "0.4.20", features = ["max_level_info", "release_max_level_info"] }
 derive_more = "0.99.17"
-
-#[target.'cfg(panic = "unwind")'.dependencies]
 unwinding = { git = "https://github.com/popcorn-2/unwinding.git", default-features = false, features = ["unwinder", "panic", "personality", "fde-static", "hide-trace"] }
-
-arena_heap = { path = "../arena_heap" }
-bitmap_allocator = { path = "../bitmap_allocator" }
-ranged_btree_allocator = { version = "0.1.0", path = "../ranged_btree_allocator" }
-crossbeam-queue = { version = "0.3.11", default-features = false, features = ["alloc"] }
 acpi = {  version = "5.0.0", default-features = false }
 bit_field = "0.10.2"
 paste = "1.0.14"
 num_enum = { version = "0.7.2", default-features = false }
-macros = { path = "../macros" }
-ranged_btree = { path = "../ranged_btree" }
 minicov = { version = "0.3", optional = true }
 hashbrown = { version = "0.14.5" }
-enum_dispatch = "0.3.13"
+itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
+slab = { version = "0.4.10", default-features = false }
+futures = { version = "0.3.31", default-features = false }
 
+# kernel repo deps
+kernel_api = { path = "../kernel_api" }
+utils = { path = "../utils" }
 elf = { version = "0.1.0", path = "../elf" }
+
+# module shims
+arena_heap = { path = "../arena_heap", features = ["checksum"] }
+bitmap_allocator = { path = "../bitmap_allocator" }
+ranged_btree_allocator = { version = "0.1.0", path = "../ranged_btree_allocator" }
+oneshot = { version = "0.1.11", default-features = false, features = ["async"] }
 
 [dev-dependencies]
 minicov = "0.3"
@@ -41,3 +41,4 @@ default = []
 junit_test_out = []
 preemptive = []
 "log.scheduler" = []
+kasan = [ "unwinding/kasan", "kernel_api/kasan", "ranged_btree_allocator/kasan", "arena_heap/kasan" ]

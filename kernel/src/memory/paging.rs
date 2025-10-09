@@ -1,20 +1,17 @@
-#[allow(unused_imports)] use crate::prelude::*;
 
 use core::ops::DerefMut;
-use kernel_api::sync::RwSpinlock;
+use kernel_api::sync::{OnceLock, Spinlock};
 
 use crate::hal::KTableTy;
-use crate::sync::late_init::LateInit;
 
-static KERNEL_PAGE_TABLE: LateInit<RwSpinlock<KTableTy>> = LateInit::new();
+static KERNEL_PAGE_TABLE: OnceLock<Spinlock<KTableTy>> = OnceLock::new();
 
 pub unsafe fn init_page_table(active_page_table: KTableTy) {
-	KERNEL_PAGE_TABLE.init_ref(RwSpinlock::new(active_page_table));
+	KERNEL_PAGE_TABLE.get_or_init(|| Spinlock::new(active_page_table));
 }
 
-#[export_name = "__popcorn_paging_get_ktable"]
 pub fn ktable() -> impl DerefMut<Target = KTableTy> {
-	KERNEL_PAGE_TABLE.write()
+	KERNEL_PAGE_TABLE.get().expect("ktable not initialized").lock()
 }
 
 #[cfg(test)]

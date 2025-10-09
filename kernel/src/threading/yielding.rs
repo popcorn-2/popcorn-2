@@ -1,42 +1,10 @@
-use crate::prelude::*;
-use core::cell::{LazyCell, UnsafeCell};
 use core::mem::ManuallyDrop;
-use core::ptr;
-use core::ptr::addr_of;
 use core::sync::atomic::Ordering;
 use log::{debug, trace};
-use kernel_api::memory::physical::highmem;
-use kernel_api::sync::{IrqCell, IrqGuard};
-use crate::hal::{ContextSwitchPreserve, self, IpiTarget, TTableTy};
-use crate::hal::paging2::TTable;
-use crate::memory::paging::ktable;
-use crate::memory::r#virtual::AddressSpaceInner;
-use super::{scheduler, WakeReason, ThreadState, scheduler::Scheduler, ThreadPointer, PointerView, Thread, ThreadControlBlock, ThreadId, ControlEvent};
-
-pub fn create_idle_thread() -> (ThreadId, Thread, UnsafeCell<ThreadPointer>) {
-	extern "C" fn idle_loop(_: usize) -> ! {
-		loop {
-			hal::wait_for_interrupt();
-			yield_now();
-		}
-	}
-
-	let address_space = AddressSpaceInner::empty().expect("Could not create idle thread");
-
-	let (tcb, id) = ThreadControlBlock::new(
-		"<idle>".into(),
-		address_space,
-		crate::threading::thread_startup,
-		idle_loop,
-		0,
-	);
-
-	let (thread, ptr) = ThreadPointer::new(Thread::new(tcb));
-
-	debug!("Create idle thread with {id:?}");
-
-	(id, thread, UnsafeCell::new(ptr))
-}
+use kernel_api::threading::ThreadState;
+use kernel_api::time::Instant;
+use crate::hal::{self, IpiTarget};
+use super::{scheduler, scheduler::Scheduler, ThreadControlBlock};
 
 /// Adds a pending thread switch that will switch threads once all nested interrupts are handled.
 ///
@@ -44,6 +12,7 @@ pub fn create_idle_thread() -> (ThreadId, Thread, UnsafeCell<ThreadPointer>) {
 ///
 /// # Interrupt safety
 /// This function **is** interrupt safe, and will immediately return
+#[expect(unused)]
 pub fn yield_defer() {
 	hal::send_ipi(IpiTarget::SelfIpi).expect("Failed to yield");
 }
@@ -54,145 +23,110 @@ pub fn yield_defer() {
 ///
 /// # Interrupt safety
 /// This function is **not** interrupt safe, and will block any pending interrupts
-pub fn yield_now() -> Option<WakeReason> {
-	fn do_thread_switch(from: ThreadPointer, mut to_view: PointerView) -> Option<WakeReason> {
-		// We need to duplicate the `ThreadPointer` so we can pass it to `switch_thread` while it is borrowed
-		// so wrap the first copy in a `ManuallyDrop` to prevent a double free
-		let mut from = ManuallyDrop::new(from);
-		// Get a pointer to the `ThreadPointer` to use to duplicate it later
-		let from_ptr = addr_of!(*from);
-		// Extract the `PointerView`
-		// The `PointerView` does not borrow the contents of the `ThreadPointer` - it only requires the
-		// `ThreadPointer` to exist 'somewhere', so holding this borrow while moving the underlying `ThreadPointer`
-		// is safe
-		let mut from_view = from.tcb_mut();
+pub fn yield_now() {
+	yield_now_inner(false)
+}
 
-		#[cfg(feature = "log.scheduler")] trace!("[a] switch from `{:?}` to `{:?}`", from_view.thread_id, to_view.thread_id);
+pub fn yield_now_inner(inside_park: bool) {
+	#[inline]
+	fn do_thread_switch(from: ThreadControlBlock, to: &ThreadControlBlock, inside_park: bool) {
+		#[cfg(feature = "log.scheduler")] trace!("[a] switch from `{:?}` to `{:?}`", from.thread_id, to.thread_id);
 
-		let to_state = to_view.state.load(Ordering::SeqCst);
-		assert!(to_state.is_ready());
-		let reason = to_state.wake_reason();
-		to_view.state.store(ThreadState::Running, Ordering::SeqCst);
-		from_view.state.compare_exchange(ThreadState::Running, ThreadState::Ready, Ordering::SeqCst, Ordering::SeqCst);
+		assert!(to.state.runnable());
+		to.state.store(ThreadState::Running, Ordering::SeqCst);
+
+		if inside_park {
+			debug!("yield inside maybe_park");
+			// finish parking if needed
+			let _ = from.state.compare_exchange(ThreadState::NearlyParked, ThreadState::Parked, Ordering::SeqCst, Ordering::SeqCst);
+		}
 
 		// SAFETY: The AddressSpace is owned by the thread, and thread is always alive while running
 		unsafe {
-			AddressSpaceInner::to_api(to_view.address_space).load();
+			to.address_space.load();
 		}
 
-		// From the CPU's perspective during a context switch, `from` is no longer the same `ThreadPointer`
-		// as the stack has been changed. Instead, we replace it with the `ThreadPointer` that `switch_thread`
-		// preserves across the function call
-		let ContextSwitchPreserve(from, reason) = unsafe { hal::switch_thread(&mut from_view, &mut to_view, ContextSwitchPreserve(ptr::read(from_ptr), reason)) };
+		let mut from = ManuallyDrop::new(from);
 
-		post_switch_cleanup(from);
+		// From the CPU's perspective during a context switch, `from` is no longer the same `&mut ThreadControlBlock`
+		// as the stack has been changed. Instead, we replace it with the `&mut ThreadControlBlock` that `switch_thread`
+		// preserves across the function call and then pull it out of the old thread's stack
+		//
+		// since the `from` TCB still exists, it's stack can't yet have been dropped, so it's safe to read from that memory
+		let from = unsafe { hal::switch_thread(&mut from, to) };
+
+		unsafe {
+			post_switch_cleanup(from);
+		}
 		
 		#[cfg(feature = "log.scheduler")] trace!("new woken due to {reason:?}");
-		
-		reason
 	}
-	
-	// First we lock the scheduler for the current core, and ask it for the current and new threads
-	// Wrap it in `ManuallyDrop` since we recreate the guard later, as the thread may have migrated
-	// during the context switch
-	let (scheduler, queue) = scheduler::local_scheduler();
+
+	let scheduler = scheduler::local_scheduler();
 	let mut scheduler = scheduler.lock();
+	let mut current_thread = percpu_v2!(current_thread).write();
 
-	while let Some(event) = queue.pop() {
-		match event {
-			ControlEvent::Unpark(id, reason) => {
-				match scheduler.unpark(id, reason) {
-					Ok(_) => {},
-					Err(_) => super::parking::do_wake(id, reason),
-				}
-			},
-			ControlEvent::Kill(id) => if Some(id) == percpu_v2!(current_thread).read().as_ref().map(|tcb| *tcb.tcb_ref().thread_id) {
-				super::exit(i8::MIN);
-			} else {
-				match scheduler.kill(id) {
-					Ok(_) => {},
-					Err(_) => super::kill(id),
-				}
-			}
-		}
-	}
-	
-	let mut scheduler = ManuallyDrop::new(scheduler);
-	
 	if let Some(new_thread) = scheduler.get_next_thread() {
-		let mut guard = ManuallyDrop::new(percpu_v2!(current_thread).write());
-		let old_thread = core::mem::replace(&mut **guard, Some(new_thread));
-		let new_thread = guard.as_mut().expect("Just added `new_thread`");
-		
-		match old_thread {
-			Some(old_thread) => do_thread_switch(old_thread, new_thread.tcb_mut()),
-			None => {
-				// no old thread, so switching from the idle thread
-				debug!("stopped idling");
+		// todo: deal with `ThreadState::Killed`
+		let old_thread = core::mem::replace(&mut *current_thread, Some(new_thread)).expect("cannot enter `yield_now` from idle");
+		let mut current_thread = ManuallyDrop::new(current_thread);
+		let new_thread = current_thread.as_mut().expect("Just added `new_thread`");
 
-				/*
-					SAFETY:
-					The idle `Thread` object is never dropped, so the `ThreadPointer` is always valid
-					The `ThreadPointer` is duplicated here (which is valid as internally they are raw pointers)
-					and only once instance (passed into `do_thread_switch()`) has mutable references materialised from it.
-					In `post_switch_cleanup()` if the previous thread is the idle thread (as would be the case
-					here), the `ThreadPointer` is dropped and so we are back to only once copy
-				 */
-				do_thread_switch(unsafe { ptr::read(percpu_v2!(idle_thread).2.get()) }, new_thread.tcb_mut())
-			}
-		}
+		core::mem::forget(scheduler);
+		do_thread_switch(old_thread, new_thread, inside_park)
 	} else {
-		let mut guard = ManuallyDrop::new(percpu_v2!(current_thread).write());
-		// no new thread, so either keep running old thread, or idle
-		let old_thread = guard.take();
-		
-		match old_thread {
-			Some(mut old_thread) => if old_thread.tcb_ref().state.load(Ordering::SeqCst).is_running() || old_thread.tcb_ref().state.load(Ordering::Relaxed).is_ready() {
-				debug!("no context switch");
-				
-				// No changes occur to scheduler so just return back to thread, but make sure scheduler gets unlocked
-				// as well since that would normally be done by the thread switch
-				ManuallyDrop::into_inner(scheduler);
-				let mut guard = ManuallyDrop::into_inner(guard);
-				
-				let old_thread = guard.insert(old_thread);
-				
-				match old_thread.tcb_ref().state.load(Ordering::SeqCst) {
-					ThreadState::JustUnparked(reason) => Some(reason),
-					_ => None,
-				}
-			} else {
-				// old thread not runnable and no new thread, start idling
-				debug!("start idling");
-
-				/*
-				SAFETY:
-				The idle `Thread` object is never dropped, so the `PointerView` is always valid
-				Cannot have more than one `PointerView` alive as it is only materialised here, and immediately dropped
-				Reentrancy cannot occur here as interrupts are disabled due to the scheduler lock
-			    */
-				do_thread_switch(old_thread, unsafe { &mut *percpu_v2!(idle_thread).2.get() }.tcb_mut())
-			},
-			None => {
-				debug!("continue idle");
-				// just keep running idle thread - see notes on return to old thread
-				ManuallyDrop::into_inner(scheduler);
-				let _ = ManuallyDrop::into_inner(guard);
-				None
+		{
+			let old_thread_tcb = current_thread.as_ref().expect("cannot enter `yield_now` while idle");
+			// todo: sort out NearlyParked
+			if old_thread_tcb.state.runnable() {
+				trace!("no context switch");
+				return;
 			}
 		}
+
+		// remove TCB from `current_thread` to mark as idle
+		let old_thread_tcb = current_thread.take().expect("cannot enter `yield_now` while idle");
+		// scheduler and current task shouldn't be accessed from interrupts so don't need to unlock them
+		let idle_start_time = Instant::now();
+		debug!("start idling");
+		let new_thread = loop {
+			hal::wait_for_interrupt();
+			if let Some(new_thread) = scheduler.get_next_thread() { break Some(new_thread); }
+			if old_thread_tcb.state.runnable() { break None };
+		};
+		let idle_time = idle_start_time.elapsed();
+		debug!("idled for {idle_time:?}");
+
+		let Some(new_thread) = new_thread else {
+			trace!("original thread runnable");
+			*current_thread = Some(old_thread_tcb);
+			return;
+		};
+
+		let mut current_thread = ManuallyDrop::new(current_thread);
+		let new_thread = current_thread.insert(new_thread);
+		// forget the scheduler guard because we unlock it from the new thread
+		core::mem::forget(scheduler);
+		do_thread_switch(old_thread_tcb, new_thread, inside_park)
 	}
 }
 
-pub extern "C" fn post_switch_cleanup(mut previous_thread: ThreadPointer) {
-	let mut guard = unsafe { scheduler::local_scheduler().0.make_guard_unchecked() };
-	let _ = unsafe { percpu_v2!(current_thread).force_unlock_write() };
-	let tcb = previous_thread.tcb_mut();
-	trace!("[b] switch from `{:?}` to current, old blocked in state {:?}", tcb.thread_id, tcb.state);
-	if *tcb.thread_id != percpu_v2!(idle_thread).0 {
-		// Don't enqueue idle thread into a scheduler
-		guard.switch_thread_post(previous_thread);
-	} else {
-		#[cfg(feature = "log.scheduler")] trace!("Ignoring enqueue of idle thread");
+pub unsafe extern "C" fn post_switch_cleanup(previous_thread: &mut ManuallyDrop<ThreadControlBlock>) {
+	// this reference points to somewhere on the stack of `previous_thread`
+	// the stack must be live since the `ThreadControlBlock` that owns it exists on it, effectively
+	// creating a reference cycle until we `take()` the `ThreadControlBlock`
+	let previous_thread = unsafe { ManuallyDrop::take(previous_thread) };
+
+	let mut guard = unsafe { scheduler::local_scheduler().make_guard_unchecked() };
+	let _ = unsafe { percpu_v2!(current_thread).make_write_guard_unchecked() };
+
+	trace!("[b] switch from `{:?}` to current, old in state {:?}", previous_thread.thread_id, previous_thread.state);
+
+	match previous_thread.state.compare_exchange(ThreadState::Running, ThreadState::Ready, Ordering::SeqCst, Ordering::SeqCst) {
+		Err(ThreadState::Killed(_)) => {
+			guard.on_thread_exit(previous_thread.thread_id);
+			drop(previous_thread);
+		},
+		_ => guard.put_thread(previous_thread),
 	}
 }

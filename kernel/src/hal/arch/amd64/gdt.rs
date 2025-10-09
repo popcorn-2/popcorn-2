@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
 use core::mem::offset_of;
 use kernel_api::sync::OnceLock;
@@ -6,57 +5,27 @@ use crate::hal::arch::amd64::tss::Tss;
 
 pub static GDT: OnceLock<Gdt> = OnceLock::new();
 
-//#[derive_const(Default)]
+#[derive_const(Default)]
 #[repr(C, align(8))]
 pub struct Gdt {
     null: Entry,
     kernel_code: Entry,
     kernel_data: Entry,
-    user_compat_code: Entry,
+    _user_compat_code: Entry,
     user_data: Entry,
     user_long_code: Entry,
     tss: SystemEntry
 }
 
-//#[derive_const(Default)]
+#[derive_const(Default)]
 #[derive(PartialEq, Eq, Debug)]
 #[repr(C)]
 pub struct Entry(u64);
-//#[derive_const(Default)]
+
+#[derive_const(Default)]
 #[derive(PartialEq, Eq, Debug)]
 #[repr(C)]
 struct SystemEntry(u64, u64);
-
-// TODO: replace with `#[derive_const(Default)]` when it lands (again)
-mod const_default {
-    use super::{Entry, SystemEntry};
-
-    impl super::Gdt {
-        pub const fn default() -> super::Gdt {
-            super::Gdt {
-                null: Entry::default(),
-                kernel_code: Entry::default(),
-                kernel_data: Entry::default(),
-                user_compat_code: Entry::default(),
-                user_data: Entry::default(),
-                user_long_code: Entry::default(),
-                tss: SystemEntry::default(),
-            }
-        }
-    }
-
-    impl Entry {
-        pub const fn default() -> Entry {
-           Entry(0)
-        }
-    }
-
-    impl SystemEntry {
-        pub const fn default() -> SystemEntry {
-            SystemEntry(0, 0)
-        }
-    }
-}
 
 impl Gdt {
     pub(crate) const fn new() -> Gdt {
@@ -67,7 +36,6 @@ impl Gdt {
         match ty {
             EntryTy::KernelCode => self.kernel_code = entry,
             EntryTy::KernelData => self.kernel_data = entry,
-            EntryTy::UserCompatCode => self.user_compat_code = entry,
             EntryTy::UserData => self.user_data = entry,
             EntryTy::UserLongCode => self.user_long_code = entry,
         }
@@ -114,7 +82,7 @@ impl Entry {
         const ACCESS_BYTE_DEFAULT: u64 = 0b1001_0010;
 
         let mut data = 0;
-        let access_byte: u64 = ACCESS_BYTE_DEFAULT | (dpl.const_into() << 5) | (if executable { 1 } else { 0 } << 3);
+        let access_byte: u64 = ACCESS_BYTE_DEFAULT | u64::from(dpl) << 5 | (if executable { 1 } else { 0 } << 3);
 
         data |= LIMIT & 0xFFFF;
         data |= (ADDR & 0xFFFF) << 16;
@@ -169,6 +137,7 @@ pub(crate) enum Privilege {
     Ring3 = 3
 }
 
+/*
 impl Privilege {
     // TODO: replace with `const From<T>` when it lands (again)
     const fn const_into(self) -> u64 {
@@ -177,35 +146,21 @@ impl Privilege {
             Privilege::Ring3 => 3
         }
     }
-}
+}*/
 
-/*impl const From<Privilege> for u64 {
+impl const From<Privilege> for u64 {
     fn from(value: Privilege) -> Self {
         match value {
             Privilege::Ring0 => 0,
             Privilege::Ring3 => 3
         }
     }
-}*/
+}
 
 #[derive(Debug, Copy, Clone)]
 pub enum EntryTy {
     KernelCode,
     KernelData,
-    UserCompatCode,
     UserData,
     UserLongCode
-}
-
-impl EntryTy {
-    pub fn is_data(self) -> bool {
-        match self {
-            Self::KernelData | Self::UserData => true,
-            _ => false
-        }
-    }
-
-    pub fn is_executable(self) -> bool {
-        !self.is_data()
-    }
 }

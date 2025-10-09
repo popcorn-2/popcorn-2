@@ -1,19 +1,23 @@
 #![no_std]
 #![forbid(unsafe_op_in_unsafe_fn)]
+#![deny(warnings)]
 
 #![feature(allocator_api)]
-#![feature(kernel_mmap_to_parts)]
-#![feature(let_chains)]
+#![feature(debug_closure_helpers)]
+#![feature(pointer_is_aligned_to)]
+#![feature(new_zeroed_alloc)]
+#![cfg_attr(feature = "kasan", feature(sanitize))]
 
 use core::alloc::{AllocError, Layout};
-use core::ops::Range;
 use core::ptr::NonNull;
 use log::debug;
 use arena::Arena;
 use chunk::ChunkHeader;
 use kernel_api::dbg;
-use kernel_api::sync::{RwSpinlock, Spinlock, Syncify};
+use kernel_api::sync::{RwSpinlock, Spinlock};
 use crate::mapped_vec::MappedVec;
+#[cfg(feature = "kasan")] use kernel_api::memory::asan::{set_shadow_heap_free, mem_to_shadow};
+#[cfg(test)] extern crate alloc;
 
 mod chunk;
 mod arena;
@@ -25,7 +29,7 @@ pub extern "Rust" fn __popcorn_kernel_heap_allocate(layout: Layout) -> Result<No
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "Rust" fn __popcorn_kernel_heap_deallocate(ptr: NonNull<u8>, layout: Layout)  {
+pub unsafe extern "Rust" fn __popcorn_kernel_heap_deallocate(ptr: NonNull<u8>, _layout: Layout)  {
 	unsafe { HEAP.dealloc(ptr) }
 }
 
@@ -39,12 +43,12 @@ static HEAP: Heap = Heap {
 };
 
 struct Heap {
-	arenas: RwSpinlock<MappedVec<(Syncify<Range<NonNull<u8>>>, Spinlock<Arena>)>>,
+	arenas: RwSpinlock<MappedVec<Spinlock<Arena>>>,
 }
 
 impl Heap {
 	fn alloc(&self, layout: Layout) -> Result<NonNull<u8>, AllocError> {
-		for (_, arena) in &*self.arenas.read() {
+		for arena in &*self.arenas.read() {
 			let mut arena = arena.lock();
 			match arena.try_alloc(layout) {
 				Ok(ptr) => return Ok(ptr),
@@ -55,28 +59,21 @@ impl Heap {
 		debug!("allocating new arena");
 		let mut new_arena = Arena::with_capacity(layout.size()).map_err(|_| AllocError)?;
 		let ptr = dbg!(new_arena.try_alloc(layout).map_err(|_| AllocError))?;
-		self.arenas.write().push((
-			unsafe { Syncify::new(new_arena.bounds()) },
-			Spinlock::new(new_arena)
-		));
+		self.arenas.write().push(Spinlock::new(new_arena));
 		
 		Ok(ptr)
-	}
-
-	unsafe fn realloc(&self, ptr: NonNull<u8>) {
-		// fixme(provenance): this is invalid
-		let chunk = unsafe { ptr.byte_sub(size_of::<ChunkHeader>()).cast::<ChunkHeader>() };
 	}
 
 	unsafe fn dealloc(&self, mut ptr: NonNull<u8>) {
 		let guard = self.arenas.read();
 
 		let mut arena = None;
-		for (bounds, arena_iter) in &*guard {
-			if bounds.contains(&ptr) {
-				arena = Some(arena_iter.lock());
-				ptr = bounds.start.with_addr(ptr.addr()); // get pointer with wider provenance to cover whole arena instead of
+		for arena_iter in &*guard {
+			let arena_iter = arena_iter.lock();
+			if arena_iter.bounds().contains(&ptr) {
+				ptr = arena_iter.bounds().start.with_addr(ptr.addr()); // get pointer with wider provenance to cover whole arena instead of
 				                                          // just allocation (which excludes the chunk headers too)
+				arena = Some(arena_iter);
 			}
 		}
 		
@@ -85,6 +82,13 @@ impl Heap {
 		
 		let chunk_header = unsafe { ptr.cast::<ChunkHeader>().offset(-1).as_mut() };
 		chunk_header.set_busy(false);
+
+		#[cfg(feature = "kasan")] unsafe {
+			set_shadow_heap_free(
+				mem_to_shadow(ptr.as_ptr().into()),
+				chunk_header.size().div_ceil(8),
+			);
+		}
 		
 		let next = unsafe { chunk_header.next().expect("can't free sentinel chunk").as_mut() };
 		let prev = unsafe { chunk_header.prev().map(|mut ptr| ptr.as_mut()) };
@@ -97,6 +101,7 @@ impl Heap {
 						.as_mut()
 						.set_prev(next.next());
 			}
+			#[cfg(feature = "generations")] next.overwrite_magic();
 		}
 		
 		if let Some(prev) = prev && !prev.busy() {
@@ -105,6 +110,17 @@ impl Heap {
 			unsafe {
 				chunk_header.next().expect("can't free sentinel chunk").as_mut()
 			}.set_prev(Some(NonNull::from(prev)));
+			#[cfg(feature = "generations")] chunk_header.overwrite_magic(); // even if `prev` is completely free, do this unconditionally cause easier and won't make a difference
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn foo() {
+		let _ = HEAP.alloc(Layout::new::<u128>());
 	}
 }

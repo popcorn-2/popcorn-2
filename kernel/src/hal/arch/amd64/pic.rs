@@ -1,6 +1,5 @@
 #![allow(const_item_mutation)]
 
-#[allow(unused_imports)] use crate::prelude::*;
 use crate::hal::arch::amd64::port::Port;
 
 const MPIC_COMMAND: Port<u8> = Port::<u8>::new(0x20);

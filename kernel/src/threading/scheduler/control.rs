@@ -1,4 +1,5 @@
-use crate::threading::{ThreadId, WakeReason};
+use kernel_api::threading::ThreadId;
+use crate::threading::WakeReason;
 
 #[derive(Debug)]
 pub enum ControlEvent {

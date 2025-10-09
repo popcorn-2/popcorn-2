@@ -1,33 +1,27 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::mem;
 use core::mem::ManuallyDrop;
-use core::sync::atomic::{AtomicUsize, Ordering};
-use kernel_api::memory::allocator::PhysicalAllocator;
+use kernel_api::allocator::{DynPmm, GlobalAllocator};
 use kernel_api::sync::{RwSpinlock, RwUpgradableReadGuard, RwWriteGuard};
-use kernel_api::memory::physical::GlobalAllocator;
 
-#[export_name = "__popcorn_memory_physical_highmem"]
-static GLOBAL_HIGHMEM: GlobalAllocator = GlobalAllocator { rwlock: RwSpinlock::new(None) };
-#[export_name = "__popcorn_memory_physical_dmamem"]
-static GLOBAL_DMA: GlobalAllocator = GlobalAllocator { rwlock: RwSpinlock::new(None) };
+#[unsafe(export_name = "__popcorn_memory_physical_highmem")]
+static GLOBAL_HIGHMEM: GlobalAllocator = GlobalAllocator { __rwlock: RwSpinlock::new(None) };
+#[unsafe(export_name = "__popcorn_memory_physical_dmamem")]
+static GLOBAL_DMA: GlobalAllocator = GlobalAllocator { __rwlock: RwSpinlock::new(None) };
 
-#[allow(unused_imports)]
-pub use kernel_api::memory::physical::{highmem, dmamem};
-
-pub fn init_highmem<'a>(allocator: &'static dyn PhysicalAllocator) {
-	GLOBAL_HIGHMEM.rwlock.write().replace(allocator);
+pub fn init_highmem<'a>(allocator: impl Into<DynPmm<'static, true>>) {
+	GLOBAL_HIGHMEM.__rwlock.write().replace(allocator.into());
 }
 
-pub fn init_dmamem<'a>(allocator: &'static dyn PhysicalAllocator) {
-	GLOBAL_DMA.rwlock.write().replace(allocator);
+pub fn init_dmamem<'a>(allocator: impl Into<DynPmm<'static, true>>) {
+	GLOBAL_DMA.__rwlock.write().replace(allocator.into());
 }
 
-pub fn with_highmem_as<'a, R>(allocator: &'a dyn PhysicalAllocator, f: impl FnOnce() -> R) -> R {
+pub fn with_highmem_as<'a, R, T>(allocator: T, f: impl FnOnce() -> R) -> R where DynPmm<'a, true>: From<T> {
 	// FIXME: huge issue in that all allocations get lost therefore only safe to use for bootstrap
 	// FIXME(soundness): is this sound?
 
-	let mut write_lock = GLOBAL_HIGHMEM.rwlock.write();
-	let static_highmem = unsafe { mem::transmute::<_, &'static _>(allocator) };
+	let mut write_lock = GLOBAL_HIGHMEM.__rwlock.write();
+	let static_highmem = unsafe { mem::transmute::<_, DynPmm<'static, _>>(DynPmm::<'a, true>::from(allocator)) };
 	let old_highmem = write_lock.replace(static_highmem);
 
 	// To prevent the allocator being changed while the closure is executing, downgrade the write lock to a read lock held across the boundary
@@ -53,21 +47,4 @@ pub fn with_highmem_as<'a, R>(allocator: &'a dyn PhysicalAllocator, f: impl FnOn
 	};
 
 	f()
-}
-
-static REFCOUNTS: [RefCountEntry; 0] = [];
-
-struct RefCountEntry {
-	strong_count: AtomicUsize,
-	next_segment: Option<AtomicUsize>
-}
-
-impl RefCountEntry {
-	fn increment(&self) {
-		self.strong_count.fetch_add(1, Ordering::Relaxed);
-	}
-
-	fn decrement(&self) -> bool {
-		self.strong_count.fetch_sub(1, Ordering::Relaxed) == 1
-	}
 }

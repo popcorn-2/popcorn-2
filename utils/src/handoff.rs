@@ -1,7 +1,6 @@
-use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
 use core::ptr::NonNull;
-use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
+use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 use kernel_api::ptr::Unique;
 
 #[repr(C)]
@@ -14,6 +13,7 @@ pub struct Data {
 	pub tls: (Range<VirtualAddress>, usize),
 	pub rsdp: PhysicalAddress,
 	pub init_exec: &'static [u8],
+	pub ramdisk: &'static [u8],
 }
 
 impl Debug for Data {
@@ -30,13 +30,15 @@ impl Debug for Data {
 	}
 }
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Framebuffer {
 	pub buffer: Unique<u8>,
 	pub stride: usize,
 	pub width: usize,
 	pub height: usize,
-	pub color_format: ColorMask
+	pub color_format: ColorMask,
+	pub physical_address: PhysicalAddress,
 }
 
 impl Debug for Framebuffer {
@@ -49,11 +51,12 @@ impl Debug for Framebuffer {
 				.field("width", &self.width)
 				.field("height", &self.height)
 				.field("color_format", &self.color_format)
+				.field("physical_address", &self.physical_address)
 				.finish()
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct ColorMask {
 	pub red: u32, pub green: u32, pub blue: u32
@@ -68,18 +71,16 @@ impl ColorMask {
 #[repr(C)]
 pub struct Memory {
 	pub map: &'static [MemoryMapEntry],
-	pub used: Range<VirtualAddress<4096>>,
-	#[deprecated = "Use HAL methods to construct page tables directly"]
-	pub page_table_root: Frame,
+	pub used: Range<RawPage>,
 	pub stack: Stack
 }
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct Stack {
-	pub top_virt: Page,
-	pub bottom_virt: Page,
-	pub top_phys: Frame,
+	pub top_virt: RawPage,
+	pub bottom_virt: RawPage,
+	pub top_phys: RawFrame,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -136,7 +137,7 @@ impl Debug for Modules {
 
 #[repr(C)]
 pub struct Logging {
-	pub symbol_map: Option<&'static [u8]>
+	pub symbol_map: Option<NonNull<[u8]>>
 }
 
 impl Debug for Logging {

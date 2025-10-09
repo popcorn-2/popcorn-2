@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
 use core::marker::PhantomData;
 
@@ -32,6 +31,7 @@ impl Port<u8> {
 
 impl Port<u16> {
 	#[inline(always)]
+	#[expect(dead_code)]
 	pub unsafe fn read(&self) -> u16 {
 		let ret;
 		unsafe { asm!("in ax, dx", in("dx") self.0, out("ax") ret, options(nostack, preserves_flags)); }
@@ -39,6 +39,7 @@ impl Port<u16> {
 	}
 
 	#[inline(always)]
+	#[expect(dead_code)]
 	pub unsafe fn write(&mut self, val: u16) {
 		unsafe { asm!("out dx, ax", in("dx") self.0, in("ax") val, options(nostack, preserves_flags)); }
 	}
@@ -46,6 +47,7 @@ impl Port<u16> {
 
 impl Port<u32> {
 	#[inline(always)]
+	#[expect(dead_code)]
 	pub unsafe fn read(&self) -> u32 {
 		let ret;
 		unsafe { asm!("in eax, dx", in("dx") self.0, out("eax") ret, options(nostack, preserves_flags)); }

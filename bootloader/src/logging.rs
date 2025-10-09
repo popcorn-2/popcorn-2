@@ -1,8 +1,6 @@
-use alloc::string::String;
-use core::ffi::CStr;
 use core::fmt::Write;
 use core::mem;
-use core::ptr::NonNull;
+use core::ptr::{addr_of, NonNull};
 
 use log::{Level, Log, Metadata, Record, SetLoggerError};
 
@@ -16,9 +14,9 @@ unsafe impl Send for Logger {}
 unsafe impl Sync for Logger {}
 
 pub unsafe fn init(uart: &mut dyn Write) -> Result<(), SetLoggerError> {
-	LOGGER =  Logger { uart: Some(NonNull::from(mem::transmute::<_, &'static _>(uart))) };
+	LOGGER = Logger { uart: Some(NonNull::from(mem::transmute::<_, &'static _>(uart))) };
 
-	log::set_logger(&LOGGER)
+	log::set_logger(&*addr_of!(LOGGER))
 		.map(move |_| log::set_max_level(log::STATIC_MAX_LEVEL))
 }
 
@@ -33,7 +31,7 @@ impl Log for Logger {
 		
 		unsafe {
 			//let vec = &mut *self.vec.get();
-			write!(stdout, "{}: ", record.level());
+			//write!(stdout, "{}: ", record.level());
 			if let Some(mut uart) = self.uart {
 				let uart = uart.as_mut();
 
@@ -50,10 +48,10 @@ impl Log for Logger {
 
 				if let Some(file) = record.file() && let Some(line) = record.line() {
 					let _ = write!(uart, "{}:{} - ", file, line);
-					let _ = write!(stdout, "{}:{} - ", file, line);
+					//let _ = write!(stdout, "{}:{} - ", file, line);
 				}
 				let _ = writeln!(uart, "{}\u{001b}[0m", record.args());
-				let _ = writeln!(stdout, "{}", record.args());
+				//let _ = writeln!(stdout, "{}", record.args());
 			}
 		}
 	}

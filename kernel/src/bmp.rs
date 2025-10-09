@@ -1,9 +1,9 @@
-#[allow(unused_imports)] use crate::prelude::*;
-use core::mem;
 use core::ptr::addr_of;
 use acpi::AcpiHandler;
 use acpi::bgrt::Bgrt;
-use kernel::hal::acpi::PagingReason;
+use kernel_api::mapping::Ty;
+use kernel_api::memory::PhysicalAddress;
+use crate::hal::acpi::PagingReason;
 use crate::hal::acpi::{Handler, XPhysicalMapping, AcpiHandlerExt};
 
 #[repr(C, packed)]
@@ -21,20 +21,20 @@ struct BmpHeader {
 }
 
 #[derive(Debug)]
-pub struct Bmp<'a> {
+pub struct Bmp {
 	pub width: i32,
 	pub height: i32,
 	pub bpp: u16,
-	mapping: XPhysicalMapping<Handler<'a>, [u8]>,
+	mapping: XPhysicalMapping<Handler, [u8]>,
 }
 
-pub struct BmpIterator<'a> {
-	pub bmp: Bmp<'a>,
+pub struct BmpIterator {
+	pub bmp: Bmp,
 	x: usize,
 	y: usize,
 }
 
-impl Iterator for BmpIterator<'_> {
+impl Iterator for BmpIterator {
 	type Item = u32;
 
 	fn next(&mut self) -> Option<Self::Item> {
@@ -71,9 +71,9 @@ impl Iterator for BmpIterator<'_> {
 	}
 }
 
-impl<'a> IntoIterator for Bmp<'a> {
+impl<'a> IntoIterator for Bmp {
 	type Item = u32;
-	type IntoIter = BmpIterator<'a>;
+	type IntoIter = BmpIterator;
 
 	fn into_iter(self) -> Self::IntoIter {
 		BmpIterator {
@@ -85,15 +85,15 @@ impl<'a> IntoIterator for Bmp<'a> {
 }
 
 impl PagingReason for BmpHeader {
-	fn reason() -> u16 {
-		crate::paging_codes::BGRT_BMP_HEADER
+	fn reason() -> Ty {
+		Ty::BGRT_BMP_HEADER
 	}
 }
 
-pub fn from_bgrt<'a>(bgrt: &Bgrt, handler: Handler<'a>) -> Option<Bmp<'a>> {
-	let addr = bgrt.image_address;
+pub fn from_bgrt(bgrt: &Bgrt, handler: Handler) -> Option<Bmp> {
+	let addr = PhysicalAddress::new(bgrt.image_address as usize);
 	let header = unsafe {
-		handler.map_physical_region::<BmpHeader>(addr as usize, mem::size_of::<BmpHeader>())
+		handler.map_physical_region::<BmpHeader>(addr.addr, size_of::<BmpHeader>())
 	};
 
 	if header.dib_header_size < 40 { return None; }
@@ -102,7 +102,7 @@ pub fn from_bgrt<'a>(bgrt: &Bgrt, handler: Handler<'a>) -> Option<Bmp<'a>> {
 	if unsafe { addr_of!(header.compression).read_unaligned() } != 0 { return None; }
 
 	let pixels_size = header.size - header.pixel_offset;
-	let bmp_pixels = (addr + u64::from(header.pixel_offset)) as usize;
+	let bmp_pixels = addr + (header.pixel_offset as usize);
 
 	let pixels = unsafe {
 		handler.map_region::<[u8]>(bmp_pixels, pixels_size as usize, pixels_size as usize)

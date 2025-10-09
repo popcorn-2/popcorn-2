@@ -1,171 +1,222 @@
-use core::cmp::{Ordering, PartialEq, PartialOrd};
-use core::iter::Step;
 use core::ops::{Add, Sub};
 
-use super::{Frame, Page, PAGE_SIZE, PhysicalAddress, VirtualAddress};
+use super::{PAGE_SIZE, PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const A: usize, const B: usize> PartialEq<PhysicalAddress<A>> for PhysicalAddress<B> {
-    fn eq(&self, other: &PhysicalAddress<A>) -> bool {
-        self.addr == other.addr
-    }
-}
+impl const Add<usize> for VirtualAddress {
+    type Output = VirtualAddress;
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const A: usize, const B: usize> PartialEq<VirtualAddress<A>> for VirtualAddress<B> {
-    fn eq(&self, other: &VirtualAddress<A>) -> bool {
-        self.addr == other.addr
-    }
-}
-
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const A: usize, const B: usize> PartialOrd<PhysicalAddress<A>> for PhysicalAddress<B> {
-    fn partial_cmp(&self, other: &PhysicalAddress<A>) -> Option<Ordering> {
-        self.addr.partial_cmp(&other.addr)
-    }
-}
-
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const A: usize, const B: usize> PartialOrd<VirtualAddress<A>> for VirtualAddress<B> {
-    fn partial_cmp(&self, other: &VirtualAddress<A>) -> Option<Ordering> {
-        self.addr.partial_cmp(&other.addr)
-    }
-}
-
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const ALIGN: usize> Add<usize> for VirtualAddress<ALIGN> {
-    type Output = VirtualAddress<1>;
-
+    #[track_caller]
     fn add(self, rhs: usize) -> Self::Output {
-        VirtualAddress {
-            addr: self.addr + rhs
+        VirtualAddress::new(self.addr + rhs)
+    }
+}
+
+impl const Add<usize> for PhysicalAddress {
+    type Output = PhysicalAddress;
+
+    #[track_caller]
+    fn add(self, rhs: usize) -> Self::Output {
+        PhysicalAddress::new(self.addr + rhs)
+    }
+}
+
+/// Offsets the [`RawPage`] by `rhs` pages
+impl const Add<usize> for RawPage {
+    type Output = RawPage;
+
+    #[track_caller]
+    fn add(self, rhs: usize) -> Self::Output {
+        RawPage {
+            inner: self.inner + PAGE_SIZE*rhs
         }
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const ALIGN: usize> Add<usize> for PhysicalAddress<ALIGN> {
-    type Output = PhysicalAddress<1>;
+/// Offsets the [`RawPage`] by `rhs` pages
+impl const Add<isize> for RawPage {
+	type Output = RawPage;
 
+	#[track_caller]
+	fn add(self, rhs: isize) -> Self::Output {
+		RawPage {
+			inner: self.inner + (PAGE_SIZE as isize)*rhs
+		}
+	}
+}
+
+/// Offsets the [`RawFrame`] by `rhs` frames
+impl const Add<usize> for RawFrame {
+    type Output = RawFrame;
+
+    #[track_caller]
     fn add(self, rhs: usize) -> Self::Output {
-        PhysicalAddress {
-            addr: self.addr + rhs
+        RawFrame {
+            inner: self.inner + PAGE_SIZE*rhs
         }
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const ALIGN: usize> Add<isize> for VirtualAddress<ALIGN> {
-    type Output = VirtualAddress<1>;
+/// Offsets the [`RawFrame`] by `rhs` frames
+impl const Add<isize> for RawFrame {
+	type Output = RawFrame;
+
+	#[track_caller]
+	fn add(self, rhs: isize) -> Self::Output {
+		RawFrame {
+			inner: self.inner + (PAGE_SIZE as isize)*rhs
+		}
+	}
+}
+
+/// Offsets the [`RawPage`] by `rhs` pages
+impl const Sub<usize> for RawPage {
+    type Output = RawPage;
+
+    #[track_caller]
+    fn sub(self, rhs: usize) -> Self::Output {
+        RawPage {
+            inner: self.inner - PAGE_SIZE*rhs
+        }
+    }
+}
+
+/// Offsets the [`RawFrame`] by `rhs` frames
+impl const Sub<usize> for RawFrame {
+    type Output = RawFrame;
+
+    #[track_caller]
+    fn sub(self, rhs: usize) -> Self::Output {
+        RawFrame {
+            inner: self.inner - PAGE_SIZE*rhs
+        }
+    }
+}
+
+impl const Add<isize> for VirtualAddress {
+    type Output = VirtualAddress;
 
     #[track_caller]
     fn add(self, rhs: isize) -> Self::Output {
         #[cfg(debug_assertions)]
-        return VirtualAddress {
-            addr: self.addr.checked_add_signed(rhs).expect("attempt to add with overflow")
-        };
+        return VirtualAddress::new(
+            self.addr.checked_add_signed(rhs)
+                    .expect("attempt to add with overflow")
+        );
 
         #[cfg(not(debug_assertions))]
-        return VirtualAddress {
-            addr: self.addr.wrapping_add_signed(rhs)
-        };
+        return VirtualAddress::new(
+            self.addr.wrapping_add_signed(rhs)
+        );
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const ALIGN: usize> Add<isize> for PhysicalAddress<ALIGN> {
-    type Output = PhysicalAddress<1>;
+impl const Add<isize> for PhysicalAddress {
+    type Output = PhysicalAddress;
 
     #[track_caller]
     fn add(self, rhs: isize) -> Self::Output {
         #[cfg(debug_assertions)]
-        return PhysicalAddress {
-            addr: self.addr.checked_add_signed(rhs).expect("attempt to add with overflow")
-        };
+        return PhysicalAddress::new(
+            self.addr.checked_add_signed(rhs)
+                      .expect("attempt to add with overflow")
+        );
 
         #[cfg(not(debug_assertions))]
-        return PhysicalAddress {
-            addr: self.addr.wrapping_add_signed(rhs)
-        };
+        return PhysicalAddress::new(
+            self.addr.wrapping_add_signed(rhs)
+        );
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const ALIGN: usize> Sub<usize> for VirtualAddress<ALIGN> {
-    type Output = VirtualAddress<1>;
+impl const Sub<usize> for VirtualAddress {
+    type Output = VirtualAddress;
 
     fn sub(self, rhs: usize) -> Self::Output {
-        VirtualAddress {
-            addr: self.addr - rhs
-        }
+        VirtualAddress::new(self.addr - rhs)
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const ALIGN: usize> Sub<usize> for PhysicalAddress<ALIGN> {
-    type Output = PhysicalAddress<1>;
+impl const Sub<usize> for PhysicalAddress {
+    type Output = PhysicalAddress;
 
     fn sub(self, rhs: usize) -> Self::Output {
-        PhysicalAddress {
-            addr: self.addr - rhs
-        }
+        PhysicalAddress::new(self.addr - rhs)
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const ALIGN: usize> Sub<isize> for VirtualAddress<ALIGN> {
-    type Output = VirtualAddress<1>;
+impl const Sub<isize> for VirtualAddress {
+    type Output = VirtualAddress;
 
     #[track_caller]
     fn sub(self, rhs: isize) -> Self::Output {
         #[cfg(debug_assertions)]
-        return VirtualAddress {
-            addr: self.addr.checked_add_signed(-rhs).expect("attempt to subtract with overflow")
-        };
+        return VirtualAddress::new(
+            self.addr.checked_add_signed(-rhs)
+                .expect("attempt to add with overflow")
+        );
 
         #[cfg(not(debug_assertions))]
-        return VirtualAddress {
-            addr: self.addr.wrapping_add_signed(-rhs)
-        };
+        return VirtualAddress::new(
+            self.addr.wrapping_add_signed(-rhs)
+        );
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const ALIGN: usize> Sub<isize> for PhysicalAddress<ALIGN> {
-    type Output = PhysicalAddress<1>;
+impl const Sub<isize> for PhysicalAddress {
+    type Output = PhysicalAddress;
 
     #[track_caller]
     fn sub(self, rhs: isize) -> Self::Output {
         #[cfg(debug_assertions)]
-        return PhysicalAddress {
-            addr: self.addr.checked_add_signed(-rhs).expect("attempt to subtract with overflow")
-        };
+        return PhysicalAddress::new(
+            self.addr.checked_add_signed(-rhs)
+                .expect("attempt to add with overflow")
+        );
 
         #[cfg(not(debug_assertions))]
-        return PhysicalAddress {
-            addr: self.addr.wrapping_add_signed(-rhs)
-        };
+        return PhysicalAddress::new(
+            self.addr.wrapping_add_signed(-rhs)
+        );
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const A: usize, const B: usize> Sub<VirtualAddress<A>> for VirtualAddress<B> {
+/// Returns the number of bytes between `self` and `rhs`
+impl const Sub<VirtualAddress> for VirtualAddress {
     type Output = usize;
 
-    fn sub(self, rhs: VirtualAddress<A>) -> Self::Output {
+    fn sub(self, rhs: VirtualAddress) -> Self::Output {
         self.addr - rhs.addr
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<const A: usize, const B: usize> Sub<PhysicalAddress<A>> for PhysicalAddress<B> {
+/// Returns the number of bytes between `self` and `rhs`
+impl const Sub<PhysicalAddress> for PhysicalAddress {
     type Output = usize;
 
-    fn sub(self, rhs: PhysicalAddress<A>) -> Self::Output {
+    fn sub(self, rhs: PhysicalAddress) -> Self::Output {
         self.addr - rhs.addr
     }
 }
 
+/// Returns the number of frames between `self` and `rhs`
+impl const Sub<RawFrame> for RawFrame {
+    type Output = usize;
+
+    fn sub(self, rhs: RawFrame) -> Self::Output {
+        (self.addr - rhs.addr) / PAGE_SIZE
+    }
+}
+
+/// Returns the number of pages between `self` and `rhs`
+impl const Sub<RawPage> for RawPage {
+    type Output = usize;
+
+    fn sub(self, rhs: RawPage) -> Self::Output {
+        (self.addr - rhs.addr) / PAGE_SIZE
+    }
+}
+
+/*
 #[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl Add<usize> for Page {
     type Output = Page;
@@ -332,3 +383,4 @@ impl Step for Page {
         })
     }
 }
+*/

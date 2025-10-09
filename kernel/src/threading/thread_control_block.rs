@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use alloc::borrow::Cow;
 use alloc::sync::Arc;
 use core::cell::UnsafeCell;
@@ -6,15 +5,15 @@ use core::fmt::{Debug, Formatter};
 use core::num::{NonZero, NonZeroUsize};
 use core::ptr;
 use core::sync::atomic::{AtomicU128, Ordering};
-use kernel_api::memory::mapping;
-use kernel_api::memory::mapping::{new_stack, Stack};
-use kernel_api::memory::r#virtual::Kernel;
-use crate::hal::{self, SaveState, TTableTy};
-use super::{parking::ParkGaurd, Thread, ThreadId, ThreadPointer, WakeReason};
+use kernel_api::address_space::{AddressSpace, Kernel};
+use kernel_api::mapping::{Config, Mapping, Stack};
+use kernel_api::threading::{ParkGaurd, ThreadId};
+use crate::hal::SaveState;
+use super::{Thread, ThreadPointer, WakeReason};
 use crate::hal::SaveStateTr;
 use crate::ipc::handle::HandleMap;
-use crate::memory::r#virtual::AddressSpaceInner;
 use crate::threading::subthread_killer::SubthreadKiller;
+use crate::ipc::async_handling::AsyncMap;
 
 #[doc(hidden)]
 macro_rules! __tcb_gen_field {
@@ -114,13 +113,13 @@ macro_rules! tcb_views {
 tcb_views! {
 	pub struct ThreadControlBlock {
 		/// The address space for the thread
-		address_space: Arc<AddressSpaceInner>,
+		address_space: AddressSpace,
 		/// The saved CPU state
 		#mut(Pointer) save_state: SaveState,
 		/// The user-facing name of the thread
 		name: Cow<'static, str>,
 		/// The stack that kernel code runs on inside the thread
-		kernel_stack: Stack<'static, Kernel>,
+		kernel_stack: Mapping<Stack, Kernel>,
 		/// The current running state of the thread
 		state: AtomicThreadState,
 		/// The numerical ID of the thread
@@ -128,6 +127,7 @@ tcb_views! {
 		/// The currently open handles
 		handles: Arc<HandleMap>,
 		subthread_killer: SubthreadKiller,
+		async_map: Arc<AsyncMap>,
 	}
 }
 
@@ -164,13 +164,14 @@ impl ThreadControlBlock {
 	/// 
 	/// enqueue_new(tcb);
 	/// ```
-	pub fn new(name: Cow<'static, str>, address_space: Arc<AddressSpaceInner>, startup: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, arg: usize) -> (Self, ThreadId) {
-		let new_stack = new_stack(
-			mapping::Config::new(NonZeroUsize::new(32).unwrap()),
-			crate::paging_codes::THREAD_KERNEL_STACK,
-		).unwrap();
+	pub fn new(name: Cow<'static, str>, address_space: AddressSpace, handles: HandleMap, startup: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, arg: usize, id: Option<ThreadId>) -> (Self, ThreadId) {
+		let id = id.unwrap_or_else(ThreadId::new);
+
+		let new_stack = Config::new(NonZeroUsize::new(32).unwrap())
+				.protection(true, false, false)
+				.map()
+				.expect("failed to allocate stack");
 		
-		let id = ThreadId::new();
 		let mut new_thread = ThreadControlBlock::new_inner(
 			address_space,
 			Default::default(),
@@ -178,23 +179,20 @@ impl ThreadControlBlock {
 			new_stack,
 			AtomicThreadState::new(ThreadState::Ready),
 			id,
-			Arc::new(HandleMap::new()),
+			Arc::new(handles),
 			SubthreadKiller::new(id),
+			Arc::new(AsyncMap::new()),
 		);
 		new_thread.save_state = UnsafeCell::new(SaveState::new(&mut new_thread, startup, main, arg));
 
 		(new_thread, id)
 	}
 
-	pub fn clone_uninit_from(from: SharedView, name: Cow<'static, str>, startup: unsafe extern "C" fn()) -> (Self, ThreadId) {
-		extern "C" fn uninit_thread_panic(_: usize) -> ! {
-			panic!("attempted to run an uninit thread")
-		}
-		
-		let new_stack = new_stack(
-			mapping::Config::new(NonZeroUsize::new(32).unwrap()),
-			crate::paging_codes::THREAD_KERNEL_STACK,
-		).unwrap();
+	pub fn clone_from(from: SharedView, name: Cow<'static, str>, startup: unsafe extern "C" fn(), main: extern "C" fn(usize) -> !, arg: usize) -> (Self, ThreadId) {
+		let new_stack = Config::new(NonZeroUsize::new(32).unwrap())
+				.protection(true, false, false)
+				.map()
+				.expect("failed to allocate stack");
 
 		let id = ThreadId::new();
 		let killer = SubthreadKiller::clone(from.subthread_killer);
@@ -204,12 +202,13 @@ impl ThreadControlBlock {
 			Default::default(),
 			name,
 			new_stack,
-			AtomicThreadState::new(ThreadState::Uninit),
+			AtomicThreadState::new(ThreadState::Ready),
 			id,
 			Arc::clone(from.handles),
-			killer
+			killer,
+			Arc::clone(from.async_map),
 		);
-		new_thread.save_state = UnsafeCell::new(SaveState::new(&mut new_thread, startup, uninit_thread_panic, 0));
+		new_thread.save_state = UnsafeCell::new(SaveState::new(&mut new_thread, startup, main, arg));
 
 		(new_thread, id)
 	}
@@ -236,7 +235,7 @@ impl AtomicThreadState {
 			ThreadState::Parked(park) => (2, Arc::into_raw(park).expose_provenance()),
 			ThreadState::JustUnparked(WakeReason::Timeout) => (3, 0),
 			ThreadState::JustUnparked(WakeReason::Custom(val)) => (3, val.get() as usize),
-			ThreadState::Uninit => (4, 0),
+			ThreadState::NearlyParked(park) => (4, Arc::into_raw(park).expose_provenance()),
 			ThreadState::Dead => (5, 0),
 		};
 
@@ -259,7 +258,12 @@ impl AtomicThreadState {
 				None => WakeReason::Timeout,
 				Some(val) => WakeReason::Custom(val),
 			}),
-			4 => ThreadState::Uninit,
+			4 => {
+				let arc = unsafe { Arc::from_raw(ptr::with_exposed_provenance(low)) };
+				// since we store an arc ourselves
+				unsafe { Arc::increment_strong_count(Arc::as_ptr(&arc)) };
+				ThreadState::NearlyParked(arc)
+			},
 			5 => ThreadState::Dead,
 			_ => unreachable!()
 		}
@@ -278,10 +282,16 @@ impl AtomicThreadState {
 		Self::from_raw(val)
 	}
 	
-	pub fn compare_exchange(&self, current: ThreadState, new: ThreadState, success: Ordering, failure: Ordering) {
+	pub fn compare_exchange(&self, current: ThreadState, new: ThreadState, success: Ordering, failure: Ordering) -> Result<(), ()> {
 		let current = Self::to_raw(current);
 		let new = Self::to_raw(new);
-		let _ = self.0.compare_exchange(current, new, success, failure);
+		self.0.compare_exchange(current, new, success, failure)
+				.map(|_| ())
+				.map_err(|_| ())
+	}
+
+	pub unsafe fn fetch_update_raw(&self, set_order: Ordering, fetch_order: Ordering, f: impl FnMut(u128) -> Option<u128>) {
+		self.0.fetch_update(set_order, fetch_order, f);
 	}
 }
 
@@ -299,11 +309,10 @@ pub enum ThreadState {
 	Running,
 	/// The thread is parked
 	Parked(Arc<ParkGaurd>),
+	/// The thread is in the process of being parked
+	NearlyParked(Arc<ParkGaurd>),
 	/// The thread was unparked but has not been run since
 	JustUnparked(WakeReason),
-	/// The thread has been created, but has not yet started execution,
-	/// and likely has an invalid starting stack
-	Uninit,
 	Dead,
 }
 
@@ -312,6 +321,7 @@ impl ThreadState {
 		match self {
 			Self::Ready => true,
 			Self::JustUnparked(_) => true,
+			Self::NearlyParked(_) => true,
 			_ => false,
 		}
 	}
@@ -341,13 +351,6 @@ impl ThreadState {
 		match self {
 			Self::JustUnparked(reason) => Some(*reason),
 			_ => None,
-		}
-	}
-
-	pub fn is_uninit(&self) -> bool {
-		match self {
-			Self::Uninit => true,
-			_ => false,
 		}
 	}
 }

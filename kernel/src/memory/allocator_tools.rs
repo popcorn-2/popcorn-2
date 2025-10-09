@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 
 use core::alloc::AllocError;
 use core::num::NonZero;

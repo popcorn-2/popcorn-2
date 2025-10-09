@@ -121,6 +121,10 @@ impl<'a> TryFrom<&'a FileHeaderRaw> for &'a FileHeader {
 	type Error = Error;
 
 	fn try_from(value: &'a FileHeaderRaw) -> Result<&'a FileHeader, Self::Error> {
+		if value.magic != [0x7f, b'E', b'L', b'F'] {
+			return Err(Error::WrongMagic);
+		}
+		
 		Width::try_from(value.arch_width)?;
 		Endianness::try_from(value.endianness)?;
 		Abi::try_from(value.abi)?;
@@ -226,10 +230,6 @@ impl FileHeader {
 
 		let data = <&FileHeader>::try_from(data)?;
 
-		if data.magic != [0x7f, b'E', b'L', b'F'] {
-			return Err(Error::WrongMagic);
-		}
-
 		Ok(data)
 	}
 }
@@ -249,28 +249,29 @@ pub enum Error {
 	InvalidIsa(<Isa as TryFromPrimitive>::Primitive),
 }
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, TryFromPrimitive, Eq, PartialEq)]
 #[repr(u8)]
 pub enum Width {
 	_32 = 1,
 	_64 = 2
 }
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, TryFromPrimitive, Eq, PartialEq)]
 #[repr(u8)]
 pub enum Endianness {
 	Little = 1,
 	Big = 2
 }
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, TryFromPrimitive, Eq, PartialEq)]
 #[repr(u8)]
 pub enum Abi {
 	SystemV = 0,
+	Linux = 3,
 	Popcorn = 200,
 }
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, TryFromPrimitive, Eq, PartialEq)]
 #[repr(u16)]
 pub enum Type {
 	Relocatable = 1,
@@ -279,7 +280,7 @@ pub enum Type {
 	Core = 4
 }
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, TryFromPrimitive, Eq, PartialEq)]
 #[repr(u16)]
 pub enum Isa {
 	Nonspecific = 0,

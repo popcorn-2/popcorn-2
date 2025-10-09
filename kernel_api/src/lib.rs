@@ -1,54 +1,94 @@
-//! This crate provides public facing types and interfaces used within the popcorn2 kernel
+//! Popcorn2 kernel public API
+//! 
+//! Provides a mix of utility types and functions to replace `std`, as well as a stable API to kernel internals.
 
-#![cfg_attr(not(feature = "use_std"), no_std)]
-#![feature(staged_api)]
 #![feature(min_specialization)]
 #![feature(custom_test_frameworks)]
 #![feature(type_changing_struct_update)]
 #![feature(step_trait)]
-#![feature(generic_const_items)]
-#![feature(generic_const_exprs)]
 #![feature(type_alias_impl_trait)]
 #![feature(extern_types)]
-#![feature(new_uninit)]
-#![feature(doc_auto_cfg)]
-#![feature(doc_cfg_hide)]
-#![feature(let_chains)]
-#![cfg_attr(feature = "use_std", feature(lazy_cell))]
-#![warn(missing_docs)]
+#![feature(doc_cfg)]
 #![feature(unsize)]
 #![feature(dispatch_from_dyn)]
 #![feature(coerce_unsized)]
 #![feature(impl_trait_in_assoc_type)]
+#![feature(pointer_is_aligned_to)]
+#![feature(slice_ptr_get)]
+#![feature(sanitize)]
+#![feature(core_io_borrowed_buf)]
+#![feature(ptr_metadata)]
+#![feature(maybe_uninit_fill)]
+#![feature(maybe_uninit_slice)]
+#![feature(arbitrary_self_types_pointers)]
+#![feature(negative_impls)]
+#![feature(cfg_target_has_atomic)]
+#![feature(const_trait_impl)]
+#![feature(const_convert)]
+#![feature(const_ops)]
+#![feature(const_option_ops)]
+#![feature(never_type)]
+#![feature(debug_closure_helpers)]
+#![cfg_attr(target_has_atomic_load_store = "128", feature(integer_atomics))]
 
-#![doc(issue_tracker_base_url = "https://github.com/popcorn-2/popcorn-2/issues/")]
-#![doc(cfg_hide(all(not(feature = "use_std"), feature = "full")))]
-#![doc(cfg_hide(feature = "full"))]
-#![doc(cfg_hide(not(feature = "use_std")))]
+//#![deny(warnings)]
+#![deny(unfulfilled_lint_expectations)]
+#![warn(missing_docs)]
+//#![deny(rustdoc::broken_intra_doc_links)]
+#![warn(rustdoc::private_intra_doc_links)]
+//#![warn(rustdoc::missing_doc_code_examples)]
+#![warn(rustdoc::invalid_codeblock_attributes)]
+#![warn(rustdoc::invalid_html_tags)]
+#![warn(rustdoc::invalid_rust_codeblocks)]
+#![warn(rustdoc::bare_urls)]
 
-#![stable(feature = "kernel_core_api", since = "1.0.0")]
+#![allow(type_alias_bounds)]
+
+#![cfg_attr(not(feature = "use_std"), no_std)]
 
 extern crate alloc;
 
-#[unstable(feature = "kernel_export_macro", issue = "none")]
-pub use kernel_module_macros::module_export;
-
 pub mod memory;
+
 #[cfg(feature = "full")]
 pub mod sync;
 
-#[cfg(all(not(feature = "use_std"), feature = "full"))]
-pub mod bridge;
+#[cfg(feature = "full")]
+mod bridge;
 
 pub mod ptr;
 
-#[cfg(all(not(feature = "use_std"), feature = "full"))]
+#[cfg(feature = "full")]
 pub mod time;
 
-#[cfg(all(not(feature = "use_std"), feature = "full"))]
+#[cfg(feature = "full")]
 pub mod detect;
 
-#[stable(feature = "help", since = "2.0.0")]
+#[cfg(feature = "full")]
+pub mod address_space;
+
+pub mod mapping;
+
+#[cfg(feature = "full")]
+pub mod allocator;
+
+#[cfg(feature = "full")]
+pub mod threading;
+
+#[cfg(feature = "full")]
+pub mod syscall;
+
+#[cfg(feature = "full")]
+pub mod executor;
+
+#[cfg(feature = "full")]
+pub mod channel;
+
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// Prints and returns the value of a given expression for quick and dirty debugging
 #[macro_export]
 macro_rules! dbg {
     ($val:expr $(,)?) => {
@@ -56,7 +96,7 @@ macro_rules! dbg {
         // of temporaries - https://stackoverflow.com/a/48732525/1063961
         match $val {
             tmp => {
-                ::log::debug!("{} = {:#?}",
+                ::log::debug!("{} = {:#x?}",
                     ::core::stringify!($val), &tmp);
                 tmp
             }
@@ -66,3 +106,48 @@ macro_rules! dbg {
         ($($crate::dbg!($val)),+,)
     };
 }
+
+#[macro_export]
+macro_rules! newtype_enum {
+    (
+        $(#[$type_attrs:meta])*
+        $visibility:vis enum $type:ident : $base_integer:ty => $(#[$impl_attrs:meta])* {
+            $(
+                $(#[$variant_attrs:meta])*
+                $variant:ident = $value:expr,
+            )*
+        }
+    ) => {
+        $(#[$type_attrs])*
+        #[repr(transparent)]
+        #[derive(Clone, Copy, Eq, PartialEq)]
+        $visibility struct $type(pub $base_integer);
+
+        $(#[$impl_attrs])*
+        #[allow(unused)]
+        impl $type {
+            $(
+                $(#[$variant_attrs])*
+                pub const $variant: $type = $type($value);
+            )*
+        }
+
+        #[allow(unused)]
+        impl core::fmt::Debug for $type {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                match *self {
+                    // Display variants by their name, like Rust enums do
+                    $(
+                        $type::$variant => write!(f, stringify!($variant)),
+                    )*
+
+                    // Display unknown variants in tuple struct format
+                    $type(unknown) => {
+                        write!(f, "{}({})", stringify!($type), unknown)
+                    }
+                }
+            }
+        }
+    }
+}
+

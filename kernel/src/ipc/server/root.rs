@@ -1,73 +1,159 @@
-#[allow(unused_imports)] use crate::prelude::*;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use alloc::sync::Arc;
+use core::future::Future;
+use core::sync::atomic::{AtomicIsize, Ordering};
 use hashbrown::HashMap;
-use kernel_api::sync::Spinlock;
+use kernel_api::ptr::LocalUser;
+use kernel_api::sync::{OnceLock, Spinlock};
+use kernel_api::syscall;
 use utils::better_cow::Cow;
-use crate::ipc::{Error, server};
-use crate::ipc::server::{Server, ServerId};
-use super::userspace::UserspaceServer;
+use crate::hashmap_new;
+use crate::ipc::{Error, protocol, server};
+use crate::ipc::ctor::{CtorContext, ProtocolVisitor};
+use kernel_api::syscall::handle::Handle;
+use kernel_api::syscall::server::ServerId;
+use crate::ipc::protocol::DispatchTable;
+use crate::ipc::server::{ReturnHandle, Server, ServerTy};
+use crate::ipc::server::userspace::{Packet, Response, UserspaceServer};
 
 #[derive(Debug)]
 pub struct RootServer {
-	next_handle: AtomicUsize,
-	handle_map: Spinlock<HashMap<usize, ServerId>>,
-}
-
-impl Server for RootServer {
-	fn open(&self, endpoint: Cow<'_, Box<str>, str>) -> Result<usize, Error> {
-		let path = endpoint.trim_start_matches('/');
-		if path.contains('/') { yeet!(Error::InvalidArg); }
-
-		let handle = {
-			if self.next_handle.load(Ordering::Relaxed) == usize::MAX { panic!("overflow"); } // todo: better
-			let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
-			handle
-		};
-
-		let new_server = UserspaceServer::new_current_thread().into();
-		let id = server::servers_mut().insert_server(Some(Cow::Owned(endpoint.into_owned())), new_server)?; // fixme: silly allocation
-		
-		self.handle_map.lock().try_insert(handle, id)
-				.expect("Handle reuse should not happen");
-		
-		Ok(handle)
-	}
+	next_handle: AtomicIsize,
+	handle_map: Spinlock<HashMap<isize, ServerId>>,
 }
 
 impl RootServer {
 	pub const fn new() -> Self {
 		Self {
-			next_handle: AtomicUsize::new(0),
-			handle_map: Spinlock::new(HashMap::with_hasher(hashbrown::hash_map::DefaultHashBuilder::new())),
+			next_handle: AtomicIsize::new(0),
+			handle_map: Spinlock::new(hashmap_new!()),
 		}
 	}
 }
 
-#[cfg(test)]
-mod tests {
-	use super::*;
-	
-	#[test]
-	fn can_return_handle() {
-		let server = RootServer::new();
+impl Server for RootServer {
+	type CtorContext = CtorCtx;
+
+	async fn ctor(&self, endpoint: &str, _ctx: Self::CtorContext) -> Result<ReturnHandle, Error> {
+		let path = endpoint.trim_start_matches('/');
+		if path.contains('/') { yeet!(Error::InvalidName); }
 		
-		assert_eq!(server.open("/foobar"), 1);
-		assert_eq!(server.open("/foobaz"), 2);
+		debug!("start server at `{path}`");
+
+		let handle = {
+			if self.next_handle.load(Ordering::Relaxed) == isize::MAX { panic!("overflow"); } // todo: better
+			let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
+			handle
+		};
+
+		let new_server = ServerTy::Userspace(UserspaceServer::new_current_thread());
+		
+		let name = if path.is_empty() { None }
+			else { Some(Cow::Owned(endpoint.into())) };
+		let id = server::server_registry_mut().insert_server(name, new_server)?; // fixme: silly allocation
+
+		self.handle_map.lock().try_insert(handle, id)
+		    .expect("Handle reuse should not happen");
+
+		Ok(ReturnHandle::NewDefault(handle))
 	}
 
-	#[test]
-	fn duplicate_causes_error() {
-		let server = RootServer::new();
+	async fn destroy(&self, _handle: isize) -> Result<(), Error> { Ok(()) }
 
-		assert_eq!(server.open("/foobar"), 1);
-		assert_eq!(server.open("/foobar"), -errors::EADDRINUSE);
+	fn dispatch_table(&self) -> &'static DispatchTable {
+		static DISPATCH_TABLE: OnceLock<DispatchTable> = OnceLock::new();
+		DISPATCH_TABLE.get_or_init(|| DispatchTable::new()
+				.add_vtable(<Self as protocol::generated::CoreServerSync>::__vtable())
+		)
 	}
-	
-	#[test]
-	fn no_multiple_slashes() {
-		let server = RootServer::new();
+}
 
-		assert_eq!(server.open("/foo/bar"), -errors::EINVAL);
-		assert_eq!(server.open("/foo/baz"), -errors::EINVAL);
+impl protocol::generated::CoreServerSync for RootServer {
+	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
+
+	// fixme: the buffer ptr is actually a User<*mut u8>
+	fn next(&self, handle: isize, buffer: *const u8) -> impl Future<Output = syscall::Result<()>> {
+		let buffer = buffer.addr();
+		let server: syscall::Result<_> = try {
+			let Some(&server) = self.handle_map.lock().get(&handle) else {
+				Err(Error::InvalidHandle)?;
+				unreachable!()
+			};
+			let Ok(server) = server::server_registry_mut().get_server(server) else {
+				self.handle_map.lock().remove(&handle);
+				Err(Error::DeadServer)?;
+				unreachable!()
+			};
+
+			server
+		};
+		
+		async move {
+			let server = server?;
+			let userspace = match &*server {
+				ServerTy::Userspace(server) => server,
+				_ => unreachable!("root server should not contain kernel servers"),
+			};
+
+			let packet = userspace.get_packet().await;
+			
+			let buffer = LocalUser::<*mut Packet>::new(buffer);
+			buffer.write(packet)?;
+
+			Ok(())
+		}
+	}
+
+	// fixme: the buffer ptr is actually a User<*const u8>
+	fn reply(&self, handle: isize, buffer: *const u8) -> impl Future<Output = syscall::Result<()>> {
+		let res: syscall::Result<()> = try {
+			let buffer = unsafe { LocalUser::<*const Response>::new(buffer.addr()) };
+
+			let packet = buffer.read()?;
+
+			let Some(&server) = self.handle_map.lock().get(&handle) else {
+				Err(Error::InvalidHandle)?;
+				unreachable!()
+			};
+			let Ok(server) = server::server_registry_mut().get_server(server) else {
+				self.handle_map.lock().remove(&handle);
+				Err(Error::DeadServer)?;
+				unreachable!()
+			};
+
+			let userspace = match &*server {
+				ServerTy::Userspace(server) => server,
+				_ => unreachable!("root server should not contain kernel servers"),
+			};
+
+			userspace.reply_packet(packet)?;
+		};
+
+		core::future::ready(res)
+	}
+
+	async fn forge(&self, handle: isize, handle_num: isize, protocols: &[u128]) -> Result<ReturnHandle, Error> {
+		let Some(&server) = self.handle_map.lock().get(&handle) else {
+			return Err(Error::InvalidHandle);
+		};
+		
+		debug!("forge handle for server {server:?} with num {handle_num:#x} and protos {protocols:#x?}");
+		
+		let new_handle = Handle::new(server, handle_num, protocols);
+
+		Ok(ReturnHandle::Transfer(new_handle))
+	}
+}
+
+#[derive(Default)]
+pub struct CtorCtx;
+
+impl CtorContext for CtorCtx {
+	fn visitors(&self) -> &'static ProtocolVisitor<Self> {
+		static VISITORS: OnceLock<ProtocolVisitor<CtorCtx>> = OnceLock::new();
+
+		VISITORS.get_or_init(||
+			ProtocolVisitor::new()
+				.add_visitor::<dyn protocol::generated::CoreServerSync>(|_, _| Ok(()))
+		)
 	}
 }

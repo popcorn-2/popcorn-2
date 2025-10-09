@@ -1,4 +1,5 @@
 #![feature(decl_macro)]
+#![deny(warnings)]
 
 use fatfs::{FatType, FileSystem, format_volume, FormatVolumeOptions, FsOptions, ReadWriteSeek};
 use fscommon::StreamSlice;
@@ -43,15 +44,15 @@ pub fn main() {
 		BufReader::new(f)
 	};
 
-	let mut popfs_driver = {
-		let popfs_driver_path = cargo_env!("CARGO_BIN_FILE_POPFS_popfs_uefi_driver");
-		let f = File::open(popfs_driver_path).expect("popfs driver file does not exist");
-		BufReader::new(f)
-	};
-
 	let mut init_exec = {
 		let init_exec_path = cargo_env!("init_exec");
 		let f = File::open(init_exec_path).expect("init file does not exist");
+		BufReader::new(f)
+	};
+
+	let mut ramdisk = {
+		let ramdisk_path = cargo_env!("ramdisk");
+		let f = File::open(ramdisk_path).expect("ramdisk does not exist");
 		BufReader::new(f)
 	};
 
@@ -89,8 +90,8 @@ pub fn main() {
 		);
 
 		match partition.part_type {
-			PartitionType::Efi => init_efi_partition(fs, &mut bootloader, &mut popfs_driver),
-			PartitionType::System => init_system_partition(fs, &mut kernel, kernel_map.as_mut(), &mut init_exec),
+			PartitionType::Efi => init_efi_partition(fs, &mut bootloader),
+			PartitionType::System => init_system_partition(fs, &mut kernel, kernel_map.as_mut(), &mut init_exec, &mut ramdisk),
 			_ => {}
 		}
 	}
@@ -98,7 +99,7 @@ pub fn main() {
 	println!("cargo:rustc-env=ISO_IMAGE={}", disk_image_path.display());
 }
 
-fn init_efi_partition(fs: FileSystem<impl ReadWriteSeek>, mut bootloader_data: impl Read, mut popfs_data: impl Read) {
+fn init_efi_partition(fs: FileSystem<impl ReadWriteSeek>, mut bootloader_data: impl Read) {
 	let root_dir = fs.root_dir();
 	root_dir.create_dir("efi").unwrap();
 	root_dir.create_dir("efi/boot").unwrap();
@@ -110,12 +111,9 @@ fn init_efi_partition(fs: FileSystem<impl ReadWriteSeek>, mut bootloader_data: i
 	let mut conf = root_dir.create_file("efi/popcorn/config.toml").unwrap();
 	let data = "";
 	conf.write(data.as_bytes()).unwrap();
-
-	let mut popfs = root_dir.create_file("efi/popcorn/popfs.efi").unwrap();
-	io::copy(&mut popfs_data, &mut popfs).unwrap();
 }
 
-fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: impl Read, map_data: Option<impl Read>, mut init_exec: impl Read) {
+fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: impl Read, map_data: Option<impl Read>, mut init_exec: impl Read, mut ramdisk: impl Read) {
 	let root_dir = fs.root_dir();
 	root_dir.create_dir("kernel").unwrap();
 	let mut kernel = root_dir.create_file("kernel/kernel.exec").unwrap();
@@ -132,6 +130,9 @@ fn init_system_partition(fs: FileSystem<impl ReadWriteSeek>, mut kernel_data: im
 	let mut init = root_dir.create_file("user/init.exec").unwrap();
 	init.truncate().unwrap();
 	io::copy(&mut init_exec, &mut init).unwrap();
+	let mut ramdisk_disk = root_dir.create_file("user/init.tar").unwrap();
+	ramdisk_disk.truncate().unwrap();
+	io::copy(&mut ramdisk, &mut ramdisk_disk).unwrap();
 }
 
 fn create_fat_partition<T: Read + Write + Seek + Debug>(mut disk: T, size: u64, name: &str, part_type: Type) -> FileSystem<impl ReadWriteSeek> {

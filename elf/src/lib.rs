@@ -1,5 +1,6 @@
 #![no_std]
 #![feature(never_type)]
+#![deny(warnings)]
 
 extern crate alloc;
 
@@ -99,7 +100,7 @@ macro_rules! file {
 			fn index_data(&self, slice: FileLocation) -> &[u8] {
 				// SAFETY: self.data must be valid, and returning an immutable reference so fine to alias with self.{program,section}_header
 				unsafe {
-					&(*self.data)[slice.0]
+					&(&*self.data)[slice.0]
 				}
 			}
 		    
@@ -114,6 +115,7 @@ macro_rules! file {
 				})
 			}
 		    
+			#[allow(unused)]
 		    fn data_at_unrel_address(&self, addr: ExecutableAddressUnrelocated) -> Option<*const u8> { self.data_at_address(ExecutableAddressRelocated(addr.0 + self.base)) }
 			
 			pub fn entrypoint(&self) -> usize {
@@ -149,7 +151,7 @@ impl<'a> FileMut<'a> {
 
 		// SAFETY: self.data must be valid, and checked that reference won't alias
 		unsafe {
-			&mut (*self.data)[slice.0]
+			&mut (&mut *self.data)[slice.0]
 		}
 	}
 
@@ -171,7 +173,7 @@ impl<'a> IndexMut<FileLocation> for FileMut<'a> {
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct FileLocation(Range<usize>);
+pub struct FileLocation(pub Range<usize>);
 
 macro_rules! derive_fmt_filelocation {
     ($($fmt: path)*) => {

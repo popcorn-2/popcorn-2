@@ -4,5 +4,5 @@ size = 36_700_160
 
 [[partition]]
 type = "system"
-size = 36_700_160
+size = 100_663_296
 

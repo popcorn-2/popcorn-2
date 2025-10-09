@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{Debug, Formatter};
 use bit_field::BitField;
 use num_enum::{IntoPrimitive, TryFromPrimitive};

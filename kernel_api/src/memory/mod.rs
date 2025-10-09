@@ -1,302 +1,462 @@
-//! Provides primitives for interfacing with raw memory (such as [pages](`Page`) and [frames](`Frame`)), as well as
-//! interfaces for memory related kernel modules to implement (such as [`BackingAllocator`](allocator::PhysicalAllocator))
-#![stable(feature = "kernel_core_api", since = "1.0.0")]
+//! Provides primitives for interfacing with memory
+//! 
+//! TODO: memory map overview?
+//! 
+//! # Page map region
+//! 
+//! All conventional memory (i.e. not MMIO, ACPI firmware data, etc.) is mapped into the "page map
+//! region", meaning that the kernel can directly access it without having to create a
+//! [`Mapping`](crate::mapping::Mapping) first. This is useful for writing to userspace in a different
+//! address space, or for storing allocator metadata.
+//! 
+//! Physical memory owned through a [`Frames<true>`] can be directly accessed via [`Frames::get()`] and
+//! [`Frames::get_mut()`]. Raw [`PhysicalAddress`]es can be converted to a [`VirtualAddress`] in the page
+//! map region by calling [`PhysicalAddress::to_virtual`]. **The returned address is only safe to access
+//! if the [`PhysicalAddress`] pointed to conventional memory.**
 
-#[cfg(feature = "full")]
-pub mod allocator;
-#[cfg(feature = "full")]
-pub mod heap;
+use core::fmt::{Debug, Formatter};
+use core::mem::{ManuallyDrop, MaybeUninit};
+use core::ops::{Deref, Range};
+use core::iter::Step;
+use core::{fmt, slice};
+use core::marker::PhantomData;
+use core::ptr::addr_of;
+#[cfg(feature = "full")] use crate::allocator::{DynPmm, Pmm};
+
 mod type_ops;
-#[cfg(feature = "full")]
-pub mod r#virtual;
-#[cfg(all(not(feature = "use_std"), feature = "full"))]
-pub mod mapping;
-#[cfg(feature = "full")]
-pub mod physical;
 
-/// The error returned when an allocation was unsuccessful
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-pub struct AllocError;
+pub mod asan;
 
-const PAGE_SIZE: usize = 4096;
+/// The number of bytes in the smallest sized page for the current architecture
+pub const PAGE_SIZE: usize = const {
+    if cfg!(doc) { 0 }
+    else if cfg!(target_arch = "x86_64") { 4096 }
+    else { panic!("unsupported arch") }
+};
+
 const PAGE_MAP_OFFSET: usize = 0xffff_8000_0000_0000;
 
-/// A memory frame
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-#[repr(transparent)]
-pub struct Frame {
-    base: PhysicalAddress<PAGE_SIZE>
+#[derive(Debug, Copy, Clone, Eq, Ord, Hash, PartialOrd, PartialEq)]
+#[must_use = "must be explicitly deallocated to not leak memory"]
+pub struct RawPage {
+    inner: VirtualAddress,
 }
 
-/// A memory page
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-#[repr(transparent)]
-pub struct Page {
-    base: VirtualAddress<PAGE_SIZE>
+impl RawPage {
+    #[track_caller]
+    pub fn new(addr: usize) -> Self {
+        if addr % PAGE_SIZE != 0 { panic!("unaligned `RawPage`") };
+        RawPage { inner: VirtualAddress::new(addr) }
+    }
 }
 
-/// A physical memory address of alignment `ALIGN`
-// todo: replace ALIGN with a NonZero<usize>
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-#[derive(Debug, Copy, Clone, Eq, Ord)]
+impl const Deref for RawPage {
+    type Target = VirtualAddress;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, Ord, Hash, PartialOrd, PartialEq)]
+#[must_use = "must be explicitly deallocated to not leak memory"]
+pub struct RawFrame {
+    inner: PhysicalAddress,
+}
+
+impl RawFrame {
+    #[track_caller]
+    pub const fn new(addr: usize) -> Self {
+        if addr % PAGE_SIZE != 0 { panic!("unaligned `RawFrame`") };
+        RawFrame { inner: PhysicalAddress::new(addr) }
+    }
+    
+    pub const fn checked_sub(self, count: usize) -> Option<Self> {
+        self.addr.checked_sub(count * PAGE_SIZE)
+                .map(RawFrame::new)
+    }
+}
+
+impl const Deref for RawFrame {
+    type Target = PhysicalAddress;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+/// An owned region of physical memory
+#[cfg(feature = "full")]
+#[repr(C)]
+pub struct Frames<const RAM: bool, T = MaybeUninit<u8>> {
+    raw: Range<RawFrame>,
+	pmm: DynPmm<'static, RAM>,
+    _phantom: PhantomData<[T]>,
+}
+
+#[cfg(feature = "full")]
+impl<const RAM: bool, T> Debug for Frames<RAM, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Frames")
+                .field("raw", &self.raw)
+                .field("pmm", &self.pmm)
+                .finish()
+    }
+}
+
+#[cfg(feature = "full")]
+impl<const RAM: bool, T> Frames<RAM, T> {
+	pub fn pmm(&self) -> &DynPmm<'static, RAM> { &self.pmm }
+
+    pub fn count(&self) -> usize {
+        self.raw.end - self.raw.start
+    }
+    
+    pub fn base(&self) -> RawFrame {
+        self.raw.start
+    }
+
+	pub fn as_frame_range(&self) -> Range<RawFrame> {
+		self.raw.clone()
+	}
+
+    pub unsafe fn base_raw(self: *const Self) -> RawFrame {
+        unsafe { *addr_of!((*self).raw.start) }
+    }
+
+    pub(crate) fn into_raw(self) -> (Range<RawFrame>, DynPmm<'static, RAM>) {
+        let this = ManuallyDrop::new(self);
+	    (this.raw.clone(), this.pmm)
+    }
+
+    pub unsafe fn from_raw(raw: Range<RawFrame>, pmm: DynPmm<'static, RAM>) -> Self {
+        Self {
+            raw,
+	        pmm,
+            _phantom: PhantomData
+        }
+    }
+}
+
+#[cfg(feature = "full")]
+impl<T> Frames<false, T> {
+	pub(crate) unsafe fn from_raw_tuple<const RAM: bool>((raw, pmm): (Range<RawFrame>, DynPmm<'static, RAM>)) -> Self {
+		Self {
+			raw,
+			pmm: pmm.into(),
+			_phantom: PhantomData
+		}
+	}
+}
+
+#[cfg(feature = "full")]
+impl<const RAM: bool, T> Frames<RAM, MaybeUninit<T>> {
+    pub fn cast<U>(self) -> Frames<RAM, MaybeUninit<U>> {
+	    let (raw, pmm) = self.into_raw();
+	    Frames {
+		    raw,
+		    pmm,
+		    _phantom: PhantomData
+	    }
+    }
+}
+
+#[cfg(feature = "full")]
+impl<T> Frames<true, MaybeUninit<T>> {
+    pub fn write_filled(&mut self, value: T) -> &mut [T] where T: Clone {
+        self.get_mut().write_filled(value)
+    }
+    
+    pub fn write_filled_with(&mut self, f: impl FnMut(usize) -> T) -> &mut [T] {
+        self.get_mut().write_with(f)
+    }
+
+    pub fn into_filed(mut self, value: T) -> Frames<true, T> where T: Clone {
+        self.write_filled(value);
+	    let (raw, pmm) = self.into_raw();
+	    Frames {
+		    raw,
+		    pmm,
+		    _phantom: PhantomData
+	    }
+    }
+
+    pub fn into_filed_with(mut self, f: impl FnMut(usize) -> T) -> Frames<true, T> {
+        self.write_filled_with(f);
+	    let (raw, pmm) = self.into_raw();
+	    Frames {
+		    raw,
+		    pmm,
+		    _phantom: PhantomData
+	    }
+    }
+}
+
+#[cfg(feature = "full")]
+impl<T> Frames<true, T> {
+    pub fn get(&self) -> &[T] {
+        assert!(align_of::<T>() <= 4096);
+        let base = self.raw.start.to_virtual().as_ptr();
+        unsafe {
+            slice::from_raw_parts(base.cast_const().cast(), self.count() * PAGE_SIZE / size_of::<T>())
+        }
+    }
+
+    pub fn get_mut(&mut self) -> &mut [T] {
+        assert!(align_of::<T>() <= 4096);
+        let base = self.raw.start.to_virtual().as_ptr();
+        unsafe {
+            slice::from_raw_parts_mut(base.cast(), self.count() * PAGE_SIZE / size_of::<T>())
+        }
+    }
+}
+
+#[cfg(feature = "full")]
+impl<const RAM: bool, T> Drop for Frames<RAM, T> {
+    fn drop(&mut self) {
+        unsafe {
+	        self.pmm.deallocate_raw(self.raw.start, self.raw.clone().count().try_into().unwrap());
+        }
+    }
+}
+
+/// A physical memory address
+#[derive(Debug, Copy, Clone, Eq, Ord, Hash, PartialOrd, PartialEq)]
 #[repr(transparent)]
-pub struct PhysicalAddress<const ALIGN: usize = 1> {
-    #[unstable(feature = "kernel_memory_addr_access", issue = "none")]
+pub struct PhysicalAddress {
+    /// The underlying address
     pub addr: usize
 }
 
-/// A virtual memory address of alignment `ALIGN`
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-#[derive(Debug, Copy, Clone, Eq, Ord)]
+/// A virtual memory address
+#[derive(Debug, Copy, Clone, Eq, Ord, Hash, PartialOrd, PartialEq)]
 #[repr(transparent)]
-pub struct VirtualAddress<const ALIGN: usize = 1> {
-    #[unstable(feature = "kernel_memory_addr_access", issue = "none")]
+pub struct VirtualAddress {
+    /// The underlying address
     pub addr: usize
 }
 
-impl<const ALIGN: usize> PhysicalAddress<ALIGN> {
-    /// Creates a new [`PhysicalAddress`], panicking if the alignment is incorrect
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
+impl PhysicalAddress {
+    /// Creates a new [`PhysicalAddress`]
     #[track_caller]
     pub const fn new(addr: usize) -> Self {
-        let unaligned: PhysicalAddress = PhysicalAddress { addr };
-        let aligned = unaligned.align_down();
-
-        if aligned.addr != unaligned.addr { panic!("Address not aligned"); }
-
-        aligned
+        Self { addr }
     }
 
-    /// Converts a [`PhysicalAddress`] into a [`VirtualAddress`] via the physical page map region
-    #[unstable(feature = "kernel_physical_page_offset", issue = "1")]
-    pub const fn to_virtual(self) -> VirtualAddress<ALIGN> {
-        VirtualAddress {
-            addr: self.addr + PAGE_MAP_OFFSET
-        }
+    /// Converts an [`PhysicalAddress`] into an [`VirtualAddress`] via the physical page map region
+    ///
+    /// The returned [`VirtualAddress`] is only safe to access if the [`PhysicalAddress`] points into conventional
+    /// RAM
+    pub const fn to_virtual(self) -> VirtualAddress {
+        VirtualAddress::new(self.addr + PAGE_MAP_OFFSET)
     }
 
-    /// Forces a [`PhysicalAddress`] to have a specific alignment
-    /// # Safety
-    /// The address must be already aligned to the new alignment
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const unsafe fn align_unchecked<const NEW_ALIGN: usize>(self) -> PhysicalAddress<NEW_ALIGN> {
-        PhysicalAddress {
-            .. self
-        }
-    }
-
-    /// Returns the [`PhysicalAddress`] less than or equal to `self` with the given alignment
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const fn align_down<const NEW_ALIGN: usize>(self) -> PhysicalAddress<NEW_ALIGN> {
-        PhysicalAddress {
-            addr: self.addr & !(NEW_ALIGN - 1)
-        }
-    }
-
-    /// Returns the [`PhysicalAddress`] greater than or equal to `self` with the given alignment
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const fn align_up<const NEW_ALIGN: usize>(self) -> PhysicalAddress<NEW_ALIGN> {
-        // FIXME(const): use normal add implementation
-        let a: PhysicalAddress = PhysicalAddress {
-            addr: self.addr + NEW_ALIGN - 1
+    /// Returns the closest [`RawFrame`] at or below the current address
+    pub const fn align_down_to_frame(self) -> RawFrame {
+        let aligned = PhysicalAddress {
+            addr: self.addr & !(PAGE_SIZE - 1)
         };
-        a.align_down()
+        RawFrame { inner: aligned }
     }
 
-    /// Returns the [`PhysicalAddress`] less than or equal to `self` with the given runtime alignment
-    #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
-    pub const fn align_down_runtime(self, new_alignment: usize) -> PhysicalAddress<1> {
-        PhysicalAddress {
-            addr: self.addr & !(new_alignment - 1)
-        }
+    /// Returns the closest [`RawFrame`] at or above the current address
+    pub const fn align_up_to_frame(self) -> RawFrame {
+        let a: PhysicalAddress = self + PAGE_SIZE - 1usize;
+        a.align_down_to_frame()
     }
 
-    /// Returns the [`PhysicalAddress`] greater than or equal to `self` with the given runtime alignment
-    #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
-    pub const fn align_up_runtime(self, new_alignment: usize) -> PhysicalAddress<1> {
-        let a: PhysicalAddress = PhysicalAddress {
-            addr: self.addr + new_alignment - 1
-        };
-        a.align_down_runtime(new_alignment)
+    /// Returns `true` if the [`PhysicalAddress`] is aligned to `align`
+    ///
+    /// # Panics
+    /// 
+    /// If `align` is not a power of two
+    #[cfg_attr(debug_assertions, track_caller)]
+    pub const fn aligned_to(self, align: usize) -> bool {
+        #[cfg(debug_assertions)] if !align.is_power_of_two() { panic!("alignment must be power of 2") }
+        self.addr & (align - 1) == 0
     }
 }
 
-impl Frame {
-    /// Converts a [`Frame`] into a [`Page`] via the physical page map region
-    #[unstable(feature = "kernel_physical_page_offset", issue = "1")]
-    pub const fn to_page(&self) -> Page {
-        Page {
-            base: self.base.to_virtual()
-        }
+impl VirtualAddress {
+    /// Returns `true` if the [`VirtualAddress`] is in the upper half of the address space, i.e. kernelspace
+    pub const fn is_higher_half(self) -> bool {
+        (self.addr as isize) < 0
     }
 
-    /// Returns the zero frame
-    #[unstable(feature = "kernel_frame_zero", issue = "none")]
-    pub const fn zero() -> Frame {
-        Frame::new(PhysicalAddress::new(0))
-    }
-
-    /// Creates a [`Frame`] using `base` as the first address within it
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const fn new(base: PhysicalAddress<PAGE_SIZE>) -> Self {
-        Self { base }
-    }
-
-    /// Attempts to subtract `rhs` number of pages, returning `None` if overflow would occur
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const fn checked_sub(&self, rhs: usize) -> Option<Self> {
-        // FIXME(const): Option::map
-        match self.base.addr.checked_sub(rhs * PAGE_SIZE) {
-            Some(addr) => Some(Self {
-                base: PhysicalAddress::new(addr)
-            }),
-            None => None
-        }
-    }
-
-    /// Returns the first address within the [`Frame`]
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const fn start(&self) -> PhysicalAddress<PAGE_SIZE> {
-        self.base
-    }
-
-    /// Returns the address one after the end of the [`Frame`]
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const fn end(&self) -> PhysicalAddress<PAGE_SIZE> {
-        // FIXME(const): use normal add implementation
-        PhysicalAddress::<4096>::new(self.base.addr + PAGE_SIZE)
-    }
-}
-
-impl<const ALIGN: usize> VirtualAddress<ALIGN> {
-    /// Creates a new [`VirtualAddress`], panicking if the alignment is incorrect
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
+    /// Creates a new [`VirtualAddress`]
     #[track_caller]
     pub const fn new(addr: usize) -> Self {
-        let unaligned: VirtualAddress = VirtualAddress { addr };
-        let aligned = unaligned.align_down();
-
-        if aligned.addr != unaligned.addr { panic!("Address not aligned"); }
-
-        aligned
+        Self { addr }
     }
 
     /// Converts a [`VirtualAddress`] into a raw pointer
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
+    #[inline]
     pub const fn as_ptr(self) -> *mut u8 {
         self.addr as _
     }
 
-    /// Forces a [`VirtualAddress`] to have a specific alignment
-    /// # Safety
-    /// The address must be already aligned to the new alignment
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const unsafe fn align_unchecked<const NEW_ALIGN: usize>(self) -> VirtualAddress<NEW_ALIGN> {
-        VirtualAddress {
-            .. self
-        }
-    }
-
-    /// Returns the [`VirtualAddress`] less than or equal to `self` with the given alignment
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const fn align_down<const NEW_ALIGN: usize>(self) -> VirtualAddress<NEW_ALIGN> {
-        VirtualAddress {
-            addr: self.addr & !(NEW_ALIGN - 1)
-        }
-    }
-
-    /// Returns the [`VirtualAddress`] greater than or equal to `self` with the given alignment
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const fn align_up<const NEW_ALIGN: usize>(self) -> VirtualAddress<NEW_ALIGN> {
-        // FIXME: const ops
-        let a: VirtualAddress = VirtualAddress {
-            addr: self.addr + NEW_ALIGN - 1
+    /// Returns the closest [`RawPage`] at or below the current address
+    pub const fn align_down_to_page(self) -> RawPage {
+        let aligned = VirtualAddress {
+            addr: self.addr & !(PAGE_SIZE - 1)
         };
-        a.align_down()
+        RawPage { inner: aligned }
     }
 
-    /// Returns the [`VirtualAddress`] less than or equal to `self` with the given runtime alignment
-    #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
-    pub const fn align_down_runtime(self, new_alignment: usize) -> VirtualAddress<1> {
-        VirtualAddress {
-            addr: self.addr & !(new_alignment - 1)
-        }
+    /// Returns the closest [`RawPage`] at or above the current address
+    pub const fn align_up_to_page(self) -> RawPage {
+        let a: VirtualAddress = self + PAGE_SIZE - 1usize;
+        a.align_down_to_page()
     }
 
-    /// Returns the [`VirtualAddress`] greater than or equal to `self` with the given runtime alignment
-    #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
-    pub const fn align_up_runtime(self, new_alignment: usize) -> VirtualAddress<1> {
-        let a: VirtualAddress = VirtualAddress {
-            addr: self.addr + new_alignment - 1
-        };
-        a.align_down_runtime(new_alignment)
+    /// Returns `true` if the [`PhysicalAddress`] is aligned to `align`
+    ///
+    /// # Panics
+    ///
+    /// If `align` is not a power of two
+    #[cfg_attr(debug_assertions, track_caller)]
+    pub const fn aligned_to(self, align: usize) -> bool {
+        #[cfg(debug_assertions)] if !align.is_power_of_two() { panic!("alignment must be power of 2") }
+        self.addr & (align - 1) == 0
     }
 
-    #[track_caller]
-    #[unstable(feature = "kernel_address_alignment_runtime", issue = "none")]
-    pub const fn aligned<const N: usize>(self) -> VirtualAddress<N> {
-        VirtualAddress::new(self.addr)
+    /// Computed `self + rhs` saturating when the [`VirtualAddress`] reaches [`usize::MAX`]
+    pub const fn saturating_add(self, rhs: usize) -> Self {
+        VirtualAddress::new(self.addr.saturating_add(rhs))
     }
+
+    /// Computed `self - rhs` saturating when the [`VirtualAddress`] reaches 0
+    pub const fn saturating_sub(self, rhs: usize) -> Self {
+        VirtualAddress::new(self.addr.saturating_sub(rhs))
+    }
+
+	/// Converts an [`VirtualAddress`] in the physical page map region into an [`PhysicalAddress`]
+	///
+	/// # Panics
+	/// 
+	/// Panics if the address is not in the physical page map region on a best effort basis
+	pub const fn to_physical(self) -> PhysicalAddress {
+		PhysicalAddress::new(self.addr - PAGE_MAP_OFFSET)
+	}
 }
 
-impl Page {
-    /// Converts a [`Page`] into a raw pointer pointing to the first address within the page
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const fn as_ptr(&self) -> *mut u8 {
-        self.base.as_ptr()
-    }
-
-    /// Creates a [`Page`] using `base` as the first address within it
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const fn new(base: VirtualAddress<PAGE_SIZE>) -> Self {
-        Self { base }
-    }
-
-    /// Returns the first address within the [`Page`]
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const fn start(&self) -> VirtualAddress<PAGE_SIZE> {
-        self.base
-    }
-
-    /// Returns the address one after the end of the [`Page`]
-    #[stable(feature = "kernel_core_api", since = "1.0.0")]
-    #[rustc_const_stable(feature = "kernel_core_api", since = "1.0.0")]
-    pub const fn end(&self) -> VirtualAddress<PAGE_SIZE> {
-        // FIXME(const): use normal add implementation
-        VirtualAddress::<4096>::new(self.base.addr + PAGE_SIZE)
-    }
-}
-
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<T: ?Sized> From<*mut T> for VirtualAddress<1> {
+impl<T: ?Sized> From<*mut T> for VirtualAddress {
     fn from(value: *mut T) -> Self {
         VirtualAddress { addr: value as *mut u8 as usize }
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-impl<T: ?Sized> From<*const T> for VirtualAddress<1> {
+impl<T: ?Sized> From<*const T> for VirtualAddress {
     fn from(value: *const T) -> Self {
         VirtualAddress { addr: value as *const u8 as usize }
+    }
+}
+
+impl const From<RawFrame> for PhysicalAddress {
+    fn from(value: RawFrame) -> Self {
+        value.inner
+    }
+}
+
+impl const From<RawPage> for VirtualAddress {
+    fn from(value: RawPage) -> Self {
+        value.inner
+    }
+}
+
+impl Step for PhysicalAddress {
+    fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
+        Step::steps_between(&start.addr, &end.addr)
+    }
+
+    fn forward_checked(start: Self, count: usize) -> Option<Self> {
+        Some(PhysicalAddress::new(
+            Step::forward_checked(start.addr, count)?
+        ))
+    }
+
+    fn backward_checked(start: Self, count: usize) -> Option<Self> {
+        Some(PhysicalAddress::new(
+            Step::backward_checked(start.addr, count)?
+        ))
+    }
+}
+
+impl Step for VirtualAddress {
+    fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
+        Step::steps_between(&start.addr, &end.addr)
+    }
+
+    fn forward_checked(start: Self, count: usize) -> Option<Self> {
+        Some(VirtualAddress::new(
+            Step::forward_checked(start.addr, count)?
+        ))
+    }
+
+    fn backward_checked(start: Self, count: usize) -> Option<Self> {
+        Some(VirtualAddress::new(
+            Step::backward_checked(start.addr, count)?
+        ))
+    }
+}
+
+impl Step for RawFrame {
+    fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
+        Step::steps_between(&(start.addr / PAGE_SIZE), &(end.addr / PAGE_SIZE))
+    }
+
+    fn forward_checked(start: Self, count: usize) -> Option<Self> {
+        Some(RawFrame::new(
+            Step::forward_checked(start.addr, count.checked_mul(PAGE_SIZE)?)?
+        ))
+    }
+
+    fn backward_checked(start: Self, count: usize) -> Option<Self> {
+        Some(RawFrame::new(
+            Step::backward_checked(start.addr, count.checked_mul(PAGE_SIZE)?)?
+        ))
+    }
+}
+
+impl Step for RawPage {
+    fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
+        Step::steps_between(&start.addr, &end.addr)
+    }
+
+    fn forward_checked(start: Self, count: usize) -> Option<Self> {
+        Some(RawPage::new(
+            Step::forward_checked(start.addr, count.checked_mul(PAGE_SIZE)?)?
+        ))
+    }
+
+    fn backward_checked(start: Self, count: usize) -> Option<Self> {
+        Some(RawPage::new(
+            Step::backward_checked(start.addr, count.checked_mul(PAGE_SIZE)?)?
+        ))
+    }
+}
+
+impl fmt::LowerHex for VirtualAddress {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        fmt::LowerHex::fmt(&self.addr, f)
+    }
+}
+
+impl fmt::LowerHex for PhysicalAddress {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        fmt::LowerHex::fmt(&self.addr, f)
+    }
+}
+
+impl fmt::LowerHex for RawPage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        fmt::LowerHex::fmt(&self.addr, f)
+    }
+}
+
+impl fmt::LowerHex for RawFrame {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        fmt::LowerHex::fmt(&self.addr, f)
     }
 }
 

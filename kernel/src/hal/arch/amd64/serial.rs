@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{self, Arguments, Write};
 use bitflags::bitflags;
 use kernel_api::sync::{LazyLock, Spinlock};
@@ -171,7 +170,7 @@ impl crate::hal::FormatWriter for HalWriter {
 	}
 }
 
-#[export_name = "__popcorn_force_unsafe_serial"]
+#[unsafe(export_name = "__popcorn_force_unsafe_serial")]
 unsafe fn force_serial(s: &str) {
 	let mut guard = unsafe { SERIAL0.make_guard_unchecked() };
 	let _ = guard.write_str(s);

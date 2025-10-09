@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 use log::error;
 use kernel_api::sync::Spinlock;
-use crate::threading::ThreadId;
+use kernel_api::threading::ThreadId;
 
 #[derive(Debug, Clone)]
 pub struct SubthreadKiller {

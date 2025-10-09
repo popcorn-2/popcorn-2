@@ -1,21 +1,15 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::fmt::{Debug, Formatter};
 use core::mem::ManuallyDrop;
 use core::num::NonZero;
 use core::ops::{Deref, DerefMut};
 use core::ptr::{from_raw_parts_mut, NonNull, Pointee};
 use acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
-use kernel_api::memory::mapping::{Config, Location, Mapping, new_mapping, RawMmap};
-use kernel_api::memory::{Frame, Page, PhysicalAddress, VirtualAddress};
-use kernel_api::memory::allocator::PhysicalAllocator;
-use kernel_api::memory::physical::OwnedFrames;
-use kernel_api::memory::r#virtual::{Kernel, OwnedPages};
 use kernel_api::sync::{OnceLock, Syncify};
 
-static TABLES: OnceLock<Syncify<AcpiTables<Handler<'static>>>> = OnceLock::new();
+static TABLES: OnceLock<Syncify<AcpiTables<Handler>>> = OnceLock::new();
 
 #[track_caller]
-pub fn tables() -> &'static AcpiTables<Handler<'static>> {
+pub fn tables() -> &'static AcpiTables<Handler> {
 	TABLES.get().expect("ACPI tables not yet parsed")
 }
 
@@ -28,121 +22,129 @@ pub unsafe fn init_tables(rsdp_addr: usize) {
 }
 
 pub use alloc::NullAllocator as Allocator;
+use kernel_api::address_space;
+use kernel_api::allocator::DynPmm;
+use kernel_api::mapping::{Caching, Config, Mappable, Mapping, Mmap, Protection, Ty};
+use kernel_api::memory::{Frames, PAGE_SIZE, PhysicalAddress, VirtualAddress};
 
 mod alloc {
 	use core::num::NonZero;
-	use kernel_api::memory::allocator::{PhysicalAllocator, SpecificLocation};
-	use kernel_api::memory::{AllocError, Frame};
+	use kernel_api::allocator::{AllocError, Pmm};
+	use kernel_api::memory::RawFrame;
 
 	pub struct NullAllocator;
 
-	unsafe impl PhysicalAllocator for NullAllocator {
-		fn allocate_contiguous(&self, _: usize) -> Result<Frame, AllocError> { unimplemented!() }
-		unsafe fn deallocate_contiguous(&self, _: Frame, _: NonZero<usize>) {}
-
-		fn allocate_at(&self, _: usize, location: SpecificLocation) -> Result<Frame, AllocError> {
-			match location {
-				SpecificLocation::Aligned(_) => unimplemented!(),
-				SpecificLocation::At(f) => Ok(f),
-				SpecificLocation::Below { .. } => unimplemented!(),
-			}
+	unsafe impl Pmm<false> for NullAllocator {
+		fn allocate_raw(&self, _count: NonZero<usize>) -> Result<RawFrame, AllocError> {
+			unimplemented!()
 		}
+
+		fn allocate_raw_at(&self, at: RawFrame, count: NonZero<usize>) -> Result<RawFrame, AllocError> {
+			trace!("=== aml a {:#018x} -> {:#018x}", at, at + count.get());
+			Ok(at)
+		}
+
+		unsafe fn deallocate_raw(&self, _base: RawFrame, _count: NonZero<usize>) {}
 	}
 }
 
 #[derive(Copy, Clone)]
-pub struct Handler<'allocator> {
-	allocator: &'allocator dyn PhysicalAllocator
+pub struct Handler {
+	allocator: DynPmm<'static, false>,
 }
 
-impl Debug for Handler<'_> {
+impl Debug for Handler {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		f.debug_struct("Handler")
 				.finish()
 	}
 }
 
-impl<'a> Handler<'a> {
-	pub fn new(allocator: &'a dyn PhysicalAllocator) -> Handler<'a> {
+impl Handler {
+	pub fn new(allocator: impl Into<DynPmm<'static, false>>) -> Handler {
 		Self {
-			allocator
+			allocator: allocator.into()
 		}
 	}
 }
 
 pub trait PagingReason {
-	fn reason() -> u16;
+	fn reason() -> Ty;
 }
 
 impl<T: ?Sized> PagingReason for T {
-	default fn reason() -> u16 {
-		crate::paging_codes::PHYSMAP_OTHER
+	default fn reason() -> Ty {
+		Ty::PHYSMAP_OTHER
 	}
 }
 
 impl PagingReason for acpi::sdt::SdtHeader {
-	fn reason() -> u16 {
-		crate::paging_codes::ACPI_SDT_HEADER
+	fn reason() -> Ty {
+		Ty::ACPI_SDT_HEADER
 	}
 }
 
 impl PagingReason for acpi::rsdp::Rsdp {
-	fn reason() -> u16 {
-		crate::paging_codes::ACPI_RSDP
+	fn reason() -> Ty {
+		Ty::ACPI_RSDP
 	}
 }
 
 impl PagingReason for acpi::hpet::HpetTable {
-	fn reason() -> u16 {
-		crate::paging_codes::ACPI_HPET
+	fn reason() -> Ty {
+		Ty::ACPI_HPET
 	}
 }
 
 impl PagingReason for acpi::fadt::Fadt {
-	fn reason() -> u16 {
-		crate::paging_codes::ACPI_FADT
+	fn reason() -> Ty {
+		Ty::ACPI_FADT
 	}
 }
 
 impl PagingReason for acpi::bgrt::Bgrt {
-	fn reason() -> u16 {
-		crate::paging_codes::ACPI_BGRT
+	fn reason() -> Ty {
+		Ty::ACPI_BGRT
 	}
 }
 
 impl PagingReason for [u8] {
-	fn reason() -> u16 {
-		crate::paging_codes::BYTE_ARRAY
+	fn reason() -> Ty {
+		Ty::BYTE_ARRAY
 	}
 }
 
-impl AcpiHandlerExt for Handler<'_> {
-	unsafe fn map_region<T: ?Sized>(&self, physical_address: usize, size: usize, meta: <T as Pointee>::Metadata) -> XPhysicalMapping<Self, T> {
+impl AcpiHandlerExt for Handler {
+	unsafe fn map_region<T: ?Sized>(&self, physical_address: PhysicalAddress, size: usize, meta: <T as Pointee>::Metadata) -> XPhysicalMapping<Self, T> {
 		debug!("physical_address = {physical_address:#x}, size = {size:#x}");
-		// todo: clean up types here
-		let lower_addr =  PhysicalAddress::<1>::new(physical_address).align_down();
-		let offset = physical_address - lower_addr.addr;
-		let upper_addr: PhysicalAddress<4096> = PhysicalAddress::<1>::new(physical_address + size).align_up();
-		let actual_size = NonZero::<usize>::new(upper_addr - lower_addr).expect("Cannot map zero size physical region");
-		let page_count = unsafe { NonZero::<usize>::new_unchecked(actual_size.get().div_ceil(4096)) };
-		let config = Config::new(page_count)
-				.physical_location(Location::At(Frame::new(lower_addr)))
-				.physical_allocator(self.allocator);
-		let mapping = new_mapping(config, <T as PagingReason>::reason()).expect("Unable to create physical mapping");
+		let lower_addr = physical_address.align_down_to_frame();
+		let offset = physical_address - *lower_addr;
+		let upper_addr = (physical_address + size).align_up_to_frame();
+		
+		let page_count = NonZero::<usize>::new(upper_addr - lower_addr).expect("Cannot map zero size physical region");
+		
+		let mapping = Config::new(page_count, T::reason())
+				.protection(true, false, false)
+				.caching(Caching::Mmio)
+				.physical_location(lower_addr)
+				.with_allocator(self.allocator)
+				.map::<Mmap>()
+				.unwrap();
 
+		let virtual_base = mapping.virtual_valid_start();
+		let (Some(frames), _, _, _) = mapping.into_raw_parts() else {
+			unreachable!("initial allocation must be contiguous")
+		};
 
-		let (frames, pages, _, _) = mapping.into_contiguous_raw_parts()
-				.expect("Initial `Mapping` allocation should be contiguous"); // FIXME: kernel_mmap discontinuous initial alloc
-		let (first_frame, phys_len, _) = frames.into_raw_parts();
-		let (first_page, virt_len, _) = pages.into_raw_parts();
-		assert_eq!(phys_len, virt_len);
+		let (first_frame, phys_len) = (frames.base(), frames.count());
+		core::mem::forget(frames);
 
-		let start = unsafe { NonNull::new_unchecked(from_raw_parts_mut(first_page.as_ptr().add(offset), meta)) };
+		let start = unsafe { NonNull::new_unchecked(from_raw_parts_mut(virtual_base.as_ptr().add(offset), meta)) };
 		XPhysicalMapping {
-			physical_start: first_frame.start().addr + offset,
+			physical_start: first_frame.addr + offset,
 			virtual_start: start,
 			region_length: size,
-			mapped_length: phys_len.get() * 4096,
+			mapped_length: phys_len * 4096,
 			handler: self.clone()
 		}
 	}
@@ -172,7 +174,7 @@ impl<A: AcpiHandler, T: ?Sized> DerefMut for XPhysicalMapping<A, T> {
 }
 
 pub trait AcpiHandlerExt: AcpiHandler {
-	unsafe fn map_region<T: ?Sized>(&self, physical_address: usize, size: usize, meta: <T as Pointee>::Metadata) -> XPhysicalMapping<Self, T>;
+	unsafe fn map_region<T: ?Sized>(&self, physical_address: PhysicalAddress, size: usize, meta: <T as Pointee>::Metadata) -> XPhysicalMapping<Self, T>;
 }
 
 impl<A: AcpiHandler, T: ?Sized> Drop for XPhysicalMapping<A, T> {
@@ -189,35 +191,46 @@ impl<A: AcpiHandler, T: ?Sized> Drop for XPhysicalMapping<A, T> {
 	}
 }
 
-impl AcpiHandler for Handler<'_> {
+impl AcpiHandler for Handler {
 	unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T> {
-		let xmap = self.map_region(physical_address, size, ());
+		let physical_address = PhysicalAddress::new(physical_address);
+		let xmap = unsafe { self.map_region(physical_address, size, ()) };
 		let xmap = ManuallyDrop::new(xmap);
 
-		PhysicalMapping::new(
-			xmap.physical_start,
-			xmap.virtual_start,
-			xmap.region_length,
-			xmap.mapped_length,
-			xmap.handler
-		)
+		unsafe {
+			PhysicalMapping::new(
+				xmap.physical_start,
+				xmap.virtual_start,
+				xmap.region_length,
+				xmap.mapped_length,
+				xmap.handler
+			)
+		}
 	}
 
 	fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
 		let first_frame = {
-			let start = PhysicalAddress::<1>::new(region.physical_start());
-			Frame::new(start.align_down())
+			let start = PhysicalAddress::new(region.physical_start());
+			start.align_down_to_frame()
 		};
-		let len = NonZero::<usize>::new(region.mapped_length() / 4096).unwrap();
+		let len = NonZero::<usize>::new(region.mapped_length() / PAGE_SIZE).unwrap();
 		let first_page = {
-			let start = VirtualAddress::<1>::from(region.virtual_start().as_ptr());
-			Page::new(start.align_down())
+			let start = VirtualAddress::from(region.virtual_start().as_ptr());
+			start.align_down_to_page() + -Mmap::default().base_virtual_offset()
 		};
 
 		unsafe {
-			let frames = OwnedFrames::from_raw_parts(first_frame, len, region.handler().allocator);
-			let pages = OwnedPages::from_raw_parts(first_page, len, Kernel);
-			let _mapping = Mapping::from_contiguous_raw_parts(frames, pages, Default::default(), RawMmap); // Using default here because the value doesn't matter as it's unmapped immediately
+			let frames = Frames::<false>::from_raw(
+				first_frame .. (first_frame + len.get()),
+				region.handler().allocator,
+			);
+			
+			let _ = Mapping::<Mmap, address_space::Kernel>::from_raw_parts(
+				frames,
+				first_page,
+				Protection { executable: false, writable: true, user_accessible: false },
+				Caching::Mmio,
+			);
 		}
 	}
 }

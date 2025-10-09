@@ -6,3 +6,13 @@ edition = "2024"
 [dependencies]
 kernel_api = { version = "1.1.0", path = "../kernel_api" }
 log = "0.4.20"
+
+[dev-dependencies]
+aliasable = "0.1.3"
+kernel_api = { path = "../kernel_api", features = ["use_std"] }
+
+[features]
+checksum = []
+reuse-backtrace = ["generations"]
+generations = []
+kasan = ["generations"]

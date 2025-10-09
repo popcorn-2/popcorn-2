@@ -6,18 +6,17 @@ use core::ops;
 use core::ptr::addr_of;
 
 use bitflags::{bitflags, Flags};
-use log::{debug, warn};
-
-use kernel_api::memory::{Frame as KernelFrame, Page as KernelPage, PhysicalAddress};
+use log::{debug, trace};
+use kernel_api::mapping::Ty;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Page(pub u64);
 
-impl From<KernelPage> for Page {
+/*impl From<KernelPage> for Page {
 	fn from(value: KernelPage) -> Self {
 		Page(value.start().addr.try_into().unwrap())
 	}
-}
+}*/
 
 impl Page {
 	const fn l4_index(self) -> u64 { (self.0 & amd64::L4_MASK) >> amd64::L4_SHIFT }
@@ -29,11 +28,11 @@ impl Page {
 #[derive(Debug, Copy, Clone)]
 pub struct Frame(pub u64);
 
-impl From<KernelFrame> for Frame {
+/*impl From<KernelFrame> for Frame {
 	fn from(value: KernelFrame) -> Self {
 		Frame(value.start().addr.try_into().unwrap())
 	}
-}
+}*/
 
 pub struct PageTable(&'static mut Table<Level4>);
 
@@ -64,29 +63,31 @@ impl PageTable {
 		tab[virt.l1_index().try_into().unwrap()].pointed_frame()
 	}
 
-	pub fn try_map_page<E, F: Fn() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, allocate: F, reason: u16) -> Result<(),MapError<E>> {
-		self.try_map_page_with(page, frame, allocate, TableEntryFlags::empty(), reason)
+	pub fn try_map_page<E, F: Fn() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, allocate: F, ty: Ty) -> Result<(),MapError<E>> {
+		self.try_map_page_with(page, frame, allocate, TableEntryFlags::empty(), ty)
 	}
 
-	pub fn try_map_page_with<E, F: FnMut() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, mut allocate: F, flags: TableEntryFlags, reason: u16) -> Result<(),MapError<E>> {
+	pub fn try_map_page_with<E, F: FnMut() -> Result<u64, E>>(&mut self, page: Page, frame: Frame, mut allocate: F, flags: TableEntryFlags, ty: Ty) -> Result<(),MapError<E>> {
 		let entry = &mut self.0.try_get_or_create_child_table(page.l4_index().try_into().unwrap(), &mut allocate)?
 			.try_get_or_create_child_table(page.l3_index().try_into().unwrap(), &mut allocate)?
 			.try_get_or_create_child_table(page.l2_index().try_into().unwrap(), &mut allocate)?
 			[page.l1_index().try_into().unwrap()];
-		let flags = flags | TableEntryFlags::from_reason(reason);
-		entry.set_pointed_frame(frame, flags).map_err(|_| MapError::AlreadyMapped)
+		let flags = flags | TableEntryFlags::from_ty(ty);
+		entry.set_pointed_frame(frame, flags).map_err(MapError::AlreadyMapped)?;
+		trace!("=== map va {:#018x} -> pa {:#018x} : ty={ty:?}", page.0, frame.0);
+		Ok(())
 	}
 
-	pub fn try_map_range<E, F: FnMut() -> Result<u64, E>>(&mut self, page_start: Page, frame_start: Frame, page_count: u64, allocate: F, reason: u16) -> Result<(), MapError<E>> {
-		self.try_map_range_with(page_start, frame_start, page_count, allocate, TableEntryFlags::empty(), reason)
+	pub fn try_map_range<E, F: FnMut() -> Result<u64, E>>(&mut self, page_start: Page, frame_start: Frame, page_count: u64, allocate: F, ty: Ty) -> Result<(), MapError<E>> {
+		self.try_map_range_with(page_start, frame_start, page_count, allocate, TableEntryFlags::empty(), ty)
 	}
 
-	pub fn try_map_range_with<E, F: FnMut() -> Result<u64, E>>(&mut self, page_start: Page, frame_start: Frame, page_count: u64, mut allocate: F, flags: TableEntryFlags, reason: u16) -> Result<(), MapError<E>> {
+	pub fn try_map_range_with<E, F: FnMut() -> Result<u64, E>>(&mut self, page_start: Page, frame_start: Frame, page_count: u64, mut allocate: F, flags: TableEntryFlags, ty: Ty) -> Result<(), MapError<E>> {
 		for i in 0..page_count {
 			let page = Page(page_start.0 + i*4096);
 			let frame = Frame(frame_start.0 + i*4096);
 
-			self.try_map_page_with(page, frame, &mut allocate, flags, reason)?;
+			self.try_map_page_with(page, frame, &mut allocate, flags, ty)?;
 		}
 		Ok(())
 	}
@@ -111,6 +112,7 @@ impl fmt::Pointer for PageTable {
 	}
 }
 
+/*
 impl From<&PageTable> for KernelFrame {
 	fn from(value: &PageTable) -> Self {
 		unsafe {
@@ -119,11 +121,11 @@ impl From<&PageTable> for KernelFrame {
 			)
 		}
 	}
-}
+}*/
 
 #[derive(Debug, Copy, Clone)]
 pub enum MapError<E> {
-	AlreadyMapped,
+	AlreadyMapped(Ty),
 	AllocationError(E)
 }
 
@@ -236,15 +238,23 @@ bitflags! {
 
 		const PERMISSIVE =      Self::WRITABLE.bits() | Self::USER_ACCESSIBLE.bits();
 		const MMIO =            Self::WRITE_THROUGH.bits() | Self::NO_CACHE.bits();
+		
+		const _ = !0; // prevent operators from truncating value
 	}
 }
 
 impl TableEntryFlags {
-	pub fn from_reason(reason: u16) -> Self {
-		let reason = u64::from(reason);
+	pub fn from_ty(ty: Ty) -> Self {
+		let reason = ty.0 as u64;
 		let low = (reason & 7) << 9;
 		let high = (reason & 0x3ff8) << (52 - 3);
 		Self::from_bits_retain(low | high)
+	}
+
+	pub fn to_ty(self) -> Ty {
+		let low = (self.bits() >> 9) & 7;
+		let high = (self.bits() >> (52 - 3)) & 0x3ff8;
+		Ty((low | high) as u8)
 	}
 }
 
@@ -267,12 +277,13 @@ impl TableEntry {
 		self.0 |= (flags | TableEntryFlags::PRESENT).bits();
 	}
 
-	fn set_pointed_frame(&mut self, frame: Frame, flags: TableEntryFlags) -> Result<(), Frame> {
-		self.pointed_frame()
-				.map_or_else(|| {
-					self.set_pointed_frame_unchecked(frame, flags);
-					Ok(())
-				}, Err)
+	fn set_pointed_frame(&mut self, frame: Frame, flags: TableEntryFlags) -> Result<(), Ty> {
+		if self.pointed_frame().is_some() {
+			Err(self.flags().to_ty())
+		} else {
+			self.set_pointed_frame_unchecked(frame, flags);
+			Ok(())
+		}
 	}
 }
 

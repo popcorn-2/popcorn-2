@@ -1,26 +1,23 @@
 use core::fmt::Formatter;
 use core::mem;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::panic::Location;
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use log::warn;
 
 /// A reader-writer lock
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub type RwSpinlock<T: ?Sized> = lock_api::RwLock<RwCount, T>;
 
 /// RAII structure used to release the shared read access of a lock when dropped.
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub type RwReadGuard<'a, T: ?Sized> = lock_api::RwLockReadGuard<'a, RwCount, T>;
 
 /// RAII structure used to release upgradable read access of a lock when dropped.
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub type RwUpgradableReadGuard<'a, T: ?Sized> = lock_api::RwLockUpgradableReadGuard<'a, RwCount, T>;
 
 /// RAII structure used to release the exclusive write access of a lock when dropped.
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 pub type RwWriteGuard<'a, T: ?Sized> = lock_api::RwLockWriteGuard<'a, RwCount, T>;
 
 #[doc(hidden)]
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
-pub struct RwCount(AtomicUsize);
+pub struct RwCount(AtomicUsize, AtomicPtr<Location<'static>>);
 
 // FIXME: Deadlocks due to interrupts
 impl RwCount {
@@ -29,7 +26,6 @@ impl RwCount {
     const READ_COUNT_MASK: usize = !(Self::WRITE_BIT_MASK | Self::UPGRADEABLE_BIT_MASK);
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 impl core::fmt::Debug for RwCount {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         let mut d = f.debug_struct("RwCount");
@@ -43,17 +39,25 @@ impl core::fmt::Debug for RwCount {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
+impl RwCount {
+    fn lock_location(&self) -> Option<&'static Location<'static>> {
+        let location = self.1.load(Ordering::Relaxed);
+        unsafe { location.as_ref::<'static>() }
+    }
+}
+
 unsafe impl lock_api::RawRwLock for RwCount {
-    const INIT: Self = Self(AtomicUsize::new(0));
+    const INIT: Self = Self(AtomicUsize::new(0), AtomicPtr::new(core::ptr::null_mut()));
     type GuardMarker = lock_api::GuardSend; // Doesn't (yet) touch interrupts so safe to send to other core
 
+    #[track_caller]
     fn lock_shared(&self) {
         while !self.try_lock_shared() {
             core::hint::spin_loop();
         }
     }
 
+    #[track_caller]
     fn try_lock_shared(&self) -> bool {
         let mut old_value = self.0.load(Ordering::Relaxed);
 
@@ -66,8 +70,14 @@ unsafe impl lock_api::RawRwLock for RwCount {
             let new_value = (old_normal_count + 1) | (old_value & Self::UPGRADEABLE_BIT_MASK);
 
             match self.0.compare_exchange_weak(old_value, new_value, Ordering::Acquire, Ordering::Relaxed) {
-                Ok(_) => return true,
-                Err(new_old_value) => old_value = new_old_value
+                Ok(_) => {
+                    self.1.store(Location::caller() as *const _ as *mut _, Ordering::Relaxed);
+                    return true
+                },
+                Err(new_old_value) => {
+                    warn!("locked at {:?}", self.lock_location());
+                    old_value = new_old_value
+                }
             }
         }
     }
@@ -88,15 +98,23 @@ unsafe impl lock_api::RawRwLock for RwCount {
         }
     }
 
+    #[track_caller]
     fn lock_exclusive(&self) {
         while !self.try_lock_exclusive() {
             core::hint::spin_loop();
         }
     }
 
+    #[track_caller]
     fn try_lock_exclusive(&self) -> bool {
-        self.0.compare_exchange_weak(0, Self::WRITE_BIT_MASK, Ordering::Acquire, Ordering::Relaxed)
-            .is_ok()
+        let res = self.0.compare_exchange_weak(0, Self::WRITE_BIT_MASK, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok();
+        if !res {
+            warn!("locked at {:?}", self.lock_location());
+        } else {
+            self.1.store(Location::caller() as *const _ as *mut _, Ordering::Relaxed);
+        }
+        res
     }
 
     unsafe fn unlock_exclusive(&self) {
@@ -109,7 +127,6 @@ unsafe impl lock_api::RawRwLock for RwCount {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 unsafe impl lock_api::RawRwLockDowngrade for RwCount {
     unsafe fn downgrade(&self) {
         if cfg!(debug_assertions) {
@@ -122,7 +139,6 @@ unsafe impl lock_api::RawRwLockDowngrade for RwCount {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 unsafe impl lock_api::RawRwLockUpgrade for RwCount {
     fn lock_upgradable(&self) {
         while !self.try_lock_upgradable() {
@@ -172,7 +188,6 @@ unsafe impl lock_api::RawRwLockUpgrade for RwCount {
     }
 }
 
-#[stable(feature = "kernel_core_api", since = "1.0.0")]
 unsafe impl lock_api::RawRwLockUpgradeDowngrade for RwCount {
     unsafe fn downgrade_upgradable(&self) {
         let mut old_value = self.0.load(Ordering::Relaxed);

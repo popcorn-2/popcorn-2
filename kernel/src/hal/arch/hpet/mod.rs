@@ -1,12 +1,14 @@
-#[allow(unused_imports)] use crate::prelude::*;
+#![allow(unused)]
+
 use core::fmt::{Debug, Formatter};
 use core::mem;
 use core::ptr::addr_of_mut;
-use macros::Fields;
 use crate::hal::acpi::{AcpiHandlerExt, XPhysicalMapping};
 use crate::mmio::MmioCell;
 use bit_field::BitField;
-use kernel::hal::acpi::PagingReason;
+use kernel_api::mapping::Ty;
+use kernel_api::memory::PhysicalAddress;
+use crate::hal::acpi::PagingReason;
 
 mod timer;
 
@@ -82,7 +84,7 @@ impl Debug for Configuration {
 }
 
 #[repr(C)]
-#[derive(Fields, Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Header {
 	pub(super) capabilities: Capabilities,
 	_res0: u64,
@@ -135,27 +137,27 @@ pub struct Hpet<H: AcpiHandlerExt> {
 }
 
 impl PagingReason for Header {
-	fn reason() -> u16 {
-		crate::paging_codes::HPET_HEADER
+	fn reason() -> Ty {
+		Ty::HPET_HEADER
 	}
 }
 
 impl PagingReason for HpetInner {
-	fn reason() -> u16 {
-		crate::paging_codes::HPET_FULL
+	fn reason() -> Ty {
+		Ty::HPET_FULL
 	}
 }
 
 impl<H: AcpiHandlerExt> Hpet<H> {
 	pub unsafe fn init(hpet: acpi::hpet::HpetInfo, handler: H) -> Self {
-		let map = unsafe { handler.map_region::<Header>(hpet.base_address, mem::size_of::<Header>(), ()) };
+		let map = unsafe { handler.map_region::<Header>(PhysicalAddress::new(hpet.base_address), mem::size_of::<Header>(), ()) };
 		let cell = unsafe { MmioCell::new(map.virtual_start.as_ptr()) };
 		let header = cell.read();
 		
 		let timer_count = header.capabilities.timer_count();
-		let hpet_size = mem::size_of::<Header>() + timer_count*mem::size_of::<Timer>();
+		let hpet_size = size_of::<Header>() + timer_count * size_of::<Timer>();
 		drop(map);
-		let map = unsafe { handler.map_region::<HpetInner>(hpet.base_address, hpet_size, timer_count) };
+		let map = unsafe { handler.map_region::<HpetInner>(PhysicalAddress::new(hpet.base_address), hpet_size, timer_count) };
 		let cell = unsafe { MmioCell::new(map.virtual_start.as_ptr()) };
 
 		debug!("HPET: {cell:#?}");

@@ -1,21 +1,17 @@
 use alloc::collections::BinaryHeap;
-#[allow(unused_imports)] use crate::prelude::*;
 use core::arch::asm;
 use core::arch::x86_64::{__cpuid, CpuidResult};
 use core::cmp::{Ordering, Reverse};
 use core::num::NonZero;
 use bit_field::BitField;
+use futures::task::AtomicWaker;
 use kernel_api::is_x86_feature_detected;
 use kernel_api::sync::{IrqCell, IrqGuard, OnceLock};
 use kernel_api::time::Instant;
-use crate::{hal, non_zero};
-use crate::hal::timing::TimerMeta;
-use crate::threading::{Waker, WakeReason, WakeTrigger};
 
 static TSC_MULTIPLIER: OnceLock<(u128, NonZero<u128>)> = OnceLock::new();
 
-#[inline(always)]
-#[export_name = "__popcorn_system_time"]
+#[unsafe(export_name = "__popcorn_system_time")]
 pub(crate) fn tsc() -> u128 {
 	let low: u32;
 	let high: u32;
@@ -25,7 +21,7 @@ pub(crate) fn tsc() -> u128 {
 	(low as u128) | (high as u128) << 32
 }
 
-#[export_name = "__popcorn_system_time_scale"]
+#[unsafe(export_name = "__popcorn_system_time_scale")]
 pub(crate) fn tsc_to_nanos() -> (u128, NonZero<u128>) {
 	*TSC_MULTIPLIER.get_or_init(|| {
 		let mut multiplier = None::<(u128, NonZero<u128>)>;
@@ -118,11 +114,11 @@ pub(crate) fn tsc_to_nanos() -> (u128, NonZero<u128>) {
 			NonZero::<u128>::new(freq_khz).map(|val| (1000000, val))
 		};
 
-		let multiplier = multiplier.or_else(intel_msr);
+		let multiplier = multiplier.or_else(intel_msr).unwrap_or((1000000, NonZero::new(230400).unwrap()));
 
 		debug!("multiplier is {multiplier:?}");
 
-		multiplier.unwrap_or_else(|| panic!("Unable to determine TSC frequency"))
+		multiplier//.unwrap_or_else(|| panic!("Unable to determine TSC frequency"))
 	})
 }
 
@@ -141,8 +137,9 @@ impl TimerQueue {
 		}
 	}
 	
-	fn fixup_timer(mut heap: IrqGuard<BinaryHeap<Reverse<TimerEvent>>>) {
-		let timer = hal::timing::local_timer();
+	fn fixup_timer(_heap: IrqGuard<BinaryHeap<Reverse<TimerEvent>>>) {
+		todo!()
+		/*let timer = hal::timing::local_timer();
 		if let Some(Reverse(next_timer_event)) = heap.peek() {
 			// Interrupts disabled here so won't get interrupted as soon as we set the timer
 			timer.set_deadline(next_timer_event.time).expect("Could not set timer");
@@ -153,17 +150,18 @@ impl TimerQueue {
 			// this function, so the IRQ handler checks the next event actually is in the past too
 			if next_timer_event.time <= Instant::now() {
 				let Reverse(event) = heap.pop().expect("Just peeked this so it must exist");
-				event.waker.wake(WakeReason::Timeout);
+				event.waker.wake();
 			}
 		} else {
 			timer.mask(true);
-		}
+		}*/
 	}
-	
+
+	#[expect(unused)]
 	fn append(&self, event: TimerEvent) {
 		if event.time <= Instant::now() {
-			debug!("Waking just pushed timer event ({event:?})");
-			event.waker.wake(WakeReason::Timeout);
+			info!("Waking just pushed timer event ({event:?})");
+			event.waker.wake();
 			return;
 		}
 		
@@ -180,32 +178,23 @@ impl TimerQueue {
 		if let Some(Reverse(next_timer_event)) = guard.peek() {
 			if next_timer_event.time <= Instant::now() {
 				let Reverse(event) = guard.pop().expect("Just peeked this so it must exist");
-				event.waker.wake(WakeReason::Timeout);
+				event.waker.wake();
 			}
 		}
 		Self::fixup_timer(guard);
 	}
 	
-	pub fn waker_for(&self, time: Instant) -> impl Waker + '_ {
-		struct W<'a>(&'a TimerQueue, Instant);
-
-		impl<'a> Waker for W<'a> {
-			fn add_wake_trigger(&self, waker: WakeTrigger) {
-				self.0.append(TimerEvent {
-					time: self.1,
-					waker,
-				})
-			}
-		}
-		
-		W(self, time)
+	pub fn wait_until(&self, _time: Instant) -> impl Future<Output = ()> {
+		core::future::poll_fn(|_ctx| {
+			todo!()
+		})
 	}
 }
 
 #[derive(Debug)]
 struct TimerEvent {
 	time: Instant,
-	waker: WakeTrigger,
+	waker: AtomicWaker,
 }
 
 impl PartialEq for TimerEvent {

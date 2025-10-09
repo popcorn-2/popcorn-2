@@ -1,4 +1,3 @@
-#[allow(unused_imports)] use crate::prelude::*;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};

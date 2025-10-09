@@ -13,6 +13,7 @@ PHDRS {
 
 SECTIONS {
 	. = 0xFFFFFFFF80000000;
+    PROVIDE(__popcorn_vmem_bootstrap_end = .);
 
 	.dynsym :
     {
@@ -130,11 +131,6 @@ SECTIONS {
 	{
 	    *(.dynamic .dynamic.*)
 	} :data :dynamic
-
-	. = ALIGN(4K);
-	PROVIDE(__popcorn_vmem_bootstrap_start = .);
-	. += 8M;
-	PROVIDE(__popcorn_vmem_bootstrap_end = .);
 
 	/DISCARD/ : {
 		*(.debug_gdb_scripts .debug_gdb_scripts.*)

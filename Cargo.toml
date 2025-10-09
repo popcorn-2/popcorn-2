@@ -12,11 +12,9 @@ members = [
 	"utils",
 	"psf",
 	"targa",
-	"mm/pmm/bitmap_memory_allocator",
 	"ranged_btree",
 	"kernel_module_macros",
 	"elf",
-	"mm/dmm/slab_allocator",
 	"macros",
 	"popfs",
 	"kernel_api",
@@ -25,11 +23,15 @@ members = [
 	"test_harness",
 	"ranged_btree_allocator",
 	"arena_heap",
+	"round_robin",
 ]
 
 [profile.release]
 lto = "off"
 debug = "full"
 
-[patch.crates-io]
-auto_impl = { git = "https://github.com/popcorn-2/auto_impl.git" }
+[profile.dev.package.kernel_api]
+opt-level = 2
+
+[profile.dev.package.unwinding]
+opt-level = 2

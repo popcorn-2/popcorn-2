@@ -1,7 +1,7 @@
 [package]
 name = "bootloader"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -10,15 +10,13 @@ bitflags = { version = "2.3.1" }
 log = { version = "0.4.17", features = ["max_level_debug", "release_max_level_info"] }
 uefi = { version = "0.24.0", default-features = false, features = ["alloc"] }
 uefi-services = { version = "0.21.0", default-features = false }
-targa = { path = "../targa", default-features=false, features = ["alloc"] }
 toml = { git = "https://github.com/diondokter/toml-rs.git", default-features=false }
 serde = { version = "1.0.163", default-features = false, features = ["derive"] }
-hashbrown = { version = "0.14.2", default-features = false, features = ["serde", "ahash"] }
-psf = { path = "../psf", default-features = false }
-num_enum = { version = "0.7.1", default-features = false }
 utils = { path = "../utils" }
 more-asserts = "0.3.1"
 derive_more = "0.99.17"
 elf = { version = "0.1.0", path = "../elf" }
-aliasable = "0.1.3"
 kernel_api = { version = "1.1.0", path = "../kernel_api", default-features = false }
+
+[features]
+kasan = [] # causes the bootloader to allocate memory for the kasan shadow map

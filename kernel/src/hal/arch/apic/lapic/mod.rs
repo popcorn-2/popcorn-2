@@ -1,13 +1,12 @@
 use core::ptr::addr_of_mut;
 use acpi::madt::Madt;
-use crate::prelude::*;
 use bit_field::BitField;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use kernel_api::is_x86_feature_detected;
 
 pub(in crate::hal) mod xapic;
 //mod x2apic;
-mod timer;
+//mod timer;
 
 pub(super) fn init_lapic(madt: &Madt) {
 	if !is_x86_feature_detected!("apic") {
@@ -40,7 +39,7 @@ macro_rules! lapic_registers {
 	    $(#[$attr])* $vis struct $name {
 		    $(
 		        $field_vis $field: lapic_register_ty!($($field_ty)?),
-		        ${concat(_pad_, $field)}: [u32; 3],
+		        ${concat(_pad, $field)}: [u32; 3],
 		    )*
 	    }
     };
@@ -119,12 +118,15 @@ lapic_registers! {
 struct Lvt(u32);
 
 impl Lvt {
+	#[expect(dead_code)]
 	unsafe fn update(self: *mut Self, mut f: impl FnMut(&mut LvtState)) {
-		let _ = addr_of_mut!((*self).0).fetch_update_io(|old| {
-			let mut state = old.into();
-			f(&mut state);
-			Some(state.into())
-		});
+		unsafe {
+			let _ = addr_of_mut!((*self).0).fetch_update_io(|old| {
+				let mut state = old.into();
+				f(&mut state);
+				Some(state.into())
+			});
+		}
 	}
 }
 

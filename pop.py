@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import json
@@ -16,6 +17,8 @@ parser.add_argument("-v", "--verbose", action='count', default=0)
 parser.add_argument("--arch", choices=["x86_64", "host"], default="host")
 parser.add_argument("-j", "--jobs", action="store", type=int)
 parser.add_argument("--release", action="store_true")
+parser.add_argument("--kasan", action="store_true")
+parser.add_argument("--release-loader", action="store_true")
 parser.add_argument("--accel", choices=["none", "kvm", "hvf"], default="none")
 parser.add_argument("--symbol-map", action="store_true")
 parser.add_argument("--kernel-features", default="")
@@ -46,7 +49,7 @@ def run_cargo_command(subcommand: str, *cargo_args: [str], env: dict[str, str] |
         subcommand,
         "--message-format=json",
         *cargo_flags,
-        *cargo_args,
+        *list(filter(lambda x: x != "", cargo_args)),
     ]
     if args.verbose >= 1:
         print(env, " ".join(command), file=sys.stderr)
@@ -80,7 +83,7 @@ def run_cargo_command(subcommand: str, *cargo_args: [str], env: dict[str, str] |
     return ("", result)
 
 
-def generate_iso(kernel_file: str, bootloader_file: str, driver_file: str, map_file: str, output_dir: str):
+def generate_iso(kernel_file: str, bootloader_file: str, map_file: str, output_dir: str):
     result = subprocess.run([
         "cargo",
         "run",
@@ -89,7 +92,7 @@ def generate_iso(kernel_file: str, bootloader_file: str, driver_file: str, map_f
         **os.environ,
         "CARGO_BIN_FILE_KERNEL": kernel_file,
         "CARGO_BIN_FILE_BOOTLOADER": bootloader_file,
-        "CARGO_BIN_FILE_POPFS_popfs_uefi_driver": driver_file,
+        #"CARGO_BIN_FILE_POPFS_popfs_uefi_driver": driver_file,
         "CARGO_CFG_TARGET_ARCH": "x86_64",
         "CARGO_FILE_MAP": map_file,
         "OUT_DIR": output_dir,
@@ -118,19 +121,31 @@ def run_qemu(iso: str, *qemu_args: [str], capture_output: bool = False) -> tuple
 
 
 def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_build_env: dict[str, str] | None = None):
+    kernel_config_f = open("kernel/Cargo.toml", "r")
+    kernel_config = kernel_config_f.read()
+    kernel_config_f.close()
+    version = re.search(r"version = \"(\d+\.\d+\.\d+)\"", kernel_config).group(1)
+
     if kernel_cargo_flags is None:
         kernel_cargo_flags = []
     if kernel_build_env is None:
         kernel_build_env = {}
     try:
-        kernel_build_env["RUSTFLAGS"] += " -C symbol-mangling-version=v0"
+        kernel_build_env["RUSTFLAGS"] += f" -C symbol-mangling-version=v0 --cfg=kernel_version=\"{version}\""
     except KeyError:
-        kernel_build_env["RUSTFLAGS"] = "-C symbol-mangling-version=v0"
+        kernel_build_env["RUSTFLAGS"] = f" -C symbol-mangling-version=v0 --cfg=kernel_version=\"{version}\""
+
+    if args.kasan:
+        kernel_build_env["RUSTFLAGS"] += " -Z sanitizer=kernel-address -C llvm-args=-asan-mapping-offset=0xdfffd00000000000 -C llvm-args=-asan-use-stack-safety=0"
+        # also -asan-stack=true/false
+        # -asan-recover
 
     _, result = run_cargo_command(
         "build",
         "-p", "bootloader",
-        "--target", "x86_64-unknown-uefi"
+        "--target", "x86_64-unknown-uefi",
+        "--release" if args.release_loader else "",
+        "--features=kasan" if args.kasan else "",
     )
 
     if result.returncode != 0:
@@ -143,13 +158,17 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
             "--target", "x86_64-unknown-popcorn.json",
             "-Zbuild-std=compiler_builtins,core,alloc", "-Zbuild-std-features=compiler-builtins-mem,core/debug_refcell",
             f"--features={args.kernel_features}",
+            "--features=kasan" if args.kasan else "",
             *kernel_cargo_flags,
             "--",
-            "-C", "link-args=-export-dynamic",
-            "-Z", "export-executable-symbols=on",
+            "-C", "link-args=-no-pie",
+            "-C", "code-model=kernel",
+            #"-C", "link-args=-export-dynamic",
+            "-Z", "macro-backtrace",
             "-C", "relocation-model=static",
             "-C", "panic=unwind",
             "-C", "link-args=-Tkernel/src/hal/arch/amd64/linker.ld",
+            "-Z", "tls-model=local-exec",
             env=kernel_build_env
         )
 
@@ -162,19 +181,22 @@ def build(kernel_file: str | None = None, kernel_cargo_flags = None, kernel_buil
         kernel_map = subprocess.run(["llvm-nm", "-U", "-f", "bsd", "-C", "-n", "-l", kernel_file], capture_output=True, text=True)
         open(f"target/{target_inner}/kernel.map", "w").write(kernel_map.stdout)
 
-    _, result = run_cargo_command(
-        "rustc",
-        "-p", "popfs",
-        "--bin", "popfs_uefi_driver",
-        "--target", "x86_64-unknown-uefi",
-        "--",
-        "-Z", "pre-link-args=/subsystem:efi_boot_service_driver",
-    )
+    #_, result = run_cargo_command(
+    #    "rustc",
+    #    "-p", "popfs",
+    #    "--bin", "popfs_uefi_driver",
+    #    "--target", "x86_64-unknown-uefi",
+    #    "--",
+    #    "-Z", "pre-link-args=/subsystem:efi_boot_service_driver",
+    #)
 
-    if result.returncode != 0:
-        sys.exit("popfs build failed")
+    #if result.returncode != 0:
+    #    sys.exit("popfs build failed")
 
-    generate_iso(kernel_file, f"target/x86_64-unknown-uefi/{target_inner}/bootloader.efi", f"target/x86_64-unknown-uefi/{target_inner}/popfs_uefi_driver.efi", f"target/{target_inner}/kernel.map", f"target/{target_inner}")
+    target_inner_bootloader = target_inner
+    if args.release_loader:
+        target_inner_bootloader = "release"
+    generate_iso(kernel_file, f"target/x86_64-unknown-uefi/{target_inner_bootloader}/bootloader.efi", f"target/{target_inner}/kernel.map", f"target/{target_inner}")
 
 
 match args.subcommand:

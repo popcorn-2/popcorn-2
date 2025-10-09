@@ -21,7 +21,7 @@ pub struct SymbolTableEntry {
 #[repr(transparent)]
 pub struct SymbolInfo(u8);
 
-#[allow(unused)]
+#[expect(unused)]
 impl SymbolInfo {
 	const LOCAL: u8 = 0;
 	const GLOBAL: u8 = 1;
