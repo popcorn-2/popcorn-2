@@ -23,7 +23,6 @@ members = [
 	"test_harness",
 	"ranged_btree_allocator",
 	"arena_heap",
-	"round_robin",
 ]
 
 [profile.release]
