@@ -236,7 +236,7 @@ mod full {
 			Ok(Mapping {
 				raw,
 				address_space: ManuallyDrop::new(address_space),
-				backing: Backing::Contiguous(frames),
+				backing: ManuallyDrop::new(Backing::Contiguous(frames)),
 				caching: self.caching,
 				virtual_start: pages,
 				protection: self.protection,
@@ -269,7 +269,7 @@ mod full {
 			}
 		}
 
-		pub fn with_vmo(self, vmo: Arc<Handle>, ) -> Self {
+		pub fn with_vmo(self, vmo: Arc<Handle>) -> Self {
 			assert!(vmo.has_protocols(&[6]), "vmo handle must support `core.mem.Pager`");
 			todo!()
 		}
