@@ -92,7 +92,7 @@ fn unsupported_other_thread(handle: isize) -> Result<(), Error> {
 impl protocol::generated::core::proc::Thread for ProcServer {
 	async fn unstable_anon_alloc(&self, handle: isize, size: usize) -> Result<*const u8, Error> {
 		let Some(len) = NonZero::new(size) else { return Ok(core::ptr::null()); };
-		let len = len.div_ceil(NonZero::new(4096).unwrap());
+		let len = len.div_ceil(NonZero::new(PAGE_SIZE).unwrap());
 
 		let guard = self.threads.lock();
 		let thread = match guard.get(handle as usize).ok_or(Error::InvalidHandle)? {
@@ -187,7 +187,7 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 		if !physical_addr.aligned_to(PAGE_SIZE) { return Err(Error::InvalidArg); }
 
 		let Some(len) = NonZero::new(size) else { return Ok(core::ptr::null()); };
-		let len = len.div_ceil(NonZero::new(4096).unwrap());
+		let len = len.div_ceil(NonZero::new(PAGE_SIZE).unwrap());
 
 		let guard = self.threads.lock();
 		let thread = match guard.get(handle as usize).ok_or(Error::InvalidHandle)?  {
@@ -207,6 +207,35 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 		debug!("{:?}", thread.address_space);
 
 		Ok(ret.addr().as_ptr().cast_const())
+	}
+
+	fn map_vmo(&self, handle: isize, vmo: Arc<Handle>, address: *const u8, len: usize, offset: usize) -> impl Future<Output = Result<*const u8, Error>> {
+		let address = address.addr();
+		async move {
+			if len % PAGE_SIZE != 0 { return Err(Error::InvalidArg); }
+			if offset % PAGE_SIZE != 0 { return Err(Error::InvalidArg); }
+			if address != 0 { return Err(Error::FutureCompat); }
+
+			let Some(len) = NonZero::new(len) else { return Ok(ptr::null()); };
+			let len = len.div_ceil(NonZero::new(PAGE_SIZE).unwrap());
+
+			let guard = self.threads.lock();
+			let thread = match guard.get(handle as usize).ok_or(Error::InvalidHandle)? {
+				Thread::Building { meta, .. } => meta,
+				Thread::Running(meta) => meta,
+			};
+
+			let (_, mapping) = Config::new(len, Ty::USER_MMAP)
+					.protection(true, false, true)
+					.with_vmo(vmo, offset)
+					.map_in::<Mmap>("".into(), &thread.address_space)?;
+
+			let ret = mapping.as_ptr();
+
+			debug!("{:?}", thread.address_space);
+
+			Ok(ret.addr().as_ptr().cast_const())
+		}
 	}
 
 	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }

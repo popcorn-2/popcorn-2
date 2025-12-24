@@ -269,8 +269,9 @@ mod full {
 			}
 		}
 
-		pub fn with_vmo(self, vmo: Arc<Handle>) -> Self {
+		pub fn with_vmo(self, vmo: Arc<Handle>, offset: usize) -> Self {
 			assert!(vmo.has_protocols(&[6]), "vmo handle must support `core.mem.Pager`");
+			assert_eq!(offset % 4096, 0, "vmo offset must be page aligned");
 			todo!()
 		}
 
