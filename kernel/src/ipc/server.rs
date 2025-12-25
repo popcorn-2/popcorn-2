@@ -22,6 +22,7 @@ pub(super) mod proc;
 pub(super) mod ramdisk;
 mod root;
 mod userspace;
+mod mem;
 
 pub trait Server {
 	type CtorContext: CtorContext;
@@ -57,6 +58,7 @@ pub enum ServerTy {
 	Ramdisk(ramdisk::RamdiskServer),
 	Root(root::RootServer),
 	Userspace(userspace::UserspaceServer),
+	Mem(mem::MemServer),
 }
 
 pub enum ReturnHandle {
@@ -110,6 +112,11 @@ impl ServerTy {
 				args.process_with(s, &mut ctx)?;
 				s.ctor(endpoint, ctx).await
 			}
+			Self::Mem(s) => {
+				let mut ctx = <mem::MemServer as Server>::CtorContext::default();
+				args.process_with(s, &mut ctx)?;
+				s.ctor(endpoint, ctx).await
+			}
 			Self::Userspace(s) => s.ctor(endpoint, args).await,
 		}
 	}
@@ -120,6 +127,7 @@ impl ServerTy {
 			Self::Proc(s) => s.destroy(handle).await,
 			Self::Ramdisk(s) => s.destroy(handle).await,
 			Self::Root(s) => s.destroy(handle).await,
+			Self::Mem(s) => s.destroy(handle).await,
 			Self::Userspace(s) => s.destroy(handle).await,
 		}
 	}
@@ -156,6 +164,9 @@ impl ServerTy {
 				s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4])?
 			},
 			ServerTy::Root(s) => {
+				s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4])?
+			},
+			ServerTy::Mem(s) => {
 				s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4])?
 			},
 			ServerTy::Userspace(_) => unreachable!(),
@@ -198,6 +209,9 @@ impl ServerRegistry {
 		    .expect("Not enough servers inserted yet for overflow");
 
 		list.insert_server(Some(Cow::Borrowed("console")), ServerTy::Console(console::ConsoleServer::new()))
+		    .expect("Not enough servers inserted yet for overflow");
+		
+		list.insert_server(Some(Cow::Borrowed("mem")), ServerTy::Mem(mem::MemServer::new()))
 		    .expect("Not enough servers inserted yet for overflow");
 
 		list
