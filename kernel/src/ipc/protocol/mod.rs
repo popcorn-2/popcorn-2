@@ -19,7 +19,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		(
 			<dyn generated::core::mem::Pager>::UID | 1 << 96,
 			meta::Meta::Method(
-				[meta::Arg::Primitive, meta::Arg::None, meta::Arg::None, meta::Arg::None],
+				[meta::Arg::Primitive, meta::Arg::Primitive, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::Primitive,
 				"get_pages@core.mem.Pager",
 			)
