@@ -22,6 +22,38 @@ pub const fn dmamem() -> DynPmm<'static, true> {
 	DynPmm::from(&crate::bridge::memory::GLOBAL_DMA)
 }
 
+/// Returns an allocator which uses the [`highmem`](highmem()) allocator as a backing allocator but zeroes all memory
+#[inline]
+pub const fn highmem_zero() -> DynPmm<'static, true> {
+	struct Zero;
+
+	unsafe impl Pmm<true> for Zero {
+		fn allocate_one_raw(&self) -> Result<RawFrame, AllocError> {
+			let mut frame = highmem().allocate_one()?;
+			frame.write_filled(0);
+			Ok(Frames::into_raw(frame).0.start)
+		}
+
+		fn allocate_raw(&self, count: NonZero<usize>) -> Result<RawFrame, AllocError> {
+			let mut frames = highmem().allocate(count)?;
+			frames.write_filled(0);
+			Ok(Frames::into_raw(frames).0.start)
+		}
+
+		fn allocate_raw_at(&self, at: RawFrame, count: NonZero<usize>) -> Result<RawFrame, AllocError> {
+			let mut frames = highmem().allocate_at(at, count)?;
+			frames.write_filled(0);
+			Ok(Frames::into_raw(frames).0.start)
+		}
+
+		unsafe fn deallocate_raw(&self, base: RawFrame, count: NonZero<usize>) {
+			unsafe { highmem().deallocate_raw(base, count) }
+		}
+	}
+	
+	DynPmm::from(&Zero)
+}
+
 /// A physical memory allocator
 /// 
 /// If the allocator only allocates from conventional RAM, then the
