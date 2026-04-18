@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 use core::num::NonZero;
 use slab::Slab;
-use kernel_api::allocator::highmem;
+use kernel_api::allocator::{highmem, highmem_zero};
 use kernel_api::memory::{Frames, PAGE_SIZE};
 use kernel_api::sync::{OnceLock, Spinlock};
 use crate::ipc::ctor::{CtorContext, ProtocolVisitor};
@@ -24,17 +24,32 @@ impl Server for MemServer {
 	type CtorContext = CtorCtx;
 
 	async fn ctor(&self, endpoint: &str, _ctx: CtorCtx) -> Result<ReturnHandle, Error> {
-		let size = endpoint.parse::<NonZero<usize>>()
-				.map_err(|_| Error::InvalidArg)?;
-		if size.get() % PAGE_SIZE != 0 { return Err(Error::InvalidArg); }
-		let size = size.div_ceil(non_zero!(PAGE_SIZE));
+		let (flag, size) = {
+			let (flag, size) = match endpoint.split_once('/') {
+				Some((flag, size)) => (flag, size),
+				None => ("", endpoint),
+			};
 
-		let frames = highmem().allocate(size)?;
+			let size = size.parse::<NonZero<usize>>()
+			                   .map_err(|_| Error::InvalidArg)?;
+			if size.get() % PAGE_SIZE != 0 { return Err(Error::InvalidArg); }
+			let size = size.div_ceil(non_zero!(PAGE_SIZE));
+
+			(flag, size)
+		};
+
+		let frames = if flag.contains('z') {
+			highmem_zero().allocate(size)?
+		} else {
+			highmem().allocate(size)?
+		};
+
 		let key = self.allocations.lock().insert(frames);
 		Ok(ReturnHandle::NewDefault(key as isize))
 	}
 
 	async fn destroy(&self, handle: isize) -> Result<(), Error> {
+		info!("destroy mem server allocation {handle}");
 		self.allocations.lock().try_remove(handle as usize)
 				.map(|_| ())
 				.ok_or(Error::InvalidHandle)
