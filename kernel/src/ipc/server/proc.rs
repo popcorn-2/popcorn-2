@@ -170,6 +170,7 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 			ReturnHandle::New(
 				tid,
 				Box::from([<dyn protocol::generated::core::proc::Thread>::UID]),
+				name.to_owned().into(),
 			)
 		};
 		core::future::ready(res)
@@ -258,10 +259,12 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 		
 		// fixme: hacky
 		let server_id = server::server_registry().name_lookup.get("proc").expect("proc server must exist").clone();
-		let main_thread_handle = meta.handles.push(Handle::new(
+		// fixme: should `thread.main == 3` be an abi guarantee?
+		let main_thread_handle = meta.handles.openat(3, Handle::new(
 			server_id,
 			handle,
 			&[<dyn protocol::generated::core::proc::Thread>::UID],
+			"",
 		))?;
 		handle_nums.insert(Box::from("thread.main"), main_thread_handle);
 
@@ -287,6 +290,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 		Ok(ReturnHandle::New(
 			handle,
 			Box::from([<dyn protocol::generated::core::proc::Thread>::UID]),
+			"[thread]".into(),
 		))
 	}
 

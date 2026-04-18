@@ -205,7 +205,7 @@ impl Serializer {
 		} else {
 			match result {
 				MethodResult::SelfHandle(id, protos) => {
-					let handle = Handle::new(self.server, id, &protos);
+					let handle = Handle::new(self.server, id, &protos, ""); // fixme: endpoint
 					percpu_v2!(current_thread)
 							.read()
 					        .as_ref()
@@ -215,7 +215,7 @@ impl Serializer {
 							.map(|v| v as u128)
 				}
 				MethodResult::SelfDefaultHandle(id) => {
-					let handle = Handle::new(self.server, id, &self.default_protos);
+					let handle = Handle::new(self.server, id, &self.default_protos, ""); // fixme: endpoint
 					percpu_v2!(current_thread)
 							.read()
 							.as_ref()
@@ -268,8 +268,8 @@ impl From<ReturnHandle> for MethodResult {
 	fn from(value: ReturnHandle) -> Self {
 		match value {
 			ReturnHandle::Transfer(handle) => MethodResult::TransferHandle(handle),
-			ReturnHandle::New(internal_id, protos) => MethodResult::SelfHandle(internal_id, protos),
-			ReturnHandle::NewDefault(internal_id) => MethodResult::SelfDefaultHandle(internal_id),
+			ReturnHandle::New(internal_id, protos, ..) => MethodResult::SelfHandle(internal_id, protos),
+			ReturnHandle::NewDefault(internal_id, ..) => MethodResult::SelfDefaultHandle(internal_id),
 		}
 	}
 }

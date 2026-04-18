@@ -65,7 +65,7 @@ pub enum ReturnHandle {
 	/// Transfers ownership of a handle to the caller, with support for all the protocols that the original handle had
 	Transfer(Arc<Handle>),
 	/// Creates a handle to a new object, with support for the protocols passed in
-	New(isize, Box<[u128]>),
+	New(isize, Box<[u128]>, alloc::borrow::Cow<'static, str>),
 	/// Creates a handle to a new object, with support for all the protocols that were requested by the caller
 	///
 	/// Only valid to return from a constructor function.

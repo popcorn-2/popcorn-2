@@ -24,7 +24,7 @@ macro_rules! define_error {
 }
 
 define_error! {
-	#[derive(Debug, Copy, Clone)]
+	#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 	#[repr(u16)]
 	pub enum Error {
 		InvalidPointer = 0,
