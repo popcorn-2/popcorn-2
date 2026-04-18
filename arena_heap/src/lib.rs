@@ -5,7 +5,6 @@
 #![feature(allocator_api)]
 #![feature(debug_closure_helpers)]
 #![feature(pointer_is_aligned_to)]
-#![feature(new_zeroed_alloc)]
 #![cfg_attr(feature = "kasan", feature(sanitize))]
 
 use core::alloc::{AllocError, Layout};

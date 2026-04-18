@@ -1,12 +1,11 @@
 use crate::ptr::{impls, LocalUser, PointerError};
-use core::{cmp, fmt};
+use core::fmt;
 use core::fmt::Formatter;
-use core::mem::{ManuallyDrop, MaybeUninit};
+use core::mem::MaybeUninit;
 use core::ptr::addr_of;
 use crate::address_space::AddressSpace;
 use crate::dbg;
-use crate::mapping::Mapping;
-use crate::memory::{VirtualAddress, PAGE_SIZE};
+use crate::memory::VirtualAddress;
 
 /// A pointer to a potentially invalid address, tied to a specific address space
 ///

@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 pub mod collections {
 	pub type HashMap<K, V> = hashbrown::HashMap<K, V>;
 }

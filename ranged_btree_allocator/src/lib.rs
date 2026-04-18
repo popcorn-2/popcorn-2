@@ -1,9 +1,6 @@
-#![feature(allocator_api)]
 #![feature(gen_blocks)]
 #![cfg_attr(not(test), no_std)]
-#![feature(step_trait)]
 #![feature(int_roundings)]
-#![feature(unsigned_nonzero_div_ceil)]
 #![deny(warnings)]
 
 #![cfg_attr(test, allow(unused_imports))]

@@ -13,12 +13,13 @@ use core::mem::ManuallyDrop;
 use core::ops::{Deref, DerefMut};
 use core::ptr;
 use core::ptr::DynMetadata;
-use core::sync::atomic::{AtomicBool, AtomicU128, AtomicU8, Ordering};
-use log::debug;
+use core::sync::atomic::{AtomicU128, Ordering};
 use crate::allocator::Vmm;
 use crate::mapping::{Caching, MapPageError, Mappable, Mapping, Protection};
 use crate::memory::{RawFrame, RawPage};
 use crate::sync::RwReadGuard;
+
+#[cfg(debug_assertions)] use core::sync::atomic::AtomicBool;
 
 // this an Arc around `kernel::memory::virtual::AddressSpaceInner`
 // we could also use an extern type here instead of `dyn Any` but that

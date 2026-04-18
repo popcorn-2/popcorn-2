@@ -53,7 +53,7 @@ mod full {
 	use crate::address_space::{AddressSpace, MappingKey, Userspace};
 	use crate::allocator::{highmem, AllocError, DynPmm};
 	use crate::mapping::full::Backing;
-	use crate::memory::{RawFrame, RawPage, PAGE_SIZE};
+	use crate::memory::{RawFrame, RawPage};
 	use crate::syscall::handle::Handle;
 
 	#[derive(Debug, Copy, Clone)]

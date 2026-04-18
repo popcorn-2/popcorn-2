@@ -15,12 +15,14 @@
 //! if the [`PhysicalAddress`] pointed to conventional memory.**
 
 use core::fmt::{Debug, Formatter};
-use core::mem::{ManuallyDrop, MaybeUninit};
-use core::ops::{Deref, Range};
+use core::ops::Deref;
 use core::iter::Step;
-use core::{fmt, slice};
-use core::marker::PhantomData;
-use core::ptr::addr_of;
+use core::fmt;
+#[cfg(feature = "full")] use core::slice;
+#[cfg(feature = "full")] use core::ops::Range;
+#[cfg(feature = "full")] use core::marker::PhantomData;
+#[cfg(feature = "full")] use core::mem::{ManuallyDrop, MaybeUninit};
+#[cfg(feature = "full")] use core::ptr::addr_of;
 #[cfg(feature = "full")] use crate::allocator::{DynPmm, Pmm};
 
 mod type_ops;
