@@ -1,0 +1,3 @@
+[submodule "core-protocols"]
+	path = core-protocols
+	url = https://github.com/popcorn-2/core-protocols.git
