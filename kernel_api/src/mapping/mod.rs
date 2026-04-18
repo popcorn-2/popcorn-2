@@ -43,7 +43,7 @@ mod full {
 		Discontiguous { pmm: DynPmm<'static, false>, frame_count: usize },
 
 		/// The mapping is backed by a VMO handle
-		Vmo(Arc<Handle>),
+		Vmo { handle: Arc<Handle>, frame_count: usize },
 	}
 
 	impl Backing {
@@ -51,7 +51,7 @@ mod full {
 			match self {
 				Backing::Contiguous(frames) => frames.count(),
 				Backing::Discontiguous { frame_count, .. } => *frame_count,
-				Backing::Vmo(_) => todo!(),
+				Backing::Vmo { frame_count, .. } => *frame_count,
 			}
 		}
 
@@ -63,7 +63,7 @@ mod full {
 			match self {
 				Backing::Contiguous(frames) => frames.pmm(),
 				Backing::Discontiguous { pmm, .. } => pmm,
-				Backing::Vmo(_) => todo!(),
+				Backing::Vmo { .. } => todo!(),
 			}
 		}
 	}
@@ -138,7 +138,7 @@ mod full {
 				match unsafe { ManuallyDrop::take(&mut this.backing) } {
 					Backing::Contiguous(frames) => Some(frames),
 					Backing::Discontiguous { .. } => None,
-					Backing::Vmo(_) => todo!(),
+					Backing::Vmo { .. } => todo!(),
 				},
 				this.virtual_start,
 				this.protection,
@@ -213,7 +213,7 @@ mod full {
 				pmm: *self.backing.pmm(),
 				frame_count: self.backing.frame_len().checked_add(extra_length.get()).unwrap()
 			};
-			self.backing = ManuallyDrop::new(new_backing);
+			self.backing = ManuallyDrop::new(new_backing); // don't drop the old backing since that could deallocate in-use frames
 
 			Ok(())
 		}
@@ -252,8 +252,8 @@ mod full {
 				 |f| {
 					 #[cfg(not(feature = "use_std"))] match &*self.backing {
 						 Backing::Contiguous(frame) => Debug::fmt(frame, f),
-						 Backing::Discontiguous { frame_count, .. } => write!(f, "Discontiguous {{ frame_count: {} }}", frame_count),
-						 Backing::Vmo(vmo) => write!(f, "Vmo({vmo:?})"),
+						 Backing::Discontiguous { frame_count, .. } => write!(f, "Discontiguous {{ frame_count: {frame_count} }}"),
+						 Backing::Vmo { handle, frame_count } => write!(f, "Vmo {{ handle: {handle:?}, frame_count: {frame_count} }}"),
 					 }
 					 #[cfg(feature = "use_std")] Ok(())
 				 }
@@ -274,7 +274,7 @@ mod full {
 				Backing::Discontiguous { pmm, frame_count } => {
 					warn!("ignoring discontiguous page drop");
 				}
-				Backing::Vmo(_) => {}
+				Backing::Vmo { handle, .. } => drop(handle),
 			}
 		}
 	}
