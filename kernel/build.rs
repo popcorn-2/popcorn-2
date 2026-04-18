@@ -1,17 +1,36 @@
-use std::{env, fs};
+use std::env;
+use std::io;
+use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::fmt::Write;
 
-fn main() {
-	println!("cargo:rerun-if-changed=/Users/Eliyahu/popcorn2/pipc/target/debug/pipc");
-	println!("cargo:rerun-if-changed=/Users/Eliyahu/popcorn2/pipc/test_input/core.pip");
+const PIP_SOURCES: &[&str] = &["io.pip", "proc.pip", "server.pip", "mem.pip"];
 
-	let output = Command::new("/Users/Eliyahu/popcorn2/pipc/target/debug/pipc")
-			.arg("/Users/Eliyahu/popcorn2/pipc/test_input/core.pip")
-			.output()
-			.unwrap();
-	let mut f = PathBuf::from(env::var("OUT_DIR").unwrap());
-	f.push("protocol.gen.rs");
-	println!("cargo:rerun-if-changed={}", f.display());
-	fs::write(f, output.stdout).unwrap();
+fn main() -> io::Result<()> {
+    let src_dir = {
+        let mut buf = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+        buf.push("../core-protocols/src/core");
+        buf
+    };
+
+	let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+	let mut buf = String::from("pub mod core {\nuse super::{std, popcorn_server, StrExt};");
+
+	for name in PIP_SOURCES {
+		let f = src_dir.join(name);
+
+		pipc::process_file(&f, pipc::OutputFormat::Rust, pipc::OutputTy::Server, &out_dir)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+		let _ = writeln!(&mut buf, "pub mod {name} {{ use super::{{std, popcorn_server, StrExt}}; include!(\"{}/{name}.rs\"); }}", out_dir.display(), name = f.file_stem().unwrap().display());
+	}
+
+	buf += "}\n";
+
+    fs::write(
+		out_dir.join("protocol.gen.rs"),
+		buf,
+	)?;
+
+    Ok(())
 }

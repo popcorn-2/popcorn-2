@@ -20,7 +20,7 @@ use crate::ipc::{Error, protocol, server};
 use crate::ipc::ctor::{CtorContext, ProtocolVisitor};
 use kernel_api::syscall::handle::{Handle, HandleMap};
 use crate::ipc::protocol::{DispatchTable, Protocol};
-use crate::ipc::protocol::generated::{CoreIoRead, CoreIoSeek};
+use crate::ipc::protocol::generated::core::io::{Read, Seek};
 use crate::ipc::server::{Either, ReturnHandle, Server};
 use crate::{hal, threading};
 use kernel_api::threading::{ThreadId, ThreadMeta};
@@ -70,8 +70,8 @@ impl Server for ProcServer {
 	fn dispatch_table(&self) -> &'static DispatchTable {
 		static DISPATCH_TABLE: OnceLock<DispatchTable> = OnceLock::new();
 		DISPATCH_TABLE.get_or_init(|| DispatchTable::new()
-				.add_vtable(<Self as protocol::generated::CoreProcThread>::__vtable())
-				.add_vtable(<Self as protocol::generated::CoreProcBuilder>::__vtable())
+				.add_vtable(<Self as protocol::generated::core::proc::Thread>::__vtable())
+				.add_vtable(<Self as protocol::generated::core::proc::Builder>::__vtable())
 		)
 	}
 }
@@ -89,7 +89,7 @@ fn unsupported_other_thread(handle: isize) -> Result<(), Error> {
 	}
 }
 
-impl protocol::generated::CoreProcThread for ProcServer {
+impl protocol::generated::core::proc::Thread for ProcServer {
 	async fn unstable_anon_alloc(&self, handle: isize, size: usize) -> Result<*const u8, Error> {
 		let Some(len) = NonZero::new(size) else { return Ok(core::ptr::null()); };
 		let len = len.div_ceil(NonZero::new(4096).unwrap());
@@ -169,7 +169,7 @@ impl protocol::generated::CoreProcThread for ProcServer {
 			thread_entry.insert(Thread::Running(meta));
 			ReturnHandle::New(
 				tid,
-				Box::from([<dyn protocol::generated::CoreProcThread>::UID]),
+				Box::from([<dyn protocol::generated::core::proc::Thread>::UID]),
 			)
 		};
 		core::future::ready(res)
@@ -212,7 +212,7 @@ impl protocol::generated::CoreProcThread for ProcServer {
 	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
 }
 
-impl protocol::generated::CoreProcBuilder for ProcServer {
+impl protocol::generated::core::proc::Builder for ProcServer {
 	async fn spawn(&self, handle: isize) -> Result<ReturnHandle, Error> {
 		let mut guard = self.threads.lock();
 
@@ -232,7 +232,7 @@ impl protocol::generated::CoreProcBuilder for ProcServer {
 		let main_thread_handle = meta.handles.push(Handle::new(
 			server_id,
 			handle,
-			&[<dyn protocol::generated::CoreProcThread>::UID],
+			&[<dyn protocol::generated::core::proc::Thread>::UID],
 		))?;
 		handle_nums.insert(Box::from("thread.main"), main_thread_handle);
 
@@ -257,7 +257,7 @@ impl protocol::generated::CoreProcBuilder for ProcServer {
 		
 		Ok(ReturnHandle::New(
 			handle,
-			Box::from([<dyn protocol::generated::CoreProcThread>::UID]),
+			Box::from([<dyn protocol::generated::core::proc::Thread>::UID]),
 		))
 	}
 
@@ -290,13 +290,13 @@ impl protocol::generated::CoreProcBuilder for ProcServer {
 	async fn new_from(&self, endpoint: &str, handle: Arc<Handle>) -> Result<ReturnHandle, Error> {
 		info!("spawn process `{endpoint}` with handle {handle:#x?}");
 
-		if !handle.has_protocols(&[<dyn CoreIoRead>::UID, <dyn CoreIoSeek>::UID]) { return Err(Error::InvalidArg); }
+		if !handle.has_protocols(&[<dyn Read>::UID, <dyn Seek>::UID]) { return Err(Error::InvalidArg); }
 		let address_space = AddressSpace::empty()?;
 
 		let mut raw_header = MaybeUninit::<FileHeaderRaw>::uninit();
 
 		let res = handle.kernel_syscall(
-			<dyn CoreIoRead>::UID,
+			<dyn Read>::UID,
 			1,
 			[
 				raw_header.as_mut_ptr().addr(),
@@ -364,7 +364,7 @@ impl protocol::generated::CoreProcBuilder for ProcServer {
 						for _ in 0..program_header_count {
 							let _ = block_on(
 								handle.kernel_syscall(
-									<dyn CoreIoSeek>::UID,
+									<dyn Seek>::UID,
 									2,
 									[
 										program_header_start,
@@ -378,7 +378,7 @@ impl protocol::generated::CoreProcBuilder for ProcServer {
 							let mut raw = MaybeUninit::<ProgramHeaderEntry64>::uninit();
 							let res = block_on(
 								handle.kernel_syscall(
-									<dyn CoreIoRead>::UID,
+									<dyn Read>::UID,
 									1,
 									[
 										raw.as_mut_ptr().addr(),
@@ -397,7 +397,7 @@ impl protocol::generated::CoreProcBuilder for ProcServer {
 							if segment.segment_type == SegmentType::LOAD {
 								let _ = block_on(
 									handle.kernel_syscall(
-										<dyn CoreIoSeek>::UID,
+										<dyn Seek>::UID,
 										2,
 										[
 											segment.file_location().0.start,
@@ -432,7 +432,7 @@ impl protocol::generated::CoreProcBuilder for ProcServer {
 
 									let res = match block_on(
 										handle.kernel_syscall(
-											<dyn CoreIoRead>::UID,
+											<dyn Read>::UID,
 											1,
 											[
 												page.as_ptr().addr() + segment_page_offset,

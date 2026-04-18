@@ -45,13 +45,13 @@ impl Server for ConsoleServer {
 	fn dispatch_table(&self) -> &'static DispatchTable {
 		static DISPATCH_TABLE: OnceLock<DispatchTable> = OnceLock::new();
 		DISPATCH_TABLE.get_or_init(|| DispatchTable::new()
-				.add_vtable(<Self as protocol::generated::CoreIoWrite>::__vtable())
-				.add_vtable(<Self as protocol::generated::CoreIoRead>::__vtable())
+				.add_vtable(<Self as protocol::generated::core::io::Write>::__vtable())
+				.add_vtable(<Self as protocol::generated::core::io::Read>::__vtable())
 		)
 	}
 }
 
-impl protocol::generated::CoreIoWrite for ConsoleServer {
+impl protocol::generated::core::io::Write for ConsoleServer {
 	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
 
 	async fn write(&self, _handle: isize, buf: &[u8]) -> Result<usize, Error> {
@@ -62,7 +62,7 @@ impl protocol::generated::CoreIoWrite for ConsoleServer {
 	}
 }
 
-impl protocol::generated::CoreIoRead for ConsoleServer {
+impl protocol::generated::core::io::Read for ConsoleServer {
 	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
 
 	async fn read(&self, _handle: isize, count: usize) -> Result<Box<[u8]>, Error> {
@@ -83,8 +83,8 @@ impl CtorContext for CtorCtx {
 		
 		VISITORS.get_or_init(||
 			ProtocolVisitor::new()
-					.add_visitor::<dyn protocol::generated::CoreIoRead>(|_, _| Ok(()))
-					.add_visitor::<dyn protocol::generated::CoreIoWrite>(|_, _| Ok(()))
+					.add_visitor::<dyn protocol::generated::core::io::Read>(|_, _| Ok(()))
+					.add_visitor::<dyn protocol::generated::core::io::Write>(|_, _| Ok(()))
 		)
 	}
 }

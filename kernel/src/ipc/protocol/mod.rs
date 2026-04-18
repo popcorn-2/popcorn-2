@@ -17,7 +17,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 	map.extend([
 		// unstable_anon_alloc
 		(
-			<dyn generated::CoreProcThread>::UID | 1 << 96,
+			<dyn generated::core::proc::Thread>::UID | 1 << 96,
 			meta::Meta::Method(
 				[meta::Arg::Primitive, meta::Arg::None, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::Primitive,
@@ -26,7 +26,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// unstable_anon_dealloc
 		(
-			<dyn generated::CoreProcThread>::UID | 2 << 96,
+			<dyn generated::core::proc::Thread>::UID | 2 << 96,
 			meta::Meta::Method(
 				[meta::Arg::Primitive, meta::Arg::None, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::None,
@@ -35,7 +35,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// set_tcb
 		(
-			<dyn generated::CoreProcThread>::UID | 3 << 96,
+			<dyn generated::core::proc::Thread>::UID | 3 << 96,
 			meta::Meta::Method(
 				[meta::Arg::Primitive, meta::Arg::None, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::None,
@@ -44,7 +44,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// spawn_thread
 		(
-			<dyn generated::CoreProcThread>::UID | 4 << 96,
+			<dyn generated::core::proc::Thread>::UID | 4 << 96,
 			meta::Meta::Method(
 				[meta::Arg::MemoryInPtr { len_arg: non_zero!(2) }, meta::Arg::Primitive, meta::Arg::Primitive, meta::Arg::Primitive],
 				meta::ReturnArg::Handle,
@@ -53,7 +53,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// yield_now
 		(
-			<dyn generated::CoreProcThread>::UID | 5 << 96,
+			<dyn generated::core::proc::Thread>::UID | 5 << 96,
 			meta::Meta::Method(
 				[meta::Arg::None, meta::Arg::None, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::None,
@@ -62,7 +62,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// unstable_mmio_alloc
 		(
-			<dyn generated::CoreProcThread>::UID | 6 << 96,
+			<dyn generated::core::proc::Thread>::UID | 6 << 96,
 			meta::Meta::Method(
 				[meta::Arg::Primitive, meta::Arg::Primitive, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::Primitive,
@@ -75,7 +75,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 	map.extend([
 		// read
 		(
-			<dyn generated::CoreIoRead>::UID | 1 << 96,
+			<dyn generated::core::io::Read>::UID | 1 << 96,
 			meta::Meta::Method(
 				[meta::Arg::MemoryOutPtr { len_arg: non_zero!(2) }, meta::Arg::Primitive, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::Primitive,
@@ -88,7 +88,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 	map.extend([
 		// write
 		(
-			<dyn generated::CoreIoWrite>::UID | 1 << 96,
+			<dyn generated::core::io::Write>::UID | 1 << 96,
 			meta::Meta::Method(
 				[meta::Arg::MemoryInPtr { len_arg: non_zero!(2) }, meta::Arg::Primitive, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::Primitive,
@@ -101,7 +101,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 	map.extend([
 		// tell
 		(
-			<dyn generated::CoreIoSeek>::UID | 1 << 96,
+			<dyn generated::core::io::Seek>::UID | 1 << 96,
 			meta::Meta::Method(
 				[meta::Arg::None, meta::Arg::None, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::Primitive,
@@ -110,7 +110,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// seek
 		(
-			<dyn generated::CoreIoSeek>::UID | 2 << 96,
+			<dyn generated::core::io::Seek>::UID | 2 << 96,
 			meta::Meta::Method(
 				[meta::Arg::Primitive, meta::Arg::None, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::None,
@@ -124,7 +124,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 	map.extend([
 		// next
 		(
-			<dyn generated::CoreServerSync>::UID | 1 << 96,
+			<dyn generated::core::server::Sync>::UID | 1 << 96,
 			meta::Meta::Method(
 				[meta::Arg::Primitive, meta::Arg::None, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::None,
@@ -133,7 +133,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// reply
 		(
-			<dyn generated::CoreServerSync>::UID | 2 << 96,
+			<dyn generated::core::server::Sync>::UID | 2 << 96,
 			meta::Meta::Method(
 				[meta::Arg::Primitive, meta::Arg::None, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::None,
@@ -142,7 +142,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// forge
 		(
-			<dyn generated::CoreServerSync>::UID | 3 << 96,
+			<dyn generated::core::server::Sync>::UID | 3 << 96,
 			meta::Meta::Method(
 				[meta::Arg::Primitive, meta::Arg::MemoryInPtr { len_arg: non_zero!(3) }, meta::Arg::Primitive, meta::Arg::None],
 				meta::ReturnArg::Handle,
@@ -155,7 +155,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 	map.extend([
 		// spawn
 		(
-			<dyn generated::CoreProcBuilder>::UID | 1 << 96,
+			<dyn generated::core::proc::Builder>::UID | 1 << 96,
 			meta::Meta::Method(
 				[meta::Arg::None, meta::Arg::None, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::Handle,
@@ -164,7 +164,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// add_handle
 		(
-			<dyn generated::CoreProcBuilder>::UID | 2 << 96,
+			<dyn generated::core::proc::Builder>::UID | 2 << 96,
 			meta::Meta::Method(
 				[meta::Arg::MemoryInPtr { len_arg: non_zero!(2) }, meta::Arg::Primitive, meta::Arg::Handle, meta::Arg::None],
 				meta::ReturnArg::None,

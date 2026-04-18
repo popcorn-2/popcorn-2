@@ -39,12 +39,12 @@ impl Server for RamdiskServer {
 	fn dispatch_table(&self) -> &'static DispatchTable {
 		static DISPATCH_TABLE: OnceLock<DispatchTable> = OnceLock::new();
 		DISPATCH_TABLE.get_or_init(|| DispatchTable::new()
-				.add_vtable(<Self as protocol::generated::CoreIoRead>::__vtable())
+				.add_vtable(<Self as protocol::generated::core::io::Read>::__vtable())
 		)
 	}
 }
 
-impl protocol::generated::CoreIoRead for RamdiskServer {
+impl protocol::generated::core::io::Read for RamdiskServer {
 	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
 
 	async fn read(&self, handle: isize, output_size: usize) -> Result<Box<[u8]>, Error> {

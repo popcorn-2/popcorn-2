@@ -933,23 +933,23 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 		let stdio_handle = ipc::open(
 			"console:/",
-			&[<dyn ipc::protocol::generated::CoreIoRead>::UID, <dyn ipc::protocol::generated::CoreIoWrite>::UID],
+			&[<dyn ipc::protocol::generated::core::io::Read>::UID, <dyn ipc::protocol::generated::core::io::Write>::UID],
 			kernel_api::ptr::null(),
 		).expect("unable to open console");
 		let thread_handle = Handle::new(
 			ipc::server::server_registry().get_server_at("proc").expect("unable to open `proc`").0,
 			thread.thread_id.get() as isize,
-			&[<dyn ipc::protocol::generated::CoreProcThread>::UID]
+			&[<dyn ipc::protocol::generated::core::proc::Thread>::UID]
 		);
 		let ramdisk_handle = Handle::new(
 			ramdisk_server,
 			1,
-			&[<dyn ipc::protocol::generated::CoreIoRead>::UID]
+			&[<dyn ipc::protocol::generated::core::io::Read>::UID]
 		);
 		let acpi_handle = Handle::new(
 			ramdisk_server,
 			2,
-			&[<dyn ipc::protocol::generated::CoreIoRead>::UID]
+			&[<dyn ipc::protocol::generated::core::io::Read>::UID]
 		);
 
 		dbg!(&stdio_handle);

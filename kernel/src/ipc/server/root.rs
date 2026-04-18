@@ -62,12 +62,12 @@ impl Server for RootServer {
 	fn dispatch_table(&self) -> &'static DispatchTable {
 		static DISPATCH_TABLE: OnceLock<DispatchTable> = OnceLock::new();
 		DISPATCH_TABLE.get_or_init(|| DispatchTable::new()
-				.add_vtable(<Self as protocol::generated::CoreServerSync>::__vtable())
+				.add_vtable(<Self as protocol::generated::core::server::Sync>::__vtable())
 		)
 	}
 }
 
-impl protocol::generated::CoreServerSync for RootServer {
+impl protocol::generated::core::server::Sync for RootServer {
 	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
 
 	// fixme: the buffer ptr is actually a User<*mut u8>
@@ -153,7 +153,7 @@ impl CtorContext for CtorCtx {
 
 		VISITORS.get_or_init(||
 			ProtocolVisitor::new()
-				.add_visitor::<dyn protocol::generated::CoreServerSync>(|_, _| Ok(()))
+				.add_visitor::<dyn protocol::generated::core::server::Sync>(|_, _| Ok(()))
 		)
 	}
 }
