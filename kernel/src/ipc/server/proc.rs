@@ -24,6 +24,7 @@ use crate::ipc::protocol::generated::core::io::{Read, Seek};
 use crate::ipc::server::{Either, ReturnHandle, Server};
 use crate::{hal, threading};
 use kernel_api::threading::{ThreadId, ThreadMeta};
+use alloc::borrow::Cow;
 
 /// Manages thread objects, implementing `core.proc.Proc` and `core.proc.Thread`
 ///
@@ -226,16 +227,22 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 				Thread::Running(meta) => meta,
 			};
 
-			let (_, mapping) = Config::new(len, Ty::USER_MMAP)
+			let ret = {
+				let name = String::from(&**vmo.endpoint());
+
+				let (_, mapping) = Config::new(len, Ty::USER_MMAP)
 					.protection(true, false, true)
 					.with_vmo(vmo, offset)
-					.map_in::<Mmap>("".into(), &thread.address_space)?;
+					.map_in::<Mmap>(Cow::Owned(name), &thread.address_space)?;
 
-			let ret = mapping.as_ptr();
+				let ret = mapping.as_ptr();
 
-			debug!("{:?}", thread.address_space);
+				Ok(ret.addr().as_ptr().cast_const())
+			};
 
-			Ok(ret.addr().as_ptr().cast_const())
+			trace!("{:?}", thread.address_space);
+
+			ret
 		}
 	}
 
