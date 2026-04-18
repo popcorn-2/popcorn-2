@@ -230,7 +230,14 @@ mod full {
 			match &*self.backing {
 				Backing::Contiguous(frames) => Some(frames.base()),
 				Backing::Discontiguous { .. } => None,
-				Backing::Vmo(_) => None,
+				Backing::Vmo { handle, .. } => Some({
+					RawFrame::new(crate::bridge::handle::kernel_syscall_blocking(
+						handle,
+						6,
+						1,
+						[0 /* offset */, self.page_len() * PAGE_SIZE /* len */, 0, 0 /* unused args */],
+					).ok()? as usize)
+				}),
 			}
 		}
 
