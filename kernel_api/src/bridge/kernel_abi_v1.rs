@@ -50,11 +50,21 @@ pub mod executor {
 }
 
 pub mod handle {
+	use alloc::sync::Arc;
+	use crate::syscall;
 	use crate::syscall::handle::Handle;
 
 	unsafe extern "Rust" {
 		#[link_name = "__popcorn_handle_drop"]
 		pub safe fn drop(this: &mut Handle);
+
+		#[link_name = "__popcorn_ksyscall_blocking"]
+		pub safe fn kernel_syscall_blocking(
+			this: &Arc<Handle>,
+			protocol: u128,
+			method: u32,
+			args: [usize; 4]
+		) -> syscall::Result<u128>;
 	}
 }
 
