@@ -82,6 +82,15 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 				"unstable_mmio_alloc@core.proc.Thread",
 			)
 		),
+		// map_vmo
+		(
+			<dyn generated::core::proc::Thread>::UID | 9 << 96,
+			meta::Meta::Method(
+				[meta::Arg::Handle, meta::Arg::Primitive, meta::Arg::Primitive, meta::Arg::Primitive],
+				meta::ReturnArg::Primitive,
+				"map_vmo@core.proc.Thread",
+			),
+		),
 	].into_iter());
 
 	// core.io.Read
