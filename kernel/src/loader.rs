@@ -7,17 +7,16 @@ use kernel_api::ptr::User;
 
 pub fn set_up_stack<'arg, 'env, 'handle, H, D: Deref<Target = str>, R: Mappable>(
 	stack: &mut Mapping<R, Userspace>,
-	arg: impl IntoIterator<Item: Deref<Target = str>>,
-	env: impl IntoIterator<Item: Deref<Target = str>>,
+	arg: impl IntoIterator<Item = &'arg str>,
+	env: impl IntoIterator<Item = &'env str>,
 	handles: H
 ) -> VirtualAddress where for<'a> &'a H: IntoIterator<Item = (&'a D, &'a u32)> {
 	let (arg, env, handles1, handles2) = (arg.into_iter(), env.into_iter(), (&handles).into_iter(), (&handles).into_iter());
 	let mut stack_ptr_user = stack.as_mut_ptr_range().end;
 	
-	fn write_strings<'a>(stack_ptr: &mut User<'_, *mut u8>, strings: impl Iterator<Item: Deref<Target = str>>) -> Vec<VirtualAddress> {
+	fn write_strings<'a>(stack_ptr: &mut User<'_, *mut u8>, strings: impl Iterator<Item = &'a str>) -> Vec<VirtualAddress> {
 		let mut ptrs = Vec::with_capacity(strings.size_hint().0);
 		for str in strings {
-			let str = &*str;
 			// write null terminator
 			*stack_ptr = unsafe { stack_ptr.offset(-1) };
 			stack_ptr.write_other_address_space(0).expect("mapped stack should exist");
