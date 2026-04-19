@@ -24,6 +24,7 @@ use crate::ipc::protocol::generated::core::io::{Read, Seek};
 use crate::ipc::server::{Either, ReturnHandle, Server};
 use crate::{hal, threading};
 use kernel_api::threading::{ThreadId, ThreadMeta};
+use alloc::borrow::Cow;
 
 /// Manages thread objects, implementing `core.proc.Proc` and `core.proc.Thread`
 ///
@@ -92,7 +93,7 @@ fn unsupported_other_thread(handle: isize) -> Result<(), Error> {
 impl protocol::generated::core::proc::Thread for ProcServer {
 	async fn unstable_anon_alloc(&self, handle: isize, size: usize) -> Result<*const u8, Error> {
 		let Some(len) = NonZero::new(size) else { return Ok(core::ptr::null()); };
-		let len = len.div_ceil(NonZero::new(4096).unwrap());
+		let len = len.div_ceil(NonZero::new(PAGE_SIZE).unwrap());
 
 		let guard = self.threads.lock();
 		let thread = match guard.get(handle as usize).ok_or(Error::InvalidHandle)? {
@@ -170,6 +171,7 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 			ReturnHandle::New(
 				tid,
 				Box::from([<dyn protocol::generated::core::proc::Thread>::UID]),
+				name.to_owned().into(),
 			)
 		};
 		core::future::ready(res)
@@ -187,7 +189,7 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 		if !physical_addr.aligned_to(PAGE_SIZE) { return Err(Error::InvalidArg); }
 
 		let Some(len) = NonZero::new(size) else { return Ok(core::ptr::null()); };
-		let len = len.div_ceil(NonZero::new(4096).unwrap());
+		let len = len.div_ceil(NonZero::new(PAGE_SIZE).unwrap());
 
 		let guard = self.threads.lock();
 		let thread = match guard.get(handle as usize).ok_or(Error::InvalidHandle)?  {
@@ -207,6 +209,41 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 		debug!("{:?}", thread.address_space);
 
 		Ok(ret.addr().as_ptr().cast_const())
+	}
+
+	fn map_vmo(&self, handle: isize, vmo: Arc<Handle>, address: *const u8, len: usize, offset: usize) -> impl Future<Output = Result<*const u8, Error>> {
+		let address = address.addr();
+		async move {
+			if len % PAGE_SIZE != 0 { return Err(Error::InvalidArg); }
+			if offset % PAGE_SIZE != 0 { return Err(Error::InvalidArg); }
+			if address != 0 { return Err(Error::FutureCompat); }
+
+			let Some(len) = NonZero::new(len) else { return Ok(ptr::null()); };
+			let len = len.div_ceil(NonZero::new(PAGE_SIZE).unwrap());
+
+			let guard = self.threads.lock();
+			let thread = match guard.get(handle as usize).ok_or(Error::InvalidHandle)? {
+				Thread::Building { meta, .. } => meta,
+				Thread::Running(meta) => meta,
+			};
+
+			let ret = {
+				let name = String::from(&**vmo.endpoint());
+
+				let (_, mapping) = Config::new(len, Ty::USER_MMAP)
+					.protection(true, false, true)
+					.with_vmo(vmo, offset)
+					.map_in::<Mmap>(Cow::Owned(name), &thread.address_space)?;
+
+				let ret = mapping.as_ptr();
+
+				Ok(ret.addr().as_ptr().cast_const())
+			};
+
+			trace!("{:?}", thread.address_space);
+
+			ret
+		}
 	}
 
 	async fn new_from(&self, _: &str, _: Arc<Handle>) -> Result<ReturnHandle, Error> { Err(Error::UnsupportedProtocol) }
@@ -229,10 +266,12 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 		
 		// fixme: hacky
 		let server_id = server::server_registry().name_lookup.get("proc").expect("proc server must exist").clone();
-		let main_thread_handle = meta.handles.push(Handle::new(
+		// fixme: should `thread.main == 3` be an abi guarantee?
+		let main_thread_handle = meta.handles.openat(3, Handle::new(
 			server_id,
 			handle,
 			&[<dyn protocol::generated::core::proc::Thread>::UID],
+			"",
 		))?;
 		handle_nums.insert(Box::from("thread.main"), main_thread_handle);
 
@@ -258,6 +297,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 		Ok(ReturnHandle::New(
 			handle,
 			Box::from([<dyn protocol::generated::core::proc::Thread>::UID]),
+			"[thread]".into(),
 		))
 	}
 

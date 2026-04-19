@@ -9,17 +9,18 @@ pub use config::*;
 
 #[cfg(feature = "full")]
 mod full {
+	use alloc::sync::Arc;
 	use super::*;
 	use core::fmt::{Debug, Formatter};
 	use crate::{address_space, dbg};
 	use core::mem::ManuallyDrop;
 	use core::num::NonZero;
 	use core::ops::Range;
-	use core::{mem, ptr};
-	use log::{debug, warn};
+	use log::{debug, info, warn};
 	use crate::allocator::{AllocError, DynPmm};
 	use crate::memory::{Frames, RawFrame, RawPage, PAGE_SIZE};
 	use crate::ptr::User;
+	use crate::syscall::handle::Handle;
 
 	#[derive(Debug)]
 	pub enum MapPageError {
@@ -40,6 +41,9 @@ mod full {
 
 		/// The underlying physical memory is discontiguous, but all allocated by the same
 		Discontiguous { pmm: DynPmm<'static, false>, frame_count: usize },
+
+		/// The mapping is backed by a VMO handle
+		Vmo { handle: Arc<Handle>, frame_count: usize },
 	}
 
 	impl Backing {
@@ -47,6 +51,7 @@ mod full {
 			match self {
 				Backing::Contiguous(frames) => frames.count(),
 				Backing::Discontiguous { frame_count, .. } => *frame_count,
+				Backing::Vmo { frame_count, .. } => *frame_count,
 			}
 		}
 
@@ -58,6 +63,7 @@ mod full {
 			match self {
 				Backing::Contiguous(frames) => frames.pmm(),
 				Backing::Discontiguous { pmm, .. } => pmm,
+				Backing::Vmo { .. } => todo!(),
 			}
 		}
 	}
@@ -66,13 +72,13 @@ mod full {
 	///
 	/// This will allocate any required memory when created, and register any lazily mapped memory as such.
 	/// It will also manage the page tables to correctly unmap the memory when dropped.
-	pub struct Mapping<R, A> {
+	pub struct Mapping<R: Mappable, A: address_space::Ty> {
 		pub(super) raw: R,
 
 		/// The address space mapped into
 		pub(super) address_space: ManuallyDrop<A>,
 
-		pub(super) backing: Backing,
+		pub(super) backing: ManuallyDrop<Backing>,
 		//#[cfg(feature = "use_std")] pub(super) backing: *mut libc::c_void,
 
 		pub(super) caching: Caching,
@@ -118,7 +124,7 @@ mod full {
 			Self {
 				raw: R::default(),
 				address_space: ManuallyDrop::new(address_space::Kernel {}),
-				backing: Backing::Contiguous(unsafe { Frames::<false>::from_raw_tuple(Frames::into_raw(frames)) }),
+				backing: ManuallyDrop::new(Backing::Contiguous(unsafe { Frames::<false>::from_raw_tuple(Frames::into_raw(frames)) })),
 				virtual_start: base_page,
 				protection,
 				caching,
@@ -127,11 +133,12 @@ mod full {
 
 		//#[cfg(not(feature = "use_std"))]
 		pub fn into_raw_parts(self) -> (Option<Frames<false>>, RawPage, Protection, Caching) {
-			let this = ManuallyDrop::new(self);
+			let mut this = ManuallyDrop::new(self);
 			(
-				match unsafe { ptr::read(&this.backing) } {
+				match unsafe { ManuallyDrop::take(&mut this.backing) } {
 					Backing::Contiguous(frames) => Some(frames),
 					Backing::Discontiguous { .. } => None,
+					Backing::Vmo { .. } => todo!(),
 				},
 				this.virtual_start,
 				this.protection,
@@ -206,7 +213,7 @@ mod full {
 				pmm: *self.backing.pmm(),
 				frame_count: self.backing.frame_len().checked_add(extra_length.get()).unwrap()
 			};
-			mem::forget(mem::replace(&mut self.backing, new_backing));
+			self.backing = ManuallyDrop::new(new_backing); // don't drop the old backing since that could deallocate in-use frames
 
 			Ok(())
 		}
@@ -220,9 +227,17 @@ mod full {
 		}
 
 		pub fn physical_start(&self) -> Option<RawFrame> {
-			match &self.backing {
+			match &*self.backing {
 				Backing::Contiguous(frames) => Some(frames.base()),
 				Backing::Discontiguous { .. } => None,
+				Backing::Vmo { handle, .. } => Some({
+					RawFrame::new(crate::bridge::handle::kernel_syscall_blocking(
+						handle,
+						6,
+						1,
+						[0 /* offset */, self.page_len() * PAGE_SIZE /* len */, 0, 0 /* unused args */],
+					).ok()? as usize)
+				}),
 			}
 		}
 
@@ -242,9 +257,10 @@ mod full {
 			 .field_with(
 				 "backing",
 				 |f| {
-					 #[cfg(not(feature = "use_std"))] match self.backing {
-						 Backing::Contiguous(ref frame) => Debug::fmt(frame, f),
-						 Backing::Discontiguous { frame_count, .. } => write!(f, "Discontiguous {{ frame_count: {} }}", frame_count),
+					 #[cfg(not(feature = "use_std"))] match &*self.backing {
+						 Backing::Contiguous(frame) => Debug::fmt(frame, f),
+						 Backing::Discontiguous { frame_count, .. } => write!(f, "Discontiguous {{ frame_count: {frame_count} }}"),
+						 Backing::Vmo { handle, frame_count } => write!(f, "Vmo {{ handle: {handle:?}, frame_count: {frame_count} }}"),
 					 }
 					 #[cfg(feature = "use_std")] Ok(())
 				 }
@@ -256,9 +272,17 @@ mod full {
 		}
 	}
 
-	impl<R, A> Drop for Mapping<R, A> {
+	impl<R: Mappable, A: address_space::Ty> Drop for Mapping<R, A> {
 		fn drop(&mut self) {
-			warn!("Ignoring drop of mmap({})", core::any::type_name::<R>());
+			info!("drop mmap({})", core::any::type_name::<R>());
+
+			match unsafe { ManuallyDrop::take(&mut self.backing) } {
+				Backing::Contiguous(frames) => drop(frames),
+				Backing::Discontiguous { pmm, frame_count } => {
+					warn!("ignoring discontiguous page drop");
+				}
+				Backing::Vmo { handle, .. } => drop(handle),
+			}
 		}
 	}
 }

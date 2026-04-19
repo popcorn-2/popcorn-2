@@ -82,15 +82,17 @@ pub async fn open_async(endpoint: &str, protocols: &[u128]) -> syscall::Result<A
 
 	Ok(match srv.ctor(endpoint, CtorArgs::new(&*protocols)).await? {
 		ReturnHandle::Transfer(handle) => handle,
-		ReturnHandle::New(id, protos) => Handle::new(
+		ReturnHandle::New(id, protos, endpoint) => Handle::new(
 			srv_id,
 			id,
-			&*protos
+			&*protos,
+			endpoint,
 		),
 		ReturnHandle::NewDefault(id) => Handle::new(
 			srv_id,
 			id,
-			protocols
+			protocols,
+			endpoint,
 		)
 	})
 }

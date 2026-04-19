@@ -939,17 +939,20 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		let thread_handle = Handle::new(
 			ipc::server::server_registry().get_server_at("proc").expect("unable to open `proc`").0,
 			thread.thread_id.get() as isize,
-			&[<dyn ipc::protocol::generated::core::proc::Thread>::UID]
+			&[<dyn ipc::protocol::generated::core::proc::Thread>::UID],
+			"",
 		);
 		let ramdisk_handle = Handle::new(
 			ramdisk_server,
 			1,
-			&[<dyn ipc::protocol::generated::core::io::Read>::UID]
+			&[<dyn ipc::protocol::generated::core::io::Read>::UID],
+			"",
 		);
 		let acpi_handle = Handle::new(
 			ramdisk_server,
 			2,
-			&[<dyn ipc::protocol::generated::core::io::Read>::UID]
+			&[<dyn ipc::protocol::generated::core::io::Read>::UID],
+			"",
 		);
 
 		dbg!(&stdio_handle);

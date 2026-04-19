@@ -22,6 +22,7 @@ pub(super) mod proc;
 pub(super) mod ramdisk;
 mod root;
 mod userspace;
+mod mem;
 
 pub trait Server {
 	type CtorContext: CtorContext;
@@ -57,13 +58,14 @@ pub enum ServerTy {
 	Ramdisk(ramdisk::RamdiskServer),
 	Root(root::RootServer),
 	Userspace(userspace::UserspaceServer),
+	Mem(mem::MemServer),
 }
 
 pub enum ReturnHandle {
 	/// Transfers ownership of a handle to the caller, with support for all the protocols that the original handle had
 	Transfer(Arc<Handle>),
 	/// Creates a handle to a new object, with support for the protocols passed in
-	New(isize, Box<[u128]>),
+	New(isize, Box<[u128]>, alloc::borrow::Cow<'static, str>),
 	/// Creates a handle to a new object, with support for all the protocols that were requested by the caller
 	///
 	/// Only valid to return from a constructor function.
@@ -110,6 +112,11 @@ impl ServerTy {
 				args.process_with(s, &mut ctx)?;
 				s.ctor(endpoint, ctx).await
 			}
+			Self::Mem(s) => {
+				let mut ctx = <mem::MemServer as Server>::CtorContext::default();
+				args.process_with(s, &mut ctx)?;
+				s.ctor(endpoint, ctx).await
+			}
 			Self::Userspace(s) => s.ctor(endpoint, args).await,
 		}
 	}
@@ -120,6 +127,7 @@ impl ServerTy {
 			Self::Proc(s) => s.destroy(handle).await,
 			Self::Ramdisk(s) => s.destroy(handle).await,
 			Self::Root(s) => s.destroy(handle).await,
+			Self::Mem(s) => s.destroy(handle).await,
 			Self::Userspace(s) => s.destroy(handle).await,
 		}
 	}
@@ -156,6 +164,9 @@ impl ServerTy {
 				s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4])?
 			},
 			ServerTy::Root(s) => {
+				s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4])?
+			},
+			ServerTy::Mem(s) => {
 				s.dispatch(protocol, method, args[0], args[1], args[2], args[3], args[4])?
 			},
 			ServerTy::Userspace(_) => unreachable!(),
@@ -198,6 +209,9 @@ impl ServerRegistry {
 		    .expect("Not enough servers inserted yet for overflow");
 
 		list.insert_server(Some(Cow::Borrowed("console")), ServerTy::Console(console::ConsoleServer::new()))
+		    .expect("Not enough servers inserted yet for overflow");
+		
+		list.insert_server(Some(Cow::Borrowed("mem")), ServerTy::Mem(mem::MemServer::new()))
 		    .expect("Not enough servers inserted yet for overflow");
 
 		list

@@ -1,3 +1,4 @@
+use alloc::borrow::Cow;
 use alloc::sync::Arc;
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
@@ -34,7 +35,7 @@ impl HandleMap {
 	pub fn new() -> Self {
 		let this = HandleMapInner {
 			map: Spinlock::new(HashMap::new()),
-			next_fd: AtomicU32::new(3),
+			next_fd: AtomicU32::new(4),
 		};
 		let arc = Arc::new(this);
 		Self(AtomicPtr::new(Arc::into_raw(arc).cast_mut()))
@@ -83,14 +84,16 @@ impl HandleMap {
 pub struct Handle {
 	#[doc(hidden)]
 	pub __protocols: RwSpinlock<ManuallyDrop<HashMap<u128, (ServerId, isize)>>>,
+	endpoint: Arc<str>,
 }
 
 impl Handle {
-	pub fn new(server_id: ServerId, internal_id: isize, protocols: &[u128]) -> Arc<Handle> {
+	pub fn new(server_id: ServerId, internal_id: isize, protocols: &[u128], endpoint: impl Into<Arc<str>>) -> Arc<Handle> {
 		Arc::new(Handle {
 			__protocols: RwSpinlock::new(ManuallyDrop::new(
 				HashMap::from_iter(protocols.iter().copied().zip(core::iter::repeat((server_id, internal_id))))
 			)),
+			endpoint: endpoint.into(),
 		})
 	}
 
@@ -111,6 +114,10 @@ impl Handle {
 		}
 		guard.extend(other.__protocols.read().iter());
 		Ok(())
+	}
+	
+	pub fn endpoint(&self) -> &Arc<str> {
+		&self.endpoint
 	}
 }
 

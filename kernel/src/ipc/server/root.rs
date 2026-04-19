@@ -138,7 +138,7 @@ impl protocol::generated::core::server::Sync for RootServer {
 		
 		debug!("forge handle for server {server:?} with num {handle_num:#x} and protos {protocols:#x?}");
 		
-		let new_handle = Handle::new(server, handle_num, protocols);
+		let new_handle = Handle::new(server, handle_num, protocols, "[forged]");
 
 		Ok(ReturnHandle::Transfer(new_handle))
 	}

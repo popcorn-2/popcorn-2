@@ -105,11 +105,17 @@ mod full {
 	}
 
 	#[derive(Debug)]
+	enum AllocatorTy {
+		Vmo(Arc<Handle>),
+		Pmm(DynPmm<'static, false>),
+	}
+
+	#[derive(Debug)]
 	pub struct Config {
 		physical_location: Location<RawFrame>,
 		virtual_location: Location<RawPage>,
 		page_count: NonZero<usize>,
-		physical_allocator: DynPmm<'static, false>,
+		physical_allocator: AllocatorTy,
 		protection: Protection,
 		caching: Caching,
 		reason: Ty,
@@ -208,9 +214,29 @@ mod full {
 
 		//#[cfg(not(feature = "use_std"))]
 		fn do_map<R: Mappable, A: address_space::Ty>(self, raw: R, address_space: A) -> Result<Mapping<R, A>, AllocError> {
-			let frames = match self.physical_location {
-				Location::At(frame) => self.physical_allocator.allocate_at(frame, self.page_count)?,
-				Location::Any => self.physical_allocator.allocate(self.page_count)?,
+			let Self {
+				physical_allocator,
+				..
+			} = self;
+
+			let (base, backing) = match (physical_allocator, self.physical_location) {
+				(AllocatorTy::Pmm(allocator), Location::At(frame)) => {
+					let frames = allocator.allocate_at(frame, self.page_count)?;
+					(frames.base(), Backing::Contiguous(frames))
+				},
+				(AllocatorTy::Pmm(allocator), Location::Any) => {
+					let mut frames = allocator.allocate(self.page_count)?;
+					(frames.base(), Backing::Contiguous(frames))
+				},
+				(AllocatorTy::Vmo(vmo), _) => {
+					let base_addr = crate::bridge::handle::kernel_syscall_blocking(
+						&vmo,
+						6,
+						1,
+						[ 0 /* offset */, self.page_count.get() * 4096 /* len */, 0, 0 /* unused args */],
+					)?;
+					(RawFrame::new(base_addr as usize), Backing::Vmo { handle: vmo, frame_count: self.page_count.get() })
+				}
 			};
 
 			let virtual_len = raw.virtual_size(self.page_count.get());
@@ -222,7 +248,7 @@ mod full {
 
 			match address_space.map_contiguous(
 				virtual_valid_start,
-				frames.base(),
+				base,
 				self.page_count.get(),
 				self.reason,
 				self.protection,
@@ -236,7 +262,7 @@ mod full {
 			Ok(Mapping {
 				raw,
 				address_space: ManuallyDrop::new(address_space),
-				backing: Backing::Contiguous(frames),
+				backing: ManuallyDrop::new(backing),
 				caching: self.caching,
 				virtual_start: pages,
 				protection: self.protection,
@@ -248,51 +274,47 @@ mod full {
 				physical_location: Location::Any,
 				virtual_location: Location::Any,
 				page_count,
-				physical_allocator: DynPmm::from(highmem()).into(),
+				physical_allocator: AllocatorTy::Pmm(DynPmm::from(highmem()).into()),
 				protection: Protection::new(),
 				caching: Caching::new(),
 				reason: ty,
 			}
 		}
 
-		pub const fn caching(self, caching: Caching) -> Self {
-			Self {
-				caching,
-				.. self
-			}
+		pub const fn caching(mut self, caching: Caching) -> Self {
+			self.caching = caching;
+			self
 		}
 
-		pub const fn protection(self, writable: bool, executable: bool, user_accessible: bool) -> Self {
-			Self {
-				protection: Protection { writable, executable, user_accessible },
-				.. self
-			}
+		pub const fn protection(mut self, writable: bool, executable: bool, user_accessible: bool) -> Self {
+			self.protection = Protection { writable, executable, user_accessible };
+			self
 		}
 
-		pub fn with_vmo(self, vmo: Arc<Handle>, ) -> Self {
+		pub fn with_vmo(self, vmo: Arc<Handle>, offset: usize) -> Self {
 			assert!(vmo.has_protocols(&[6]), "vmo handle must support `core.mem.Pager`");
-			todo!()
+			assert_eq!(offset % 4096, 0, "vmo offset must be page aligned");
+			Self {
+				physical_allocator: AllocatorTy::Vmo(vmo),
+				.. self
+			}
 		}
 
 		pub fn with_allocator<const RAM_ONLY: bool>(self, allocator: impl Into<DynPmm<'static, RAM_ONLY>>) -> Self {
 			Self {
-				physical_allocator: allocator.into().into(),
+				physical_allocator: AllocatorTy::Pmm(allocator.into().into()),
 				.. self
 			}
 		}
 
-		pub const fn physical_location(self, at: RawFrame) -> Self {
-			Self {
-				physical_location: Location::At(at),
-				.. self
-			}
+		pub const fn physical_location(mut self, at: RawFrame) -> Self {
+			self.physical_location = Location::At(at);
+			self
 		}
 
-		pub const fn virtual_location(self, at: RawPage) -> Self {
-			Self {
-				virtual_location: Location::At(at),
-				.. self
-			}
+		pub const fn virtual_location(mut self, at: RawPage) -> Self {
+			self.virtual_location = Location::At(at);
+			self
 		}
 	}
 }

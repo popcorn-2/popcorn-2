@@ -24,7 +24,7 @@ macro_rules! define_error {
 }
 
 define_error! {
-	#[derive(Debug)]
+	#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 	#[repr(u16)]
 	pub enum Error {
 		InvalidPointer = 0,
@@ -42,7 +42,7 @@ define_error! {
 		AllocationFailure = 12,
 		InvalidArg = 13,
 		AsyncUnsupported = 14,
-		/* error 15 */
+		FutureCompat = 15,
 		EoF = 16,
 		ProtocolOverlap = 17,
 	}

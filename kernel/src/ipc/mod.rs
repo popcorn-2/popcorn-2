@@ -42,6 +42,17 @@ impl HandleExt for Arc<Handle> {
 	}
 }
 
+#[unsafe(export_name = "__popcorn_ksyscall_blocking")]
+fn kernel_syscall_blocking(
+	this: &Arc<Handle>,
+	protocol: u128,
+	method: u32,
+	args: [usize; 4]
+) -> syscall::Result<u128> {
+	let fut = this.kernel_syscall(protocol, method, args);
+	block_on(fut)
+}
+
 fn handle_syscall_inner(
 	this: &Arc<Handle>,
 	protocol: u128,

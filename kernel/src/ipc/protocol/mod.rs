@@ -13,6 +13,19 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 	// fixme: generate pipb files in build.rs, include them here, then run the generic parser
 	let mut map = hashmap_new!();
 
+	// core.mem.Pager
+	map.extend([
+		// get_pages
+		(
+			<dyn generated::core::mem::Pager>::UID | 1 << 96,
+			meta::Meta::Method(
+				[meta::Arg::Primitive, meta::Arg::Primitive, meta::Arg::None, meta::Arg::None],
+				meta::ReturnArg::Primitive,
+				"get_pages@core.mem.Pager",
+			)
+		)
+	]);
+
 	// core.proc.Thread
 	map.extend([
 		// unstable_anon_alloc
@@ -68,6 +81,15 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 				meta::ReturnArg::Primitive,
 				"unstable_mmio_alloc@core.proc.Thread",
 			)
+		),
+		// map_vmo
+		(
+			<dyn generated::core::proc::Thread>::UID | 9 << 96,
+			meta::Meta::Method(
+				[meta::Arg::Handle, meta::Arg::Primitive, meta::Arg::Primitive, meta::Arg::Primitive],
+				meta::ReturnArg::Primitive,
+				"map_vmo@core.proc.Thread",
+			),
 		),
 	].into_iter());
 

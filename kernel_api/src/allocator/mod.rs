@@ -26,4 +26,11 @@ enum AllocProvider {
 	Pmm,
 	Vmm,
 	Heap,
+	Syscall(crate::syscall::Error),
+}
+
+impl From<crate::syscall::Error> for AllocError {
+	fn from(value: crate::syscall::Error) -> Self {
+		AllocError { provider: AllocProvider::Syscall(value) }
+	}
 }

@@ -228,7 +228,7 @@ impl UserspaceServer {
 			match v {
 				MethodResult::Value(_) => Err(Error::InvalidReturn),
 				MethodResult::TransferHandle(handle) => Ok(ReturnHandle::Transfer(handle)),
-				MethodResult::SelfHandle(id, protos) => Ok(ReturnHandle::New(id, protos)),
+				MethodResult::SelfHandle(id, protos) => Ok(ReturnHandle::New(id, protos, endpoint.to_owned().into())),
 				MethodResult::SelfDefaultHandle(id) => Ok(ReturnHandle::NewDefault(id)),
 			}
 		})
