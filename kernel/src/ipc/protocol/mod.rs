@@ -82,6 +82,24 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 				"unstable_mmio_alloc@core.proc.Thread",
 			)
 		),
+		// exit
+		(
+			<dyn generated::core::proc::Thread>::UID | 7 << 96,
+			meta::Meta::Method(
+				[meta::Arg::Primitive, meta::Arg::None, meta::Arg::None, meta::Arg::None],
+				meta::ReturnArg::None,
+				"exit@core.proc.Thread",
+			),
+		),
+		// join
+		(
+			<dyn generated::core::proc::Thread>::UID | 8 << 96,
+			meta::Meta::Method(
+				[meta::Arg::None, meta::Arg::None, meta::Arg::None, meta::Arg::None],
+				meta::ReturnArg::Primitive,
+				"join@core.proc.Thread",
+			),
+		),
 		// map_vmo
 		(
 			<dyn generated::core::proc::Thread>::UID | 9 << 96,
@@ -191,6 +209,24 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 				[meta::Arg::MemoryInPtr { len_arg: non_zero!(2) }, meta::Arg::Primitive, meta::Arg::Handle, meta::Arg::None],
 				meta::ReturnArg::None,
 				"add_handle@core.proc.Builder",
+			)
+		),
+		// add_env_var
+		(
+			<dyn generated::core::proc::Builder>::UID | 3 << 96,
+			meta::Meta::Method(
+				[meta::Arg::MemoryInPtr { len_arg: non_zero!(2) }, meta::Arg::Primitive, meta::Arg::None, meta::Arg::None],
+				meta::ReturnArg::None,
+				"add_env_var@core.proc.Builder",
+			)
+		),
+		// add_arg
+		(
+			<dyn generated::core::proc::Builder>::UID | 4 << 96,
+			meta::Meta::Method(
+				[meta::Arg::MemoryInPtr { len_arg: non_zero!(2) }, meta::Arg::Primitive, meta::Arg::None, meta::Arg::None],
+				meta::ReturnArg::None,
+				"add_arg@core.proc.Builder",
 			)
 		),
 	].into_iter());
