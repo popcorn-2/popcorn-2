@@ -69,7 +69,7 @@ unsafe impl Hal for Amd64Hal {
 		);
 		wrmsr(
 			msr::LSTAR,
-			interrupts::amd64_syscall_handler as u64,
+			interrupts::amd64_syscall_handler as *const () as u64,
 		);
 		wrmsr(
 			msr::SFMASK,
@@ -351,7 +351,7 @@ impl SaveStateTr for Amd64SaveState {
 			stack_top.sub(2).write(main as usize);
 			stack_top.sub(3).write(arg); // Intentionally skip stack slot 4 here for alignment
 			stack_top.sub(5).write(0);
-			stack_top.sub(6).write(Self::thread_startup as usize);
+			stack_top.sub(6).write(Self::thread_startup as *const () as usize);
 			stack_top.sub(6)
 		};
 
