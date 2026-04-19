@@ -14,7 +14,6 @@ use kernel_api::executor::block_on;
 use kernel_api::mapping::{Caching, Config, Mmap, Stack, Ty, UnsafeMmap};
 use kernel_api::memory::{PAGE_SIZE, PhysicalAddress, VirtualAddress, RawPage};
 use kernel_api::sync::{OnceLock, Spinlock};
-use kernel_api::syscall;
 use kernel_api::syscall::AsyncMap;
 use crate::ipc::{Error, protocol, server};
 use crate::ipc::ctor::{CtorContext, ProtocolVisitor};
@@ -135,7 +134,7 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 	}
 
 	fn spawn_thread(&self, handle: isize, name: &str, stack_top: *const u8, entry: *const u8) -> impl Future<Output = Result<ReturnHandle, Error>> {
-		let res: syscall::Result<ReturnHandle> = try {
+		let res = try {
 			unsupported_other_thread(handle)?;
 
 			let entry = VirtualAddress::from(entry);
@@ -165,7 +164,7 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 				handle_map,
 				async_map,
 				move || hal::switch_to_userspace_at(entry, stack_top),
-			)?;
+			).map_err(From::from)?;
 
 			thread_entry.insert(Thread::Running(meta));
 			ReturnHandle::New(
@@ -400,7 +399,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 				HandleMap::new(),
 				Arc::new(AsyncMap::new()),
 				move || {
-					let result: syscall::Result<()> = try {
+					let result = try {
 						for _ in 0..program_header_count {
 							let _ = block_on(
 								handle.kernel_syscall(
@@ -463,7 +462,8 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 													true
 												)
 												.virtual_location(addr.align_down_to_page())
-												.map_in::<UnsafeMmap>("".into(), &address_space)?;
+												.map_in::<UnsafeMmap>("".into(), &address_space)
+												.map_err(From::from)?;
 
 										assert!(segment.file_size <= segment.memory_size);
 

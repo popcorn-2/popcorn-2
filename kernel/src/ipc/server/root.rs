@@ -105,10 +105,10 @@ impl protocol::generated::core::server::Sync for RootServer {
 
 	// fixme: the buffer ptr is actually a User<*const u8>
 	fn reply(&self, handle: isize, buffer: *const u8) -> impl Future<Output = syscall::Result<()>> {
-		let res: syscall::Result<()> = try {
+		let res = try {
 			let buffer = unsafe { LocalUser::<*const Response>::new(buffer.addr()) };
 
-			let packet = buffer.read()?;
+			let packet = buffer.read().map_err(From::from)?;
 
 			let Some(&server) = self.handle_map.lock().get(&handle) else {
 				Err(Error::InvalidHandle)?;
