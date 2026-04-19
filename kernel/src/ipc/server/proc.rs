@@ -286,7 +286,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 		handle_nums.insert(Box::from("thread.main"), main_thread_handle);
 
 		let stack_top = {
-			let (_, mut stack) = Config::new(NonZero::new(64).unwrap(), Ty::USER_STACK)
+			let (_, mut stack) = Config::new(NonZero::new(128).unwrap(), Ty::USER_STACK)
 					.protection(true, false, true)
 					.virtual_location(RawPage::new(0x40000000))
 					.map_in::<Stack>(format!("[stack:{main_thread_handle}]").into(), &meta.address_space)?;
