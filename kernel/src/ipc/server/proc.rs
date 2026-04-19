@@ -557,7 +557,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 				} else if segment.segment_type == SegmentType::INTERPRETER {
 					let _ = block_on(
 						handle.kernel_syscall(
-							<dyn CoreIoSeek>::UID,
+							<dyn Seek>::UID,
 							2,
 							[
 								segment.file_location().0.start,
@@ -572,7 +572,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 
 					let res = match block_on(
 						handle.kernel_syscall(
-							<dyn CoreIoRead>::UID,
+							<dyn Read>::UID,
 							1,
 							[
 								buffer.as_mut_ptr().addr(),
@@ -594,7 +594,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 					let interpreter_path = str::from_utf8(&buffer[..buffer.len()-1]).unwrap();
 					info!("interpreter path: {}", interpreter_path);
 
-					interp_handle = Some(block_on(crate::ipc::abi_v1::open_async(interpreter_path, &[<dyn CoreIoRead>::UID, <dyn CoreIoSeek>::UID]))?);
+					interp_handle = Some(block_on(crate::ipc::abi_v1::open_async(interpreter_path, &[<dyn Read>::UID, <dyn Seek>::UID]))?);
 				}
 			}
 
