@@ -185,6 +185,32 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 		core::future::ready(res)
 	}
 
+	async fn exit(&self, handle: isize, code: isize) -> Result<(), Error> {
+		unsupported_other_thread(handle)?;
+
+		threading::exit(code)
+	}
+
+	async fn join(&self, handle: isize) -> Result<isize, Error> {
+		let thread = {
+			let guard = self.threads.lock();
+			let thread = match guard.get(handle as usize).ok_or(Error::InvalidHandle)? {
+				Thread::Building { meta, .. } => meta,
+				Thread::Running(meta) => meta,
+			};
+
+			// todo: check if already a thread waiting on the process
+
+			Arc::clone(thread)
+		};
+
+		let res = thread.join().await;
+
+		let _ = self.threads.lock().try_remove(handle as usize);
+
+		Ok(res)
+	}
+
 	async fn yield_now(&self, handle: isize) -> Result<(), Error> {
 		unsupported_other_thread(handle)?;
 
