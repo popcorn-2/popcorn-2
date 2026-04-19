@@ -40,6 +40,8 @@ enum Thread {
 		startup: oneshot::Sender<(VirtualAddress, VirtualAddress)>,
 		handle_nums: BTreeMap<Box<str>, u32>,
 		entry: VirtualAddress,
+		env_vars: Vec<Box<str>>,
+		args: Vec<Box<str>>,
 	},
 	Running(Arc<ThreadMeta>),
 }
@@ -260,7 +262,9 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 			meta,
 			startup,
 			mut handle_nums,
-			entry
+			env_vars,
+			args,
+			entry,
 		} = (unsafe { ptr::read(thread) }) else { unsafe { unreachable_unchecked(); } };
 		
 		// fixme: hacky
@@ -280,7 +284,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 					.virtual_location(RawPage::new(0x40000000))
 					.map_in::<Stack>(format!("[stack:{main_thread_handle}]").into(), &meta.address_space)?;
 
-			crate::loader::set_up_stack(&mut stack, [], [], handle_nums)
+			crate::loader::set_up_stack(&mut stack, args, env_vars, handle_nums)
 		};
 
 		unsafe {
@@ -323,6 +327,30 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 		
 		handle_nums.insert(name, num);
 		
+		Ok(())
+	}
+
+	async fn add_env_var(&self, handle: isize, val: &str) -> Result<(), Error> {
+		let mut guard = self.threads.lock();
+		debug!("add env_var to {handle:#x} ({:#x?})", guard.get_mut(handle as usize));
+		let Some(Thread::Building { env_vars, .. }) = guard.get_mut(handle as usize) else {
+			return Err(Error::UnsupportedProtocol);
+		};
+
+		env_vars.push(Box::from(val));
+
+		Ok(())
+	}
+
+	async fn add_arg(&self, handle: isize, val: &str) -> Result<(), Error> {
+		let mut guard = self.threads.lock();
+		debug!("add arg to {handle:#x} ({:#x?})", guard.get_mut(handle as usize));
+		let Some(Thread::Building { args, .. }) = guard.get_mut(handle as usize) else {
+			return Err(Error::UnsupportedProtocol);
+		};
+
+		args.push(Box::from(val));
+
 		Ok(())
 	}
 
@@ -519,6 +547,8 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 				startup: send_startup,
 				handle_nums: BTreeMap::new(),
 				entry: VirtualAddress::new(header.entry_point()),
+				env_vars: vec![],
+				args: vec![],
 			});
 
 			tid
