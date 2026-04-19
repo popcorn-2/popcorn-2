@@ -43,6 +43,7 @@ use core::num::NonZero;
 use core::ops::Range;
 use core::ptr;
 use core::sync::atomic::Ordering;
+use futures::task::AtomicWaker;
 use scheduler::Scheduler;
 use kernel_api::address_space::AddressSpace;
 use kernel_api::allocator::{highmem, AllocError};
@@ -152,6 +153,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 		address_space,
 		handles: HandleMap::new(),
 		async_map: Arc::new(AsyncMap::new()),
+		join_waiter: AtomicWaker::new(),
 	};
 
 	let tcb = ThreadControlBlock {
@@ -248,6 +250,7 @@ pub fn spawn(name: Arc<str>, address_space: AddressSpace, thread_id: ThreadId, h
 		address_space,
 		handles,
 		async_map,
+		join_waiter: AtomicWaker::new(),
 	};
 
 	extern "C" fn main(ptr: usize) -> ! {
@@ -272,10 +275,14 @@ pub fn spawn(name: Arc<str>, address_space: AddressSpace, thread_id: ThreadId, h
 	Ok(meta)
 }
 
-struct TerminateThread(i8);
+struct TerminateThread(isize);
 
-pub fn exit(exit_code: i8) -> ! {
-	debug!("Exit thread with code {exit_code}");
+pub fn exit(exit_code: isize) -> ! {
+	if exit_code != 0 {
+		warn!("Exit thread with code {exit_code}");
+	} else {
+		debug!("Exit thread with code {exit_code}");
+	}
 
 	// todo: do we need to store the exit code in the panic?
 	crate::panicking::do_panic_with(Box::new(TerminateThread(exit_code)));
@@ -288,9 +295,18 @@ pub fn exit(exit_code: i8) -> ! {
 pub fn exit_trampoline<R, F: FnOnce() -> R + core::panic::UnwindSafe>(f: F) -> R {
 	crate::panicking::catch_unwind(f).unwrap_or_else(|e| {
 		if let Some(TerminateThread(exit_code)) = e.downcast_ref() {
-			debug!("Unwound thread for exit code {exit_code}");
-			percpu_v2!(current_thread).read().as_ref().expect("cannot exit from idle thread")
-			                          .state.store(ThreadState::Killed(*exit_code), Ordering::SeqCst);
+			if *exit_code != 0 {
+				info!("Unwound thread for exit code {exit_code}");
+			} else {
+				debug!("Unwound thread for exit code {exit_code}");
+			}
+
+			{
+				let guard = percpu_v2!(current_thread).read();
+				let guard = guard.as_ref().expect("cannot exit from idle thread");
+				guard.state.store(ThreadState::Killed(*exit_code), Ordering::SeqCst);
+				guard.join_waiter.wake();
+			}
 			yield_now();
 
 			unreachable!("Failed to exit thread");
