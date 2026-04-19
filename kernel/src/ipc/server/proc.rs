@@ -374,7 +374,6 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 		).await?;
 
 		debug!("read {res} bytes from ELF file");
-		if (res as usize) < size_of::<FileHeaderRaw>() { return Err(Error::EoF); }
 		let header = <&FileHeader>::try_from(unsafe { raw_header.assume_init_ref() });
 		debug!("elf header: {header:#?}");
 		let header: &FileHeader = header.map_err(|e| {
@@ -401,6 +400,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 			debug!("not elf v1");
 			return Err(Error::InvalidArg);
 		}
+			if (res as usize) < size_of::<FileHeaderRaw>() { return Err(Error::EndOfData); }
 
 		let Range {
 			start: mut program_header_start,
@@ -455,9 +455,9 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 									]
 								)
 							)?;
-							if (res as usize) < size_of::<ProgramHeaderEntry64>() { Err(Error::EoF)?; }
 							let segment = unsafe { raw.assume_init() };
 							info!("found header {segment:#?}");
+				if (res as usize) < size_of::<ProgramHeaderEntry64>() { Err(Error::EndOfData)?; }
 
 							program_header_start += size_of::<ProgramHeaderEntry64>();
 
@@ -514,7 +514,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 										e @ Err(Error::InvalidArg | Error::InvalidHandle | Error::InvalidPointer) => e.expect("args should be valid"),
 										Err(e) => Err(e)?,
 									};
-									if (res as u64) < segment.file_size { Err(Error::EoF)?; }
+						if (res as u64) < segment.file_size { Err(Error::EndOfData)?; }
 
 									let mut mapping = address_space.get(mapping_key).expect("mapping should still exist");
 									let zero_start = unsafe {
