@@ -839,10 +839,34 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 			let (_, mut stack) = config.map_in::<Stack>("[stack:3]".into(), address_space)
 					.expect("failed to allocate stack");
 
+			let mut env_vars = vec![
+				"LANG=en_GB.UTF-8".to_owned(),
+				"MLIBC_DEBUG_MALLOC=0".to_owned(),
+			];
+
+			{
+				let (num, denom) = timing::tsc_to_nanos();
+				env_vars.extend([
+					format!("POPCORN_TSC_NUM={num}"),
+					format!("POPCORN_TSC_DENOM={denom}"),
+				]);
+			}
+
+			if let Some(fb) = fb {
+				env_vars.extend(
+					[
+						format!("POPCORN_FRAMEBUFFER_ADDR={:x}", fb.physical_address),
+						format!("POPCORN_FRAMEBUFFER_WIDTH={}", fb.width),
+						format!("POPCORN_FRAMEBUFFER_STRIDE={}", fb.stride),
+						format!("POPCORN_FRAMEBUFFER_HEIGHT={}", fb.height),
+					]
+				);
+			}
+
 			let stack_top = loader::set_up_stack(
 				&mut stack,
 				["init", "hello", "world"],
-				["LANG=en_GB.UTF-8", "MLIBC_DEBUG_MALLOC=0"],
+				env_vars,
 				HashMap::<&'static str, u32>::from([
 					("io.stdin", 0),
 					("io.stdout", 1),

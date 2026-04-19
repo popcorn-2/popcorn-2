@@ -69,7 +69,7 @@ impl protocol::generated::core::mem::Pager for MemServer {
 	async fn get_pages(&self, handle: isize, offset: usize, len: usize) -> Result<*const u8, Error> {
 		let guard = self.allocations.lock();
 		let frames = guard.get(handle as usize).ok_or(Error::InvalidHandle)?;
-		if len + offset > frames.count() * PAGE_SIZE { return Err(Error::EoF); }
+		if len + offset > frames.count() * PAGE_SIZE { return Err(Error::EndOfData); }
 		Ok(core::ptr::without_provenance(frames.base().addr + offset))
 	}
 }
