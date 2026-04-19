@@ -213,7 +213,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// add_env_var
 		(
-			<dyn generated::CoreProcBuilder>::UID | 3 << 96,
+			<dyn generated::core::proc::Builder>::UID | 3 << 96,
 			meta::Meta::Method(
 				[meta::Arg::MemoryInPtr { len_arg: non_zero!(2) }, meta::Arg::Primitive, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::None,
@@ -222,7 +222,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// add_arg
 		(
-			<dyn generated::CoreProcBuilder>::UID | 4 << 96,
+			<dyn generated::core::proc::Builder>::UID | 4 << 96,
 			meta::Meta::Method(
 				[meta::Arg::MemoryInPtr { len_arg: non_zero!(2) }, meta::Arg::Primitive, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::None,
