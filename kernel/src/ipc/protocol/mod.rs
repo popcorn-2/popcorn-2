@@ -84,7 +84,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// exit
 		(
-			<dyn generated::CoreProcThread>::UID | 7 << 96,
+			<dyn generated::core::proc::Thread>::UID | 7 << 96,
 			meta::Meta::Method(
 				[meta::Arg::Primitive, meta::Arg::None, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::None,
@@ -93,7 +93,7 @@ pub static PROTOCOL_REGISTRY: LazyLock<RwSpinlock<HashMap<u128, meta::Meta>>> = 
 		),
 		// join
 		(
-			<dyn generated::CoreProcThread>::UID | 8 << 96,
+			<dyn generated::core::proc::Thread>::UID | 8 << 96,
 			meta::Meta::Method(
 				[meta::Arg::None, meta::Arg::None, meta::Arg::None, meta::Arg::None],
 				meta::ReturnArg::Primitive,
