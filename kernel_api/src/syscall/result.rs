@@ -43,7 +43,7 @@ define_error! {
 		InvalidArg = 13,
 		AsyncUnsupported = 14,
 		FutureCompat = 15,
-		EoF = 16,
+		EndOfData = 16,
 		ProtocolOverlap = 17,
 	}
 }
