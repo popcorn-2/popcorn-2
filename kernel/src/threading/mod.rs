@@ -272,10 +272,14 @@ pub fn spawn(name: Arc<str>, address_space: AddressSpace, thread_id: ThreadId, h
 	Ok(meta)
 }
 
-struct TerminateThread(i8);
+struct TerminateThread(isize);
 
-pub fn exit(exit_code: i8) -> ! {
-	debug!("Exit thread with code {exit_code}");
+pub fn exit(exit_code: isize) -> ! {
+	if exit_code != 0 {
+		warn!("Exit thread with code {exit_code}");
+	} else {
+		debug!("Exit thread with code {exit_code}");
+	}
 
 	// todo: do we need to store the exit code in the panic?
 	crate::panicking::do_panic_with(Box::new(TerminateThread(exit_code)));

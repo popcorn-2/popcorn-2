@@ -1,20 +1,20 @@
 use core::fmt::{Debug, Formatter};
 use core::ptr::addr_of;
-use core::sync::atomic::{Ordering, AtomicU16};
+use core::sync::atomic::{Ordering, AtomicU128};
 
-fn into_raw(state: ThreadState) -> u16 {
-	let tag = unsafe { *addr_of!(state).cast::<u8>() } as u16;
+fn into_raw(state: ThreadState) -> u128 {
+	let tag = unsafe { *addr_of!(state).cast::<u8>() } as u128;
 
 	match state {
 		ThreadState::Killed(exit_code) => {
-			let upper = exit_code as u16;
-			(upper << 8) | tag
+			let upper = exit_code as u128;
+			(upper << 64) | tag
 		}
 		_ => tag,
 	}
 }
 
-fn from_raw(raw: u16) -> ThreadState {
+fn from_raw(raw: u128) -> ThreadState {
 	let tag = raw as u8;
 
 	match tag {
@@ -22,16 +22,16 @@ fn from_raw(raw: u16) -> ThreadState {
 		1 => ThreadState::Running,
 		2 => ThreadState::Parked,
 		3 => ThreadState::NearlyParked,
-		4 => ThreadState::Killed((raw >> 8) as i8),
+		4 => ThreadState::Killed((raw >> 64) as isize),
 		_ => unreachable!("invalid thread state"),
 	}
 }
 
-pub struct AtomicThreadState(AtomicU16);
+pub struct AtomicThreadState(AtomicU128);
 
 impl AtomicThreadState {
 	pub fn new(state: ThreadState) -> Self {
-		AtomicThreadState(AtomicU16::new(into_raw(state)))
+		AtomicThreadState(AtomicU128::new(into_raw(state)))
 	}
 
 	pub fn store(&self, state: ThreadState, ordering: Ordering) {
@@ -88,5 +88,5 @@ pub enum ThreadState {
 	Parked = 2,
 	/// The thread is in the process of being parked
 	NearlyParked = 3,
-	Killed(i8) = 4,
+	Killed(isize) = 4,
 }
