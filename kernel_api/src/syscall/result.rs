@@ -43,8 +43,7 @@ define_error! {
 		InvalidArg = 13,
 		AsyncUnsupported = 14,
 		FutureCompat = 15,
-		// Object is not long enough for passed arguments
-		EndOfData = 16,
+		EoF = 16,
 		ProtocolOverlap = 17,
 	}
 }
