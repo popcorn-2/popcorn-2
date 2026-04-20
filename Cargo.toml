@@ -10,7 +10,6 @@ members = [
 	"kernel",
 	"bootloader",
 	"utils",
-	"psf",
 	"targa",
 	"ranged_btree",
 	"kernel_module_macros",
@@ -26,7 +25,7 @@ members = [
 ]
 
 [profile.release]
-lto = "off"
+lto = "thin"
 debug = "full"
 
 [profile.dev.package.kernel_api]
