@@ -1,7 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 
 #![deny(unsafe_code)]
-#![deny(warnings)]
 
 use core::debug_assert_matches;
 use core::num::NonZero;
@@ -10,9 +9,8 @@ use kernel_api::memory::{RawFrame, Frames, PAGE_SIZE};
 use kernel_api::sync::Spinlock;
 use log::{debug, trace};
 use kernel_api::allocator::{highmem, Pmm, AllocError};
-use kernel_api::dbg;
 
-const BITS_PER_BITMAP_UNIT: usize = size_of::<usize>() * 8;
+const BITS_PER_BITMAP_UNIT: usize = usize::BITS as usize;
 
 macro_rules! alloc_err {
     ($reason:literal) => {
@@ -72,7 +70,6 @@ impl BitmapAllocator {
         let bitmap_length = frame_count.div_ceil(
             const { NonZero::new(8 * PAGE_SIZE).unwrap() }
         );
-	    let _ = dbg!(first_frame, frame_count, bitmap_length);
         let bitmap = highmem().allocate(bitmap_length)?;
         let bitmap = bitmap.cast::<usize>().into_filed(0);
 
@@ -261,11 +258,16 @@ unsafe impl Pmm<true> for Wrapped {
 }
 
 impl Wrapped {
+    /// # Safety
+    ///
+    /// The intersection of frames in `allocation_range` and `regions` must be uniquely owned by
+    /// this allocator.
+    /// All frames in the intersection of `allocation_range` and `regions` must be standard memory
+    /// and not aliased by any hardware, such as memory for MMIO registers is.
 	#[allow(unsafe_code)]
     pub unsafe fn new(allocation_range: Range<RawFrame>, regions: impl Iterator<Item = Range<RawFrame>>) -> Result<&'static Self, AllocError> {
-        let Range { start, end } = dbg!(allocation_range);
+        let Range { start, end } = allocation_range;
         let mut allocator = BitmapAllocator::new(start,  NonZero::new(end - start).unwrap())?;
-		let _ = dbg!(allocator.first_frame, allocator.last_frame());
 
         for free_region in regions {
             for frame in free_region {
