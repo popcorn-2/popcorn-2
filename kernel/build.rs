@@ -17,12 +17,12 @@ fn main() -> io::Result<()> {
 	let mut buf = String::from("pub mod core {\nuse super::{std, popcorn_server, StrExt};");
 
 	for name in PIP_SOURCES {
-		let f = src_dir.join(name);
+		let file = src_dir.join(name);
 
-		pipc::process_file(&f, pipc::OutputFormat::Rust, pipc::OutputTy::Server, &out_dir)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+		pipc::process_file(&file, pipc::OutputFormat::Rust, pipc::OutputTy::Server, &out_dir)
+                .map_err(std::io::Error::other)?;
 
-		let _ = writeln!(&mut buf, "pub mod {name} {{ use super::{{std, popcorn_server, StrExt}}; include!(\"{}/{name}.rs\"); }}", out_dir.display(), name = f.file_stem().unwrap().display());
+		let _ = writeln!(&mut buf, "pub mod {name} {{ use super::{{std, popcorn_server, StrExt}}; include!(\"{}/{name}.rs\"); }}", out_dir.display(), name = file.file_stem().unwrap().display());
 	}
 
 	buf += "}\n";
