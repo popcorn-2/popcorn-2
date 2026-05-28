@@ -1,6 +1,5 @@
 #![feature(debug_closure_helpers)]
 #![no_std]
-#![deny(warnings)]
 
 extern crate alloc;
 

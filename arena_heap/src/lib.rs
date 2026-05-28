@@ -5,6 +5,7 @@
 //! If there are no suitable holes, then an arena will attempt to increase in size, or a new
 //! arena will be allocated.
 #![no_std]
+#![forbid(unsafe_op_in_unsafe_fn)]
 
 #![feature(allocator_api)]
 #![feature(pointer_is_aligned_to)]

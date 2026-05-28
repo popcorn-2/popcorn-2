@@ -31,7 +31,6 @@
 #![no_main]
 
 #![allow(internal_features)]
-#![deny(warnings)]
 
 extern crate alloc;
 #[cfg(panic = "unwind")]

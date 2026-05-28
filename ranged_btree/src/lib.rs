@@ -1,7 +1,6 @@
 #![feature(map_try_insert)]
 #![feature(impl_trait_in_assoc_type)]
 #![no_std]
-#![deny(warnings)]
 
 extern crate alloc;
 

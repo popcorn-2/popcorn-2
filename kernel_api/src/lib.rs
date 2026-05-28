@@ -28,7 +28,6 @@
 #![cfg_attr(feature = "full", feature(negative_impls))]
 #![cfg_attr(feature = "full", feature(decl_macro))]
 
-//#![deny(warnings)]
 #![deny(unfulfilled_lint_expectations)]
 #![warn(missing_docs)]
 //#![deny(rustdoc::broken_intra_doc_links)]
