@@ -22,6 +22,7 @@ jobs:
           path: 'kernel'
       - name: 'Install tooling'
         uses: ./kernel/.github/actions/install-tooling
+      - uses: r7kamura/rust-problem-matchers@v1
       - name: 'Build kernel'
         run: ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ build @core/kernel
   clippy-kernel:
@@ -34,6 +35,7 @@ jobs:
           path: 'kernel'
       - name: 'Install tooling'
         uses: ./kernel/.github/actions/install-tooling
+      - uses: r7kamura/rust-problem-matchers@v1
       - name: 'Run clippy on kernel'
         run: ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ run @core/kernel cargo clippy
   # test:
