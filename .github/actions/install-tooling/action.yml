@@ -1,4 +1,5 @@
 name: 'Install tooling'
+description: 'Install tooling for clang, lld, rustc, cargo, rustfmt, rustdoc, and clippy'
 runs:
   using: "composite"
   steps:
@@ -15,4 +16,5 @@ runs:
         key: ${{ runner.os }}-tools-${{ hashFiles('xbstrap/packages.yml', 'xbstrap/packages/**.yml') }}
     - name: 'Install tools'
       if: steps.cache-tooling.outputs.cache-hit != 'true'
+      shell: bash
       run: ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --as-build-dep install @dev/llvm:clang,lld @dev/rustc:cargo,rustdoc,clippy,src,rustfmt
