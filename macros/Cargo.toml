@@ -10,3 +10,6 @@ proc-macro = true
 
 [dependencies]
 syn = "2.0.27"
+
+[lints]
+workspace = true

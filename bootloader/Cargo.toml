@@ -20,3 +20,6 @@ kernel_api = { version = "1.1.0", path = "../kernel_api", default-features = fal
 
 [features]
 kasan = [] # causes the bootloader to allocate memory for the kasan shadow map
+
+[lints]
+workspace = true

@@ -45,3 +45,6 @@ junit_test_out = []
 preemptive = []
 "log.scheduler" = []
 kasan = [ "unwinding/kasan", "kernel_api/kasan", "ranged_btree_allocator/kasan", "arena_heap/kasan" ]
+
+[lints]
+workspace = true

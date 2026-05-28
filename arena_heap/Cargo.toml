@@ -16,3 +16,6 @@ checksum = []
 reuse-backtrace = ["generations"]
 generations = []
 kasan = ["generations"]
+
+[lints]
+workspace = true

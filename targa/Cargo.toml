@@ -13,3 +13,6 @@ log = { version = "0.4.18", optional = true }
 alloc = []
 logging = ["dep:log"]
 default = ["alloc"]
+
+[lints]
+workspace = true

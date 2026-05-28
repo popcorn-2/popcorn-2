@@ -16,3 +16,6 @@ syn = { version = "2.0.18", features = ["full"] }
 [features]
 test = []
 default = []
+
+[lints]
+workspace = true

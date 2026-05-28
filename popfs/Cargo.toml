@@ -13,3 +13,6 @@ path = "src/uefi.rs"
 uefi = { version = "0.24.0", default-features = false, features = ["alloc"] }
 uefi-services = { version = "0.21.0", default-features = false }
 uefi-raw = { version = "0.3.0" }
+
+[lints]
+workspace = true

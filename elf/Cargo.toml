@@ -12,3 +12,6 @@ kernel_api = { path = "../kernel_api", default-features = false }
 [features]
 testing = []
 default = []
+
+[lints]
+workspace = true
