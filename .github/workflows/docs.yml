@@ -26,14 +26,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
+      - name: 'Check out'
+        uses: actions/checkout@v6
+        with:
+          submodules: 'recursive'
+          path: 'kernel'
+      - name: 'Install tooling'
+        uses: ./kernel/.github/actions/install-tooling
+      - uses: r7kamura/rust-problem-matchers@v1
       - name: Build docs
         run: |
-          cargo rustdoc -p kernel_api --target x86_64-unknown-popcorn.json -Zbuild-std=core,alloc -- --document-private-items
-          cargo rustdoc -p kernel --target x86_64-unknown-popcorn.json -Zbuild-std=core,alloc -- --document-private-items
+          ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ run @core/kernel cargo rustdoc -p kernel_api -- --document-private-items
           echo "" > target/x86_64-unknown-popcorn/doc/index.html
       - name: Fix permissions
         run: |
