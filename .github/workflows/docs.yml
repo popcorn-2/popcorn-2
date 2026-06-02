@@ -35,18 +35,21 @@ jobs:
         uses: ./kernel/.github/actions/install-tooling
       - uses: r7kamura/rust-problem-matchers@v1
       - name: Build docs
+        id: doc-build
         run: |
+          echo "BUILD_DIR=$(./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ info --build-dir)" >> $GITHUB_OUTPUT
           ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ run @core/kernel cargo doc -p kernel_api --no-deps --document-private-items
-          echo "" > target/x86_64-unknown-popcorn/doc/index.html
+      - name: Generate index page
+        run: echo "<head><meta http-equiv='refresh' content='0; URL=/kernel_api/index.html'></head>" > ${{ steps.doc-build.outputs.BUILD_DIR }}/target/x86_64-unknown-popcorn/doc/index.html
       - name: Fix permissions
         run: |
-          chmod -c -R +rX "target/x86_64-unknown-popcorn/doc/" | while read line; do
+          chmod -c -R +rX "${{ steps.doc-build.outputs.BUILD_DIR }}/target/x86_64-unknown-popcorn/doc/" | while read line; do
             echo "::warning title=Invalid file permissions automatically fixed::$line"
           done
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'target/x86_64-unknown-popcorn/doc'
+          path: '${{ steps.doc-build.outputs.BUILD_DIR }}/target/x86_64-unknown-popcorn/doc'
           
   deploy:
     environment:
