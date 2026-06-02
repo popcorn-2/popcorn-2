@@ -36,7 +36,7 @@ jobs:
       - uses: r7kamura/rust-problem-matchers@v1
       - name: Build docs
         run: |
-          ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ run @core/kernel cargo rustdoc -p kernel_api -- --document-private-items
+          ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ run @core/kernel cargo rustdoc -p kernel_api --no-deps -- --document-private-items
           echo "" > target/x86_64-unknown-popcorn/doc/index.html
       - name: Fix permissions
         run: |
