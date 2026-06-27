@@ -38,7 +38,9 @@
 #![warn(rustdoc::invalid_rust_codeblocks)]
 #![warn(rustdoc::bare_urls)]
 
-#![allow(type_alias_bounds)]
+#![expect(unstable_name_collisions, reason = "custom truncate extension causes issues")]
+
+#![expect(internal_features, reason = "prelude import")]
 
 #![cfg_attr(not(feature = "use_std"), no_std)]
 
@@ -82,6 +84,19 @@ pub mod channel;
 
 #[cfg(feature = "full")]
 pub mod modules;
+
+pub mod int_extension;
+
+pub mod prelude;
+
+mod prelude_import {
+	#![expect(clippy::allow_attributes, reason = "unknown if all prelude will be used or not")]
+
+	// The compiler expects the prelude definition to be defined before it's use statement
+	#[prelude_import]
+	#[allow(unused_imports, reason = "prelude import")]
+	pub use crate::prelude::*;
+}
 
 mod sealed {
     pub trait Sealed {}
