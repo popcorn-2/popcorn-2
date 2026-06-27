@@ -1,5 +1,12 @@
 disallowed-macros = [
-	{ path = "kernel_api::dbg", reason = "The dbg! macro is intended as a debugging tool. It should not be present in released software or committed to a version control system." }
+	{ path = "kernel_api::dbg", reason = "The `dbg!` macro is intended as a debugging tool. It should not be present in released software or committed to a version control system." },
+	{ path = "core::ptr::addr_of", reason = "The `addr_of!` macro is soft deprecated" },
+	{ path = "core::ptr::addr_of_mut", reason = "The `addr_of_mut!` macro is soft deprecated" },
+]
+disallowed-types = [
+	#{ path = "usize", replacement = "kernel_api::primitive::usize", reason = "not specific enough" },
 ]
 allow-expect-in-tests = true
 allowed-idents-below-min-chars = ["..", "f"]
+semicolon-outside-block-ignore-multiline = true
+check-private-items = true
