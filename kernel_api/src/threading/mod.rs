@@ -1,4 +1,4 @@
-//! Provides an interface to the scheduler and threading subsystem
+//! Provides an interface to the scheduler and threading subsystem.
 
 mod meta;
 mod state;
@@ -7,7 +7,7 @@ use core::borrow::Borrow;
 pub use meta::*;
 pub use state::*;
 
-/// The numerical ID of a thread
+/// The numerical ID of a thread.
 /// 
 /// This is the same as the internal handle number by the `proc` server for
 /// this thread.
@@ -21,8 +21,12 @@ pub struct ThreadId {
 }
 
 impl ThreadId {
+	/// Create a new `ThreadId`.
+	#[must_use]
 	pub const fn new(id: isize) -> Self { Self { id } }
 
+	/// Get the internal value of the `ThreadId`.
+	#[must_use]
 	pub const fn get(self) -> isize { self.id }
 }
 

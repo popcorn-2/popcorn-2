@@ -1,13 +1,20 @@
 use core::arch::asm;
-use core::hint::unreachable_unchecked;
 use core::mem::MaybeUninit;
 
 macro_rules! gen_checked {
     (@read $name:ident $ty:ty => $reg_constraint:tt $reg_modifier:tt) => {
 		#[inline]
-		pub fn $name (ptr: *const MaybeUninit<$ty>) -> Option<MaybeUninit<$ty>> {
-			let r: MaybeUninit<_>;
+		pub fn $name (ptr: *const $ty) -> Option<$ty> {
+			let ret: MaybeUninit<_>;
 			let success: usize;
+			// SAFETY:
+			// - only register modifications are with `mov {}, X` using compiler allocated registers
+			// - no external functions called so no unwinding can occur
+			// - only memory pointed to by `ptr` is read
+			// - no memory writes occur
+			// - no use of stack so `options(nostack)` is sound
+			// - x87 state not touched
+			// - FLAGS state is not modified
 			unsafe {
 				if crate::detect::__detected::smap() {
 					asm!(
@@ -22,7 +29,7 @@ macro_rules! gen_checked {
 						".popsection",
 						"3: ",
 						"clac",
-						inout($reg_constraint) MaybeUninit::<$ty>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
+						inout($reg_constraint) MaybeUninit::<$ty>::uninit() => ret, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
 						in(reg) ptr,
 						inout(reg) 0usize => success,
 						options(nostack, preserves_flags, readonly)
@@ -38,7 +45,7 @@ macro_rules! gen_checked {
 						".quad 3f",
 						".popsection",
 						"3: ",
-						inout($reg_constraint) MaybeUninit::<$ty>::uninit() => r, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
+						inout($reg_constraint) MaybeUninit::<$ty>::uninit() => ret, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
 						in(reg) ptr,
 						inout(reg) 0usize => success,
 						options(nostack, preserves_flags, readonly)
@@ -48,15 +55,22 @@ macro_rules! gen_checked {
 		
 			match success {
 				0 => None,
-				1 => Some(r),
-				_ => unsafe { unreachable_unchecked() }
+				// SAFETY: if inline asm returns non-zero success, then `ret` has been initialized by the asm
+				_ => Some(unsafe { ret.assume_init() }),
 			}
 		}
     };
 	(@write $name:ident $ty:ty => $reg_constraint:tt $reg_modifier:tt) => {
 		#[inline]
-		pub fn $name(ptr: *mut MaybeUninit<$ty>, val: MaybeUninit<$ty>) -> Option<()> {
+		pub fn $name(ptr: *mut $ty, val: $ty) -> Option<()> {
 			let success: usize;
+			// SAFETY:
+			// - only register modified is with `mov {}, 1` using the compiler allocated register
+			// - no external functions called so no unwinding can occur
+			// - only memory pointed to by `ptr` is modified
+			// - no use of stack so `options(nostack)` is sound
+			// - x87 state not touched
+			// - FLAGS state is not modified
 			unsafe {
 				if crate::detect::__detected::smap() {
 					asm!(
@@ -75,7 +89,7 @@ macro_rules! gen_checked {
 						in(reg) ptr,
 						in($reg_constraint) val,
 						inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-						options(nostack, preserves_flags, readonly)
+						options(nostack, preserves_flags)
 					);
 				} else {
 					asm!(
@@ -92,15 +106,14 @@ macro_rules! gen_checked {
 						in(reg) ptr,
 						in($reg_constraint) val,
 						inout(reg) 0usize => success, // we need to use `inout` here to ensure the initial value is what we want if the `mov` is never reached
-						options(nostack, preserves_flags, readonly)
+						options(nostack, preserves_flags)
 					);
 				}
 			}
 		
 			match success {
 				0 => None,
-				1 => Some(()),
-				_ => unsafe { unreachable_unchecked() }
+				_ => Some(()),
 			}
 		}	
 	};
@@ -116,8 +129,16 @@ gen_checked!(@write checked_write_4 u32 => reg ":e");
 #[cfg(target_arch = "x86_64")] gen_checked!(@write checked_write_8 u64 => reg ":r");
 
 #[inline]
-pub fn checked_memcpy(src: *const MaybeUninit<u8>, dest: *mut MaybeUninit<u8>, count: usize) -> Option<()> {
+pub fn checked_memcpy(src: *const u8, dest: *mut u8, count: usize) -> Option<()> {
 	let success: usize;
+	// SAFETY:
+	// - only register modified is with `mov {}, 1` using the compiler allocated register
+	// - no external functions called so no unwinding can occur
+	// - only memory pointed to by `dest` is modified
+	// - only memory pointed to by `src` is read
+	// - no use of stack so `options(nostack)` is sound
+	// - DF not modified by asm
+	// - x87 state not touched
 	unsafe {
 		if crate::detect::__detected::smap() {
 			asm!(
@@ -162,15 +183,21 @@ pub fn checked_memcpy(src: *const MaybeUninit<u8>, dest: *mut MaybeUninit<u8>, c
 
 	match success {
 		0 => None,
-		1 => Some(()),
-		_ => unsafe { unreachable_unchecked() }
+		_ => Some(()),
 	}
 }
 
 
 #[inline]
-pub fn checked_fill(val: MaybeUninit<u8>, dest: *mut MaybeUninit<u8>, count: usize) -> Option<()> {
+pub fn checked_fill(val: u8, dest: *mut u8, count: usize) -> Option<()> {
 	let success: usize;
+	// SAFETY:
+	// - only register modified is with `mov {}, 1` using the compiler allocated register
+	// - no external functions called so no unwinding can occur
+	// - only memory pointed to by `dest` is modified
+	// - no use of stack so `options(nostack)` is sound
+	// - DF not modified by asm
+	// - x87 state not touched
 	unsafe {
 		if crate::detect::__detected::smap() {
 			asm!(
@@ -215,7 +242,6 @@ pub fn checked_fill(val: MaybeUninit<u8>, dest: *mut MaybeUninit<u8>, count: usi
 
 	match success {
 		0 => None,
-		1 => Some(()),
-		_ => unsafe { unreachable_unchecked() }
+		_ => Some(()),
 	}
 }

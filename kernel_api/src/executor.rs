@@ -1,7 +1,7 @@
-use alloc::boxed::Box;
+//! Provides functions for interacting with the kernel's async executor.
+
 use alloc::sync::Arc;
 use alloc::task::Wake;
-use core::mem::MaybeUninit;
 use core::pin::pin;
 use core::sync::atomic::Ordering;
 use core::task::{Context, Poll, Waker};
@@ -20,20 +20,17 @@ impl Wake for ThreadMeta {
 	}
 }
 
-/// Blocks the current thread until the future is ready, parking the thread where possible
+/// Blocks the current thread until the future is ready, parking the thread where possible.
 #[cfg(not(feature = "use_std"))]
 pub fn block_on<T, F: Future<Output = T>>(f: F) -> T {
 	let mut f = pin!(f);
 
-	let val = loop {
+	loop {
 		let waker = {
-			let mut meta = MaybeUninit::<Arc<ThreadMeta>>::uninit();
-			crate::bridge::threading::with_current_thread(meta.as_mut_ptr().cast(), |meta, ptr| {
-				let ptr = ptr.cast::<Arc<ThreadMeta>>();
+			let meta = crate::bridge::threading::with_current_thread(|meta| {
 				meta.state.store(ThreadState::NearlyParked, Ordering::SeqCst);
-				unsafe { ptr.write(Arc::clone(meta)) };
+				Arc::clone(meta)
 			});
-			let meta = unsafe { meta.assume_init() };
 			Waker::from(meta)
 		};
 
@@ -42,14 +39,12 @@ pub fn block_on<T, F: Future<Output = T>>(f: F) -> T {
 		match f.as_mut().poll(&mut ctx) {
 			Poll::Ready(val) => {
 				debug!("future ready!");
-				crate::bridge::threading::with_current_thread(core::ptr::null_mut(), |meta, _| {
+				crate::bridge::threading::with_current_thread(|meta,| {
 					let _ = meta.state
-					    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |val| {
-						    debug!("block_on replace state {val:?}");
-						    match val {
-							    ThreadState::Ready => Some(ThreadState::Running),
-							    ThreadState::Parked => Some(ThreadState::Running),
-							    ThreadState::NearlyParked => Some(ThreadState::Running),
+					    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
+						    debug!("block_on replace state {state:?}");
+						    match state {
+							    ThreadState::Ready | ThreadState::Parked | ThreadState::NearlyParked => Some(ThreadState::Running),
 							    _ => None,
 						    }
 					    });
@@ -62,15 +57,13 @@ pub fn block_on<T, F: Future<Output = T>>(f: F) -> T {
 				crate::bridge::executor::yield_from_async_block();
 			}
 		}
-	};
-
-	val
+	}
 }
 
-/// Spawns a future on the kernel's async executor
+/// Spawns a future on the kernel's async executor.
 ///
 /// The future will run to completion in the background in the context of the current thread.
-/// This means that any access via (`LocalUser`)[crate::ptr::LocalUser] will be to the current thread's
+/// This means that any access via (`LocalUser`)[`crate::ptr::LocalUser`] will be to the current thread's
 /// address space.
 /// This also means that there is no requirement for the future to be [`Send`] nor [`Sync`].
 pub fn spawn(f: impl Future<Output = ()> + 'static) {

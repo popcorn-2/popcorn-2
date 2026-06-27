@@ -1,4 +1,6 @@
-//! Provides system feature detection
+//! Provides runtime system feature detection.
+
+#![expect(clippy::allow_attributes, reason = "required attributes may depend on architecture specific implementation")]
 
 #[cfg(target_arch = "x86_64")]
 mod x86;
@@ -48,7 +50,7 @@ macro_rules! features_macro {
         }
 
         #[doc(hidden)]
-        #[allow(non_camel_case_types)]
+        #[allow(non_camel_case_types, reason = "feature names may not be camel case")]
         #[derive(Copy, Clone, Debug)]
         #[repr(u32)]
         #[cfg($cfg)]
@@ -85,12 +87,14 @@ macro_rules! features_macro {
 
 pub(crate) use features_macro;
 
-/// Returns an iterator over feature names and their support on the current system
+/// Returns an iterator over feature names and their support on the current system.
 pub fn features() -> impl Iterator<Item = (&'static str, bool)> {
-    (0_u32..Feature::_last as u32).map(|discriminant: u32| {
-        let f: Feature = unsafe { core::mem::transmute(discriminant) };
-        let name: &'static str = f.to_str();
-        let enabled: bool = cache::test(f);
+    (0u32..Feature::_last as u32).map(|discriminant: u32| {
+	    // SAFETY: `Feature` is `repr(u32)`, `discriminant` is within the valid range of discriminants
+	    // as it is less than `Feature::_last` and there are no gaps in discriminant values
+        let f: Feature = unsafe { core::mem::transmute::<u32, Feature>(discriminant) };
+        let name = f.to_str();
+        let enabled = cache::test(f);
         (name, enabled)
     })
 }

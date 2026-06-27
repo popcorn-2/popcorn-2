@@ -1,7 +1,6 @@
 use core::fmt::{Debug, Formatter};
 use core::ptr::NonNull;
 use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
-use kernel_api::ptr::Unique;
 
 #[repr(C)]
 pub struct Data {
@@ -31,7 +30,7 @@ impl Debug for Data {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Framebuffer {
-	pub buffer: Unique<u8>,
+	pub buffer: *mut u8,
 	pub stride: usize,
 	pub width: usize,
 	pub height: usize,

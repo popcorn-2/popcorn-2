@@ -1,217 +1,217 @@
 use core::ops::{Add, Sub};
 
-use super::{PAGE_SIZE, PhysicalAddress, RawFrame, RawPage, VirtualAddress};
+use super::{PAGE_SIZE, PAGE_SIZE_SIGNED, PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 
 impl const Add<usize> for VirtualAddress {
-    type Output = VirtualAddress;
+    type Output = Self;
 
     #[track_caller]
     fn add(self, rhs: usize) -> Self::Output {
-        VirtualAddress::new(self.addr + rhs)
+        Self::new(self.addr + rhs)
     }
 }
 
 impl const Add<usize> for PhysicalAddress {
-    type Output = PhysicalAddress;
+    type Output = Self;
 
     #[track_caller]
     fn add(self, rhs: usize) -> Self::Output {
-        PhysicalAddress::new(self.addr + rhs)
+        Self::new(self.addr + rhs)
     }
 }
 
-/// Offsets the [`RawPage`] by `rhs` pages
+/// Offsets the [`RawPage`] by `rhs` pages.
 impl const Add<usize> for RawPage {
-    type Output = RawPage;
+    type Output = Self;
 
     #[track_caller]
     fn add(self, rhs: usize) -> Self::Output {
-        RawPage {
+        Self {
             inner: self.inner + PAGE_SIZE*rhs
         }
     }
 }
 
-/// Offsets the [`RawPage`] by `rhs` pages
+/// Offsets the [`RawPage`] by `rhs` pages.
 impl const Add<isize> for RawPage {
-	type Output = RawPage;
+	type Output = Self;
 
 	#[track_caller]
 	fn add(self, rhs: isize) -> Self::Output {
-		RawPage {
-			inner: self.inner + (PAGE_SIZE as isize)*rhs
+		Self {
+			inner: self.inner + PAGE_SIZE_SIGNED*rhs
 		}
 	}
 }
 
-/// Offsets the [`RawFrame`] by `rhs` frames
+/// Offsets the [`RawFrame`] by `rhs` frames.
 impl const Add<usize> for RawFrame {
-    type Output = RawFrame;
+    type Output = Self;
 
     #[track_caller]
     fn add(self, rhs: usize) -> Self::Output {
-        RawFrame {
+        Self {
             inner: self.inner + PAGE_SIZE*rhs
         }
     }
 }
 
-/// Offsets the [`RawFrame`] by `rhs` frames
+/// Offsets the [`RawFrame`] by `rhs` frames.
 impl const Add<isize> for RawFrame {
-	type Output = RawFrame;
+	type Output = Self;
 
 	#[track_caller]
 	fn add(self, rhs: isize) -> Self::Output {
-		RawFrame {
-			inner: self.inner + (PAGE_SIZE as isize)*rhs
+		Self {
+			inner: self.inner + PAGE_SIZE_SIGNED*rhs
 		}
 	}
 }
 
-/// Offsets the [`RawPage`] by `rhs` pages
+/// Offsets the [`RawPage`] by `rhs` pages.
 impl const Sub<usize> for RawPage {
-    type Output = RawPage;
+    type Output = Self;
 
     #[track_caller]
     fn sub(self, rhs: usize) -> Self::Output {
-        RawPage {
+        Self {
             inner: self.inner - PAGE_SIZE*rhs
         }
     }
 }
 
-/// Offsets the [`RawFrame`] by `rhs` frames
+/// Offsets the [`RawFrame`] by `rhs` frames.
 impl const Sub<usize> for RawFrame {
-    type Output = RawFrame;
+    type Output = Self;
 
     #[track_caller]
     fn sub(self, rhs: usize) -> Self::Output {
-        RawFrame {
+        Self {
             inner: self.inner - PAGE_SIZE*rhs
         }
     }
 }
 
 impl const Add<isize> for VirtualAddress {
-    type Output = VirtualAddress;
+    type Output = Self;
 
     #[track_caller]
     fn add(self, rhs: isize) -> Self::Output {
         #[cfg(debug_assertions)]
-        return VirtualAddress::new(
+        return Self::new(
             self.addr.checked_add_signed(rhs)
                     .expect("attempt to add with overflow")
         );
 
         #[cfg(not(debug_assertions))]
-        return VirtualAddress::new(
+        return Self::new(
             self.addr.wrapping_add_signed(rhs)
         );
     }
 }
 
 impl const Add<isize> for PhysicalAddress {
-    type Output = PhysicalAddress;
+    type Output = Self;
 
     #[track_caller]
     fn add(self, rhs: isize) -> Self::Output {
         #[cfg(debug_assertions)]
-        return PhysicalAddress::new(
+        return Self::new(
             self.addr.checked_add_signed(rhs)
                       .expect("attempt to add with overflow")
         );
 
         #[cfg(not(debug_assertions))]
-        return PhysicalAddress::new(
+        return Self::new(
             self.addr.wrapping_add_signed(rhs)
         );
     }
 }
 
 impl const Sub<usize> for VirtualAddress {
-    type Output = VirtualAddress;
+    type Output = Self;
 
     fn sub(self, rhs: usize) -> Self::Output {
-        VirtualAddress::new(self.addr - rhs)
+        Self::new(self.addr - rhs)
     }
 }
 
 impl const Sub<usize> for PhysicalAddress {
-    type Output = PhysicalAddress;
+    type Output = Self;
 
     fn sub(self, rhs: usize) -> Self::Output {
-        PhysicalAddress::new(self.addr - rhs)
+        Self::new(self.addr - rhs)
     }
 }
 
 impl const Sub<isize> for VirtualAddress {
-    type Output = VirtualAddress;
+    type Output = Self;
 
     #[track_caller]
     fn sub(self, rhs: isize) -> Self::Output {
         #[cfg(debug_assertions)]
-        return VirtualAddress::new(
+        return Self::new(
             self.addr.checked_add_signed(-rhs)
                 .expect("attempt to add with overflow")
         );
 
         #[cfg(not(debug_assertions))]
-        return VirtualAddress::new(
+        return Self::new(
             self.addr.wrapping_add_signed(-rhs)
         );
     }
 }
 
 impl const Sub<isize> for PhysicalAddress {
-    type Output = PhysicalAddress;
+    type Output = Self;
 
     #[track_caller]
     fn sub(self, rhs: isize) -> Self::Output {
         #[cfg(debug_assertions)]
-        return PhysicalAddress::new(
+        return Self::new(
             self.addr.checked_add_signed(-rhs)
                 .expect("attempt to add with overflow")
         );
 
         #[cfg(not(debug_assertions))]
-        return PhysicalAddress::new(
+        return Self::new(
             self.addr.wrapping_add_signed(-rhs)
         );
     }
 }
 
-/// Returns the number of bytes between `self` and `rhs`
-impl const Sub<VirtualAddress> for VirtualAddress {
+/// Returns the number of bytes between `self` and `rhs`.
+impl const Sub<Self> for VirtualAddress {
     type Output = usize;
 
-    fn sub(self, rhs: VirtualAddress) -> Self::Output {
+    fn sub(self, rhs: Self) -> Self::Output {
         self.addr - rhs.addr
     }
 }
 
-/// Returns the number of bytes between `self` and `rhs`
-impl const Sub<PhysicalAddress> for PhysicalAddress {
+/// Returns the number of bytes between `self` and `rhs`.
+impl const Sub<Self> for PhysicalAddress {
     type Output = usize;
 
-    fn sub(self, rhs: PhysicalAddress) -> Self::Output {
+    fn sub(self, rhs: Self) -> Self::Output {
         self.addr - rhs.addr
     }
 }
 
-/// Returns the number of frames between `self` and `rhs`
-impl const Sub<RawFrame> for RawFrame {
+/// Returns the number of frames between `self` and `rhs`.
+impl const Sub<Self> for RawFrame {
     type Output = usize;
 
-    fn sub(self, rhs: RawFrame) -> Self::Output {
+    fn sub(self, rhs: Self) -> Self::Output {
         (self.addr - rhs.addr) / PAGE_SIZE
     }
 }
 
-/// Returns the number of pages between `self` and `rhs`
-impl const Sub<RawPage> for RawPage {
+/// Returns the number of pages between `self` and `rhs`.
+impl const Sub<Self> for RawPage {
     type Output = usize;
 
-    fn sub(self, rhs: RawPage) -> Self::Output {
+    fn sub(self, rhs: Self) -> Self::Output {
         (self.addr - rhs.addr) / PAGE_SIZE
     }
 }

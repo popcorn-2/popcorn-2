@@ -1,13 +1,13 @@
 use crate::ptr::{impls, LocalUser, PointerError};
 use core::fmt;
 use core::fmt::Formatter;
-use core::mem::MaybeUninit;
-use core::ptr::addr_of;
-use crate::address_space::AddressSpace;
-use crate::dbg;
+use crate::address_space;
 use crate::memory::VirtualAddress;
 
-/// A pointer to a potentially invalid address, tied to a specific address space
+/// A pointer to a potentially invalid address, tied to a specific address space.
+///
+/// If the address space is known to be the current address space, [`LocalUser<T>`](`super::LocalUser`)
+/// can be used instead, which reduces the overhead when reading and writing.
 ///
 /// While the pointer may safely point to an invalid or unaligned address, in the case that
 /// it points to a valid address and is read from, then it is unsound for the address to not
@@ -23,7 +23,7 @@ use crate::memory::VirtualAddress;
 #[derive(Clone, Copy)]
 pub struct User<'a, T> {
 	ptr: T,
-	address_space: Option<&'a AddressSpace>,
+	address_space: Option<&'a address_space::User>,
 }
 
 // SAFETY: All access goes through checked functions which ensure the pointer is valid
@@ -47,27 +47,28 @@ impl<T: fmt::Pointer> fmt::Debug for User<'_, T> {
 	}
 }
 
-/// Produces a null pointer
+/// Produces a null pointer.
 ///
-/// See [`null_mut()`] for more details
+/// See [`null_mut()`] for more details.
 impl<T: core::ptr::Thin + ?Sized> Default for User<'_, *mut T> {
 	fn default() -> Self {
 		null_mut()
 	}
 }
 
-/// Produces a null pointer
+/// Produces a null pointer.
 ///
-/// See [`null()`] for more details
+/// See [`null()`] for more details.
 impl<T: core::ptr::Thin + ?Sized> Default for User<'_, *const T> {
 	fn default() -> Self {
 		null()
 	}
 }
 
-/// Produces a null [`User<*mut T>`]
+/// Produces a null [`User<*mut T>`].
 ///
-/// This will always return an error when writing to
+/// This will always return an error when writing to.
+#[must_use]
 pub const fn null_mut<T: core::ptr::Thin + ?Sized>() -> User<'static, *mut T> {
 	User {
 		ptr: core::ptr::null_mut(),
@@ -75,9 +76,10 @@ pub const fn null_mut<T: core::ptr::Thin + ?Sized>() -> User<'static, *mut T> {
 	}
 }
 
-/// Produces a null [`User<*const T>`]
+/// Produces a null [`User<*const T>`].
 ///
-/// This will always return an error when reading from
+/// This will always return an error when reading from.
+#[must_use]
 pub const fn null<T: core::ptr::Thin + ?Sized>() -> User<'static, *const T> {
 	User {
 		ptr: core::ptr::null(),
@@ -91,7 +93,7 @@ impl<T: ?Sized> PartialEq for User<'_, *mut T> {
 	fn eq(&self, other: &Self) -> bool {
 		let ptr_eq = self.ptr == other.ptr;
 		let address_space_eq = self.address_space.is_some_and(
-			|this| other.address_space.is_some_and(|other| AddressSpace::ptr_eq(this, other))
+			|this| other.address_space.is_some_and(|other| address_space::User::ptr_eq(this, other))
 		);
 		ptr_eq && address_space_eq
 	}
@@ -103,7 +105,7 @@ impl<T: ?Sized> PartialEq for User<'_, *const T> {
 	fn eq(&self, other: &Self) -> bool {
 		let ptr_eq = self.ptr == other.ptr;
 		let address_space_eq = self.address_space.is_some_and(
-			|this| other.address_space.is_some_and(|other| AddressSpace::ptr_eq(this, other))
+			|this| other.address_space.is_some_and(|other| address_space::User::ptr_eq(this, other))
 		);
 		ptr_eq && address_space_eq
 	}
@@ -131,7 +133,7 @@ impl<T: ?Sized> Eq for User<'_, *const T> {}
 impl<T: ?Sized> Eq for User<'_, *mut T> {}
 
 impl<'a, T: ?Sized> User<'a, *const T> {
-	/// Creates a new `User<*const T>` with the provided address tied to the provided address space
+	/// Creates a new `User<*const T>` with the provided address tied to the provided address space.
 	///
 	/// # Safety
 	///
@@ -141,14 +143,15 @@ impl<'a, T: ?Sized> User<'a, *const T> {
 	///
 	/// For all types with no invalid bit-patterns (i.e. all numeric types) it is sound to create
 	/// a `User<*const T>`.
-	pub(crate) unsafe fn new(ptr: *const T, address_space: &'a AddressSpace) -> Self where T: Sized {
+	pub(crate) const unsafe fn new(ptr: *const T, address_space: &'a address_space::User) -> Self where T: Sized {
 		Self {
 			ptr,
 			address_space: Some(address_space),
 		}
 	}
 
-	/// Returns `true` if the pointer has either a null address or address space
+	/// Returns `true` if the pointer has either a null address or address space.
+	#[must_use]
 	pub const fn is_null(&self) -> bool {
 		self.ptr.is_null() || self.address_space.is_none()
 	}
@@ -160,7 +163,8 @@ impl<'a, T: ?Sized> User<'a, *const T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*const T>::offset()`]
+	/// See safety requirements for [`<*const T>::offset()`].
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn offset(self, count: isize) -> Self where T: Sized {
 		Self {
 			// SAFETY: this function has the same safety requirements as `<*const T>::offset()`
@@ -173,7 +177,8 @@ impl<'a, T: ?Sized> User<'a, *const T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*const T>::byte_offset()`]
+	/// See safety requirements for [`<*const T>::byte_offset()`].
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn byte_offset(self, count: isize) -> Self {
 		Self {
 			// SAFETY: this function has the same safety requirements as `<*const T>::byte_offset()`
@@ -189,7 +194,8 @@ impl<'a, T: ?Sized> User<'a, *const T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*const T>::add()`]
+	/// See safety requirements for [`<*const T>::add()`].
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn add(self, count: usize) -> Self where T: Sized {
 		Self {
 			// SAFETY: this function has the same safety requirements as `<*const T>::add()`
@@ -202,7 +208,8 @@ impl<'a, T: ?Sized> User<'a, *const T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*const T>::byte_add()`]
+	/// See safety requirements for [`<*const T>::byte_add()`].
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn byte_add(self, count: usize) -> Self {
 		Self {
 			// SAFETY: this function has the same safety requirements as `<*const T>::byte_add()`
@@ -218,7 +225,8 @@ impl<'a, T: ?Sized> User<'a, *const T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*const T>::sub()`]
+	/// See safety requirements for [`<*const T>::sub()`].
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn sub(self, count: usize) -> Self where T: Sized {
 		Self {
 			// SAFETY: this function has the same safety requirements as `<*const T>::sub()`
@@ -231,7 +239,8 @@ impl<'a, T: ?Sized> User<'a, *const T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*const T>::byte_sub()`]
+	/// See safety requirements for [`<*const T>::byte_sub()`].
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn byte_sub(self, count: usize) -> Self {
 		Self {
 			// SAFETY: this function has the same safety requirements as `<*const T>::byte_sub()`
@@ -278,11 +287,17 @@ impl<'a, T: ?Sized> User<'a, *const T> {
 		}.ok_or(PointerError {})
 	}*/
 
+	/*
+	/// Reads the value pointed to by `self`.
+	///
+	/// # Errors
+	///
+	/// Returns a [`PointerError`] if memory access failed.
 	pub fn read_other_address_space(self) -> Result<T, PointerError> where T: Sized + Copy {
 		todo!()
-	}
+	}*/
 
-	/// Casts a pointer to another type
+	/// Casts a pointer to another type.
 	///
 	/// # Safety
 	///
@@ -293,6 +308,7 @@ impl<'a, T: ?Sized> User<'a, *const T> {
 	///
 	/// For all types with no invalid bit-patterns (i.e. all numeric types) it is sound to cast to
 	/// a `User<*const U>`.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn cast<U>(self) -> User<'a, *const U> {
 		User {
 			ptr: self.ptr.cast(),
@@ -300,7 +316,8 @@ impl<'a, T: ?Sized> User<'a, *const T> {
 		}
 	}
 
-	/// Casts to a writable pointer
+	/// Casts to a writable pointer.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const fn cast_mut(self) -> User<'a, *mut T> {
 		User {
 			ptr: self.ptr.cast_mut(),
@@ -308,29 +325,59 @@ impl<'a, T: ?Sized> User<'a, *const T> {
 		}
 	}
 
+	/// Returns whether the pointer is aligned to `align`.
+	///
+	/// For non-`Sized` pointees this operation considers only the data pointer,
+	/// ignoring the metadata.
+	///
+	/// # Panics
+	///
+	/// The function panics if `align` is not a power-of-two (this includes 0).
+	#[must_use]
 	pub fn is_aligned_to(self, align: usize) -> bool {
 		self.ptr.is_aligned_to(align)
 	}
 
+	/// Gets the "address" portion of the pointer.
+	///
+	/// This discards any provenance or metadata associated with the pointer.
+	#[must_use]
 	pub fn addr(self) -> VirtualAddress {
 		VirtualAddress::new(self.ptr.addr())
 	}
 
+	/// Computes the offset that needs to be applied to the pointer in order to make it aligned to
+	/// `align`.
+	///
+	/// If it is not possible to align the pointer, the implementation returns
+	/// `usize::MAX`.
+	///
+	/// The offset is expressed in number of `T` elements, and not bytes.
+	///
+	/// There are no guarantees whatsoever that offsetting the pointer will not overflow or go
+	/// beyond the allocation that the pointer points into. It is up to the caller to ensure that
+	/// the returned offset is correct in all terms other than alignment.
+	///
+	/// # Panics
+	///
+	/// The function panics if `align` is not a power-of-two.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn align_offset(self, align: usize) -> usize where T: Sized {
 		self.ptr.align_offset(align)
 	}
 }
 
 impl<'a, T: ?Sized> User<'a, *mut T> {
-	/// Creates a new `User<*mut T>` with the provided address tied to the provided address space
-	pub(crate) fn new(ptr: *mut T, address_space: &'a AddressSpace) -> Self where T: Sized {
+	/// Creates a new `User<*mut T>` with the provided address tied to the provided address space.
+	pub(crate) const fn new(ptr: *mut T, address_space: &'a address_space::User) -> Self where T: Sized {
 		Self {
 			ptr,
 			address_space: Some(address_space),
 		}
 	}
 
-	/// Returns `true` if the pointer has either a null address or address space
+	/// Returns `true` if the pointer has either a null address or address space.
+	#[must_use]
 	pub const fn is_null(&self) -> bool {
 		self.ptr.is_null() || self.address_space.is_none()
 	}
@@ -342,10 +389,12 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*mut T>::offset()`]
+	/// See safety requirements for [`<*mut T>::offset()`].
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn offset(self, count: isize) -> Self where T: Sized {
 		Self {
-			ptr: self.ptr.offset(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::offset()`
+			ptr: unsafe { self.ptr.offset(count) },
 			address_space: self.address_space,
 		}
 	}
@@ -354,10 +403,12 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*mut T>::byte_offset()`]
+	/// See safety requirements for [`<*mut T>::byte_offset()`].
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn byte_offset(self, count: isize) -> Self {
 		Self {
-			ptr: self.ptr.byte_offset(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::byte_offset()`
+			ptr: unsafe { self.ptr.byte_offset(count) },
 			address_space: self.address_space,
 		}
 	}
@@ -369,10 +420,12 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*mut T>::add()`]
+	/// See safety requirements for [`<*mut T>::add()`].
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn add(self, count: usize) -> Self where T: Sized {
 		Self {
-			ptr: self.ptr.add(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::add()`
+			ptr: unsafe { self.ptr.add(count) },
 			address_space: self.address_space,
 		}
 	}
@@ -381,10 +434,12 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*mut T>::byte_add()`]
+	/// See safety requirements for [`<*mut T>::byte_add()`].
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn byte_add(self, count: usize) -> Self {
 		Self {
-			ptr: self.ptr.byte_add(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::byte_add()`
+			ptr: unsafe { self.ptr.byte_add(count) },
 			address_space: self.address_space,
 		}
 	}
@@ -396,10 +451,12 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*mut T>::sub()`]
+	/// See safety requirements for [`<*mut T>::sub()`].
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn sub(self, count: usize) -> Self where T: Sized {
 		Self {
-			ptr: self.ptr.sub(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::sub()`
+			ptr: unsafe { self.ptr.sub(count) },
 			address_space: self.address_space,
 		}
 	}
@@ -408,10 +465,12 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*mut T>::byte_sub()`]
+	/// See safety requirements for [`<*mut T>::byte_sub()`].
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn byte_sub(self, count: usize) -> Self {
 		Self {
-			ptr: self.ptr.byte_sub(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::byte_sub()`
+			ptr: unsafe { self.ptr.byte_sub(count) },
 			address_space: self.address_space,
 		}
 	}
@@ -449,12 +508,33 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 		}.ok_or(PointerError {})
 	}*/
 
+	/// Overwrites the memory pointed to by `self` with `value`.
+	///
+	/// # Errors
+	///
+	/// Returns a [`PointerError`] if memory access failed.
 	pub fn write_other_address_space(self, value: T) -> Result<(), PointerError> where T: Sized {
-		unsafe { self.copy_from_other_address_space(addr_of!(value), 1)? };
+		// SAFETY: pointer derived from value so must be valid
+		unsafe { self.copy_from_other_address_space(&raw const value, 1)? };
 		core::mem::forget(value);
 		Ok(())
 	}
 
+	/// Copies `count` elements starting at `start` into the buffer pointed to by `self`.
+	///
+	/// # Errors
+	///
+	/// Returns a [`PointerError`] if memory access failed.
+	///
+	/// # Safety
+	///
+	/// `src` must be [valid](`core::ptr#safety`) for reads of `count * size_of::<T>()` bytes or that number must be 0.
+	///
+	/// Like [`core::ptr::read`], `copy_from_other_address_space` creates a bitwise copy of `T`, regardless of
+	/// whether `T` is [`Copy`]. If `T` is not [`Copy`], using both the values
+	/// in the region beginning at `*start` and the region pointed to by `self` can
+	/// [violate memory safety](`core::ptr::read#ownership-of-the-returned-value`).
+	// FIXME(soundness): doesn't check if `self` points to conventional memory and therefore may write outside the page map region
 	pub unsafe fn copy_from_other_address_space(self, start: *const T, count: usize) -> Result<(), PointerError> where T: Sized {
 		let Some(address_space) = self.address_space else {
 			return Err(PointerError {});
@@ -462,12 +542,11 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 
 		let dest_start = self.ptr.cast::<u8>();
 		let mut chunk_start = dest_start;
-		let end = unsafe { self.ptr.offset(count as isize).cast::<u8>() };
+		let end = self.ptr.wrapping_add(count).cast::<u8>();
 
 		loop {
 			let chunk_end = {
 				let chunk_page_end = VirtualAddress::from(chunk_start).align_down_to_page() + 1usize;
-				dbg!(chunk_start, chunk_page_end);
 				if chunk_page_end.addr >= end.addr() {
 					end
 				} else {
@@ -479,10 +558,17 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 					.ok_or(PointerError {})?;
 			let physical = physical.to_virtual().as_ptr();
 
+			// SAFETY: `chunk_start` and `chunk_end` both derived from `self.ptr`
 			let chunk_size = unsafe { chunk_end.offset_from_unsigned(chunk_start) };
 
+			// SAFETY: `chunk_start` and `dest_start` both derived from `self.ptr`
+			let offset = unsafe { chunk_start.offset_from(dest_start) };
+
+			// SAFETY: `offset` comes from `chunk_start` which is always between `start` and `start + count`, and
+			// caller upholds requirement that allocation pointed to by `start` is `count` elements long.
+			// `physical` is valid for writes as it comes from the page map region, and caller upholds
+			// read requirements for pointer derived from `start`
 			unsafe {
-				let offset = chunk_start.offset_from(dest_start);
 				core::ptr::copy_nonoverlapping(
 					start.cast::<u8>().byte_offset(offset),
 					physical,
@@ -491,13 +577,15 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 			}
 
 			if chunk_end == end { break; }
-			else { chunk_start = chunk_end; }
+			
+			chunk_start = chunk_end;
 		}
 
 		Ok(())
 	}
 
-	/// Casts a pointer to another type
+	/// Casts a pointer to another type.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const fn cast<U>(self) -> User<'a, *mut U> {
 		User {
 			ptr: self.ptr.cast(),
@@ -505,7 +593,7 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 		}
 	}
 
-	/// Casts to a readable pointer
+	/// Casts to a readable pointer.
 	///
 	/// # Safety
 	///
@@ -515,6 +603,7 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	///
 	/// For all types with no invalid bit-patterns (i.e. all numeric types) it is sound to cast to
 	/// a `User<*const T>`.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn cast_const(self) -> User<'a, *const T> {
 		User {
 			ptr: self.ptr.cast_const(),
@@ -522,24 +611,61 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 		}
 	}
 
+	/// Returns whether the pointer is aligned to `align`.
+	///
+	/// For non-`Sized` pointees this operation considers only the data pointer,
+	/// ignoring the metadata.
+	///
+	/// # Panics
+	///
+	/// The function panics if `align` is not a power-of-two (this includes 0).
+	#[must_use]
 	pub fn is_aligned_to(self, align: usize) -> bool {
 		self.ptr.is_aligned_to(align)
 	}
 
+	/// Gets the "address" portion of the pointer.
+	///
+	/// This discards any provenance or metadata associated with the pointer.
+	#[must_use]
 	pub fn addr(self) -> VirtualAddress {
 		VirtualAddress::new(self.ptr.addr())
 	}
 
+	/// Computes the offset that needs to be applied to the pointer in order to make it aligned to
+	/// `align`.
+	///
+	/// If it is not possible to align the pointer, the implementation returns
+	/// `usize::MAX`.
+	///
+	/// The offset is expressed in number of `T` elements, and not bytes.
+	///
+	/// There are no guarantees whatsoever that offsetting the pointer will not overflow or go
+	/// beyond the allocation that the pointer points into. It is up to the caller to ensure that
+	/// the returned offset is correct in all terms other than alignment.
+	///
+	/// # Panics
+	///
+	/// The function panics if `align` is not a power-of-two.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn align_offset(self, align: usize) -> usize where T: Sized {
 		self.ptr.align_offset(align)
 	}
 }
 
 impl<'a, T> User<'a, *const [T]> {
+	/// Returns the length of the slice.
+	///
+	/// The returned value is the number of **elements**, not the number of bytes.
+	#[must_use]
 	pub const fn len(self) -> usize { self.ptr.len() }
-	
+
+	/// Returns `true` if the slice is empty.
+	#[must_use]
 	pub const fn is_empty(self) -> bool { self.ptr.is_empty() }
-	
+
+	/// Returns a pointer to the first element of the slice.
+	#[must_use]
 	pub const fn as_ptr(self) -> User<'a, *const T> {
 		User {
 			ptr: self.ptr.as_ptr(),
@@ -579,10 +705,18 @@ impl<'a, T> User<'a, *const [T]> {
 }
 
 impl<'a, T> User<'a, *mut [T]> {
+	/// Returns the length of the slice.
+	///
+	/// The returned value is the number of **elements**, not the number of bytes.
+	#[must_use]
 	pub const fn len(self) -> usize { self.ptr.len() }
 
+	/// Returns `true` if the slice is empty.
+	#[must_use]
 	pub const fn is_empty(self) -> bool { self.ptr.is_empty() }
 
+	/// Returns a pointer to the first element of the slice.
+	#[must_use]
 	pub const fn as_mut_ptr(self) -> User<'a, *mut T> {
 		User {
 			ptr: self.ptr.as_mut_ptr(),
@@ -607,24 +741,40 @@ impl<'a, T> User<'a, *mut [T]> {
 
 		Ok(count)
 	}
-	*/
+	
 
 	pub fn write_from_slice_other_address_space(self, slice: &[T]) -> Result<usize, PointerError> {
 		todo!()
-	}
-	
+	}*/
+}
+
+impl User<'_, *mut [u8]> {
+	/// Fills `self` by repeating `value`.
+	///
+	/// # Errors
+	///
+	/// Returns a [`PointerError`] if memory access failed.
 	pub fn fill(self, value: u8) -> Result<(), PointerError> {
 		impls::checked_fill(
-			MaybeUninit::new(value),
+			value,
 			self.ptr.cast(),
-			size_of::<T>() * self.len(),
+			self.len(),
 		).ok_or(PointerError {})?;
 		
 		Ok(())
 	}
 }
 
-pub unsafe fn slice_from_raw_parts<T>(data: User<*const T>, len: usize) -> User<*const [T]> {
+/// Forms a [user pointer](`crate::ptr#user-pointers`) to a slice from a pointer and a length.
+///
+/// The `len` argument is the number of **elements**, not the number of bytes.
+///
+/// # Safety
+///
+/// If `data` points to accessible memory, it must point to `len` elements of type `T`.
+/// See [`User::<*const T>::new`](`User::<*const T>::new#safety`) for more details.
+#[must_use]
+pub const unsafe fn slice_from_raw_parts<T>(data: User<'_, *const T>, len: usize) -> User<'_, *const [T]> {
 	let ptr = core::ptr::slice_from_raw_parts(data.ptr, len);
 	User {
 		ptr,
@@ -632,7 +782,11 @@ pub unsafe fn slice_from_raw_parts<T>(data: User<*const T>, len: usize) -> User<
 	}
 }
 
-pub fn slice_from_raw_parts_mut<T>(data: User<*mut T>, len: usize) -> User<*mut [T]> {
+/// Forms a mutable [user pointer](`crate::ptr#user-pointers`) to a slice from a pointer and a length.
+///
+/// The `len` argument is the number of **elements**, not the number of bytes.
+#[must_use]
+pub const fn slice_from_raw_parts_mut<T>(data: User<'_, *mut T>, len: usize) -> User<'_, *mut [T]> {
 	let ptr = core::ptr::slice_from_raw_parts_mut(data.ptr, len);
 	User {
 		ptr,
@@ -643,9 +797,11 @@ pub fn slice_from_raw_parts_mut<T>(data: User<*mut T>, len: usize) -> User<*mut 
 impl<T: ?Sized> TryFrom<User<'_, *const T>> for LocalUser<*const T> {
 	type Error = ();
 
-	fn try_from(value: User<*const T>) -> Result<Self, Self::Error> {
+	fn try_from(value: User<'_, *const T>) -> Result<Self, Self::Error> {
 		if crate::bridge::address_space::is_current(value.address_space) {
-			Ok(LocalUser { ptr: value.ptr })
+			// SAFETY: checked address space for this pointer is the current address space,
+			// and validity requirements of the address are the same for both `Self` and `User`
+			Ok(unsafe { Self::new(value.ptr) })
 		} else { Err(()) }
 	}
 }
@@ -653,9 +809,9 @@ impl<T: ?Sized> TryFrom<User<'_, *const T>> for LocalUser<*const T> {
 impl<T: ?Sized> TryFrom<User<'_, *mut T>> for LocalUser<*mut T> {
 	type Error = ();
 
-	fn try_from(value: User<*mut T>) -> Result<Self, Self::Error> {
+	fn try_from(value: User<'_, *mut T>) -> Result<Self, Self::Error> {
 		if crate::bridge::address_space::is_current(value.address_space) {
-			Ok(LocalUser { ptr: value.ptr })
+			Ok(Self::new(value.ptr))
 		} else { Err(()) }
 	}
 }

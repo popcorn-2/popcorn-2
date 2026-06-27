@@ -3,7 +3,7 @@ use crate::detect::Feature;
 
 static CACHE: AtomicUsize = AtomicUsize::new(0);
 
-const CAPACITY: usize = (size_of::<usize>() * 8) - 1;
+const CAPACITY: usize = (usize::BITS as usize) - 1;
 const INIT_BIT: usize = 1 << CAPACITY;
 const INIT_MASK: usize = INIT_BIT - 1;
 

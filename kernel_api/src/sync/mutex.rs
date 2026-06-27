@@ -1,33 +1,45 @@
-use core::convert::Into;
 use core::mem::ManuallyDrop;
 use core::panic::Location;
-use core::sync::atomic::{AtomicPtr, AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use log::warn;
 
-/// A mutual exclusion primitive useful for protecting shared data
-pub type Spinlock<T: ?Sized> = lock_api::Mutex<RawSpinlock, T>;
+/// A mutual exclusion primitive useful for protecting shared data.
+///
+/// This spinlock will block threads waiting for the lock to become available. The
+/// spinlock can also be statically initialized or created via a `new`
+/// constructor. Each spinlock has a type parameter which represents the data that
+/// it is protecting. The data can only be accessed through the RAII guards
+/// returned from `lock` and `try_lock`, which guarantees that the data is only
+/// ever accessed when the spinlock is locked.
+pub type Spinlock<T> = lock_api::Mutex<RawSpinlock, T>;
 
-/// An RAII implementation of a “scoped lock” of a mutex.
-/// 
-/// When this structure is dropped (falls out of scope), the lock will be unlocked.
-pub type SpinlockGuard<'a, T: ?Sized> = lock_api::MutexGuard<'a, RawSpinlock, T>;
+/// An RAII implementation of a "scoped lock" of a spinlock. When this structure is
+/// dropped (falls out of scope), the lock will be unlocked.
+///
+/// The data protected by the spinlock can be accessed through this guard via its
+/// `Deref` and `DerefMut` implementations.
+pub type SpinlockGuard<'a, T> = lock_api::MutexGuard<'a, RawSpinlock, T>;
 
-pub type MappedSpinlockGuard<'a, T: ?Sized> = lock_api::MappedMutexGuard<'a, RawSpinlock, T>;
+/// An RAII spinlock guard returned by `SpinlockGuard::map`, which can point to a
+/// subfield of the protected data.
+pub type MappedSpinlockGuard<'a, T> = lock_api::MappedMutexGuard<'a, RawSpinlock, T>;
 
-/// Extension functions to [`SpinlockGuard`]
-pub trait SpinlockGuardExt {
+/// Extension functions to [`SpinlockGuard`].
+pub trait SpinlockGuardExt: crate::sealed::Sealed {
     /// Unlock the spinlock without enabling interrupts, regardless of whether interrupts were enabled
-    /// before the spinlock was locked
+    /// before the spinlock was locked.
     fn unlock_no_interrupts(this: Self);
 }
+
+impl<T> crate::sealed::Sealed for SpinlockGuard<'_, T> {}
 
 impl<T> SpinlockGuardExt for SpinlockGuard<'_, T> {
     fn unlock_no_interrupts(this: Self) {
         let this = ManuallyDrop::new(this);
-        unsafe {
-            let spinlock = Self::mutex(&this).raw();
-            spinlock.unlock_no_interrupts();
-        }
+	    // SAFETY: We consume the guard, preventing a guard from existing after we unlock the mutex
+	    let spinlock = unsafe { Self::mutex(&this).raw() };
+	    // SAFETY: `self` consuming method on `SpinlockGuard` so this thread must own a guard
+	    unsafe { spinlock.unlock_no_interrupts() };
     }
 }
 
@@ -37,53 +49,39 @@ enum State {
     Locked,
 }
 
-impl State {
-    const fn const_into_u8(self) -> u8 {
-        match self {
-            State::Unlocked => 0,
-            State::Locked => 1,
-        }
-    }
-
-    const fn const_from_u8(value: u8) -> Result<Self, ()> {
-        match value {
-            0 => Ok(State::Unlocked),
-            1 => Ok(State::Locked),
-            _ => Err(())
-        }
-    }
-}
-
-impl From<State> for u8 {
+impl const From<State> for bool {
     fn from(value: State) -> Self {
-        value.const_into_u8()
+	    match value {
+		    State::Unlocked => false,
+		    State::Locked => true,
+	    }
     }
 }
 
-impl TryFrom<u8> for State {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::const_from_u8(value)
+impl const From<bool> for State {
+    fn from(value: bool) -> Self {
+	    if value { Self::Locked } else { Self::Unlocked }
     }
 }
 
+// INVARIANT: `location` is always a valid 'static ref to a `Location<'static>` unless null
+#[derive(Debug)]
+#[doc(hidden)]
 pub struct RawSpinlock {
-    state: AtomicU8,
+    state: AtomicBool,
     irq_state: AtomicUsize,
     location: AtomicPtr<Location<'static>>,
 }
 
-unsafe impl Send for RawSpinlock {}
-
-unsafe impl Sync for RawSpinlock {}
-
 impl RawSpinlock {
+	/// # Safety
+	///
+	/// This method may only be called if the mutex is held in the current context, i.e. it must
+	/// be paired with a successful call to [`lock`](`Self::lock`) or [`try_lock`](`Self::try_lock`).
     unsafe fn unlock_no_interrupts(&self) {
         let old_state = self.state.swap(State::Unlocked.into(), Ordering::Release);
-        let old_state = State::try_from(old_state).expect("Spinlock in undefined state");
 
-        match old_state {
+        match State::from(old_state) {
             State::Unlocked => unreachable!("Mutex was unlocked while unlocked"),
             State::Locked => {},
         }
@@ -91,13 +89,15 @@ impl RawSpinlock {
     
     fn lock_location(&self) -> Option<&'static Location<'static>> {
         let location = self.location.load(Ordering::Relaxed);
+	    // SAFETY: invariant of type that `location` is always valid unless null
         unsafe { location.as_ref::<'static>() }
     }
 }
 
+// SAFETY: locked state is only modified in `lock` and `unlock` functions which both check the existing state
 unsafe impl lock_api::RawMutex for RawSpinlock {
     const INIT: Self = Self {
-        state: AtomicU8::new(State::Unlocked.const_into_u8()),
+        state: AtomicBool::new(State::Unlocked.into()),
         irq_state: AtomicUsize::new(0),
         location: AtomicPtr::new(core::ptr::null_mut()),
     };
@@ -108,22 +108,23 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
     fn lock(&self) {
         let irq_state = crate::bridge::irq::disable();
 
-        let mut p = true;
-        while let Err(_) = self.state.compare_exchange_weak(
+        let mut printed = true;
+        while self.state.compare_exchange_weak(
             State::Unlocked.into(),
             State::Locked.into(),
             Ordering::Acquire,
             Ordering::Relaxed
-        ) {
+        ).is_err() {
             core::hint::spin_loop();
-            if p {
-                p = false;
+            if printed {
+                printed = false;
                 warn!("locked at {:?}", self.lock_location());
+	            crate::bridge::panicking::stack_trace();
             }
         }
 
         self.irq_state.store(irq_state, Ordering::Relaxed);
-        self.location.store(Location::caller() as *const _ as *mut _, Ordering::Relaxed);
+        self.location.store(core::ptr::from_ref(Location::caller()).cast_mut(), Ordering::Relaxed);
     }
 
     fn try_lock(&self) -> bool {
@@ -135,8 +136,8 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
             Ordering::Relaxed
         ).is_ok();
 
-        if !success { crate::bridge::irq::set(irq_state) }
-        else { self.irq_state.store(irq_state, Ordering::Relaxed) }
+        if success { self.irq_state.store(irq_state, Ordering::Relaxed) }
+        else { crate::bridge::irq::set(irq_state) }
 
         success
     }
@@ -144,9 +145,8 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
     unsafe fn unlock(&self) {
         let old_irq_state = self.irq_state.load(Ordering::Relaxed);
         let old_state = self.state.swap(State::Unlocked.into(), Ordering::Release);
-        let old_state = State::try_from(old_state).expect("Spinlock in undefined state");
 
-        match old_state {
+        match State::from(old_state) {
             State::Unlocked => unreachable!("Mutex was unlocked while unlocked"),
             State::Locked => crate::bridge::irq::set(old_irq_state),
         }

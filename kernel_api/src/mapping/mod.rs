@@ -1,288 +1,125 @@
-//! RAII memory mappings
+//! Memory mappings.
+//!
+//! Each memory mapping is made of a virtual allocation and a physical allocation,
+//! where the size of the virtual allocation is equal to or larger than the size
+//! of the physical allocation.
+//!
+//! The physical memory is then mapped to a space within the virtual allocation,
+//! and the rest of the virtual allocation is left reserved but inaccessible.
+//! The size of the physical allocation (and thus usable memory) is the value
+//! requested by users of the mapping API.
+//!
+//! The size of and offset within the virtual allocation is controlled by implementations
+//! of [`Mappable`], as shown below.
+//!
+//! ```text
+//! ---+------------------------------+---
+//!    |      virtual allocation      |
+//! ---+------------------------------+---
+//!     <----------------------------> `virtual_size()`
+//!     <---> `base_virtual_offset()`
+//!          +---------------------+
+//!          | physical allocation |
+//!          +---------------------+
+//! ```
+//!
+//! A [`Mapping`] can be created with [`Config::map`]:
+//!
+//! ```
+//! use kernel_api::mapping::{Config, Ty, Mmap};
+//! use core::num::NonZero;
+//!
+//! let mapping = Config::new(NonZero::new(1).unwrap(), Ty::KERNEL_OTHER)
+//!                   .map::<Mmap>()?;
+//! # Ok::<(), kernel_api::allocator::AllocError>::(())
+//! ```
+//!
+//! Data can then be read from and written to the mapping:
+//!
+//! ```
+//! use kernel_api::mapping::{Config, Ty, Mmap};
+//! use core::num::NonZero;
+//!
+//! let mut mapping = Config::new(NonZero::new(1).unwrap(), Ty::KERNEL_OTHER)
+//!                       .protection(/* writable: */ true, false, false)
+//!                       .map::<Mmap>()?;
+//!
+//! for ptr in mapping.as_mut_ptr_range() {
+//!     unsafe { *ptr = 1 };
+//! }
+//!
+//! for ptr in mapping.as_ptr_range() {
+//!     assert_eq!(unsafe { *ptr }, 1);
+//! }
+//! # Ok::<(), kernel_api::allocator::AllocError>::(())
+//! ```
 
-mod config;
-pub use config::*;
+#[cfg(feature = "full")] mod config;
+#[cfg(feature = "full")] pub use config::*;
 
 #[cfg(feature = "full")] mod mappable;
 #[cfg(feature = "full")] pub use mappable::*;
-#[cfg(feature = "full")] pub use full::*;
 
-#[cfg(feature = "full")]
-mod full {
-	use alloc::sync::Arc;
-	use super::*;
-	use core::fmt::{Debug, Formatter};
-	use crate::{address_space, dbg};
-	use core::mem::ManuallyDrop;
-	use core::num::NonZero;
-	use core::ops::Range;
-	use log::{debug, info, warn};
-	use crate::allocator::{AllocError, DynPmm};
-	use crate::memory::{Frames, RawFrame, RawPage, PAGE_SIZE};
-	use crate::ptr::User;
-	use crate::syscall::handle::Handle;
+#[cfg(feature = "full")] include!("real_mod.rs");
 
-	#[derive(Debug)]
-	pub enum MapPageError {
-		AlreadyMapped(Ty),
-		AllocError,
-	}
+use crate::newtype_enum;
 
-	impl From<AllocError> for MapPageError {
-		fn from(_value: AllocError) -> Self {
-			Self::AllocError
-		}
-	}
-
-	/// Used to track if the memory underlying the mapping is contiguous
-	pub(super) enum Backing {
-		/// The underlying physical memory is contiguous, and starts at the contained frame
-		Contiguous(Frames<false>),
-
-		/// The underlying physical memory is discontiguous, but all allocated by the same
-		Discontiguous { pmm: DynPmm<'static, false>, frame_count: usize },
-
-		/// The mapping is backed by a VMO handle
-		Vmo { handle: Arc<Handle>, frame_count: usize },
-	}
-
-	impl Backing {
-		fn frame_len(&self) -> usize {
-			match self {
-				Backing::Contiguous(frames) => frames.count(),
-				Backing::Discontiguous { frame_count, .. } => *frame_count,
-				Backing::Vmo { frame_count, .. } => *frame_count,
-			}
-		}
-
-		fn byte_len(&self) -> usize {
-			self.frame_len() * PAGE_SIZE
-		}
-
-		fn pmm(&self) -> &DynPmm<'static, false> {
-			match self {
-				Backing::Contiguous(frames) => frames.pmm(),
-				Backing::Discontiguous { pmm, .. } => pmm,
-				Backing::Vmo { .. } => todo!(),
-			}
-		}
-	}
-
-	/// The raw type underlying all memory mappings.
+newtype_enum! {
+	/// The type of memory being mapped.
 	///
-	/// This will allocate any required memory when created, and register any lazily mapped memory as such.
-	/// It will also manage the page tables to correctly unmap the memory when dropped.
-	pub struct Mapping<R: Mappable, A: address_space::Ty> {
-		pub(super) raw: R,
-
-		/// The address space mapped into
-		pub(super) address_space: ManuallyDrop<A>,
-
-		pub(super) backing: ManuallyDrop<Backing>,
-		//#[cfg(feature = "use_std")] pub(super) backing: *mut libc::c_void,
-
-		pub(super) caching: Caching,
-
-		pub(super) virtual_start: RawPage,
-
-		/// The protection used when mapping pages into this mapping
-		pub(super) protection: Protection,
-	}
-
-	impl<R: Mappable> Mapping<R, address_space::Kernel> {
-		pub fn as_mut_ptr_range(&mut self) -> Range<*mut u8> {
-			let start = self.virtual_valid_start().as_ptr();
-			Range {
-				start,
-				end: unsafe { start.byte_add(self.byte_len()) }
-			}
-		}
-
-		pub fn as_ptr_range(&self) -> Range<*const u8> {
-			let start = self.virtual_valid_start().as_ptr().cast_const();
-			Range {
-				start,
-				end: unsafe { start.byte_add(self.byte_len()) }
-			}
-		}
-
-		pub fn as_mut_ptr(&mut self) -> *mut u8 {
-			self.as_mut_ptr_range().start
-		}
-
-		pub fn as_ptr(&self) -> *const u8 {
-			self.as_ptr_range().start
-		}
-
-		//#[cfg(not(feature = "use_std"))]
-		pub unsafe fn from_raw_parts<const RAM: bool, T>(
-			frames: Frames<RAM, T>,
-			base_page: RawPage,
-			protection: Protection,
-			caching: Caching,
-		) -> Self where R: Default {
-			Self {
-				raw: R::default(),
-				address_space: ManuallyDrop::new(address_space::Kernel {}),
-				backing: ManuallyDrop::new(Backing::Contiguous(unsafe { Frames::<false>::from_raw_tuple(Frames::into_raw(frames)) })),
-				virtual_start: base_page,
-				protection,
-				caching,
-			}
-		}
-
-		//#[cfg(not(feature = "use_std"))]
-		pub fn into_raw_parts(self) -> (Option<Frames<false>>, RawPage, Protection, Caching) {
-			let mut this = ManuallyDrop::new(self);
-			(
-				match unsafe { ManuallyDrop::take(&mut this.backing) } {
-					Backing::Contiguous(frames) => Some(frames),
-					Backing::Discontiguous { .. } => None,
-					Backing::Vmo { .. } => todo!(),
-				},
-				this.virtual_start,
-				this.protection,
-				this.caching,
-			)
-		}
-	}
-
-	#[cfg(not(feature = "use_std"))]
-	impl<R: Mappable> Mapping<R, address_space::Userspace> {
-		pub fn as_mut_ptr_range(&mut self) -> Range<User<'_, *mut u8>> {
-			let start = self.virtual_valid_start().as_ptr();
-			let end = unsafe { start.byte_add(self.byte_len()) };
-			let start = User::<*mut u8>::new(start, &self.address_space.inner);
-			let end = User::<*mut u8>::new(end, &self.address_space.inner);
-			start..end
-		}
-
-		pub fn as_ptr_range(&self) -> Range<User<'_, *const u8>> {
-			let start = self.virtual_valid_start().as_ptr().cast_const();
-			let end = unsafe { start.byte_add(self.byte_len()) };
-			let start = unsafe { User::<*const u8>::new(start, &self.address_space.inner) };
-			let end = unsafe { User::<*const u8>::new(end, &self.address_space.inner) };
-			start..end
-		}
-
-		pub fn as_mut_ptr(&mut self) -> User<'_, *mut u8> {
-			self.as_mut_ptr_range().start
-		}
-
-		pub fn as_ptr(&self) -> User<'_, *const u8> {
-			self.as_ptr_range().start
-		}
-	}
-
-	impl<R: Mappable, A: address_space::Ty> Mapping<R, A> {
-		pub fn grow_in_place_by(&mut self, extra_length: usize) -> Result<(), AllocError> {
-			let Some(extra_length) = NonZero::new(extra_length) else { return Ok(()); };
-			let extra_frames = self.backing.pmm().allocate(extra_length)?;
-
-			let extra_pages = self.address_space.allocator()
-			                      .allocate_contiguous_at(
-				                      self.virtual_start + self.raw.virtual_size(self.page_len()).get(),
-				                      extra_length.get(),
-			                      )?;
-
-			debug!("growing mmap({})", core::any::type_name::<R>());
-			let _ = dbg!(self.virtual_start);
-			let _ = dbg!(self.virtual_valid_start());
-			let _ = dbg!(self.page_len());
-			let _ = dbg!(extra_length);
-			let _ = dbg!(self.raw.virtual_size(self.page_len()));
-
-			match self.address_space.map_contiguous(
-				self.virtual_valid_start() + self.page_len(),
-				extra_frames.into_raw().0.start,
-				extra_length.get(),
-				Ty(0),
-				self.protection,
-				self.caching,
-			) {
-				Ok(_) => Ok(()),
-				Err(MapPageError::AllocError) => {
-					self.address_space.allocator()
-							.deallocate_contiguous(extra_pages, extra_length.get());
-					Err(AllocError::default())
-				}
-				Err(MapPageError::AlreadyMapped(ty)) => unreachable!("unallocated memory already allocated as {ty:?}"),
-			}?;
-
-			let new_backing = Backing::Discontiguous {
-				pmm: *self.backing.pmm(),
-				frame_count: self.backing.frame_len().checked_add(extra_length.get()).unwrap()
-			};
-			self.backing = ManuallyDrop::new(new_backing); // don't drop the old backing since that could deallocate in-use frames
-
-			Ok(())
-		}
-
-		pub fn byte_len(&self) -> usize {
-			self.backing.byte_len()
-		}
-
-		pub fn page_len(&self) -> usize {
-			self.backing.frame_len()
-		}
-
-		pub fn physical_start(&self) -> Option<RawFrame> {
-			match &*self.backing {
-				Backing::Contiguous(frames) => Some(frames.base()),
-				Backing::Discontiguous { .. } => None,
-				Backing::Vmo { handle, .. } => Some({
-					RawFrame::new(crate::bridge::handle::kernel_syscall_blocking(
-						handle,
-						6,
-						1,
-						[0 /* offset */, self.page_len() * PAGE_SIZE /* len */, 0, 0 /* unused args */],
-					).ok()? as usize)
-				}),
-			}
-		}
-
-		/// The first page in the mapping that is mapped to physical memory.
-		/// The region of virtual memory from `virtual_valid_start()` to `virtual_valid_start() + physical_length` is mapped.
-		pub fn virtual_valid_start(&self) -> RawPage { self.virtual_start + self.raw.base_virtual_offset() }
-
-		pub fn set_writable(&mut self, writable: bool) {
-			self.protection.writable = writable;
-			todo!()
-		}
-	}
-
-	impl<R: Mappable, A: address_space::Ty> Debug for Mapping<R, A> {
-		fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-			f.debug_struct("Mapping")
-			 .field_with(
-				 "backing",
-				 |f| {
-					 #[cfg(not(feature = "use_std"))] match &*self.backing {
-						 Backing::Contiguous(frame) => Debug::fmt(frame, f),
-						 Backing::Discontiguous { frame_count, .. } => write!(f, "Discontiguous {{ frame_count: {frame_count} }}"),
-						 Backing::Vmo { handle, frame_count } => write!(f, "Vmo {{ handle: {handle:?}, frame_count: {frame_count} }}"),
-					 }
-					 #[cfg(feature = "use_std")] Ok(())
-				 }
-			 )
-			 .field("address_space", &"<address space>")
-			 .field("protection", &self.protection)
-			 .field("caching", &self.caching)
-			 .finish_non_exhaustive()
-		}
-	}
-
-	impl<R: Mappable, A: address_space::Ty> Drop for Mapping<R, A> {
-		fn drop(&mut self) {
-			info!("drop mmap({})", core::any::type_name::<R>());
-
-			match unsafe { ManuallyDrop::take(&mut self.backing) } {
-				Backing::Contiguous(frames) => drop(frames),
-				Backing::Discontiguous { pmm, frame_count } => {
-					warn!("ignoring discontiguous page drop");
-				}
-				Backing::Vmo { handle, .. } => drop(handle),
-			}
-		}
+	/// In certain build configurations this will be stored as metadata with each relevant page table
+	/// entry, and will be shown in relevant log entries.
+	///
+	/// Constants are provided for typical memory buffer uses and will be printed by name in logs,
+	/// but any custom value can be used and will have it's raw value printed.
+	pub enum Ty: pub u8 => {
+		/// Unknown.
+		UNKNOWN = 0,
+		/// Framebuffer memory.
+		FB = 1,
+		/// Kernel non-executable data.
+		KERNEL_DATA = 2,
+		/// Kernel executable code.
+		KERNEL_CODE = 3,
+		/// Kernel thread-local data.
+		KERNEL_TLS = 4,
+		/// Kernel thread stack.
+		KERNEL_STACK = 6,
+		/// Other kernel data.
+		KERNEL_OTHER = 5,
+		/// Memory used for the [page map region](`crate::memory#page-map-region`).
+		MEM_MAP = 7,
+		/// Bootloader executable code.
+		LOADER_CODE = 8,
+		/// Bootloader non-executable data.
+		LOADER_DATA = 9,
+		#[doc(hidden)] BGRT_BMP_HEADER = 10,
+		#[doc(hidden)] IOAPIC_REGISTERS = 11,
+		#[doc(hidden)] APIC_REGISTERS = 12,
+		#[doc(hidden)] HPET_HEADER = 13,
+		#[doc(hidden)] HPET_FULL = 14,
+		#[doc(hidden)] PHYSMAP_OTHER = 15,
+		#[doc(hidden)] ACPI_SDT_HEADER = 16,
+		#[doc(hidden)] ACPI_RSDP = 17,
+		#[doc(hidden)] ACPI_HPET = 18,
+		#[doc(hidden)] ACPI_FADT = 19,
+		#[doc(hidden)] ACPI_BGRT = 20,
+		#[doc(hidden)] BYTE_ARRAY = 21,
+		/// Userspace thread stack.
+		USER_STACK = 24,
+		/// Page table memory.
+		PAGE_TABLE = 25,
+		/// Userspace anonymous memory.
+		USER_MMAP = 26,
+		/// Userspace memory mapped to MMIO registers.
+		USER_MMIO = 27,
+		/// Userspace executable code and data.
+		USER_CODE = 28,
+		/// Memory used to buffer syscall data between processes.
+		USER_PACKET_BUFFER = 29,
+		/// [Kasan](`crate::memory::asan`) shadow memory.
+		SHADOW_MEM = 30,
+		/// Kernel heap memory.
+		HEAP = 31,
 	}
 }

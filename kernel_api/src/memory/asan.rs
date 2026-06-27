@@ -1,4 +1,6 @@
-//! ABI for interfacing with KASAN shadow memory
+//! ABI for interfacing with KASAN shadow memory.
+//!
+//! TODO(doc): overview of kasan?
 //!
 //! KASAN functions by keeping an in-memory shadow map of all kernelspace memory.
 //! Each byte in the shadow map represents 8 bytes of kernel memory, which can either be
@@ -11,18 +13,22 @@
 //! - `0xfb`: Heap right redzone - memory just after a heap allocation
 //! - `0xfc`: Heap headers - memory used by heap internals
 //! - `0xfd`: Freed heap memory - heap memory that has recently been deallocated, and is currently
-//!                               in a quarantine period
+//!   in a quarantine period
 //! - `0xf1`: Stack left redzone - memory just before a stack allocation
 //! - `0xf2`: Stack mid redzone - memory between two stack allocations
 //! - `0xf3`: Stack right redzone - memory just after a stack allocation
 //! - `0xf4`: Stack guard page - the page of unmapped memory below the stack to catch stack overflows
 //! - `0xf5`: Stack after return - the stack frame of a function that has already returned, used to
-//!                                catch dangling references returned by a function
+//!   catch dangling references returned by a function
 //! - `0xf8`: Stack use after scope - a stack slot in the current function but is now out of scope
 //! - `0xf9`: Global redzone - memory around global variables
 //! - `0xc0`: Freed virtual memory - memory that has just been deallocated by a [`Vmm`](crate::allocator::Vmm)
 //! - `0xc1`: Uninitialized virtual memory - memory that has never been allocated
 //! - `0xcc`: Shadow gap - the shadow map itself
+//!
+//! The entire region from [`SHADOW_MAP_START`] through to [`SHADOW_MAP_END`] is safe to read and write
+//! to as a `[u8]`, since any unmapped memory will be automatically mapped. Helper functions for this are
+//! provided as [`read_shadow_map`]/[`write_shadow_map`] and [`read_shadow_map_raw`]/[`write_shadow_map_raw`].
 
 use crate::memory::VirtualAddress;
 
@@ -47,9 +53,9 @@ const SHADOW_MAP_SIZE: usize = cfg_select! {
 
 #[cfg(feature = "full")] pub use full::*;
 #[cfg(feature = "full")] mod full {
-	pub use super::*;
-	use core::cmp::max;
+	use super::{SHADOW_MAP_SHIFT, SHADOW_MAP_START, SHADOW_MAP_END, SHADOW_MAP_SIZE};
 	use crate::memory::VirtualAddress;
+	use core::cmp::max;
 	use core::fmt::Write as _;
 	use log::{debug, warn};
 
@@ -75,6 +81,31 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
   Shadow gap:            cc
 ";
 
+    /// Prevents the contained code from being checked with the address sanitizer.
+	///
+	/// This should be used when accessing memory known to be marked as poisoned, for example
+	/// inside a heap allocator when reading internal metadata contained in a _heap headers_ zone.
+	/// This does **not** need to be used to wrap any functions in this module.
+	///
+	/// This macro should be called as a wrapper around closure-like syntax, either as
+	/// `no_asan_shim!(|a: usize| -> usize { a + 1 })` or `no_asan_shim!(|a: usize| a)`.
+	/// Generic arguments can be specified in square brackets before the closure, for example
+	/// `no_asan_shim!([T: Add<usize>]|a: T| -> T::Output { a + 1 })`.
+	/// All types including return types must be specified.
+	/// Arguments must correspond to existing in-scope bindings.
+	///
+	/// # Examples
+	///
+	/// ```no_run
+	/// use kernel_api::memory::asan::no_asan_shim;
+	///
+	/// for chunk in heap_chunks {
+	///     let allocated = no_asan_shim!(|chunk: *mut Chunk| -> bool {
+	///         unsafe { (&raw const (*chunk).allocated).read() }
+	///     });
+	///     if allocated { println!("allocated heap memory at {chunk:p}"); }
+	/// }
+	/// ```
 	pub macro no_asan_shim {
 		($([$($tt:tt)*])?|$($i:ident:$ty:ty),*$(,)?| $(-> $ret:ty)? $e:block) => {{
 			#[cfg_attr(kasan, sanitize(address = "off"))]
@@ -89,6 +120,16 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 		},
 	}
 
+
+	/// Reads the value of the shadow map at the index `idx`.
+	///
+	/// See the [module level documentation](`crate::memory::asan`) for information
+	/// on the meaning of the read values.
+	///
+	/// # Panics
+	///
+	/// If `idx` is greater than `SHADOW_MAP_END - SHADOW_MAP_START`.
+	#[must_use]
 	pub fn read_shadow_map_raw(idx: usize) -> i8 {
 		assert!(idx < SHADOW_MAP_SIZE, "attempt to read outside of shadow map");
 		no_asan_shim!(|idx: usize| -> i8 {
@@ -98,10 +139,26 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 		})
 	}
 
+	/// Reads the value of the shadow map for `addr`.
+	///
+	/// See the [module level documentation](`crate::memory::asan`) for information
+	/// on the meaning of the read values.
+	///
+	/// # Panics
+	///
+	/// If `addr` is not covered by the shadow map (i.e. userspace addresses).
+	#[must_use]
 	pub fn read_shadow_map_for(addr: VirtualAddress) -> i8 {
 		read_shadow_map_raw((addr.addr >> 3) + SHADOW_MAP_SHIFT)
 	}
 
+	/// Write `val` to the shadow map at the index `idx`.
+	///
+	/// See the [module level documentation](`crate::memory::asan`) for information
+	/// on the meaning of values that can be written.
+	///
+	/// # Panics
+	///
 	/// If `idx` is greater than `SHADOW_MAP_END - SHADOW_MAP_START`.
 	pub fn write_shadow_map_raw(idx: usize, val: i8) {
 		assert!(idx < SHADOW_MAP_SIZE, "attempt to read outside of shadow map");
@@ -112,6 +169,14 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 		});
 	}
 
+	/// Write `val` to the shadow map for `addr`.
+	///
+	/// See the [module level documentation](`crate::memory::asan`) for information
+	/// on the meaning of values that can be written.
+	///
+	/// # Panics
+	///
+	/// If `addr` is not covered by the shadow map (i.e. userspace addresses).
 	pub fn write_shadow_map_for(addr: VirtualAddress, val: i8) {
 		write_shadow_map_raw((addr.addr >> 3) + SHADOW_MAP_SHIFT, val);
 	}
@@ -124,11 +189,17 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 				#[link_name = "__popcorn_force_unsafe_serial"]
 				fn force_serial(s: &str);
 			}
-			unsafe { force_serial(s); }
+			// SAFETY: At worst this should cause interleaved access to the UART chip
+			// which would cause interleaved or corrupted serial output.
+			// At this point the kernel is already dying so just do the best we can.
+			unsafe { force_serial(s) };
 			Ok(())
 		}
 	}
 
+	/// # Panics
+	///
+	/// Unconditionally.
 	#[cold]
 	fn do_report(address: VirtualAddress, ty: &str, width: usize) {
 		let mut writer = Serial;
@@ -147,23 +218,23 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 		let _ = writeln!(&mut writer, "Shadow bytes around the buggy address:");
 
 		for i in dump_start..=dump_end {
-			if (i - dump_start) % 16 == 0 {
-				let _ = write!(&mut writer, "  0x{:016x}:", i);
+			if (i - dump_start).is_multiple_of(16) {
+				let _ = write!(&mut writer, "  0x{i:016x}:");
 			}
 			let byte = read_shadow_map_raw(i - SHADOW_MAP_START);
 
 			if i >= mem_to_shadow(address) && i <= mem_to_shadow(address + width - 1usize) {
-				let _ = write!(&mut writer, " \u{001b}[1m{:02x}\u{001b}[0m", byte);
+				let _ = write!(&mut writer, " \u{001b}[1m{byte:02x}\u{001b}[0m");
 			} else {
-				let _ = write!(&mut writer, " {:02x}", byte);
+				let _ = write!(&mut writer, " {byte:02x}");
 			}
 
-			if (i - dump_start + 1) % 16 == 0 {
+			if (i - dump_start).is_multiple_of(16) {
 				let _ = writeln!(&mut writer);
 			}
 		}
 
-		let _ = writeln!(&mut writer, "\n{}", LEGEND);
+		let _ = writeln!(&mut writer, "\n{LEGEND}");
 
 		let _ = writeln!(&mut writer, "===========================================================");
 
@@ -172,10 +243,12 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
+	#[expect(clippy::missing_const_for_fn, reason = "currently unimplemented but would not be able to be const")]
 	pub extern "C-unwind" fn __asan_register_globals(_globals: *const u8, _num: usize) {}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
+	#[expect(clippy::missing_const_for_fn, reason = "currently unimplemented but would not be able to be const")]
 	pub extern "C-unwind" fn __asan_unregister_globals(_globals: *const u8, _num: usize) {}
 
 	#[doc(hidden)]
@@ -322,115 +395,128 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 		warn!("ignoring `__asan_handle_no_return`");
 	}
 
-	/// Marks `count` entries in the shadow map starting at `address` as "stack left redzone"
+	/// Marks `count` entries in the shadow map starting at `address` as _stack left redzone_.
 	///
 	/// # Safety
 	///
-	/// `address` must be an address in the shadow map
+	/// `address` through `address + count` must be addresses in the shadow map.
 	#[unsafe(export_name = "__asan_set_shadow_f1")]
 	#[sanitize(address = "off")]
 	#[inline(never)]
+	#[cfg_attr(debug_assertions, expect(clippy::missing_panics_doc, reason = "panic is not guaranteed and only to check safety requirements"))]
 	pub unsafe extern "C-unwind" fn set_shadow_stack_left(address: VirtualAddress, count: usize) {
 		if !cfg!(kasan) { return; }
 
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
+		// SAFETY: `address` through `address + count` are addresses within the shadow map
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xf1, count);
 		}
 	}
 
-	/// Marks `count` entries in the shadow map starting at `address` as "stack use after scope"
+	/// Marks `count` entries in the shadow map starting at `address` as _stack use after scope_.
 	///
 	/// # Safety
 	///
-	/// `address` must be an address in the shadow map
+	/// `address` through `address + count` must be addresses in the shadow map.
 	#[unsafe(export_name = "__asan_set_shadow_f8")]
 	#[sanitize(address = "off")]
 	#[inline(never)]
+	#[cfg_attr(debug_assertions, expect(clippy::missing_panics_doc, reason = "panic is not guaranteed and only to check safety requirements"))]
 	pub unsafe extern "C-unwind" fn set_shadow_use_after_scope(address: VirtualAddress, count: usize) {
 		if !cfg!(kasan) { return; }
 
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
+		// SAFETY: `address` through `address + count` are addresses within the shadow map
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xf8, count);
 		}
 	}
 
-	/// Marks `count` entries in the shadow map starting at `address` as "accessible"
+	/// Marks `count` entries in the shadow map starting at `address` as _accessible_.
 	///
 	/// # Safety
 	///
-	/// `address` must be an address in the shadow map
+	/// `address` through `address + count` must be addresses in the shadow map.
 	#[unsafe(export_name = "__asan_set_shadow_00")]
 	#[sanitize(address = "off")]
 	#[inline(never)]
+	#[cfg_attr(debug_assertions, expect(clippy::missing_panics_doc, reason = "panic is not guaranteed and only to check safety requirements"))]
 	pub unsafe extern "C-unwind" fn set_shadow_free(address: VirtualAddress, count: usize) {
 		if !cfg!(kasan) { return; }
 
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
+		// SAFETY: `address` through `address + count` are addresses within the shadow map
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0, count);
 		}
 	}
 
-	/// Marks `count` entries in the shadow map starting at `address` as "freed virtual memory"
-	///
-	/// # Safety
-	///
-	/// `address` must be an address in the shadow map
-	#[sanitize(address = "off")]
-	#[inline(never)]
-	pub unsafe extern "C-unwind" fn set_shadow_free_vmem(address: VirtualAddress, count: usize) {
-		if !cfg!(kasan) { return; }
-
-		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
-		unsafe {
-			core::ptr::write_bytes(address.as_ptr(), 0xc0, count);
-		}
-	}
-
-	/// Marks `count` entries in the shadow map starting at `address` as "uninitialized virtual memory"
-	///
-	/// This is the default value for lazily allocated shadow memory
-	///
-	/// # Safety
-	///
-	/// `address` must be an address in the shadow map
-	#[sanitize(address = "off")]
-	#[inline(never)]
-	pub unsafe extern "C-unwind" fn set_shadow_uninit_vmem(address: VirtualAddress, count: usize) {
-		if !cfg!(kasan) { return; }
-
-		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
-		unsafe {
-			core::ptr::write_bytes(address.as_ptr(), 0xc1, count);
-		}
-	}
-
-	/// Marks `count` entries in the shadow map starting at `address` as "heap left redzone"
-	///
-	/// # Safety
-	///
-	/// `address` must be an address in the shadow map
-	#[unsafe(export_name = "__asan_set_shadow_fa")]
-	#[sanitize(address = "off")]
-	#[inline(never)]
-	pub unsafe extern "C-unwind" fn set_shadow_heap_left(address: VirtualAddress, count: usize) {
-		if !cfg!(kasan) { return; }
-
-		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
-		unsafe {
-			core::ptr::write_bytes(address.as_ptr(), 0xfa, count);
-		}
-	}
-
-	/// Marks `count` entries in the shadow map starting at `address` as "heap right redzone".
+	/// Marks `count` entries in the shadow map starting at `address` as _freed virtual memory_.
 	///
 	/// # Safety
 	///
 	/// `address` through `address + count` must be addresses in the shadow map.
 	#[sanitize(address = "off")]
 	#[inline(never)]
+	#[cfg_attr(debug_assertions, expect(clippy::missing_panics_doc, reason = "panic is not guaranteed and only to check safety requirements"))]
+	pub unsafe extern "C-unwind" fn set_shadow_free_vmem(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
+		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
+		// SAFETY: `address` through `address + count` are addresses within the shadow map
+		unsafe {
+			core::ptr::write_bytes(address.as_ptr(), 0xc0, count);
+		}
+	}
+
+	/// Marks `count` entries in the shadow map starting at `address` as _uninitialized virtual memory_.
+	///
+	/// This is the default value for lazily allocated shadow memory.
+	///
+	/// # Safety
+	///
+	/// `address` through `address + count` must be addresses in the shadow map.
+	#[sanitize(address = "off")]
+	#[inline(never)]
+	#[cfg_attr(debug_assertions, expect(clippy::missing_panics_doc, reason = "panic is not guaranteed and only to check safety requirements"))]
+	pub unsafe extern "C-unwind" fn set_shadow_uninit_vmem(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
+		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
+		// SAFETY: `address` through `address + count` are addresses within the shadow map
+		unsafe {
+			core::ptr::write_bytes(address.as_ptr(), 0xc1, count);
+		}
+	}
+
+	/// Marks `count` entries in the shadow map starting at `address` as _heap left redzone_.
+	///
+	/// # Safety
+	///
+	/// `address` through `address + count` must be addresses in the shadow map.
+	#[unsafe(export_name = "__asan_set_shadow_fa")]
+	#[sanitize(address = "off")]
+	#[inline(never)]
+	#[cfg_attr(debug_assertions, expect(clippy::missing_panics_doc, reason = "panic is not guaranteed and only to check safety requirements"))]
+	pub unsafe extern "C-unwind" fn set_shadow_heap_left(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
+		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
+		// SAFETY: `address` through `address + count` are addresses within the shadow map
+		unsafe {
+			core::ptr::write_bytes(address.as_ptr(), 0xfa, count);
+		}
+	}
+
+	/// Marks `count` entries in the shadow map starting at `address` as _heap right redzone_.
+	///
+	/// # Safety
+	///
+	/// `address` through `address + count` must be addresses in the shadow map.
+	#[sanitize(address = "off")]
+	#[inline(never)]
+	#[cfg_attr(debug_assertions, expect(clippy::missing_panics_doc, reason = "panic is not guaranteed and only to check safety requirements"))]
 	pub unsafe extern "C-unwind" fn set_shadow_heap_right(address: VirtualAddress, count: usize) {
 		if !cfg!(kasan) { return; }
 
@@ -441,13 +527,14 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 		}
 	}
 
-	/// Marks `count` entries in the shadow map starting at `address` as "heap headers".
+	/// Marks `count` entries in the shadow map starting at `address` as _heap headers_.
 	///
 	/// # Safety
 	///
 	/// `address` through `address + count` must be addresses in the shadow map.
 	#[sanitize(address = "off")]
 	#[inline(never)]
+	#[cfg_attr(debug_assertions, expect(clippy::missing_panics_doc, reason = "panic is not guaranteed and only to check safety requirements"))]
 	pub unsafe extern "C-unwind" fn set_shadow_heap_header(address: VirtualAddress, count: usize) {
 		if !cfg!(kasan) { return; }
 
@@ -458,39 +545,48 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 		}
 	}
 
-	/// Marks `count` entries in the shadow map starting at `address` as "freed heap memory"
+	/// Marks `count` entries in the shadow map starting at `address` as _freed heap memory_.
 	///
 	/// # Safety
 	///
-	/// `address` must be an address in the shadow map
+	/// `address` through `address + count` must be addresses in the shadow map.
 	#[unsafe(export_name = "__asan_set_shadow_fd")]
 	#[sanitize(address = "off")]
 	#[inline(never)]
+	#[cfg_attr(debug_assertions, expect(clippy::missing_panics_doc, reason = "panic is not guaranteed and only to check safety requirements"))]
 	pub unsafe extern "C-unwind" fn set_shadow_heap_free(address: VirtualAddress, count: usize) {
 		if !cfg!(kasan) { return; }
 
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
+		// SAFETY: `address` through `address + count` are addresses within the shadow map
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xfd, count);
 		}
 	}
 
-	/// Marks the region from `start` to `start + count` as accessible
+	/// Marks the region from `start` to `start + count` as _accessible_.
 	///
-	/// This internally calculates the correct shadow map entries
+	/// This internally calculates the correct shadow map entries.
+	///
+	/// # Panics
+	///
+	/// If the region is not in the kernel region of the address space, or does not
+	/// start on an 8 byte boundary.
 	pub fn asan_free_range(start: VirtualAddress, count: usize) {
-		assert!(start.aligned_to(8), "asan free range must be 8 byte aligned");
 		if !cfg!(kasan) { return; }
 
+		assert!(start.is_aligned_to(8), "asan free range must be 8 byte aligned");
 		assert!(start.is_higher_half(), "asan only covers higher half");
 
 		debug!("zero shadow memory ({:#x} -> {:#x})", mem_to_shadow(start), mem_to_shadow(start) + count_to_shadow(count));
+		// SAFETY: checked that the address is in kernelspace, and `mem_to_shadow` returns
+		// a valid shadow map address for all kernelspace addresses.
 		unsafe {
 			set_shadow_free(
 				mem_to_shadow(start),
 				count_to_shadow(count),
 			);
-		}
+		};
 
 		let last = start + count - 1usize;
 
@@ -507,7 +603,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 		}
 	}
 
-	/// Converts the passed `address` into the corresponding address in the shadow map
+	/// Converts the passed `address` into the corresponding address in the shadow map.
+	#[must_use]
 	pub fn mem_to_shadow(address: VirtualAddress) -> VirtualAddress {
 		let ret = (address.addr >> 3) + SHADOW_MAP_SHIFT;
 		let ret = VirtualAddress::new(ret);
@@ -515,8 +612,9 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 		ret
 	}
 
-	/// Converts the number of bytes into the lower bound number of bytes in the shadow map
-	pub fn count_to_shadow(count: usize) -> usize {
+	/// Converts the number of bytes into the lower bound number of bytes in the shadow map.
+	#[must_use]
+	pub const fn count_to_shadow(count: usize) -> usize {
 		count / 8
 	}
 }
