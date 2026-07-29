@@ -7,6 +7,6 @@ disallowed-types = [
 	#{ path = "usize", replacement = "kernel_api::primitive::usize", reason = "not specific enough" },
 ]
 allow-expect-in-tests = true
-allowed-idents-below-min-chars = ["..", "f"]
+allowed-idents-below-min-chars = ["..", "f", "k", "v"]
 semicolon-outside-block-ignore-multiline = true
 check-private-items = true
