@@ -1,4 +1,5 @@
 #![feature(gen_blocks)]
+#![feature(strict_provenance_lints)]
 #![cfg_attr(not(test), no_std)]
 #![feature(int_roundings)]
 
@@ -19,12 +20,12 @@ use kernel_api::allocator::{Vmm, AllocError};
 #[cfg(feature = "kasan")] use kernel_api::memory::asan::{asan_free_range, set_shadow_free_vmem, mem_to_shadow, count_to_shadow};
 
 #[derive(Debug)]
-pub struct RangedBtreeAllocator {
+pub struct LinkedListAllocator {
     range: Range<RawPage>,
     list: Spinlock<LinkedList>,
 }
 
-impl RangedBtreeAllocator {
+impl LinkedListAllocator {
     pub fn new(range: Range<RawPage>) -> Result<Self, AllocError> {
 	    let allocation_count = if range.is_empty() {
 		    const { NonZero::new(1).unwrap() }
@@ -51,7 +52,7 @@ impl RangedBtreeAllocator {
     }
 }
 
-impl Vmm for RangedBtreeAllocator {
+impl Vmm for LinkedListAllocator {
     fn allocate_contiguous(&self, len: usize) -> Result<RawPage, AllocError> {
         let mut guard = self.list.lock();
         
@@ -137,7 +138,7 @@ mod tests {
 
     #[test]
     fn allocate_in_empty() {
-        let allocator = RangedBtreeAllocator::new(START..END);
+        let allocator = LinkedListAllocator::new(START..END);
 
         let allocation = allocator.allocate_contiguous(5).expect("Allocation should not fail");
         assert_eq!(allocation, START);
@@ -145,7 +146,7 @@ mod tests {
 
     #[test]
     fn cannot_overallocate() {
-        let allocator = RangedBtreeAllocator::new(START..END);
+        let allocator = LinkedListAllocator::new(START..END);
 
         let allocation = allocator.allocate_contiguous(5).expect("Allocation should not fail");
         assert_eq!(allocation, START);
@@ -155,7 +156,7 @@ mod tests {
 
     #[test]
     fn allocate_multiple() {
-        let allocator = RangedBtreeAllocator::new(START..END);
+        let allocator = LinkedListAllocator::new(START..END);
 
         let allocation = allocator.allocate_contiguous(5).expect("Allocation should not fail");
         assert_eq!(allocation, START);
@@ -169,7 +170,7 @@ mod tests {
 
     #[test]
     fn allocate_and_deallocate() {
-        let allocator = RangedBtreeAllocator::new(START..END);
+        let allocator = LinkedListAllocator::new(START..END);
 
         let allocation = allocator.allocate_contiguous(5).expect("Allocation should not fail");
         assert_eq!(allocation, START);
@@ -186,7 +187,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn allocator_length_sanity() {
-        let allocator = RangedBtreeAllocator::new(START..END);
+        let allocator = LinkedListAllocator::new(START..END);
 
         let allocation = allocator.allocate_contiguous(5).expect("Allocation should not fail");
         assert_eq!(allocation, START);
@@ -196,7 +197,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn allocator_allocation_sanity() {
-        let allocator = RangedBtreeAllocator::new(START..END);
+        let allocator = LinkedListAllocator::new(START..END);
 
         let allocation = allocator.allocate_contiguous(5).expect("Allocation should not fail");
         assert_eq!(allocation, START);

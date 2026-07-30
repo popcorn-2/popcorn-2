@@ -50,7 +50,7 @@ use kernel_api::allocator::{highmem, AllocError};
 use kernel_api::mapping::{Caching, Config, Mapping, Protection, Ty};
 use kernel_api::memory::{Frames, RawPage};
 use kernel_api::threading::{AtomicThreadState, ThreadId, ThreadMeta, ThreadState};
-use ranged_btree_allocator::RangedBtreeAllocator;
+use linked_list_allocator::LinkedListAllocator;
 use kernel_api::syscall::handle::HandleMap;
 use kernel_api::sync::LazyLock;
 use crate::hal::paging2::TTable;

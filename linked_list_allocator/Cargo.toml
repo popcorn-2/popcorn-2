@@ -1,5 +1,5 @@
 [package]
-name = "ranged_btree_allocator"
+name = "linked_list_allocator"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,14 +7,7 @@ edition = "2024"
 
 [dependencies]
 kernel_api = { version = "1.1.0", path = "../kernel_api" }
-# ranged_btree = { path = "../ranged_btree" }
 log = "0.4.21"
-
-[dev-dependencies]
-# kernel_api = { path = "../kernel_api", features = ["use_std"] }
-
-[features]
-kasan = []
 
 [lints]
 workspace = true

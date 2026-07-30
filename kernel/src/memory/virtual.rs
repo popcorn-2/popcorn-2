@@ -10,7 +10,7 @@ use kernel_api::allocator::{AllocError, highmem, Vmm};
 use kernel_api::mapping::{Mappable, Mapping, Ty};
 use kernel_api::memory::{PAGE_SIZE, RawPage, VirtualAddress, RawFrame, PhysicalAddress};
 use kernel_api::sync::{LazyLock, MappedSpinlockGuard, RwSpinlock, Spinlock, SpinlockGuard};
-use ranged_btree_allocator::RangedBtreeAllocator;
+use linked_list_allocator::LinkedListAllocator;
 
 #[unsafe(export_name = "__popcorn_memory_virtual_kernel_global")]
 pub static GLOBAL_VIRTUAL_ALLOCATOR: LazyLock<RwSpinlock<&'static (dyn Vmm + Sync)>> = LazyLock::new(|| RwSpinlock::new(BOOTSTRAP.deref()));
