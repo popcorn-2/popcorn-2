@@ -1,3 +1,8 @@
+//! A singly linked list used for storing metadata of each allocation.
+//!
+//! The allocation to the backing allocator is a page sized multiple, which
+//! is then split up into individual linked list nodes.
+
 use core::cmp::Ordering;
 use core::fmt::{Debug, Formatter};
 use core::num::NonZero;
@@ -55,14 +60,17 @@ impl From<AllocError> for InsertError {
 
 #[derive(Clone, Debug)]
 pub struct Node {
+	/// Whether the node contains valid metadata.
 	valid: bool,
+	/// The index of the next node in the linked list.
 	next: Option<usize>,
+	/// The range of pages covered by this node.
 	addr: Range<RawPage>,
 	meta: Meta,
 }
 
 impl Node {
-	fn zeroed() -> Self {
+	const fn zeroed() -> Self {
 		Self {
 			valid: false,
 			next: None,
@@ -72,9 +80,10 @@ impl Node {
 	}
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Meta {
-	pub len: usize
+	/// The number of pages in this allocation.
+	pub len: usize,
 }
 
 pub struct LinkedList {
@@ -85,20 +94,23 @@ pub struct LinkedList {
 
 impl Debug for LinkedList {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		let mut d = f.debug_list();
+		let mut debug = f.debug_list();
 		let mut current = self.root;
 		while let Some(node) = current {
 			let node = self.get_node(node);
-			d.entry(node);
+			debug.entry(node);
 			current = node.next;
 		}
-		d.finish()
+		debug.finish()
 	}
 }
 
 impl LinkedList {
 	pub fn new(allocation_count: NonZero<usize>) -> Result<Self, AllocError> {
+		const { assert!(PAGE_SIZE >= size_of::<Node>(), "`Node` must fit in a single page"); }
+
 		let page_count = {
+			#[expect(clippy::missing_panics_doc, reason = "infallible")]
 			let allocs_per_page = NonZero::new(PAGE_SIZE.div_floor(size_of::<Node>()))
 					.expect("Node should not be larger than a page");
 			allocation_count.div_ceil(allocs_per_page)
@@ -222,9 +234,9 @@ impl LinkedList {
 				unsafe { (*prev).next = next.next };
 				next.valid = false;
 				return Some(next.meta);
-			} else {
-				prev = next;
 			}
+
+			prev = next;
 		}
 
 		None
@@ -246,11 +258,11 @@ impl LinkedList {
 	}
 }
 
-fn compare_range(a: &Range<RawPage>, b: &Range<RawPage>) -> Option<Ordering> {
-	if a.start > a.end || b.start > b.end { return None; }
+fn compare_range(lhs: &Range<RawPage>, rhs: &Range<RawPage>) -> Option<Ordering> {
+	if lhs.start > lhs.end || rhs.start > rhs.end { return None; }
 
-	if a.end <= b.start { Some(Ordering::Less) }
-	else if b.end <= a.start { Some(Ordering::Greater) }
+	if lhs.end <= rhs.start { Some(Ordering::Less) }
+	else if rhs.end <= lhs.start { Some(Ordering::Greater) }
 	else { None }
 }
 
