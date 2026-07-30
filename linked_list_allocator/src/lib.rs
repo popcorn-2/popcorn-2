@@ -1,4 +1,28 @@
 //! A virtual memory allocator which stores allocations in an ordered linked list.
+//!
+//! # Examples
+//!
+//! ```
+//! use kernel_api::memory::{RawPage, PAGE_SIZE};
+//! use linked_list_allocator::LinkedListAllocator;
+//!
+//! // create an allocator covering the first 8 pages of memory
+//! let mut allocator = LinkedListAllocator::new(RawPage::new(0)..RawPage::new(8 * PAGE_SIZE)).unwrap();
+//!
+//! // mark holes in the address space as unusable
+//! allocator.add_allocations([
+//!     RawPage::new(2 * PAGE_SIZE)..RawPage::new(3 * PAGE_SIZE),
+//!     RawPage::new(5 * PAGE_SIZE)..RawPage::new(7 * PAGE_SIZE),
+//! ]);
+//!
+//! // allocate some pages
+//! let alloc_page = allocator.allocate_contiguous(1).unwrap();
+//! let alloc_in_position = allocator.allocate_contiguous_at(RawPage::new(3 * PAGE_SIZE), 2).unwrap();
+//!
+//! // deallocate the pages
+//! allocator.deallocate_contiguous(alloc_page, 1);
+//! allocator.deallocate_contiguous(alloc_in_position, 2);
+//! ```
 
 #![feature(gen_blocks)]
 #![feature(strict_provenance_lints)]
@@ -6,6 +30,7 @@
 #![feature(int_roundings)]
 
 #![cfg_attr(test, allow(unused_imports))]
+#![cfg_attr(doc, feature(rustdoc_missing_doc_code_examples))]
 
 #[cfg(test)] extern crate alloc;
 
@@ -26,6 +51,9 @@ use kernel_api::memory::asan::{asan_free_range, set_shadow_free_vmem, mem_to_sha
 /// `LinkedListAllocator` will allocate from the [`highmem`](kernel_api::memory#highmem) allocator
 /// once on creation. After initialisation, the maximum number of allocations that can be active
 /// simulatenously is fixed.
+///
+/// See the [crate-level documentation](crate) for more information.
+#[expect(rustdoc::missing_doc_code_examples, reason = "example in crate level docs")]
 #[derive(Debug)]
 pub struct LinkedListAllocator {
     range: Range<RawPage>,
@@ -42,6 +70,15 @@ impl LinkedListAllocator {
     /// # Errors
     ///
     /// Returns [`AllocError`] if memory to hold the metadata could not be allocated.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kernel_api::memory::{RawPage, PAGE_SIZE};
+    /// use linked_list_allocator::LinkedListAllocator;
+    ///
+    /// let allocator = LinkedListAllocator::new(RawPage::new(0)..RawPage::new(PAGE_SIZE)).unwrap();
+    /// ```
     pub fn new(range: Range<RawPage>) -> Result<Self, AllocError> {
 	    let allocation_count = if range.is_empty() {
 		    const { NonZero::new(1).unwrap() }
@@ -67,6 +104,19 @@ impl LinkedListAllocator {
     /// and the second will be silently ignored.
     ///
     /// </div>
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use kernel_api::allocator::AllocError;
+    /// use kernel_api::memory::{RawPage, PAGE_SIZE};
+    /// use linked_list_allocator::LinkedListAllocator;
+    ///
+    /// let mut allocator = LinkedListAllocator::new(RawPage::new(0)..RawPage::new(PAGE_SIZE))?;
+    /// allocator.add_allocations([RawPage::new(0)..RawPage::new(PAGE_SIZE)]);
+    /// assert!(allocator.allocate_contiguous(1).is_err());
+    /// # Ok::<(), AllocError>::(())
+    /// ```
     pub fn add_allocations(&mut self, allocations: impl IntoIterator<Item = Range<RawPage>>) {
         let guard = self.list.get_mut();
 
