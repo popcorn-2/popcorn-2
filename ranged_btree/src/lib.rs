@@ -29,6 +29,7 @@
 #![feature(map_try_insert)]
 #![feature(impl_trait_in_assoc_type)]
 #![feature(strict_provenance_lints)]
+#![cfg_attr(doc, feature(rustdoc_missing_doc_code_examples))]
 #![forbid(unsafe_code)]
 #![no_std]
 
@@ -42,6 +43,7 @@ use core::ops::Range;
 /// A B-Tree which uses ranges as keys and allows lookup by points.
 ///
 /// See the [crate-level documentation](crate) for more information.
+#[expect(rustdoc::missing_doc_code_examples, reason = "example in crate level docs")]
 pub struct RangedBTreeMap<K, V> {
     inner: BTreeMap<KeyType<K>, V>
 }
@@ -392,6 +394,7 @@ impl<K, V> Default for RangedBTreeMap<K, V> {
 }
 
 /// The error type returned when an item couldn't be inserted.
+#[expect(rustdoc::missing_doc_code_examples, reason = "doesn't make sense to have example")]
 #[derive(Debug)]
 pub enum InsertionError<V> {
     /// The range already existed in the map.
