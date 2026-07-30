@@ -1,3 +1,5 @@
+//! A virtual memory allocator which stores allocations in an ordered linked list.
+
 #![feature(gen_blocks)]
 #![feature(strict_provenance_lints)]
 #![cfg_attr(not(test), no_std)]
@@ -14,11 +16,16 @@ use core::cmp::{max, min};
 use core::num::NonZero;
 use core::ops::Range;
 use log::{debug, trace};
-use kernel_api::memory::RawPage;
+use kernel_api::memory::{RawPage, PAGE_SIZE};
 use kernel_api::sync::Spinlock;
 use kernel_api::allocator::{Vmm, AllocError};
-#[cfg(feature = "kasan")] use kernel_api::memory::asan::{asan_free_range, set_shadow_free_vmem, mem_to_shadow, count_to_shadow};
+use kernel_api::memory::asan::{asan_free_range, set_shadow_free_vmem, mem_to_shadow, count_to_shadow};
 
+/// A virtual memory allocator using a singly linked list to store allocation metadata.
+///
+/// `LinkedListAllocator` will allocate from the [`highmem`](kernel_api::memory#highmem) allocator
+/// once on creation. After initialisation, the maximum number of allocations that can be active
+/// simulatenously is fixed.
 #[derive(Debug)]
 pub struct LinkedListAllocator {
     range: Range<RawPage>,
@@ -26,11 +33,16 @@ pub struct LinkedListAllocator {
 }
 
 impl LinkedListAllocator {
+    /// Creates a new `LinkedListAllocator` which will allocate pages in the specified `range`.
+    ///
+    /// An allocation will be made from the [`highmem`](kernel_api::memory#highmem) allocator to
+    /// store metadata for the allocator in.
+    /// The number of frames allocated from `highmem` is an unspecified implementation detail.
     pub fn new(range: Range<RawPage>) -> Result<Self, AllocError> {
 	    let allocation_count = if range.is_empty() {
 		    const { NonZero::new(1).unwrap() }
 	    } else {
-		    const { NonZero::new(4096).unwrap() } // mostly going to be kernel stacks so lets say ~4k threads?
+		    const { NonZero::new(PAGE_SIZE).unwrap() } // mostly going to be kernel stacks so lets say ~4k threads?
 	    };
 
         Ok(Self {
@@ -39,6 +51,18 @@ impl LinkedListAllocator {
         })
     }
 
+    /// Marks regions of the `LinkedListAllocator` as already being allocated.
+    ///
+    /// The passed set of `allocations` is iterated over, and each one is inserted into the list of
+    /// allocations made. If iterating causes a panic, any ranges yielded from the iterator before
+    /// the panic will remain allocated.
+    ///
+    /// <div class="warning">
+    ///
+    /// If two ranges in `allocations` overlap, only the first range will be marked as allocated
+    /// and the second will be silently ignored.
+    ///
+    /// </div>
     pub fn add_allocations(&mut self, allocations: impl IntoIterator<Item = Range<RawPage>>) {
         let guard = self.list.get_mut();
 
@@ -74,10 +98,10 @@ impl Vmm for LinkedListAllocator {
 
 	    trace!("{:#x?} {:?}", gap.start..gap.start + len, Meta { len });
 
-        #[cfg(feature = "kasan")] if self.range.start.is_higher_half() {
+        if self.range.start.is_higher_half() {
             asan_free_range(
                 gap.start.into(),
-                len * 4096,
+                len * PAGE_SIZE,
             );
         }
 
@@ -95,10 +119,10 @@ impl Vmm for LinkedListAllocator {
         ) {
             Ok(_) => {
                 drop(guard);
-                #[cfg(feature = "kasan")] if at.is_higher_half() {
+                if at.is_higher_half() {
                     asan_free_range(
                         at.into(),
-                        len * 4096,
+                        len * PAGE_SIZE,
                     );
                 }
                 Ok(at)
@@ -110,11 +134,11 @@ impl Vmm for LinkedListAllocator {
     fn deallocate_contiguous(&self, base: RawPage, len: usize) {
         // assumes that deallocations cover an entire allocation
 
-        #[cfg(feature = "kasan")] unsafe {
+        unsafe {
             if base.is_higher_half() {
                 set_shadow_free_vmem(
                     mem_to_shadow(base.into()),
-                    count_to_shadow(len * 4096),
+                    count_to_shadow(len * PAGE_SIZE),
                 );
             }
         }
