@@ -50,7 +50,7 @@ use kernel_api::allocator::{highmem, AllocError};
 use kernel_api::mapping::{Caching, Config, Mapping, Protection, Ty};
 use kernel_api::memory::{Frames, RawPage};
 use kernel_api::threading::{AtomicThreadState, ThreadId, ThreadMeta, ThreadState};
-use ranged_btree_allocator::RangedBtreeAllocator;
+use linked_list_allocator::LinkedListAllocator;
 use kernel_api::syscall::handle::HandleMap;
 use kernel_api::sync::LazyLock;
 use crate::hal::paging2::TTable;
@@ -121,7 +121,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 
 	let address_space = AddressSpace::from_parts(
 		handoff_data.to_empty_ttable(),
-		RangedBtreeAllocator::new(Range { // todo: make this a bit nicer
+		LinkedListAllocator::new(Range { // todo: make this a bit nicer
 			start: RawPage::new(0x200000),
 			end: RawPage::new(0x8000_0000_0000),
 		}).expect("failed to create allocator"),
@@ -175,7 +175,7 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 
 static KERNEL_ADDRESS_SPACE: LazyLock<AddressSpace> = LazyLock::new(|| AddressSpace::from_parts(
 	TTableTy::new(&ktable(), highmem()).expect("failed to allocate kernel address space page table"),
-	RangedBtreeAllocator::new(RawPage::new(0)..RawPage::new(0)).expect("failed to allocate kernel address space page table"),
+	LinkedListAllocator::new(RawPage::new(0)..RawPage::new(0)).expect("failed to allocate kernel address space page table"),
 ));
 
 const KERNEL_THREAD_STACK: Config = Config::new(NonZero::new(32).unwrap(), Ty::KERNEL_STACK)
