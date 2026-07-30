@@ -7,6 +7,7 @@ use core::cmp::Ordering;
 use core::fmt::{Debug, Formatter};
 use core::num::NonZero;
 use core::ops::Range;
+use core::ptr;
 use log::debug;
 use kernel_api::allocator::{highmem, AllocError};
 use kernel_api::memory::{Frames, VirtualAddress, PAGE_SIZE};
@@ -106,6 +107,9 @@ impl Debug for LinkedList {
 }
 
 impl LinkedList {
+	/// # Errors
+	///
+	/// Propagates any [`AllocError`] from the `highmem` backing allocator.
 	pub fn new(allocation_count: NonZero<usize>) -> Result<Self, AllocError> {
 		const { assert!(PAGE_SIZE >= size_of::<Node>(), "`Node` must fit in a single page"); }
 
@@ -142,6 +146,9 @@ impl LinkedList {
 		&self.backing.get()[idx]
 	}
 
+	/// # Errors
+	///
+	/// Returns [`AllocError`] if there are no free linked list nodes.
 	fn allocate_node(
 		&mut self,
 		addr: Range<RawPage>,
@@ -166,6 +173,11 @@ impl LinkedList {
 		Ok((node, i))
 	}
 
+	/// # Errors
+	///
+	/// Returns [`AllocError`] if there are no free linked list nodes, or
+	/// [`AddressOverlap`](InsertError::AddressOverlap) if `addr` overlaps with a range
+	/// already present in the linked list.
 	pub fn insert(&mut self, addr: Range<RawPage>, meta: Meta) -> Result<(), InsertError> {
 		let Some(root_idx) = self.root else {
 			// no root node
@@ -194,19 +206,25 @@ impl LinkedList {
 		loop {
 			// we use raw pointers here so we can hold both prev_node and next_node at the same time
 			// without running into borrow checker issues, as we know they'll be distinct objects
-			let prev_node = self.get_node_mut(prev_idx) as *mut Node;
+			let prev_node = ptr::from_mut(self.get_node_mut(prev_idx));
+			// SAFETY: `prev_node` came from a mutable reference
 			let Some(next_idx) = (unsafe { (*prev_node).next }) else {
 				let (_, new_idx) = self.allocate_node(addr, meta)?;
+				// SAFETY: `prev_node` came from a mutable reference
 				unsafe { (*prev_node).next = Some(new_idx) };
 				return Ok(());
 			};
+
 			debug_assert_ne!(prev_idx, next_idx, "node should not point to itself");
-			let next_node = self.get_node(next_idx) as *const Node;
+			let next_node = ptr::from_ref(self.get_node(next_idx));
+			// SAFETY: `next_node` came from a shared reference
 			match compare_range(&addr, unsafe { &(*next_node).addr }) {
 				None => return Err(InsertError::AddressOverlap),
 				Some(Ordering::Less) => {
 					let (new_node, new_idx) = self.allocate_node(addr, meta)?;
 					new_node.next = Some(next_idx);
+					// SAFETY: `prev_node` came from a mutable reference, and does not point to
+					//  the same node as `next_node`
 					unsafe { (*prev_node).next = Some(new_idx) };
 					return Ok(());
 				},
@@ -220,17 +238,24 @@ impl LinkedList {
 
 	pub fn remove(&mut self, addr: VirtualAddress) -> Option<Meta> {
 		let Some(prev_idx) = self.root else { return None; };
-		let mut prev = self.get_node_mut(prev_idx) as *mut Node;
+		let mut prev = ptr::from_mut(self.get_node_mut(prev_idx));
 
+		// SAFETY: `prev` comes from a mutable reference
 		if unsafe { (*prev).addr.contains(&addr.align_down_to_page()) } {
+			// SAFETY: `prev` comes from a mutable reference
 			self.root = unsafe { (*prev).next };
+			// SAFETY: `prev` comes from a mutable reference
 			unsafe { (*prev).valid = false };
+			// SAFETY: `prev` comes from a mutable reference
 			return Some(unsafe { (*prev).meta });
 		}
 
+		// SAFETY: `prev` comes from a mutable reference
 		while let Some(next_idx) = unsafe { (*prev).next } {
 			let next = self.get_node_mut(next_idx);
 			if next.addr.contains(&addr.align_down_to_page()) {
+				// SAFETY: `prev` comes from a mutable reference, and does not point
+				//  to the same object as `next`
 				unsafe { (*prev).next = next.next };
 				next.valid = false;
 				return Some(next.meta);
