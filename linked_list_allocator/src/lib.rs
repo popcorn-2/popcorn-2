@@ -38,6 +38,10 @@ impl LinkedListAllocator {
     /// An allocation will be made from the [`highmem`](kernel_api::memory#highmem) allocator to
     /// store metadata for the allocator in.
     /// The number of frames allocated from `highmem` is an unspecified implementation detail.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AllocError`] if memory to hold the metadata could not be allocated.
     pub fn new(range: Range<RawPage>) -> Result<Self, AllocError> {
 	    let allocation_count = if range.is_empty() {
 		    const { NonZero::new(1).unwrap() }
@@ -117,7 +121,7 @@ impl Vmm for LinkedListAllocator {
             at..at + len,
             Meta { len },
         ) {
-            Ok(_) => {
+            Ok(()) => {
                 drop(guard);
                 if at.is_higher_half() {
                     asan_free_range(
@@ -134,6 +138,7 @@ impl Vmm for LinkedListAllocator {
     fn deallocate_contiguous(&self, base: RawPage, len: usize) {
         // assumes that deallocations cover an entire allocation
 
+        // SAFETY: `mem_to_shadow` returns valid addresses in the shadow region
         unsafe {
             if base.is_higher_half() {
                 set_shadow_free_vmem(
@@ -145,7 +150,7 @@ impl Vmm for LinkedListAllocator {
 
         let mut guard = self.list.lock();
         if let Some(meta) = guard.remove(base.into()) {
-            debug_assert_eq!(meta.len, len);
+            debug_assert_eq!(meta.len, len, "`len` passed to deallocate_contiguous should match original allocation length");
         } else {
             unreachable!("Attempted to deallocate memory that wasn't allocated by this allocator")
         }
