@@ -1,3 +1,4 @@
+/// Control over CPU interrupt state.
 pub mod irq {
 	unsafe extern "Rust" {
 		/// Set the interrupt mask of the current CPU to `state`.
@@ -12,6 +13,7 @@ pub mod irq {
 	}
 }
 
+/// Kernel memory allocation.
 pub mod memory {
 	use crate::allocator::{GlobalAllocator, Vmm};
 	use crate::sync::{LazyLock, RwSpinlock};
@@ -31,6 +33,7 @@ pub mod memory {
 	}
 }
 
+/// Timekeeping.
 pub mod time {
 	use core::num::NonZero;
 
@@ -48,6 +51,7 @@ pub mod time {
 	}
 }
 
+/// Async task execution.
 pub mod executor {
 	use core::pin::Pin;
 
@@ -62,6 +66,7 @@ pub mod executor {
 	}
 }
 
+/// Kernel resource handles and system calls.
 pub mod handle {
 	use alloc::sync::Arc;
 	use crate::syscall;
@@ -83,11 +88,14 @@ pub mod handle {
 	}
 }
 
+/// Kernel thread control.
 pub mod threading {
 	use alloc::sync::Arc;
 	use core::mem::{ManuallyDrop, MaybeUninit};
 	use crate::threading::ThreadMeta;
 
+	/// Runs the passed closure, passing it a reference to the [`ThreadMeta`] for the currently
+	/// running thread.
 	pub fn with_current_thread<F: FnOnce(&Arc<ThreadMeta>) -> R, R>(f: F) -> R {
 		#![expect(clippy::shadow_unrelated, reason = "false positive since it doesn't understand the data gets passed to the closure")]
 		let out = MaybeUninit::<R>::uninit();
@@ -110,11 +118,13 @@ pub mod threading {
 		#[link_name = "__popcorn_threading_modify_current_thread_meta"]
 		safe fn with_current_thread_inner(arg: *mut (), f: fn(&Arc<ThreadMeta>, *mut ()));
 
+		/// Places the passed thread back on the scheduler's run-queue.
 		#[link_name = "__popcorn_threading_unblock_thread"]
 		pub safe fn unblock_thread(this: &Arc<ThreadMeta>);
 	}
 }
 
+/// Address space modification.
 pub mod address_space {
 	use crate::address_space;
 
@@ -129,29 +139,38 @@ pub mod address_space {
 		address_space::User::ptr_eq(this, &current)
 	}
 
+	/// Kernel address space.
 	pub mod kernel {
 		use crate::mapping::Ty;
 		use crate::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 		use crate::address_space::MapPageError;
 
 		unsafe extern "Rust" {
+			/// Attempts to make a mapping in the kernel page table.
+			///
+			/// Attempts to map the pages from `page` to `page + count` to the frames from `frame` to `frame + count`,
+			/// marking it with `ty` type metadata, and with architecture specific `flags`.
 			#[link_name = "__popcorn_kpt_map_contiguous"]
 			pub safe fn map_contiguous(page: RawPage, frame: RawFrame, count: usize, ty: Ty, flags: u8) -> Result<(), MapPageError>;
 
+			/// Unmaps a page from the kernel page table.
 			#[expect(dead_code, reason = "not implemented yet")]
 			#[link_name = "__popcorn_kpt_unmap"]
 			pub safe fn unmap(page: RawPage) -> Result<(), ()>;
 
+			/// Gets the frame mapped to `page` in the kernel page table.
 			#[expect(dead_code, reason = "not implemented yet")]
 			#[link_name = "__popcorn_kpt_translate_page"]
 			pub safe fn translate_page(page: RawPage) -> Option<RawFrame>;
 
+			/// Gets the addr mapped to `addr` in the kernel page table.
 			#[expect(dead_code, reason = "not implemented yet")]
 			#[link_name = "__popcorn_kpt_translate_addr"]
 			pub safe fn translate_addr(addr: VirtualAddress) -> Option<PhysicalAddress>;
 		}
 	}
 
+	/// Userspace address spaces.
 	pub mod user {
 		use alloc::borrow::Cow;
 		use crate::address_space::{self, MapPageError};
@@ -160,17 +179,24 @@ pub mod address_space {
 		use crate::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 
 		unsafe extern "Rust" {
+			/// Attempts to make a mapping in a userspace page table.
+			///
+			/// Attempts to map the pages from `page` to `page + count` to the frames from `frame` to `frame + count`,
+			/// marking it with `ty` type metadata, and with architecture specific `flags`.
 			#[link_name = "__popcorn_upt_map_contiguous"]
 			pub safe fn map_contiguous(this: &address_space::User, base_page: RawPage, base_frame: RawFrame, count: usize, ty: Ty, flags: u8) -> Result<(), MapPageError>;
-			
+
+			/// Unmaps a page from a userspace page table.
 			#[expect(dead_code, reason = "not implemented yet")]
 			#[link_name = "__popcorn_upt_unmap"]
 			pub safe fn unmap(this: *const (), page: RawPage) -> Result<(), ()>;
 
+			/// Gets the frame mapped to `page` in the specified page table.
 			#[expect(dead_code, reason = "not implemented yet")]
 			#[link_name = "__popcorn_upt_translate_page"]
 			pub safe fn translate_page(this: &address_space::User, page: RawPage) -> Option<RawFrame>;
 
+			/// Gets the address mapped to `addr` in the specified page table.
 			#[link_name = "__popcorn_upt_translate_addr"]
 			pub safe fn translate_addr(this: &address_space::User, addr: VirtualAddress) -> Option<PhysicalAddress>;
 
@@ -183,6 +209,7 @@ pub mod address_space {
 	}
 }
 
+/// Panicking related utilities.
 pub mod panicking {
 	unsafe extern "Rust" {
 		/// Print a stack trace.
