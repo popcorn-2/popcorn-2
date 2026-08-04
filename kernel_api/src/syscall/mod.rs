@@ -23,12 +23,34 @@ pub use server_inner::*;
 use crate::channel;
 use crate::channel::Receiver;
 
-/// A map of pending async syscall results.
+/// A map of syscall keys to completed results.
 ///
-/// Each result is tied to the key that was used to submit the syscall.
+/// This is a thin wrapper around a [`channel`].
+///
+/// # Examples
+///
+/// ```
+/// # fn open() -> kernel_api::syscall::Result<u128>;
+/// # fn read() -> kernel_api::syscall::Result<u128>;
+/// # fn close() -> kernel_api::syscall::Result<u128>;
+/// use kernel_api::syscall::AsyncMap;
+///
+/// // create a new map to store result in
+/// let map = AsyncMap::new();
+///
+/// // process some syscalls and store the results
+/// let result = open(/* ... */);
+/// map.push_result(1, result);
+///
+/// let result = read(/* ... */);
+/// map.push_result(2, result);
+///
+/// let result = close(/* ... */);
+/// map.push_result(3, result);
+/// ```
 #[derive(Debug)]
 pub struct AsyncMap {
-	queue: Receiver<(usize, Result<u128>)>,
+	#[doc(hidden)] pub queue: Receiver<(usize, Result<u128>)>,
 }
 
 impl AsyncMap {

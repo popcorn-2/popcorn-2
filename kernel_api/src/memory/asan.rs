@@ -28,7 +28,7 @@
 //!
 //! The entire region from [`SHADOW_MAP_START`] through to [`SHADOW_MAP_END`] is safe to read and write
 //! to as a `[u8]`, since any unmapped memory will be automatically mapped. Helper functions for this are
-//! provided as [`read_shadow_map`]/[`write_shadow_map`] and [`read_shadow_map_raw`]/[`write_shadow_map_raw`].
+//! provided as [`read_shadow_map_for`]/[`write_shadow_map_for`] and [`read_shadow_map_raw`]/[`write_shadow_map_raw`].
 
 use crate::memory::VirtualAddress;
 
@@ -103,7 +103,7 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	///     let allocated = no_asan_shim!(|chunk: *mut Chunk| -> bool {
 	///         unsafe { (&raw const (*chunk).allocated).read() }
 	///     });
-	///     if allocated { println!("allocated heap memory at {chunk:p}"); }
+	///     if allocated { info!("allocated heap memory at {chunk:p}"); }
 	/// }
 	/// ```
 	pub macro no_asan_shim {
@@ -190,8 +190,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 				fn force_serial(s: &str);
 			}
 			// SAFETY: At worst this should cause interleaved access to the UART chip
-			// which would cause interleaved or corrupted serial output.
-			// At this point the kernel is already dying so just do the best we can.
+			//  which would cause interleaved or corrupted serial output.
+			//  At this point the kernel is already dying so just do the best we can.
 			unsafe { force_serial(s) };
 			Ok(())
 		}
@@ -580,7 +580,7 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 
 		debug!("zero shadow memory ({:#x} -> {:#x})", mem_to_shadow(start), mem_to_shadow(start) + count_to_shadow(count));
 		// SAFETY: checked that the address is in kernelspace, and `mem_to_shadow` returns
-		// a valid shadow map address for all kernelspace addresses.
+		//  a valid shadow map address for all kernelspace addresses.
 		unsafe {
 			set_shadow_free(
 				mem_to_shadow(start),

@@ -136,7 +136,7 @@ pub mod address_space {
 			meta.address_space.clone()
 		});
 
-		address_space::User::ptr_eq(this, &current)
+		this == current
 	}
 
 	/// Kernel address space.

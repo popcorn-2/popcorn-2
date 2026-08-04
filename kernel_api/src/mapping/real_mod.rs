@@ -120,7 +120,7 @@ impl<R: Mappable> Mapping<R, address_space::Kernel> {
 	/// The section of virtual memory from `base_page + R::base_virtual_offset()` must be contiguously mapped to the
 	/// physical memory owned by `frames`, with the cache and protection attributes given in `caching` and `protection`.
 	///
-	/// These requirements are always upheld by the return values of [`into_raw_parts`]. Other mapping sources are
+	/// These requirements are always upheld by the return values of [`into_raw_parts()`](Self::into_raw_parts). Other mapping sources are
 	/// allowed if all the invariants are upheld.
     //#[cfg(not(feature = "use_std"))]
 	#[must_use]

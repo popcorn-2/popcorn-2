@@ -20,7 +20,21 @@ impl Wake for ThreadMeta {
 	}
 }
 
-/// Blocks the current thread until the future is ready, parking the thread where possible.
+/// Executes a future on the current thread, yielding CPU time to other threads where possible.
+///
+/// # Examples
+///
+/// ```(requires kernel executor)
+/// use kernel_api::executor::block_on();
+/// # async fn complex_operation() -> u32 { 5 }
+///
+/// let x = block_on(async {
+///     info!("starting computation...");
+///     complex_operation().await
+/// });
+///
+/// info!("completed with result {x}");
+/// ```
 #[cfg(not(feature = "use_std"))]
 pub fn block_on<T, F: Future<Output = T>>(f: F) -> T {
 	let mut f = pin!(f);
@@ -66,6 +80,20 @@ pub fn block_on<T, F: Future<Output = T>>(f: F) -> T {
 /// This means that any access via (`LocalUser`)[`crate::ptr::LocalUser`] will be to the current thread's
 /// address space.
 /// This also means that there is no requirement for the future to be [`Send`] nor [`Sync`].
+///
+/// # Examples
+///
+/// ```no_run(requires kernel executor)
+/// use kernel_api::executor::spawn;
+/// # async fn complex_operation() -> u32 { 5 }
+///
+/// spawn(async {
+///     info!("starting computation in background...");
+///     let x = complex_operation().await;
+///     info!("got result {x}");
+/// });
+/// ```
+// FIXME(unsound): allows causing data races, see #180
 pub fn spawn(f: impl Future<Output = ()> + 'static) {
 	crate::bridge::executor::spawn_task(Box::pin(f));
 }

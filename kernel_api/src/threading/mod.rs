@@ -22,10 +22,30 @@ pub struct ThreadId {
 
 impl ThreadId {
 	/// Create a new `ThreadId`.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// use kernel_api::threading::ThreadId;
+	///
+	/// let id = ThreadId::new(3);
+	/// ```
 	#[must_use]
 	pub const fn new(id: isize) -> Self { Self { id } }
 
 	/// Get the internal value of the `ThreadId`.
+	///
+	/// ```
+	/// use kernel_api::threading::ThreadId;
+	///
+	/// fn allocate_tid() -> ThreadId {
+	///     // ...
+	/// # ThreadId::new(3)
+	/// }
+	///
+	/// let tid = allocate_tid();
+	/// info!("new TID is {}", tid.get());
+	/// ```
 	#[must_use]
 	pub const fn get(self) -> isize { self.id }
 }

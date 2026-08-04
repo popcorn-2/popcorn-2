@@ -11,6 +11,10 @@ pub use x86::*;
 
 mod cache;
 
+macro get_first_feature {
+    ($feature:literal $(, $rest:literal)*) => {$feature},
+}
+
 macro_rules! features_macro {
     (
         @TARGET: $target:ident;
@@ -22,9 +26,19 @@ macro_rules! features_macro {
     ) => {
         #[macro_export]
         $(#[$macro_attrs])*
-        #[doc = "Returns a bool if the current system supports the requested feature"]
-        #[doc = "\n\nThe features available to test are:"]
+        /// Returns a bool if the current system supports the requested feature
+        ///
+        /// The features available to test are:
         $(#[doc = concat!("- `", $feature_lit, "` - ", $feature_doc, "\n")])*
+        ///
+        /// # Examples
+        ///
+        /// ```
+        #[doc = concat!("use kernel_api::", stringify!($macro_name), ";\n\n")]
+        #[doc = concat!("if ", stringify!($macro_name), "!(\"", $crate::detect::get_first_feature!($($feature_lit),*), "\") {")]
+        #[doc = concat!("    info!(\"`", $crate::detect::get_first_feature!($($feature_lit),*), "` is supported on this platform\");\n")]
+        /// }
+        /// ```
         macro_rules! $macro_name {
             $(
                 ($feature_lit) => {
@@ -88,10 +102,22 @@ macro_rules! features_macro {
 pub(crate) use features_macro;
 
 /// Returns an iterator over feature names and their support on the current system.
+///
+/// # Examples
+///
+/// Print all supported features:
+/// ```
+/// use kernel_api::detect::features;
+///
+/// println!("Supported features:");
+/// features()
+///     .filter_map(|(name, supported)| supported.then_some(name))
+///     .for_each(|name| println!("- {name}"));
+/// ```
 pub fn features() -> impl Iterator<Item = (&'static str, bool)> {
     (0u32..Feature::_last as u32).map(|discriminant: u32| {
 	    // SAFETY: `Feature` is `repr(u32)`, `discriminant` is within the valid range of discriminants
-	    // as it is less than `Feature::_last` and there are no gaps in discriminant values
+	    //  as it is less than `Feature::_last` and there are no gaps in discriminant values
         let f: Feature = unsafe { core::mem::transmute::<u32, Feature>(discriminant) };
         let name = f.to_str();
         let enabled = cache::test(f);

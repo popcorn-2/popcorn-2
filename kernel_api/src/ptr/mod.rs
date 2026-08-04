@@ -26,6 +26,8 @@ mod user_local;
 #[cfg(feature = "full")]
 pub use user_local::*;
 
+use core::fmt;
+
 mod impls {
 	#[cfg(feature = "full")]
 	cfg_select! {
@@ -37,6 +39,19 @@ mod impls {
 }
 
 /// The error returned when a memory access to userspace failed.
+#[expect(missing_copy_implementations, reason = "no future guarantees about being copy")]
 #[derive(Debug)]
-#[non_exhaustive]
-pub struct PointerError {}
+pub struct PointerError { _private: () }
+
+impl PointerError {
+	#[cfg(feature = "full")]
+	const fn new() -> Self { Self { _private: () } }
+}
+
+impl fmt::Display for PointerError {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "failed to write to pointer")
+	}
+}
+
+impl core::error::Error for PointerError {}

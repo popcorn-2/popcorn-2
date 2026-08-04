@@ -72,6 +72,15 @@ newtype_enum! {
 	///
 	/// Constants are provided for typical memory buffer uses and will be printed by name in logs,
 	/// but any custom value can be used and will have it's raw value printed.
+	///
+	/// # Examples
+	///
+	/// ```
+	/// use kernel_api::mapping::Ty;
+	///
+	/// const MY_CUSTOM_MEMORY: Ty = Ty(0xA0);
+	/// ```
+	// TODO(doc): more example?
 	pub enum Ty: pub u8 => {
 		/// Unknown.
 		UNKNOWN = 0,

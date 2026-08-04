@@ -18,6 +18,8 @@
 #![feature(const_clone)]
 #![feature(const_default)]
 #![feature(strict_provenance_lints)]
+#![feature(decl_macro)]
+#![cfg_attr(doc, feature(intra_doc_pointers))]
 #![cfg_attr(doc, feature(rustdoc_missing_doc_code_examples))]
 #![feature(prelude_import)]
 
@@ -51,7 +53,9 @@
 
 #![expect(internal_features, reason = "prelude import")]
 
-#![cfg_attr(not(feature = "use_std"), no_std)]
+#![cfg_attr(not(any(feature = "use_std", doc)), no_std)]
+
+#![doc(auto_cfg(hide(feature = "full", feature = "use_std")))]
 
 extern crate alloc;
 
@@ -112,6 +116,14 @@ mod sealed {
 }
 
 /// Prints and returns the value of a given expression for quick and dirty debugging.
+///
+/// # Examples
+///
+/// ```
+/// # fn complex_operation() -> i8 { 5 }
+/// // prints `complex_operation() = ...` and assigns the result to `x`
+/// let x = dbg!(complex_operation());
+/// ```
 #[macro_export]
 macro_rules! dbg {
     ($val:expr $(,)?) => {

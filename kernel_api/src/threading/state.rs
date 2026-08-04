@@ -149,7 +149,7 @@ impl AtomicThreadState {
 	/// `fetch_update` takes two [`Ordering`] arguments to describe the memory ordering of this operation.
 	/// The first describes the required ordering for when the operation finally succeeds while the second
 	/// describes the required ordering for loads. These correspond to the success and failure orderings of
-	/// [`compare_exchange`] respectively.
+	/// [`compare_exchange`](Self::compare_exchange) respectively.
 	///
 	/// Using [`Acquire`](`Ordering::Acquire`) as success ordering makes the store part
 	/// of this operation [`Relaxed`](`Ordering::Relaxed`), and using [`Release`](`Ordering::Release`) makes the final successful load

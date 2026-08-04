@@ -69,7 +69,7 @@ impl<T: ?Sized> LocalUser<*const T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*const T>::offset()`].
+	/// See safety requirements for [`<*const T>::offset()`](pointer::offset).
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn offset(self, count: isize) -> Self where T: Sized {
 		Self {
@@ -82,7 +82,7 @@ impl<T: ?Sized> LocalUser<*const T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*const T>::byte_offset()`].
+	/// See safety requirements for [`<*const T>::byte_offset()`](pointer::byte_offset).
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn byte_offset(self, count: isize) -> Self {
 		Self {
@@ -98,7 +98,7 @@ impl<T: ?Sized> LocalUser<*const T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*const T>::add()`].
+	/// See safety requirements for [`<*const T>::add()`](pointer::add).
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn add(self, count: usize) -> Self where T: Sized {
 		Self {
@@ -111,7 +111,7 @@ impl<T: ?Sized> LocalUser<*const T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*const T>::byte_add()`].
+	/// See safety requirements for [`<*const T>::byte_add()`](pointer::byte_add).
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn byte_add(self, count: usize) -> Self {
 		Self {
@@ -127,7 +127,7 @@ impl<T: ?Sized> LocalUser<*const T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*const T>::sub()`].
+	/// See safety requirements for [`<*const T>::sub()`](pointer::sub).
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn sub(self, count: usize) -> Self where T: Sized {
 		Self {
@@ -140,7 +140,7 @@ impl<T: ?Sized> LocalUser<*const T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*const T>::byte_sub()`].
+	/// See safety requirements for [`<*const T>::byte_sub()`](pointer::byte_sub).
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn byte_sub(self, count: usize) -> Self {
 		Self {
@@ -182,7 +182,7 @@ impl<T: ?Sized> LocalUser<*const T> {
 						// SAFETY: `checked_memcpy` initialised the buffer if it returned Ok
 						.map(|()| unsafe { buf.assume_init() })
 			}
-		}.ok_or(PointerError {})
+		}.ok_or_else(PointerError::new)
 	}
 
 	/// Casts a pointer to another type.
@@ -275,7 +275,7 @@ impl<T: ?Sized> LocalUser<*mut T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*mut T>::offset()`].
+	/// See safety requirements for [`<*mut T>::offset()`](pointer::offset).
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn offset(self, count: isize) -> Self where T: Sized {
 		Self {
@@ -288,7 +288,7 @@ impl<T: ?Sized> LocalUser<*mut T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*mut T>::byte_offset()`].
+	/// See safety requirements for [`<*mut T>::byte_offset()`](pointer::byte_offset).
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn byte_offset(self, count: isize) -> Self {
 		Self {
@@ -304,7 +304,7 @@ impl<T: ?Sized> LocalUser<*mut T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*mut T>::add()`].
+	/// See safety requirements for [`<*mut T>::add()`](pointer::add).
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn add(self, count: usize) -> Self where T: Sized {
 		Self {
@@ -317,7 +317,7 @@ impl<T: ?Sized> LocalUser<*mut T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*mut T>::byte_add()`].
+	/// See safety requirements for [`<*mut T>::byte_add()`](pointer::byte_add).
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn byte_add(self, count: usize) -> Self {
 		Self {
@@ -333,7 +333,7 @@ impl<T: ?Sized> LocalUser<*mut T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*mut T>::sub()`].
+	/// See safety requirements for [`<*mut T>::sub()`](pointer::sub).
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn sub(self, count: usize) -> Self where T: Sized {
 		Self {
@@ -346,7 +346,7 @@ impl<T: ?Sized> LocalUser<*mut T> {
 	///
 	/// # Safety
 	///
-	/// See safety requirements for [`<*mut T>::byte_sub()`].
+	/// See safety requirements for [`<*mut T>::byte_sub()`](pointer::byte_sub).
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub const unsafe fn byte_sub(self, count: usize) -> Self {
 		Self {
@@ -381,7 +381,7 @@ impl<T: ?Sized> LocalUser<*mut T> {
 			size => {
 				impls::checked_memcpy((&raw const value).cast(), self.ptr.cast(), size)
 			}
-		}.ok_or(PointerError {})?;
+		}.ok_or_else(PointerError::new)?;
 		core::mem::forget(value);
 		Ok(())
 	}
@@ -500,7 +500,7 @@ impl<T> LocalUser<*const [T]> {
 			self.ptr.cast(),
 			buffer.as_mut_ptr().cast(),
 			size_of::<T>() * count
-		).ok_or(PointerError {})?;
+		).ok_or_else(PointerError::new)?;
 
 		Ok(count)
 	}
@@ -539,7 +539,7 @@ impl<T> LocalUser<*mut [T]> {
 			slice.as_ptr().cast(),
 			self.ptr.cast(),
 			size_of::<T>() * count
-		).ok_or(PointerError {})?;
+		).ok_or_else(PointerError::new)?;
 
 		Ok(count)
 	}

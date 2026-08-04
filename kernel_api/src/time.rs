@@ -12,7 +12,7 @@
 //! slow_function();
 //!
 //! let elapsed_time = now.elapsed();
-//! println!("Running slow_function() took {} seconds.", elapsed_time.as_secs());
+//! info!("Running slow_function() took {} seconds.", elapsed_time.as_secs());
 //! ```
 
 use core::ops::{Add, AddAssign, Sub, SubAssign};
@@ -22,10 +22,10 @@ use core::time::Duration;
 /// Opaque and useful only with [`Duration`].
 ///
 /// Instants are opaque types that should usually only be compared to one another.
-/// [`get()`] can be used to get the internal value, but no guarantees are made about
+/// [`get()`](Self::get) can be used to get the internal value, but no guarantees are made about
 /// the meaning of the value. The meaning of the result of `get()` varies by system
 /// and may even change at runtime during a single boot. A best-attempt value of the
-/// time since system boot can be retrieved with [`nanos_since_boot()`].
+/// time since system boot can be retrieved with [`nanos_since_boot()`](Self::nanos_since_boot).
 ///
 /// The size of an `Instant` struct may vary depending on the target platform.
 ///
@@ -43,7 +43,7 @@ use core::time::Duration;
 ///    // we sleep for 2 seconds
 ///    block_on(sleep(Duration::new(2, 0)));
 ///    // it prints '2'
-///    sprintln!("{}", now.elapsed().as_secs());
+///    info!("{}", now.elapsed().as_secs());
 /// }
 /// ```
 ///
@@ -116,7 +116,7 @@ impl Instant {
     /// let now = Instant::now();
     /// block_on(sleep(Duration::new(1, 0)));
     /// let new_now = Instant::now();
-    /// sprintln!("{:?}", new_now.duration_since(now));
+    /// info!("{:?}", new_now.duration_since(now));
     /// ```
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn duration_since(&self, earlier: Self) -> Duration {
@@ -137,8 +137,8 @@ impl Instant {
     /// let now = Instant::now();
     /// block_on(sleep(Duration::new(1, 0)));
     /// let new_now = Instant::now();
-    /// sprintln!("{:?}", new_now.checked_duration_since(now));
-    /// sprintln!("{:?}", now.checked_duration_since(new_now)); // None
+    /// info!("{:?}", new_now.checked_duration_since(now));
+    /// info!("{:?}", now.checked_duration_since(new_now)); // None
     /// ```
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_duration_since(&self, earlier: Self) -> Option<Duration> {
@@ -163,8 +163,8 @@ impl Instant {
     /// let now = Instant::now();
     /// block_on(sleep(Duration::new(1, 0)));
     /// let new_now = Instant::now();
-    /// sprintln!("{:?}", new_now.saturating_duration_since(now));
-    /// sprintln!("{:?}", now.saturating_duration_since(new_now)); // 0ns
+    /// info!("{:?}", new_now.saturating_duration_since(now));
+    /// info!("{:?}", now.saturating_duration_since(new_now)); // 0ns
     /// ```
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn saturating_duration_since(&self, earlier: Self) -> Duration {
@@ -202,6 +202,7 @@ impl Instant {
 	/// Returns `Some(t)` where `t` is the time `self + duration` if `t` can be represented as
     /// `Instant` (which means it's inside the bounds of the underlying data structure), `None`
     /// otherwise.
+	#[expect(rustdoc::missing_doc_code_examples, reason = "any useful example would be unreasonable to write")]
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_add(&self, duration: Duration) -> Option<Self> {
 		let arch_val = self.arch_val.checked_add(Self::nanos_to_arch(duration.as_nanos()))?;
@@ -211,6 +212,7 @@ impl Instant {
 	/// Returns `Some(t)` where `t` is the time `self - duration` if `t` can be represented as
     /// `Instant` (which means it's inside the bounds of the underlying data structure), `None`
     /// otherwise.
+	#[expect(rustdoc::missing_doc_code_examples, reason = "any useful example would be unreasonable to write")]
 	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_sub(&self, duration: Duration) -> Option<Self> {
 		let arch_val = self.arch_val.checked_sub(Self::nanos_to_arch(duration.as_nanos()))?;
@@ -220,6 +222,13 @@ impl Instant {
 	/// The number of nanoseconds since the system booted.
 	/// 
 	/// No guarantees are provided on time before overflow.
+	///
+	/// ```
+	/// use kernel_api::time::Instant;
+	///
+	/// let now = Instant::now();
+	/// info!("system has been booted for {} ns.", now.nanos_since_boot);
+	/// ```
 	#[must_use]
 	pub fn nanos_since_boot(&self) -> u128 {
 		self.nanos()
@@ -229,6 +238,7 @@ impl Instant {
 	/// 
 	/// The meaning of the returned value is architecture dependant, see the
 	/// [struct level documentation](`Instant#underlying-system`) for more information.
+	#[expect(rustdoc::missing_doc_code_examples, reason = "no useful example")]
 	#[must_use]
 	pub const fn get(&self) -> u128 { self.arch_val }
 }

@@ -28,6 +28,7 @@
 /// ```
 pub trait Truncate: Sized {
 	/// Truncates `self` to type `T`.
+	#[expect(rustdoc::missing_doc_code_examples, reason = "example in trait level docs")]
 	fn truncate<T: TruncateFrom<Self>>(self) -> T {
 		T::truncate_from(self)
 	}

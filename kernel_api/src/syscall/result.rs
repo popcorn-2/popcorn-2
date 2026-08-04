@@ -1,3 +1,4 @@
+use core::fmt;
 use crate::allocator::AllocError;
 use crate::ptr::PointerError;
 
@@ -79,3 +80,11 @@ impl From<AllocError> for Error {
 		Self::AllocationFailure
 	}
 }
+
+impl fmt::Display for Error {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "syscall failed")
+	}
+}
+
+impl core::error::Error for Error {}

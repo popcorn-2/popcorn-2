@@ -144,12 +144,12 @@ impl Once {
         self.0.store(State::Called.into(), Ordering::Release);
     }
 
-	/// Returns `true` if some [`call_once()`] call has completed
+	/// Returns `true` if some [`call_once()`](Self::call_once) call has completed
 	/// successfully. Specifically, `is_completed` will return false in
 	/// the following situations:
-	///   * [`call_once()`] was not called at all,
-	///   * [`call_once()`] was called, but has not yet completed,
-	///   * the [`Once`] instance is poisoned
+	/// - [`call_once()`](Self::call_once) was not called at all,
+	/// - [`call_once()`](Self::call_once) was called, but has not yet completed,
+	/// - the [`Once`] instance is poisoned
 	///
 	/// This function returning `false` does not mean that [`Once`] has not been
 	/// executed. For example, it may have been executed in the time between
@@ -158,7 +158,7 @@ impl Once {
 	///
 	/// # Panics
 	///
-	/// If this `Once` is poisoned due to the closure passed to [`call_once`] panicking.
+	/// If this `Once` is poisoned due to the closure passed to [`call_once()`](Self::call_once) panicking.
 	///
 	/// # Examples
 	///

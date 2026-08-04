@@ -1,9 +1,5 @@
 //! Types to manipulate the kernel and userspace address spaces.
 //!
-//! This module provides two sets of address space types - the [`Kernel`] and [`Userspace`] marker types
-//! for use with [`Mapping`], as well as the [`AddressSpace`] type for directly
-//! manipulating the address space of a thread.
-//!
 //! # Kernel address space
 //!
 //! TODO(doc).
@@ -121,12 +117,6 @@ impl User {
 		crate::bridge::address_space::user::push_mapping(self, name, mapping)
 	}
 
-	/// Returns `true` if the two `Arc`s point to the same allocation in a vein similar to
-	/// [`ptr::eq`]. This function ignores the metadata of  `dyn Trait` pointers.
-	pub fn ptr_eq(this: &Self, other: &Self) -> bool {
-		this.ptr.load(Ordering::Relaxed) == other.ptr.load(Ordering::Relaxed)
-	}
-
 	/// Atomically replace the address space pointed to by `self`.
 	///
 	/// `swap` takes an [`Ordering`] argument which describes the memory ordering
@@ -185,6 +175,12 @@ impl Debug for User {
 		let ptr = self.__extract_ptr(Ordering::Relaxed);
 		// SAFETY: result of `__extract_ptr` always points to a valid `dyn __AddressSpaceInner`
 		unsafe { &*ptr }.fmt(f)
+	}
+}
+
+impl PartialEq for User {
+	fn eq(&self, other: &Self) -> bool {
+		self.ptr.load(Ordering::Relaxed) == other.ptr.load(Ordering::Relaxed)
 	}
 }
 

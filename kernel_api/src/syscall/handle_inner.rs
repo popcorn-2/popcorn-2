@@ -59,7 +59,7 @@ impl HandleMap {
 	/// Adds the passed handle to the handle map and returns the position it's placed at.
 	///
 	/// No guarantees are made on what positions in the map are used.
-	/// If a specific position is needed, use [`openat()`].
+	/// If a specific position is needed, use [`openat()`](Self::openat).
 	///
 	/// # Errors
 	///
@@ -184,9 +184,14 @@ impl HandleMap {
 		this.map.lock().remove(&val).ok_or(Error::InvalidHandle)
 	}
 
+	/// Swaps `self` to contain the mappings contained in `other`, and
+	/// returns the mappings originally contained in `self`.
+	///
 	/// # Safety
 	///
-	/// There must be no outstanding references from [`deref()`].
+	/// There must be no outstanding references to the internal map.
+	/// This means that `swap` cannot be called while any call to any
+	/// other method on `self` is ongoing.
 	#[must_use]
 	pub unsafe fn swap(&self, other: Self, ordering: Ordering) -> Self {
 		let other = ManuallyDrop::new(other);

@@ -20,7 +20,7 @@ pub trait Mappable {
 ///
 /// When combined with [`virtual_location`](`super::Config::virtual_location`), the use of guard pages may mean that the valid start
 /// of the virtual allocation is not at the requested location. Retrieve the valid start using
-/// [`virtual_valid_start`](`Mapping::virtual_valid_start`), [`as_ptr`](`Mapping::as_ptr`), or similar after
+/// [`virtual_valid_start`](`crate::mapping::Mapping::virtual_valid_start`), [`as_ptr`](crate::mapping::Mapping::as_ptr), or similar after
 /// creating the mapping to get the correct address.
 ///
 /// </div>
