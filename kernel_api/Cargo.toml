@@ -6,19 +6,18 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-crossbeam-queue = { version = "0.3.12", default-features = false, features = ["alloc"] }
-futures = { version = "0.3.31", default-features = false }
-lock_api = "0.4.11"
+crossbeam-queue = { version = "0.3.12", default-features = false, features = ["alloc"], optional = true }
+futures = { version = "0.3.31", default-features = false, optional = true }
+lock_api = { version = "0.4.11", optional = true }
 log = "0.4.20"
 parking_lot = { version = "0.12.1", optional = true, features = ["deadlock_detection"] }
 libc = { version = "0.2.176", optional = true }
-hashbrown = { version = "0.14.5", default-features = false }
+hashbrown = { version = "0.14.5", optional = true }
 
 [features]
 use_std = ["parking_lot", "hashbrown/ahash", "libc"]
 full = []
-default = ["full"]
-kasan = []
+default = ["full", "dep:crossbeam-queue", "dep:futures", "dep:hashbrown", "dep:lock_api"]
 
 [lints]
 workspace = true

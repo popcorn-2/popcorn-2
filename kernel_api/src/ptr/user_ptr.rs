@@ -89,7 +89,6 @@ pub const fn null<T: core::ptr::Thin + ?Sized>() -> User<'static, *const T> {
 
 /// Pointer equality is by address space, and [`ptr::eq`].
 impl<T: ?Sized> PartialEq for User<'_, *mut T> {
-	#[expect(ambiguous_wide_pointer_comparisons, reason = "want same behaviour as `PartialEq` on raw pointer")]
 	fn eq(&self, other: &Self) -> bool {
 		let ptr_eq = ptr::eq(self.ptr, other.ptr);
 		let address_space_eq = self.address_space.is_some_and(
@@ -101,7 +100,6 @@ impl<T: ?Sized> PartialEq for User<'_, *mut T> {
 
 /// Pointer equality is by address space, and [`ptr::eq`].
 impl<T: ?Sized> PartialEq for User<'_, *const T> {
-	#[expect(ambiguous_wide_pointer_comparisons, reason = "want same behaviour as `PartialEq` on raw pointer")]
 	fn eq(&self, other: &Self) -> bool {
 		let ptr_eq = ptr::eq(self.ptr, other.ptr);
 		let address_space_eq = self.address_space.is_some_and(

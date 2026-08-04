@@ -136,7 +136,7 @@ pub mod address_space {
 			meta.address_space.clone()
 		});
 
-		this == current
+		*this == current
 	}
 
 	/// Kernel address space.

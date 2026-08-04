@@ -34,7 +34,7 @@ use core::fmt;
 #[cfg(feature = "full")] use core::ops::Range;
 #[cfg(feature = "full")] use core::marker::PhantomData;
 #[cfg(feature = "full")] use core::mem::{ManuallyDrop, MaybeUninit};
-#[cfg(feature = "full")] use crate::allocator::{DynPmm, Pmm};
+#[cfg(feature = "full")] use crate::allocator::{DynPmm, Pmm as _};
 
 mod type_ops;
 
