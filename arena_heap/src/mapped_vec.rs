@@ -1,3 +1,4 @@
+use core::fmt;
 use core::marker::PhantomData;
 use core::num::NonZero;
 use core::ptr::slice_from_raw_parts;
@@ -46,7 +47,7 @@ impl<T> MappedVec<T> {
 		debug_assert!(self.capacity() > self.len() + 1);
 
 		// SAFETY: storage is valid for at least one more item to fit
-		unsafe { ptr.add(self.len()).write(item); }
+		unsafe { ptr.add(self.len()).write(item) };
 		self.length += 1;
 	}
 
@@ -55,8 +56,14 @@ impl<T> MappedVec<T> {
 		storage.byte_len() / size_of::<T>()
 	}
 
-	pub fn len(&self) -> usize {
+	pub const fn len(&self) -> usize {
 		self.length
+	}
+}
+
+impl<T: fmt::Debug> fmt::Debug for MappedVec<T> {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_list().entries(self).finish()
 	}
 }
 
@@ -68,6 +75,7 @@ impl<T> Drop for MappedVec<T> {
 	}
 }
 
+#[derive(Debug)]
 pub struct Iter<'vec, T> {
 	items: &'vec [T],
 }
@@ -88,14 +96,14 @@ impl<'vec, T: 'vec> IntoIterator for &'vec MappedVec<T> {
 
 	fn into_iter(self) -> Self::IntoIter {
 		let ptr = self.storage.as_ref()
-				.map(|map| map.as_ptr().cast())
-				.unwrap_or(core::ptr::dangling());
+				.map_or(core::ptr::dangling(), |map| map.as_ptr().cast());
 		Iter {
 			items: unsafe { &*slice_from_raw_parts(ptr, self.len()) }
 		}
 	}
 }
 
+#[derive(Debug)]
 pub struct IterMut<'vec, T> {
 	_phantom: PhantomData<&'vec mut [T]>,
 }
