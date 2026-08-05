@@ -466,7 +466,7 @@ impl<T> Frames<true, MaybeUninit<T>> {
     /// assert_eq!(initialized, &[1; PAGE_SIZE]);
     /// # Ok::<(), kernel_api::allocator::AllocError>::(())
     /// ```
-    pub fn into_filed(mut self, value: T) -> Frames<true, T> where T: Clone {
+    pub fn into_filled(mut self, value: T) -> Frames<true, T> where T: Clone {
         self.write_filled(value);
 	    let (raw, pmm) = self.into_raw();
 	    Frames {
@@ -503,7 +503,7 @@ impl<T> Frames<true, MaybeUninit<T>> {
     /// assert_eq!(&initialized[..5], &[1, 2, 3, 4, 5]);
     /// # Ok::<(), kernel_api::allocator::AllocError>::(())
     /// ```
-    pub fn into_filed_with(mut self, f: impl FnMut(usize) -> T) -> Frames<true, T> {
+    pub fn into_filled_with(mut self, f: impl FnMut(usize) -> T) -> Frames<true, T> {
         self.write_filled_with(f);
 	    let (raw, pmm) = self.into_raw();
 	    Frames {

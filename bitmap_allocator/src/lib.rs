@@ -71,7 +71,7 @@ impl BitmapAllocator {
             const { NonZero::new(8 * PAGE_SIZE).unwrap() }
         );
         let bitmap = highmem().allocate(bitmap_length)?;
-        let bitmap = bitmap.cast::<usize>().into_filed(0);
+        let bitmap = bitmap.cast::<usize>().into_filled(0);
 
         Ok(Self {
             first_frame,

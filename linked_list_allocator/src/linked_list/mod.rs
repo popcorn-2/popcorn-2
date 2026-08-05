@@ -122,7 +122,7 @@ impl LinkedList {
 		debug!("allocate {page_count:#x} pages for LinkedListAllocator");
 		#[cfg(not(test))] let backing = {
 			let backing = highmem().allocate(page_count)?;
-			backing.cast::<Node>().into_filed(Node::zeroed())
+			backing.cast::<Node>().into_filled(Node::zeroed())
 		};
 		#[cfg(test)] let backing = mock::FrameMock::new(page_count);
 
