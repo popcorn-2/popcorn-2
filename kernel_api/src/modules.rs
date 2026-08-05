@@ -69,8 +69,6 @@ macro_rules! kernel_module {
 		    $crate::kernel_module_license!(@license $license);
 		    const fn __assert_module_implements_module<T: $crate::modules::Module>() {}
 		    __assert_module_implements_module::<$ty>();
-
-		    impl $crate::modules::__private::RequiresAbiShim for $ty {}
 	    };
     };
 }
