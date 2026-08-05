@@ -26,6 +26,7 @@
 #![cfg_attr(feature = "full", feature(maybe_uninit_fill))]
 #![cfg_attr(feature = "full", feature(sanitize))]
 #![cfg_attr(feature = "full", feature(negative_impls))]
+#![cfg_attr(feature = "full", feature(decl_macro))]
 
 //#![deny(warnings)]
 #![deny(unfulfilled_lint_expectations)]
@@ -79,6 +80,9 @@ pub mod executor;
 
 #[cfg(feature = "full")]
 pub mod channel;
+
+#[cfg(feature = "full")]
+pub mod modules;
 
 mod sealed {
     pub trait Sealed {}

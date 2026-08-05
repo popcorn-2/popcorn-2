@@ -33,3 +33,6 @@ opt-level = 2
 
 [profile.dev.package.unwinding]
 opt-level = 2
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kernel_version, values("0.1.0"))', 'cfg(kasan, values(none()))'] }

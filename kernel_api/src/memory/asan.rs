@@ -8,6 +8,8 @@
 //! In practice not all of these values are used.
 //! The current list is:
 //! - `0xfa`: Heap left redzone - memory just before a heap allocation
+//! - `0xfb`: Heap right redzone - memory just after a heap allocation
+//! - `0xfc`: Heap headers - memory used by heap internals
 //! - `0xfd`: Freed heap memory - heap memory that has recently been deallocated, and is currently
 //!                               in a quarantine period
 //! - `0xf1`: Stack left redzone - memory just before a stack allocation
@@ -24,14 +26,24 @@
 
 use crate::memory::VirtualAddress;
 
-/// Offset to add to `addr / 8` to calculate shadow map address
-pub const SHADOW_MAP_SHIFT: usize = 0xdfff_d000_0000_0000;
+/// Offset to add to `addr / 8` to calculate shadow map address.
+pub const SHADOW_MAP_SHIFT: usize = cfg_select! {
+	target_arch = "x86_64" => 0xdfff_d000_0000_0000,
+};
 
-/// Address of the start of the shadow map region
-pub const SHADOW_MAP_START: VirtualAddress = VirtualAddress::new(0xffff_c000_0000_0000);
+/// Address of the start of the shadow map region.
+pub const SHADOW_MAP_START: VirtualAddress = cfg_select! {
+	target_arch = "x86_64" => VirtualAddress::new(0xffff_c000_0000_0000),
+};
 
-/// Address of the end of the shadow map region
-pub const SHADOW_MAP_END: VirtualAddress = VirtualAddress::new(0xffff_c000_0000_0000 + 16*1024*1024*1024*1024);
+/// Address of the end of the shadow map region.
+pub const SHADOW_MAP_END: VirtualAddress = cfg_select! {
+	target_arch = "x86_64" => SHADOW_MAP_START + SHADOW_MAP_SIZE,
+};
+
+const SHADOW_MAP_SIZE: usize = cfg_select! {
+	target_arch = "x86_64" => 16*1024*1024*1024*1024,
+};
 
 #[cfg(feature = "full")] pub use full::*;
 #[cfg(feature = "full")] mod full {
@@ -48,6 +60,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
   Addressable:           00
   Partially addressable: 01 - 07
   Heap left redzone:     fa
+  Heap right redzone:    fb
+  Heap headers:          fc
   Freed heap memory:     fd
   Stack left redzone:    f1
   Stack mid redzone:     f2
@@ -61,13 +75,45 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
   Shadow gap:            cc
 ";
 
-	#[sanitize(address = "off")]
-	#[inline(never)]
-	unsafe fn read_address_nosan(address: *const u8) -> u8 {
-		debug_assert!(VirtualAddress::from(address) >= SHADOW_MAP_START && VirtualAddress::from(address) < SHADOW_MAP_END, "only shadow reads should be nosan");
-		unsafe {
-			*address
-		}
+	pub macro no_asan_shim {
+		($([$($tt:tt)*])?|$($i:ident:$ty:ty),*$(,)?| $(-> $ret:ty)? $e:block) => {{
+			#[cfg_attr(kasan, sanitize(address = "off"))]
+			#[cfg_attr(kasan, inline(never))]
+			#[cfg_attr(not(kasan), inline(always))]
+			fn noasan_shim<$($tt)*>($($i:$ty),*) $(-> $ret)? {$e}
+
+			noasan_shim($($i),*)
+		}},
+		($([$($tt:tt)*])?|$($i:ident:$ty:ty),*$(,)?| $e:expr) => {
+			$crate::memory::asan::no_asan_shim!($([$($tt)*])?|$($i:$ty),*| { $e:expr })
+		},
+	}
+
+	pub fn read_shadow_map_raw(idx: usize) -> i8 {
+		assert!(idx < SHADOW_MAP_SIZE, "attempt to read outside of shadow map");
+		no_asan_shim!(|idx: usize| -> i8 {
+			// SAFETY: just checked the index is within the shadow map and all values within shadow map
+			//  are aligned and accessible due to lazy mapping
+			unsafe { *SHADOW_MAP_START.as_ptr().byte_add(idx).cast() }
+		})
+	}
+
+	pub fn read_shadow_map_for(addr: VirtualAddress) -> i8 {
+		read_shadow_map_raw((addr.addr >> 3) + SHADOW_MAP_SHIFT)
+	}
+
+	/// If `idx` is greater than `SHADOW_MAP_END - SHADOW_MAP_START`.
+	pub fn write_shadow_map_raw(idx: usize, val: i8) {
+		assert!(idx < SHADOW_MAP_SIZE, "attempt to read outside of shadow map");
+		no_asan_shim!(|idx: usize, val: i8| {
+			// SAFETY: just checked the index is within the shadow map and all values within shadow map
+			//  are aligned and accessible due to lazy mapping
+			unsafe { *SHADOW_MAP_START.as_ptr().byte_add(idx).cast() = val };
+		});
+	}
+
+	pub fn write_shadow_map_for(addr: VirtualAddress, val: i8) {
+		write_shadow_map_raw((addr.addr >> 3) + SHADOW_MAP_SHIFT, val);
 	}
 
 	struct Serial;
@@ -104,7 +150,7 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 			if (i - dump_start) % 16 == 0 {
 				let _ = write!(&mut writer, "  0x{:016x}:", i);
 			}
-			let byte = unsafe { read_address_nosan(i.as_ptr()) };
+			let byte = read_shadow_map_raw(i - SHADOW_MAP_START);
 
 			if i >= mem_to_shadow(address) && i <= mem_to_shadow(address + width - 1usize) {
 				let _ = write!(&mut writer, " \u{001b}[1m{:02x}\u{001b}[0m", byte);
@@ -135,72 +181,125 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_load1(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "load", 1);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_load2(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "load", 2);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_load4(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "load", 4);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_load8(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "load", 8);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_load16(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "load", 16);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_load_n(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "load", count);
+	}
+
+	fn asan_mem_n(address: VirtualAddress, count: usize, ty: &str) {
+		if !cfg!(kasan) { return; }
+
+		let end = address + count;
+		for byte in (address..end).step_by(8) {
+			let shadow = read_shadow_map_for(byte);
+			if shadow < 0 {
+				do_report(address, ty, count);
+			} else if shadow != 0 {
+				let bytes_left = core::cmp::min(end - byte, 8);
+				if bytes_left > shadow.cast_unsigned() as usize {
+					do_report(address, ty, count);
+				}
+			}
+		}
+	}
+
+	#[doc(hidden)]
+	#[unsafe(no_mangle)]
+	pub extern "C-unwind" fn __asan_load_n(address: VirtualAddress, count: usize) {
+		asan_mem_n(address, count, "load");
+	}
+
+	#[doc(hidden)]
+	#[unsafe(no_mangle)]
+	pub extern "C-unwind" fn __asan_store_n(address: VirtualAddress, count: usize) {
+		asan_mem_n(address, count, "store");
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store1(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "store", 1);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store2(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "store", 2);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store4(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "store", 4);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store8(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "store", 8);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store16(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "store", 16);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store_n(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "store", count);
 	}
 
@@ -208,6 +307,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[unsafe(no_mangle)]
 	//#[no_sanitize(address)]
 	pub extern "C-unwind" fn __asan_handle_no_return() {
+		if !cfg!(kasan) { return; }
+
 		/* idk what to do here */
 		/*let rsp: usize;
 		unsafe {
@@ -230,6 +331,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_stack_left(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xf1, count);
@@ -245,6 +348,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_use_after_scope(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xf8, count);
@@ -260,6 +365,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_free(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0, count);
@@ -274,6 +381,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_free_vmem(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xc0, count);
@@ -290,6 +399,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_uninit_vmem(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xc1, count);
@@ -305,9 +416,45 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_heap_left(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xfa, count);
+		}
+	}
+
+	/// Marks `count` entries in the shadow map starting at `address` as "heap right redzone".
+	///
+	/// # Safety
+	///
+	/// `address` through `address + count` must be addresses in the shadow map.
+	#[sanitize(address = "off")]
+	#[inline(never)]
+	pub unsafe extern "C-unwind" fn set_shadow_heap_right(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
+		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
+		// SAFETY: `address` through `address + count` are addresses within the shadow map
+		unsafe {
+			core::ptr::write_bytes(address.as_ptr(), 0xfb, count);
+		}
+	}
+
+	/// Marks `count` entries in the shadow map starting at `address` as "heap headers".
+	///
+	/// # Safety
+	///
+	/// `address` through `address + count` must be addresses in the shadow map.
+	#[sanitize(address = "off")]
+	#[inline(never)]
+	pub unsafe extern "C-unwind" fn set_shadow_heap_header(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
+		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
+		// SAFETY: `address` through `address + count` are addresses within the shadow map
+		unsafe {
+			core::ptr::write_bytes(address.as_ptr(), 0xfc, count);
 		}
 	}
 
@@ -320,6 +467,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_heap_free(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xfd, count);
@@ -331,6 +480,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	/// This internally calculates the correct shadow map entries
 	pub fn asan_free_range(start: VirtualAddress, count: usize) {
 		assert!(start.aligned_to(8), "asan free range must be 8 byte aligned");
+		if !cfg!(kasan) { return; }
+
 		assert!(start.is_higher_half(), "asan only covers higher half");
 
 		debug!("zero shadow memory ({:#x} -> {:#x})", mem_to_shadow(start), mem_to_shadow(start) + count_to_shadow(count));
@@ -343,23 +494,17 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 
 		let last = start + count - 1usize;
 
-		#[sanitize(address = "off")]
-		#[inline(never)]
-		fn nosan_shim(last: VirtualAddress, count: usize) {
-			match count % 8 {
-				0 => {},
-				1 => unsafe { *mem_to_shadow(last).as_ptr() = 0x1 },
-				2 => unsafe { *mem_to_shadow(last).as_ptr() = 0x2 },
-				3 => unsafe { *mem_to_shadow(last).as_ptr() = 0x3 },
-				4 => unsafe { *mem_to_shadow(last).as_ptr() = 0x4 },
-				5 => unsafe { *mem_to_shadow(last).as_ptr() = 0x5 },
-				6 => unsafe { *mem_to_shadow(last).as_ptr() = 0x6 },
-				7 => unsafe { *mem_to_shadow(last).as_ptr() = 0x7 },
-				_ => unreachable!("x % 8 < 8")
-			}
+		match count % 8 {
+			0 => {},
+			1 => write_shadow_map_for(last, 1),
+			2 => write_shadow_map_for(last, 2),
+			3 => write_shadow_map_for(last, 3),
+			4 => write_shadow_map_for(last, 4),
+			5 => write_shadow_map_for(last, 5),
+			6 => write_shadow_map_for(last, 6),
+			7 => write_shadow_map_for(last, 7),
+			_ => unreachable!("x % 8 < 8"),
 		}
-
-		nosan_shim(last, count);
 	}
 
 	/// Converts the passed `address` into the corresponding address in the shadow map

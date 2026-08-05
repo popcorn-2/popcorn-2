@@ -2,19 +2,28 @@ use core::alloc::Layout;
 use core::num::NonZero;
 use core::ops::Range;
 use core::ptr::NonNull;
-use log::{debug, trace};
+use log::trace;
 #[cfg(not(test))] use kernel_api::address_space::Kernel;
 use kernel_api::allocator::AllocError;
 #[cfg(not(test))] use kernel_api::mapping::{Mapping, Config, Mmap, Ty};
-use crate::chunk::ChunkHeader;
-#[cfg(feature = "kasan")] use kernel_api::memory::asan::{asan_free_range, set_shadow_heap_left, count_to_shadow, mem_to_shadow};
-use kernel_api::memory::PAGE_SIZE;
+use kernel_api::memory::asan::{asan_free_range, set_shadow_heap_free, set_shadow_heap_left, set_shadow_heap_header, set_shadow_heap_right, count_to_shadow, mem_to_shadow, no_asan_shim};
+use kernel_api::memory::{PAGE_SIZE, VirtualAddress};
+
+const GENERATION_FREE: usize = 0;
+#[cfg(feature = "generations")] const GENERATION_ALLOCATED: usize = 8;
+#[cfg(not(feature = "generations"))] const GENERATION_ALLOCATED: usize = 2;
+
+const ALIGN_OFFSET_MAGIC: usize = usize::from_be_bytes(*b"POP HEAP");
 
 #[cfg(test)]
 mod mock {
+	#![allow(unused)]
+
 	use alloc::boxed::Box;
 	use core::num::NonZero;
 	use core::ops::Range;
+	use kernel_api::allocator::AllocError;
+	use kernel_api::memory::PAGE_SIZE;
 
 	#[repr(C, align(4096))]
 	struct Page([u8; 4096]);
@@ -49,290 +58,432 @@ mod mock {
 		}
 
 		pub fn page_len(&self) -> usize { self.backing.len() }
+		pub fn byte_len(&self) -> usize { self.backing.len() * 4096 }
 
 		pub fn as_ptr(&self) -> *const u8 { self.as_ptr_range().start }
 		pub fn as_mut_ptr(&mut self) -> *mut u8 { self.as_mut_ptr_range().start }
+
+		pub fn grow_in_place_by(&mut self, _extra_length: usize) -> Result<(), AllocError> {
+			Err(AllocError::vmm())
+		}
 	}
 }
 
 pub struct Arena {
 	#[cfg(not(test))] mapping: Mapping<Mmap, Kernel>,
 	#[cfg(test)] mapping: mock::Mapping,
+	first: *mut ChunkHeader,
+	len: usize,
+}
+
+unsafe impl Send for Arena {}
+
+#[repr(C)] // to make sure we can reuse the redzone just by offsetting -1 usize from end
+pub struct ChunkHeader {
+	next: *mut Self,
+	prev: *mut Self,
+	generation: usize,
+	checksum: isize,
+	_redzone: [usize; 6],
+}
+
+impl ChunkHeader {
+	const CHUNK_MAGIC: isize = isize::from_be_bytes(*b"POP HEAP");
+
+	unsafe fn new_in(self: *mut Self, next: *mut Self, prev: *mut Self, generation: usize) {
+		debug_assert!(self.addr() > prev.addr(), "`prev` ({prev:p}) must be before `self` ({self:p})");
+
+		if !next.is_null() {
+			debug_assert!(self.addr() < next.addr(), "`next` ({next:p}) must be after `self` ({self:p})");
+		}
+
+		let checksum = (next.addr() as isize) + (prev.addr() as isize);
+		let this = Self {
+			next,
+			prev,
+			generation,
+			checksum: Self::CHUNK_MAGIC - checksum,
+			_redzone: [usize::MAX; 6],
+		};
+
+		unsafe { *self = this };
+	}
+
+	#[cfg_attr(kasan, sanitize(address = "off"))]
+	#[cfg_attr(kasan, inline(never))]
+	unsafe fn size(self: *mut Self) -> usize {
+		assert!(unsafe { !(*self).next.is_null() }, "sentinel chunk has no size");
+		let total_size = unsafe { (*self).next.byte_offset_from_unsigned(self) };
+		total_size - size_of::<Self>()
+	}
+
+	const unsafe fn start_ptr(self: *mut Self) -> *mut u8 {
+		unsafe { self.cast::<u8>().byte_add(size_of::<Self>()) }
+	}
+
+	#[cfg_attr(kasan, sanitize(address = "off"))]
+	#[cfg_attr(kasan, inline(never))]
+	unsafe fn check_magic(self: *mut Self) {
+		let next = unsafe { (*self).next };
+		let prev = unsafe { (*self).prev };
+
+		let checksum = (next.addr() as isize) + (prev.addr() as isize);
+		assert_eq!(
+			unsafe { (*self).checksum } + checksum,
+			Self::CHUNK_MAGIC,
+			"heap header magic invalid"
+		);
+
+		debug_assert!(self.addr() > prev.addr(), "`prev` ({prev:p}) must be before `self` ({self:p})");
+
+		if !next.is_null() {
+			debug_assert!(self.addr() < next.addr(), "`next` ({next:p}) must be after `self` ({self:p})");
+		}
+	}
 }
 
 impl Arena {
 	const INITIAL_AREA_PAGE_COUNT: usize = 4; // 16 KiB
 	const GROW_FACTOR: usize = 2;
 	const MINIMUM_USABLE_ALLOC: usize = 2 * size_of::<usize>();
-	
+
 	pub fn with_capacity(capacity: usize) -> Result<Self, AllocError> {
 		let page_count = core::cmp::max(
 			Self::INITIAL_AREA_PAGE_COUNT,
-			(capacity + 2*size_of::<ChunkHeader>()).div_ceil((4096 * 2) / 3), // add a bit of extra space
+			(capacity + 2 * size_of::<ChunkHeader>()).div_ceil((4096 * 2) / 3), // add a bit of extra space
 		);
-		
+
 		#[cfg(not(test))] let mut mapping = Config::new(NonZero::new(page_count).unwrap(), Ty::HEAP)
 				.protection(true, false, false)
 				.map()?;
 		#[cfg(test)] let mut mapping = mock::Mapping::new(NonZero::new(page_count).unwrap());
-		
+
 		let Range { start, end } = mapping.as_mut_ptr_range();
 		let start = start.cast::<ChunkHeader>();
-		let end = unsafe { end.cast::<ChunkHeader>().offset(-1) };
+		let end = unsafe { end.cast::<ChunkHeader>().sub(1) };
+
+		let len = mapping.byte_len();
 
 		// SAFETY: Pointer returned by Mapping::new is guaranteed to be valid for RW access for 16 KiB
 		// start - pointer returned by Mapping::new is 4K aligned which is greater than `align_of::<ChunkHeader>()`
 		// end - end of mapping is 4K aligned, therefore `virtual_end()` is more aligned than
 		// `align_of::<ChunkHeader>()`, therefore subtracting `size_of::<ChunkHeader>()` will also be suitably aligned
 		unsafe {
-			start.write(
-				ChunkHeader::new(
-					Some(NonNull::new(end).expect("mmap should not return null ptr")),
-					None,
-				)
+			start.new_in(
+				end,
+				core::ptr::null_mut(),
+				GENERATION_FREE,
 			);
-			end.write(
-				ChunkHeader::new(
-					None,
-					Some(NonNull::new(start).expect("mmap should not return null ptr")),
-				)
-			)
+			(*start).next.new_in(
+				core::ptr::null_mut(),
+				start,
+				usize::MAX,
+			);
 		}
 
-		#[cfg(feature = "kasan")] unsafe {
+		unsafe {
 			set_shadow_heap_left(
 				mem_to_shadow(start.into()),
 				count_to_shadow(page_count * 4096)
 			);
 		}
 
-		Ok(Self { mapping })
-	}
+		unsafe {
+			set_shadow_heap_header(
+				mem_to_shadow(start.into()),
+				count_to_shadow(size_of::<ChunkHeader>())
+			);
+		}
 
-	fn first_chunk(&self) -> NonNull<ChunkHeader> {
-		let ptr = self.mapping.as_ptr().cast::<ChunkHeader>();
-		NonNull::new(ptr.cast_mut()).expect("arena mapping should not be null")
-	}
-
-	fn alloc_in_aligned(chunk: &mut ChunkHeader, layout: Layout) -> Result<NonNull<u8>, AllocError> {
-		let size = layout.size();
-		let align = layout.align();
-
-		assert!(chunk.size() >= size);
-		assert!(!chunk.busy());
-
-		let start_pointer = chunk.start();
-		let end_pointer = chunk.end();
-
-		assert_eq!(start_pointer.align_offset(align), 0);
-
-		// split the allocation if possible (defined as having leftover space big enough for
-		// `MINIMUM_USABLE_ALLOC` plus an aligned header
-
-		// SAFETY: the chunk is large enough to contain an allocation of `size`, so `start + size` is either
-		// within the chunk, or one past the end
-		let split_point = unsafe { start_pointer.byte_add(size) };
-
-		// do all these calculations in terms of usize to ensure we never go out of bounds of the allocation
-		let new_header = split_point.addr()
-		                            .checked_add(split_point.align_offset(align_of::<ChunkHeader>()));
-		let new_end = new_header
-				.map(|val| val.checked_add(size_of::<ChunkHeader>() + Self::MINIMUM_USABLE_ALLOC))
-				.flatten();
-
-		if let Some(new_end) = new_end && new_end < end_pointer.addr() {
-			let new_header = new_header.unwrap();
-			trace!("insert new chunk at {new_header:#x}");
-
-			// provenance of `start_pointer` covers the entire chunk and we just checked that `new_end..(new_end + aligned<ChunkHeader>)`
-			// is within the chunk
-			let new_header = start_pointer.with_addr(new_header);
-
-			let new_chunk = unsafe { ChunkHeader::new(
-				chunk.next(),
-				Some(NonNull::from(&mut *chunk))
-			) };
-
-			unsafe { new_header.cast().write(new_chunk); }
-
+		no_asan_shim!(|start: *mut ChunkHeader| {
 			unsafe {
-				chunk.next().expect("cannot be allocating sentinel chunk")
-				     .as_mut()
-				     .set_prev(Some(new_header.cast()));
+				set_shadow_heap_header(
+					mem_to_shadow((*start).next.into()),
+					count_to_shadow(size_of::<ChunkHeader>())
+				);
 			}
+		});
 
-			chunk.set_next(Some(new_header.cast()));
-
-		}
-
-		chunk.set_busy(true);
-
-		// provenance-exposition: reduce bounds on this to only cover `start_pointer..end_pointer`
-		#[cfg(feature = "kasan")] asan_free_range(
-			start_pointer.as_ptr().into(),
-			layout.size(),
-		);
-		return Ok(start_pointer);
-	}
-
-	fn alloc_in(chunk: &mut ChunkHeader, layout: Layout) -> Result<NonNull<u8>, AllocError> {
-		let size = layout.size();
-		let align = layout.align();
-
-		assert!(chunk.size() >= size);
-		assert!(!chunk.busy());
-
-		let start_pointer = chunk.start();
-
-		let align_offset = start_pointer.align_offset(align);
-		if chunk.size() < (size + align_offset) { return Err(AllocError::heap()); }
-
-		if align_offset == 0 {
-			Self::alloc_in_aligned(chunk, layout)
-		} else {// SAFETY: the chunk is large enough to contain an allocation of `size + align_offset`, so `start + align_offset`
-			// must be within the chunk
-			let split_point = unsafe { start_pointer.add(align_offset) };
-			let mut new_chunk_ptr = unsafe { split_point.cast::<ChunkHeader>().offset(-1) };
-			
-			if align_offset > size_of::<ChunkHeader>() + Self::MINIMUM_USABLE_ALLOC {
-				trace!("insert new chunk at {new_chunk_ptr:p}");
-
-				let new_chunk = unsafe { ChunkHeader::new(
-					chunk.next(),
-					Some(NonNull::from(&mut *chunk))
-				) };
-
-				unsafe { new_chunk_ptr.cast().write(new_chunk); }
-
-				unsafe {
-					chunk.next().expect("cannot be allocating sentinel chunk")
-					     .as_mut()
-					     .set_prev(Some(new_chunk_ptr.cast()));
-				}
-
-				chunk.set_next(Some(new_chunk_ptr.cast()));
-			} else {
-				trace!("expand previous alloc");
-				
-				let Some(mut prev) = chunk.prev() else {
-					debug!("no previous alloc to expand");
-					return Err(AllocError::heap());
-				};
-				
-				let chunk_header = chunk.clone();
-				let prev = unsafe { prev.as_mut() };
-				prev.set_next(Some(new_chunk_ptr));
-				if let Some(mut next) = chunk.next() {
-					unsafe { next.as_mut() }.set_prev(Some(new_chunk_ptr));
-				}
-				unsafe { new_chunk_ptr.write(chunk_header) };
-
-				#[cfg_attr(feature = "kasan", inline(never))]
-				#[cfg_attr(feature = "kasan", sanitize(address = "off"))]
-				#[cfg(feature = "generations")]
-				pub unsafe fn magic_into_expansion(mut start: *mut usize, end: *mut usize) {
-					while start != end {
-						#[cfg(not(feature = "kasan"))] unsafe { write.write_volatile(val); }
-						#[cfg(feature = "kasan")] unsafe { *start = super::chunk::MAGIC_2; }
-						unsafe { start = start.offset(1); }
-					}
-				}
-				
-				#[cfg(feature = "generations")] unsafe {
-					// fixme: this makes `chunk` no longer a valid reference since we overwrote `*chunk` with nonsense
-					magic_into_expansion(
-						chunk as *mut ChunkHeader as *mut _,
-						new_chunk_ptr.as_ptr().cast(),
-					);
-				}
-			}
-			
-			Self::alloc_in_aligned(unsafe { new_chunk_ptr.as_mut() }, layout)
-		}
+		Ok(Self {
+			len,
+			first: start,
+			mapping,
+		})
 	}
 
 	pub fn try_alloc(&mut self, layout: Layout) -> Result<NonNull<u8>, AllocError> {
-		let size = layout.size();
+		let size = layout.size() + 64; // fixme: hacksssssss
 
-		for chunk in &mut *self {
-			#[cfg(feature = "generations")] chunk.update_generations();
-			if chunk.size() < size { continue; }
-			if chunk.busy() { continue; }
+		let mut current_chunk = self.first;
+		loop {
+			unsafe { current_chunk.check_magic() };
 
-			if let Ok(res) = Self::alloc_in(chunk, layout) { return Ok(res); }
+			let current_chunk = &mut current_chunk;
+			let res = no_asan_shim!(|current_chunk: &mut *mut ChunkHeader, layout: Layout| -> Option<NonNull<u8>> {
+				let size = layout.size() + 64; // fixme: hacksssssss
+
+				let generation = unsafe { (**current_chunk).generation };
+				if unsafe { (**current_chunk).next.is_null() } {
+					trace!("check chunk at {:#p} with generation {generation:#x}", *current_chunk);
+				} else {
+					trace!("check chunk at {:#p} with generation {generation:#x}, len {}", *current_chunk, unsafe { current_chunk.size() });
+				}
+				match generation {
+					GENERATION_FREE => {
+						if unsafe { current_chunk.size() } >= size {
+							trace!("found big enough chunk");
+							if let Ok(res) = unsafe { Arena::alloc_in(*current_chunk, layout) } { return Some(res); }
+						}
+					}
+					#[allow(unreachable_patterns, reason = "may not exist depending on how many generations exist")]
+					GENERATION_FREE..GENERATION_ALLOCATED => {
+						unsafe { (**current_chunk).generation -= 1 };
+					}
+					_ => {}
+				}
+				*current_chunk = unsafe { (**current_chunk).next };
+
+				None
+			});
+
+			if let Some(res) = res { return Ok(res); }
+
+			if current_chunk.is_null() { break; }
 		}
 
 		// if no space in the existing chunks,
-		let min_expansion = self.mapping.page_len().checked_mul(Self::GROW_FACTOR - 1).ok_or(AllocError::heap())?;
+		let grow_expansion = self.mapping.page_len().checked_mul(Self::GROW_FACTOR - 1).ok_or(AllocError::heap())?;
 		let alloc_expansion = (size + 2*size_of::<ChunkHeader>()).div_ceil((PAGE_SIZE * 2) / 3);
-		let expansion = core::cmp::max(alloc_expansion, min_expansion);
+		let max_expansion = core::cmp::min(grow_expansion, 128);
+		let expansion = core::cmp::max(alloc_expansion, max_expansion);
 
-		let alloc_start = self.mapping.as_mut_ptr_range().end;
-		let old_sentinel = unsafe { &mut *alloc_start.cast::<ChunkHeader>().offset(-1) };
+		let alloc_end = self.mapping.as_mut_ptr_range().end;
+		let old_sentinel = unsafe { alloc_end.cast::<ChunkHeader>().sub(1) };
+		unsafe { old_sentinel.check_magic() };
 
 		self.mapping.grow_in_place_by(expansion)?;
 
-		let new_sentinel = unsafe { self.mapping.as_mut_ptr_range().end.cast::<ChunkHeader>().offset(-1) };
+		let new_sentinel = unsafe { self.mapping.as_mut_ptr_range().end.cast::<ChunkHeader>().sub(1) };
+
+		no_asan_shim!(|old_sentinel: *mut ChunkHeader, new_sentinel: *mut ChunkHeader| {
+			unsafe {
+				new_sentinel.new_in(
+					core::ptr::null_mut(),
+					old_sentinel,
+					usize::MAX,
+				);
+
+				old_sentinel.new_in(
+					new_sentinel,
+					(*old_sentinel).prev,
+					GENERATION_FREE,
+				);
+			}
+		});
+
+		self.len = self.mapping.byte_len();
+		self.first = self.mapping.as_mut_ptr().cast::<ChunkHeader>();
 
 		unsafe {
-			new_sentinel.write(ChunkHeader::new(
-				None,
-				Some(NonNull::from(&mut *old_sentinel)),
-			));
-		}
-		old_sentinel.set_next(Some(NonNull::new(new_sentinel).expect("mmap should not end at null")));
-
-		#[cfg(feature = "kasan")] unsafe {
 			set_shadow_heap_left(
-				mem_to_shadow(new_sentinel.into()),
+				mem_to_shadow(old_sentinel.into()),
 				count_to_shadow(expansion * 4096)
 			);
 		}
 
-		Self::alloc_in(old_sentinel, layout)
+		unsafe {
+			set_shadow_heap_header(
+				mem_to_shadow(new_sentinel.into()),
+				count_to_shadow(size_of::<ChunkHeader>())
+			);
+		}
+
+		trace!("alloc at old sentinel = {old_sentinel:#p}");
+		unsafe { Self::alloc_in(old_sentinel, layout) }
 	}
 
-	pub fn bounds(&self) -> Range<NonNull<u8>> {
-		let Range { start, end } = self.mapping.as_ptr_range();
+	unsafe fn alloc_in(chunk: *mut ChunkHeader, layout: Layout) -> Result<NonNull<u8>, AllocError> {
+		unsafe { chunk.check_magic() };
+
+		let size = layout.size() + 64; // fixme: hackssssssss
+		let align = layout.align();
+
+		let start_ptr = unsafe { chunk.start_ptr() };
+		let align_offset = start_ptr.align_offset(align);
+
+		let chunk_size = unsafe { chunk.size() };
+		if size + align_offset > chunk_size { return Err(AllocError::heap()); }
+
+		#[cfg(not(kasan))] assert_eq!(unsafe { (*chunk).generation }, GENERATION_FREE);
+
+		let (start, total_size) = unsafe {
+			let start = start_ptr.add(align_offset);
+			let end = start.add(size);
+			let total_size = align_offset + size + end.align_offset(align_of::<ChunkHeader>());
+			(start, total_size)
+		};
+
+		if total_size > chunk_size { return Err(AllocError::heap()); }
+		else if chunk_size.saturating_sub(total_size + size_of::<ChunkHeader>()) > Self::MINIMUM_USABLE_ALLOC {
+			no_asan_shim!(|chunk: *mut ChunkHeader, total_size: usize| {
+				let new_header = unsafe { chunk.add(1).byte_add(total_size) };
+				unsafe {
+					new_header.new_in(
+						(*chunk).next,
+						chunk,
+						GENERATION_FREE,
+					);
+
+					// copy redzone across because `new_in` resets it but it might contain offset data
+					let redzone = (*(*chunk).next)._redzone;
+					(*chunk).next.new_in(
+						(*(*chunk).next).next,
+						new_header,
+						(*(*chunk).next).generation,
+					);
+					(*(*chunk).next)._redzone = redzone;
+
+					chunk.new_in(
+						new_header,
+						(*chunk).prev,
+						(*chunk).generation,
+					);
+				}
+
+				unsafe {
+					set_shadow_heap_header(
+						mem_to_shadow(new_header.into()),
+						count_to_shadow(size_of::<ChunkHeader>())
+					);
+				}
+			});
+		}
+
+		no_asan_shim!(|chunk: *mut ChunkHeader, start: *mut u8, align_offset: usize| {
+			unsafe { (*chunk).generation = GENERATION_ALLOCATED; };
+			assert_ne!(align_offset, usize::MAX, "invalid offset");
+			unsafe { *start.cast::<usize>().sub(1) = align_offset };
+			unsafe { *start.cast::<usize>().sub(2) = ALIGN_OFFSET_MAGIC };
+		});
+
+		unsafe {
+			set_shadow_heap_left(
+				mem_to_shadow(start_ptr.into()),
+				count_to_shadow(start.byte_offset_from_unsigned(start_ptr)),
+			);
+		}
+
+		let allocation_end = VirtualAddress::from(start) + layout.size();
+		unsafe {
+			set_shadow_heap_right(
+				mem_to_shadow(allocation_end),
+				count_to_shadow(64),
+			);
+		}
+
+
+		asan_free_range(
+			start.into(),
+			layout.size(),
+		);
+
+		no_asan_shim!(
+			|chunk: *mut ChunkHeader, start: *mut u8, layout: Layout| {
+				debug_assert!(unsafe { (*chunk).next.byte_offset_from_unsigned(start) } >= layout.size());
+			}
+		);
+		debug_assert!(allocation_end.addr - start.addr() >= layout.size());
+		debug_assert!(start.is_aligned_to(layout.align()));
+
+		unsafe { Ok(NonNull::new_unchecked(start)) }
+	}
+
+	pub const fn bounds(&self) -> Range<NonNull<u8>> {
+		let end = unsafe { self.first.byte_add(self.len) };
 		Range {
-			start: NonNull::new(start.cast_mut()).expect("arena should not be at null"),
-			end: NonNull::new(end.cast_mut()).expect("arena should not be at null"),
+			start: NonNull::new(self.first.cast()).expect("arena should not be at null"),
+			end: NonNull::new(end.cast()).expect("arena should not be at null"),
 		}
 	}
-}
 
-impl<'arena> IntoIterator for &'arena mut Arena {
-	type Item = &'arena mut ChunkHeader;
-	type IntoIter = IterMut<'arena>;
+	pub unsafe fn dealloc(&mut self, ptr: NonNull<u8>) {
+		let ptr = self.first.with_addr(ptr.addr().get());
 
-	fn into_iter(self) -> Self::IntoIter {
-		IterMut {
-			// SAFETY: See notes for `IterMut::next()`
-			chunk: Some(unsafe { self.first_chunk().as_mut() })
+		let (offset, magic) = no_asan_shim!(|ptr: *mut ChunkHeader| -> (usize, usize) {
+			let offset = unsafe { *ptr.cast::<usize>().offset(-1) };
+			let magic = unsafe { *ptr.cast::<usize>().offset(-2) };
+			(offset, magic)
+		});
+		debug_assert_eq!(magic, ALIGN_OFFSET_MAGIC, "align offset corrupted");
+		if offset == usize::MAX { let _ = unsafe { *ptr.cast::<usize>().offset(-1) }; }
+		assert_ne!(offset, usize::MAX, "invalid offset");
+		let ptr = unsafe { ptr.byte_sub(offset).byte_sub(size_of::<ChunkHeader>()) };
+		trace!("dealloc chunk from {ptr:#p} with offset {offset}");
+
+		unsafe { ptr.check_magic() };
+
+		no_asan_shim!(|ptr: *mut ChunkHeader| {
+			assert_eq!(unsafe { (*ptr).generation }, GENERATION_ALLOCATED, "double free detected");
+			if unsafe { ptr.size() } >= PAGE_SIZE {
+				unsafe { (*ptr).generation = GENERATION_FREE };
+			} else {
+				unsafe { (*ptr).generation = GENERATION_ALLOCATED - 1 };
+			}
+
+			trace!("sanity: {:#p}, {:#p}", unsafe { (*ptr).prev }, unsafe { (*ptr).next });
+		});
+
+		unsafe {
+			set_shadow_heap_free(
+				mem_to_shadow(ptr.add(1).into()),
+				count_to_shadow(ptr.size()),
+			);
 		}
-	}
-}
 
-pub struct IterMut<'arena> {
-	chunk: Option<&'arena mut ChunkHeader>,
-}
+		no_asan_shim!(|ptr: *mut ChunkHeader| {
+			unsafe { (*ptr).next.check_magic() };
+			if unsafe { (*(*ptr).next).generation } < GENERATION_ALLOCATED && unsafe { !(*(*ptr).next).next.is_null() } {
+				trace!("merge right with {:#p}, next-of-next={:#p}", unsafe { (*ptr).next }, unsafe { (*(*ptr).next).next });
 
-impl<'arena> Iterator for IterMut<'arena> {
-	type Item = &'arena mut ChunkHeader;
+				unsafe {
+					ptr.new_in(
+						(*(*ptr).next).next,
+						(*ptr).prev,
+						core::cmp::min((*ptr).generation, (*(*ptr).next).generation),
+					);
 
-	fn next(&mut self) -> Option<Self::Item> {
-		let current = self.chunk.take()?;
+					// copy redzone across because `new_in` resets it but it might contain offset data
+					let redzone = (*(*ptr).next)._redzone;
+					(*ptr).next.new_in(
+						(*(*ptr).next).next,
+						ptr,
+						(*(*ptr).next).generation,
+					);
+					(*(*ptr).next)._redzone = redzone;
+				}
+			}
 
-		// SAFETY: Arena is uniquely borrowed, so no one can have a pointer to the chunk header
-		// via the arena, and all other references to chunk headers (within the linked list) are
-		// through raw pointers which are valid to alias as long as no access occurs through them
-		// (which it can't due to the arena being uniquely borrowed)
-		let next = unsafe { current.next().map(|mut ptr| ptr.as_mut()) };
-		match next {
-			Some(next) => self.chunk = Some(next),
-			None => return None, // if `current.next()` is None then we would be returning the sentinel chunk which we don't want to do
-		}
+			if unsafe { !(*ptr).prev.is_null() } && unsafe { (*(*ptr).prev).generation } < GENERATION_ALLOCATED {
+				unsafe { (*ptr).prev.check_magic() };
+				trace!("merge left");
 
-		Some(current)
+				unsafe {
+					(*ptr).prev.new_in(
+						(*ptr).next,
+						(*(*ptr).prev).prev,
+						core::cmp::min((*ptr).generation, (*(*ptr).prev).generation)
+					);
+
+					// copy redzone across because `new_in` resets it but it might contain offset data
+					let redzone = (*(*ptr).next)._redzone;
+					(*ptr).next.new_in(
+						(*(*ptr).next).next,
+						(*ptr).prev,
+						(*(*ptr).next).generation,
+					);
+					(*(*ptr).next)._redzone = redzone;
+				}
+			}
+		});
 	}
 }
