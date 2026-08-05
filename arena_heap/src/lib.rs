@@ -17,8 +17,7 @@ use core::alloc::{AllocError, Layout};
 use core::ptr::NonNull;
 use log::{debug, trace};
 use arena::Arena;
-use chunk::ChunkHeader;
-use kernel_api::dbg;
+use kernel_api::kernel_module;
 use kernel_api::sync::{RwSpinlock, Spinlock};
 #[cfg(not(test))] use crate::mapped_vec::MappedVec;
 #[cfg(test)] extern crate alloc;
@@ -26,6 +25,18 @@ use kernel_api::sync::{RwSpinlock, Spinlock};
 
 mod mapped_vec;
 mod arena;
+
+kernel_module! {
+	type: Heap,
+	name: "Popcorn2 Arena Heap",
+	author: "Eliyahu Gluschove-Koppel <egkoppel@eliyahu.co.uk>",
+	license: "MPL-2.0",
+}
+
+impl kernel_api::modules::Module for Heap {
+	fn early_init() -> Result<(), &'static str> { Ok(()) }
+	fn late_init() -> Result<(), &'static str> { Ok(()) }
+}
 
 #[doc(hidden)]
 #[unsafe(no_mangle)]
