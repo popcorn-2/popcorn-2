@@ -24,14 +24,24 @@
 
 use crate::memory::VirtualAddress;
 
-/// Offset to add to `addr / 8` to calculate shadow map address
-pub const SHADOW_MAP_SHIFT: usize = 0xdfff_d000_0000_0000;
+/// Offset to add to `addr / 8` to calculate shadow map address.
+pub const SHADOW_MAP_SHIFT: usize = cfg_select! {
+	target_arch = "x86_64" => 0xdfff_d000_0000_0000,
+};
 
-/// Address of the start of the shadow map region
-pub const SHADOW_MAP_START: VirtualAddress = VirtualAddress::new(0xffff_c000_0000_0000);
+/// Address of the start of the shadow map region.
+pub const SHADOW_MAP_START: VirtualAddress = cfg_select! {
+	target_arch = "x86_64" => VirtualAddress::new(0xffff_c000_0000_0000),
+};
 
-/// Address of the end of the shadow map region
-pub const SHADOW_MAP_END: VirtualAddress = VirtualAddress::new(0xffff_c000_0000_0000 + 16*1024*1024*1024*1024);
+/// Address of the end of the shadow map region.
+pub const SHADOW_MAP_END: VirtualAddress = cfg_select! {
+	target_arch = "x86_64" => SHADOW_MAP_START + SHADOW_MAP_SIZE,
+};
+
+const SHADOW_MAP_SIZE: usize = cfg_select! {
+	target_arch = "x86_64" => 16*1024*1024*1024*1024,
+};
 
 #[cfg(feature = "full")] pub use full::*;
 #[cfg(feature = "full")] mod full {
