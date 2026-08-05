@@ -177,40 +177,54 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_load1(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "load", 1);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_load2(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "load", 2);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_load4(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "load", 4);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_load8(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "load", 8);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_load16(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "load", 16);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_load_n(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "load", count);
 	}
 
 	fn asan_mem_n(address: VirtualAddress, count: usize, ty: &str) {
+		if !cfg!(kasan) { return; }
+
 		let end = address + count;
 		for byte in (address..end).step_by(8) {
 			let shadow = read_shadow_map_for(byte);
@@ -240,36 +254,48 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store1(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "store", 1);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store2(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "store", 2);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store4(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "store", 4);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store8(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "store", 8);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store16(address: VirtualAddress) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "store", 16);
 	}
 
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store_n(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		do_report(address, "store", count);
 	}
 
@@ -277,6 +303,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[unsafe(no_mangle)]
 	//#[no_sanitize(address)]
 	pub extern "C-unwind" fn __asan_handle_no_return() {
+		if !cfg!(kasan) { return; }
+
 		/* idk what to do here */
 		/*let rsp: usize;
 		unsafe {
@@ -299,6 +327,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_stack_left(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xf1, count);
@@ -314,6 +344,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_use_after_scope(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xf8, count);
@@ -329,6 +361,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_free(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0, count);
@@ -343,6 +377,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_free_vmem(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xc0, count);
@@ -359,6 +395,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_uninit_vmem(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xc1, count);
@@ -374,6 +412,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_heap_left(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xfa, count);
@@ -389,6 +429,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	#[sanitize(address = "off")]
 	#[inline(never)]
 	pub unsafe extern "C-unwind" fn set_shadow_heap_free(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xfd, count);
@@ -400,6 +442,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 	/// This internally calculates the correct shadow map entries
 	pub fn asan_free_range(start: VirtualAddress, count: usize) {
 		assert!(start.aligned_to(8), "asan free range must be 8 byte aligned");
+		if !cfg!(kasan) { return; }
+
 		assert!(start.is_higher_half(), "asan only covers higher half");
 
 		debug!("zero shadow memory ({:#x} -> {:#x})", mem_to_shadow(start), mem_to_shadow(start) + count_to_shadow(count));
