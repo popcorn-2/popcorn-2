@@ -210,6 +210,33 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 		do_report(address, "load", count);
 	}
 
+	fn asan_mem_n(address: VirtualAddress, count: usize, ty: &str) {
+		let end = address + count;
+		for byte in (address..end).step_by(8) {
+			let shadow = read_shadow_map_for(byte);
+			if shadow < 0 {
+				do_report(address, ty, count);
+			} else if shadow != 0 {
+				let bytes_left = core::cmp::min(end - byte, 8);
+				if bytes_left > shadow.cast_unsigned() as usize {
+					do_report(address, ty, count);
+				}
+			}
+		}
+	}
+
+	#[doc(hidden)]
+	#[unsafe(no_mangle)]
+	pub extern "C-unwind" fn __asan_load_n(address: VirtualAddress, count: usize) {
+		asan_mem_n(address, count, "load");
+	}
+
+	#[doc(hidden)]
+	#[unsafe(no_mangle)]
+	pub extern "C-unwind" fn __asan_store_n(address: VirtualAddress, count: usize) {
+		asan_mem_n(address, count, "store");
+	}
+
 	#[doc(hidden)]
 	#[unsafe(no_mangle)]
 	pub extern "C-unwind" fn __asan_report_store1(address: VirtualAddress) {
