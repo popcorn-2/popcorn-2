@@ -8,6 +8,8 @@
 //! In practice not all of these values are used.
 //! The current list is:
 //! - `0xfa`: Heap left redzone - memory just before a heap allocation
+//! - `0xfb`: Heap right redzone - memory just after a heap allocation
+//! - `0xfc`: Heap headers - memory used by heap internals
 //! - `0xfd`: Freed heap memory - heap memory that has recently been deallocated, and is currently
 //!                               in a quarantine period
 //! - `0xf1`: Stack left redzone - memory just before a stack allocation
@@ -58,6 +60,8 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
   Addressable:           00
   Partially addressable: 01 - 07
   Heap left redzone:     fa
+  Heap right redzone:    fb
+  Heap headers:          fc
   Freed heap memory:     fd
   Stack left redzone:    f1
   Stack mid redzone:     f2
@@ -417,6 +421,40 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
 		unsafe {
 			core::ptr::write_bytes(address.as_ptr(), 0xfa, count);
+		}
+	}
+
+	/// Marks `count` entries in the shadow map starting at `address` as "heap right redzone".
+	///
+	/// # Safety
+	///
+	/// `address` through `address + count` must be addresses in the shadow map.
+	#[sanitize(address = "off")]
+	#[inline(never)]
+	pub unsafe extern "C-unwind" fn set_shadow_heap_right(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
+		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
+		// SAFETY: `address` through `address + count` are addresses within the shadow map
+		unsafe {
+			core::ptr::write_bytes(address.as_ptr(), 0xfb, count);
+		}
+	}
+
+	/// Marks `count` entries in the shadow map starting at `address` as "heap headers".
+	///
+	/// # Safety
+	///
+	/// `address` through `address + count` must be addresses in the shadow map.
+	#[sanitize(address = "off")]
+	#[inline(never)]
+	pub unsafe extern "C-unwind" fn set_shadow_heap_header(address: VirtualAddress, count: usize) {
+		if !cfg!(kasan) { return; }
+
+		#[cfg(debug_assertions)] assert!(address >= SHADOW_MAP_START && address < SHADOW_MAP_END, "Safety violation: {address:#x} is not in the shadow map");
+		// SAFETY: `address` through `address + count` are addresses within the shadow map
+		unsafe {
+			core::ptr::write_bytes(address.as_ptr(), 0xfc, count);
 		}
 	}
 
