@@ -80,6 +80,9 @@ pub mod executor;
 #[cfg(feature = "full")]
 pub mod channel;
 
+#[cfg(feature = "full")]
+pub mod modules;
+
 mod sealed {
     pub trait Sealed {}
 }
