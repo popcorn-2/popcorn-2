@@ -71,13 +71,45 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
   Shadow gap:            cc
 ";
 
-	#[sanitize(address = "off")]
-	#[inline(never)]
-	unsafe fn read_address_nosan(address: *const u8) -> u8 {
-		debug_assert!(VirtualAddress::from(address) >= SHADOW_MAP_START && VirtualAddress::from(address) < SHADOW_MAP_END, "only shadow reads should be nosan");
-		unsafe {
-			*address
-		}
+	pub macro no_asan_shim {
+		($([$($tt:tt)*])?|$($i:ident:$ty:ty),*$(,)?| $(-> $ret:ty)? $e:block) => {{
+			#[cfg_attr(kasan, sanitize(address = "off"))]
+			#[cfg_attr(kasan, inline(never))]
+			#[cfg_attr(not(kasan), inline(always))]
+			fn noasan_shim<$($tt)*>($($i:$ty),*) $(-> $ret)? {$e}
+
+			noasan_shim($($i),*)
+		}},
+		($([$($tt:tt)*])?|$($i:ident:$ty:ty),*$(,)?| $e:expr) => {
+			$crate::memory::asan::no_asan_shim!($([$($tt)*])?|$($i:$ty),*| { $e:expr })
+		},
+	}
+
+	pub fn read_shadow_map_raw(idx: usize) -> i8 {
+		assert!(idx < SHADOW_MAP_SIZE, "attempt to read outside of shadow map");
+		no_asan_shim!(|idx: usize| -> i8 {
+			// SAFETY: just checked the index is within the shadow map and all values within shadow map
+			//  are aligned and accessible due to lazy mapping
+			unsafe { *SHADOW_MAP_START.as_ptr().byte_add(idx).cast() }
+		})
+	}
+
+	pub fn read_shadow_map_for(addr: VirtualAddress) -> i8 {
+		read_shadow_map_raw((addr.addr >> 3) + SHADOW_MAP_SHIFT)
+	}
+
+	/// If `idx` is greater than `SHADOW_MAP_END - SHADOW_MAP_START`.
+	pub fn write_shadow_map_raw(idx: usize, val: i8) {
+		assert!(idx < SHADOW_MAP_SIZE, "attempt to read outside of shadow map");
+		no_asan_shim!(|idx: usize, val: i8| {
+			// SAFETY: just checked the index is within the shadow map and all values within shadow map
+			//  are aligned and accessible due to lazy mapping
+			unsafe { *SHADOW_MAP_START.as_ptr().byte_add(idx).cast() = val };
+		});
+	}
+
+	pub fn write_shadow_map_for(addr: VirtualAddress, val: i8) {
+		write_shadow_map_raw((addr.addr >> 3) + SHADOW_MAP_SHIFT, val);
 	}
 
 	struct Serial;
@@ -114,7 +146,7 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 			if (i - dump_start) % 16 == 0 {
 				let _ = write!(&mut writer, "  0x{:016x}:", i);
 			}
-			let byte = unsafe { read_address_nosan(i.as_ptr()) };
+			let byte = read_shadow_map_raw(i - SHADOW_MAP_START);
 
 			if i >= mem_to_shadow(address) && i <= mem_to_shadow(address + width - 1usize) {
 				let _ = write!(&mut writer, " \u{001b}[1m{:02x}\u{001b}[0m", byte);
@@ -353,23 +385,17 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 
 		let last = start + count - 1usize;
 
-		#[sanitize(address = "off")]
-		#[inline(never)]
-		fn nosan_shim(last: VirtualAddress, count: usize) {
-			match count % 8 {
-				0 => {},
-				1 => unsafe { *mem_to_shadow(last).as_ptr() = 0x1 },
-				2 => unsafe { *mem_to_shadow(last).as_ptr() = 0x2 },
-				3 => unsafe { *mem_to_shadow(last).as_ptr() = 0x3 },
-				4 => unsafe { *mem_to_shadow(last).as_ptr() = 0x4 },
-				5 => unsafe { *mem_to_shadow(last).as_ptr() = 0x5 },
-				6 => unsafe { *mem_to_shadow(last).as_ptr() = 0x6 },
-				7 => unsafe { *mem_to_shadow(last).as_ptr() = 0x7 },
-				_ => unreachable!("x % 8 < 8")
-			}
+		match count % 8 {
+			0 => {},
+			1 => write_shadow_map_for(last, 1),
+			2 => write_shadow_map_for(last, 2),
+			3 => write_shadow_map_for(last, 3),
+			4 => write_shadow_map_for(last, 4),
+			5 => write_shadow_map_for(last, 5),
+			6 => write_shadow_map_for(last, 6),
+			7 => write_shadow_map_for(last, 7),
+			_ => unreachable!("x % 8 < 8"),
 		}
-
-		nosan_shim(last, count);
 	}
 
 	/// Converts the passed `address` into the corresponding address in the shadow map
