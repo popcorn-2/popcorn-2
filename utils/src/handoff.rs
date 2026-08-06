@@ -1,6 +1,6 @@
 use core::fmt::{Debug, Formatter};
 use core::ptr::NonNull;
-use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
+use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
 use kernel_api::ptr::Unique;
 
 #[repr(C)]
@@ -10,7 +10,6 @@ pub struct Data {
 	pub modules: Modules,
 	pub log: Logging,
 	pub test: Testing,
-	pub tls: (Range<VirtualAddress>, usize),
 	pub rsdp: PhysicalAddress,
 	pub init_exec: &'static [u8],
 	pub ramdisk: &'static [u8],
@@ -24,7 +23,6 @@ impl Debug for Data {
 				.field("modules", &self.modules)
 				.field("log", &self.log)
 				.field("test", &self.test)
-				.field("tls", &self.tls)
 				.field("rsdp", &self.rsdp)
 		        .finish_non_exhaustive()
 	}

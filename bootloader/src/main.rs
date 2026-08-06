@@ -763,7 +763,6 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         test: handoff::Testing {
             module_func: unsafe { mem::transmute(1usize) }
         },
-        tls: (Range(kernel_tls.0.start, kernel_tls.0.end), kernel_tls.1),
         rsdp,
         init_exec: init_program,
         ramdisk,
