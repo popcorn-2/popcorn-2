@@ -109,6 +109,8 @@ impl<D> File<D> {
 	pub const fn isa(&self) -> Isa { self.inner.file_header.isa() }
 
 	pub const fn ty(&self) -> Type { self.inner.file_header.ty() }
+
+	pub const fn entry_point(&self) -> usize { self.inner.file_header.entry_point() }
 }
 
 impl<D: AsRef<[u8]>> File<D> {
