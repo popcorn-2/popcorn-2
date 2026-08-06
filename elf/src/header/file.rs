@@ -1,327 +1,293 @@
-use core::{fmt, mem};
-use core::mem::size_of;
+use crate::raw;
+use crate::raw::index_part;
+use crate::{Abi, Endianness, Isa, OsAbi, Type, Width};
+use core::fmt;
 use core::ops::Range;
-use debug_stub_derive::DebugStub;
-use derive_more::Display;
-use num_enum::{TryFromPrimitiveError, TryFromPrimitive};
 
-#[derive(DebugStub)]
-#[repr(C)]
-pub struct FileHeader {
-	magic: [u8; 4],
-	pub width: Width,
-	pub endianness: Endianness,
-	pub header_version: u8,
-	pub abi: Abi,
-	padding: u64,
-	pub file_type: Type,
-	pub isa: Isa,
-	pub elf_version: u32,
-	#[debug_stub = "..."]
-	extra: ExtraHeader
+#[derive(Debug, Copy, Clone)]
+pub struct Header {
+	endianness: Endianness,
+	abi: Abi,
+	file_type: Type,
+	isa: Isa,
+	extra: ExtraHeader,
 }
 
-impl FileHeader {
-	pub fn entry_point(&self) -> usize {
-		match self.width {
-			// SAFETY: Union state based on width field
-			Width::_32 => unsafe { self.extra._32.entry_point.try_into().unwrap() },
-			Width::_64 => unsafe { self.extra._64.entry_point.try_into().unwrap() }
+impl Header {
+	const NON_EXTRA_LEN: usize = 0x18;
+	const X32_EXTRA_LEN: usize = 0x34 - Self::NON_EXTRA_LEN;
+	const X64_EXTRA_LEN: usize = 0x40 - Self::NON_EXTRA_LEN;
+
+	pub fn try_new(data: &[u8]) -> Result<Self, Error> {
+		if data.len() <= Self::NON_EXTRA_LEN {
+			return Err(Error::NotEnoughData);
 		}
+
+		let magic = index_part::<raw::file::Magic>(data);
+		if magic != [0x7f, b'E', b'L', b'F'] {
+			return Err(Error::InvalidMagic(magic));
+		}
+
+		let endianness = Endianness(index_part::<raw::file::Data>(data)[0]);
+		match endianness {
+			Endianness::BIG | Endianness::LITTLE => {},
+			Endianness(endianness) => return Err(Error::InvalidEndianness(endianness)),
+		}
+
+		let width = Width(endianness.decode_u8(index_part::<raw::file::Class>(data)));
+		let header_version = endianness.decode_u8(index_part::<raw::file::HeaderVersion>(data));
+		let abi = Abi {
+			os: OsAbi(endianness.decode_u8(index_part::<raw::file::OsAbi>(data))),
+			version: endianness.decode_u8(index_part::<raw::file::AbiVersion>(data)),
+		};
+		let ty = Type(endianness.decode_u16(index_part::<raw::file::Type>(data)));
+		let isa = Isa(endianness.decode_u16(index_part::<raw::file::Machine>(data)));
+		let elf_version = endianness.decode_u32(index_part::<raw::file::FileVersion>(data));
+
+		let extra = match width {
+			Width::X32 => {
+				if data.len() < Self::NON_EXTRA_LEN + Self::X32_EXTRA_LEN {
+					return Err(Error::NotEnoughData);
+				}
+
+				ExtraHeader::X32(FileHeaderExtra {
+					entry_point: endianness.decode_u32(index_part::<raw::file::x32::Entry>(data)),
+					program_header_offset: endianness.decode_u32(index_part::<raw::file::x32::ProgramHeaderOffset>(data)),
+					section_header_offset: endianness.decode_u32(index_part::<raw::file::x32::SectionHeaderOffset>(data)),
+					flags: endianness.decode_u32(index_part::<raw::file::x32::Flags>(data)),
+					header_size: endianness.decode_u16(index_part::<raw::file::x32::HeaderSize>(data)),
+					program_header_entry_size: endianness.decode_u16(index_part::<raw::file::x32::ProgramHeaderEntrySize>(data)),
+					program_header_entry_count: endianness.decode_u16(index_part::<raw::file::x32::ProgramHeaderEntryNum>(data)),
+					section_header_entry_size: endianness.decode_u16(index_part::<raw::file::x32::SectionHeaderEntrySize>(data)),
+					section_header_entry_count: endianness.decode_u16(index_part::<raw::file::x32::SectionHeaderEntryNum>(data)),
+					section_string_table: endianness.decode_u16(index_part::<raw::file::x32::SectionHeaderStrTabIndex>(data)),
+				})
+			},
+			Width::X64 => {
+				if data.len() < Self::NON_EXTRA_LEN + Self::X64_EXTRA_LEN {
+					return Err(Error::NotEnoughData);
+				}
+
+				ExtraHeader::X64(FileHeaderExtra {
+					entry_point: endianness.decode_u64(index_part::<raw::file::x64::Entry>(data)),
+					program_header_offset: endianness.decode_u64(index_part::<raw::file::x64::ProgramHeaderOffset>(data)),
+					section_header_offset: endianness.decode_u64(index_part::<raw::file::x64::SectionHeaderOffset>(data)),
+					flags: endianness.decode_u32(index_part::<raw::file::x64::Flags>(data)),
+					header_size: endianness.decode_u16(index_part::<raw::file::x64::HeaderSize>(data)),
+					program_header_entry_size: endianness.decode_u16(index_part::<raw::file::x64::ProgramHeaderEntrySize>(data)),
+					program_header_entry_count: endianness.decode_u16(index_part::<raw::file::x64::ProgramHeaderEntryNum>(data)),
+					section_header_entry_size: endianness.decode_u16(index_part::<raw::file::x64::SectionHeaderEntrySize>(data)),
+					section_header_entry_count: endianness.decode_u16(index_part::<raw::file::x64::SectionHeaderEntryNum>(data)),
+					section_string_table: endianness.decode_u16(index_part::<raw::file::x64::SectionHeaderStrTabIndex>(data)),
+				})
+			},
+			Width(width) => return Err(Error::UnknownWidth(width)),
+		};
+
+		if header_version != 1 { return Err(Error::UnknownHeaderVersion(header_version)); }
+		if elf_version != 1 { return Err(Error::UnknownElfVersion(elf_version)); }
+
+		Ok(Self {
+			endianness,
+			abi,
+			file_type: ty,
+			isa,
+			extra,
+		})
 	}
 
+	#[must_use]
+	// fixme: usize on 32 bit arch with 64 bit elf
 	pub fn program_header(&self) -> Range<usize> {
 		let start = self.program_header_offset();
-		let size = self.program_header_entry_size() * self.program_header_entry_count();
+		let size = usize::from(self.program_header_entry_size() * self.program_header_entry_count());
 
-		Range{start, end: start + size}
+		Range {start, end: start + size }
 	}
 
+	#[must_use]
+	// fixme: usize on 32 bit arch with 64 bit elf
 	pub fn section_header(&self) -> Range<usize> {
 		let start = self.section_header_offset();
-		let size = self.section_header_entry_size() * self.section_header_entry_count();
+		let size = usize::from(self.section_header_entry_size() * self.section_header_entry_count());
 
-		Range{start, end: start + size}
+		Range {start, end: start + size}
 	}
 
-	fn program_header_offset(&self) -> usize {
-		match self.width {
-			// SAFETY: Union state based on width field
-			Width::_32 => unsafe { self.extra._32.program_header_offset.try_into().unwrap() },
-			Width::_64 => unsafe { self.extra._64.program_header_offset.try_into().unwrap() }
+	#[must_use]
+	// fixme: usize on 32 bit arch with 64 bit elf
+	pub const fn entry_point(&self) -> usize {
+		match &self.extra {
+			ExtraHeader::X32(extra) => extra.entry_point as usize,
+			ExtraHeader::X64(extra) => extra.entry_point as usize,
 		}
 	}
 
-	fn section_header_offset(&self) -> usize {
-		match self.width {
-			// SAFETY: Union state based on width field
-			Width::_32 => unsafe { self.extra._32.section_header_offset.try_into().unwrap() },
-			Width::_64 => unsafe { self.extra._64.section_header_offset.try_into().unwrap() }
+	#[must_use]
+	// fixme: usize on 32 bit arch with 64 bit elf
+	pub const fn program_header_offset(&self) -> usize {
+		match &self.extra {
+			ExtraHeader::X32(extra) => extra.program_header_offset as usize,
+			ExtraHeader::X64(extra) => extra.program_header_offset as usize,
 		}
 	}
 
-	pub fn flags(&self) -> u32 {
-		match self.width {
-			// SAFETY: Union state based on width field
-			Width::_32 => unsafe { self.extra._32.flags },
-			Width::_64 => unsafe { self.extra._64.flags }
+	#[must_use]
+	// fixme: usize on 32 bit arch with 64 bit elf
+	pub const fn section_header_offset(&self) -> usize {
+		match &self.extra {
+			ExtraHeader::X32(extra) => extra.section_header_offset as usize,
+			ExtraHeader::X64(extra) => extra.section_header_offset as usize,
 		}
 	}
 
-	pub fn header_size(&self) -> usize {
-		match self.width {
-			// SAFETY: Union state based on width field
-			Width::_32 => unsafe { self.extra._32.header_size },
-			Width::_64 => unsafe { self.extra._64.header_size }
-		}.try_into().unwrap()
-	}
-
-	pub(crate) fn program_header_entry_size(&self) -> usize {
-		match self.width {
-			// SAFETY: Union state based on width field
-			Width::_32 => unsafe { self.extra._32.program_header_entry_size },
-			Width::_64 => unsafe { self.extra._64.program_header_entry_size }
-		}.try_into().unwrap()
-	}
-
-	pub(crate) fn section_header_entry_size(&self) -> usize {
-		match self.width {
-			// SAFETY: Union state based on width field
-			Width::_32 => unsafe { self.extra._32.section_header_entry_size },
-			Width::_64 => unsafe { self.extra._64.section_header_entry_size }
-		}.try_into().unwrap()
-	}
-
-	fn program_header_entry_count(&self) -> usize {
-		match self.width {
-			// SAFETY: Union state based on width field
-			Width::_32 => unsafe { self.extra._32.program_header_entry_count },
-			Width::_64 => unsafe { self.extra._64.program_header_entry_count }
-		}.try_into().unwrap()
-	}
-
-	fn section_header_entry_count(&self) -> usize {
-		match self.width {
-			// SAFETY: Union state based on width field
-			Width::_32 => unsafe { self.extra._32.section_header_entry_count },
-			Width::_64 => unsafe { self.extra._64.section_header_entry_count }
-		}.try_into().unwrap()
-	}
-
-	pub fn string_table_index(&self) -> u16 {
-		match self.width {
-			// SAFETY: Union state based on width field
-			Width::_32 => unsafe { self.extra._32.string_table_index },
-			Width::_64 => unsafe { self.extra._64.string_table_index }
+	#[must_use]
+	pub const fn flags(&self) -> u32 {
+		match &self.extra {
+			ExtraHeader::X32(extra) => extra.flags,
+			ExtraHeader::X64(extra) => extra.flags,
 		}
 	}
-}
 
-impl<'a> TryFrom<&'a FileHeaderRaw> for &'a FileHeader {
-	type Error = Error;
-
-	fn try_from(value: &'a FileHeaderRaw) -> Result<&'a FileHeader, Self::Error> {
-		if value.magic != [0x7f, b'E', b'L', b'F'] {
-			return Err(Error::WrongMagic);
+	#[must_use]
+	pub const fn header_size(&self) -> u16 {
+		match &self.extra {
+			ExtraHeader::X32(extra) => extra.header_size,
+			ExtraHeader::X64(extra) => extra.header_size,
 		}
-		
-		Width::try_from(value.arch_width)?;
-		Endianness::try_from(value.endianness)?;
-		Abi::try_from(value.abi)?;
-		Type::try_from(value.file_type)?;
-		Isa::try_from(value.isa)?;
-
-		// SAFETY: Checked each enum has valid value
-		Ok(unsafe { mem::transmute::<_, &'a FileHeader>(value) })
 	}
-}
 
-/*
-impl fmt::Debug for FileHeader {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct("FileHeader")
-		 .field("magic", &self.magic)
-		 .field("arch_width", &self.width)
-		 .field("endianness", &self.endianness)
-		 .field("header_version", &self.header_version)
-		 .field("abi", &self.abi)
-		 .field("file_type", &self.file_type)
-		 .field("isa", &self.isa)
-		 .field("elf_version", &self.elf_version)
-		 .field("entry_point", &self.entry_point())
-		 .field("program_header_offset", &self.program_header_offset())
-		 .field("section_header_offset", &self.section_header_offset())
-		 .field("flags", &self.flags())
-		 .field("header_size", &self.header_size())
-		 .field("program_header_entry_size", &self.program_header_entry_size())
-		 .field("section_header_entry_size", &self.section_header_entry_size())
-		 .field("program_header_entry_count", &self.program_header_entry_count())
-		 .field("section_header_entry_count", &self.section_header_entry_count())
-		 .field("string_table_index", &self.string_table_index())
-		 .finish()
+	#[must_use]
+	pub const fn program_header_entry_size(&self) -> u16 {
+		match &self.extra {
+			ExtraHeader::X32(extra) => extra.program_header_entry_size,
+			ExtraHeader::X64(extra) => extra.program_header_entry_size,
+		}
 	}
-}
-*/
-#[repr(C)]
-union ExtraHeader {
-	pub _32: FileHeaderBit<u32>,
-	pub _64: FileHeaderBit<u64>
+
+	#[must_use]
+	pub const fn program_header_entry_count(&self) -> u16 {
+		match &self.extra {
+			ExtraHeader::X32(extra) => extra.program_header_entry_count,
+			ExtraHeader::X64(extra) => extra.program_header_entry_count,
+		}
+	}
+
+	#[must_use]
+	pub const fn section_header_entry_size(&self) -> u16 {
+		match &self.extra {
+			ExtraHeader::X32(extra) => extra.section_header_entry_size,
+			ExtraHeader::X64(extra) => extra.section_header_entry_size,
+		}
+	}
+
+	#[must_use]
+	pub const fn section_header_entry_count(&self) -> u16 {
+		match &self.extra {
+			ExtraHeader::X32(extra) => extra.section_header_entry_count,
+			ExtraHeader::X64(extra) => extra.section_header_entry_count,
+		}
+	}
+
+	#[must_use]
+	pub const fn section_string_table(&self) -> u16 {
+		match &self.extra {
+			ExtraHeader::X32(extra) => extra.section_string_table,
+			ExtraHeader::X64(extra) => extra.section_string_table,
+		}
+	}
+
+	#[must_use]
+	pub const fn width(&self) -> Width {
+		match &self.extra {
+			ExtraHeader::X32(_) => Width::X32,
+			ExtraHeader::X64(_) => Width::X64,
+		}
+	}
+
+	#[must_use]
+	pub const fn endianness(&self) -> Endianness { self.endianness }
+
+	#[must_use]
+	pub const fn abi(&self) -> Abi { self.abi }
+
+	#[must_use]
+	pub const fn isa(&self) -> Isa { self.isa }
+
+	#[must_use]
+	pub const fn ty(&self) -> Type { self.file_type }
 }
 
 #[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct FileHeaderBit<T> {
-	pub entry_point: T,
-	pub program_header_offset: T,
-	pub section_header_offset: T,
-	pub flags: u32,
-	pub header_size: u16,
-	pub program_header_entry_size: u16,
-	pub program_header_entry_count: u16,
-	pub section_header_entry_size: u16,
-	pub section_header_entry_count: u16,
-	pub string_table_index: u16
+enum ExtraHeader {
+	X32(FileHeaderExtra<u32>),
+	X64(FileHeaderExtra<u64>),
 }
 
-#[repr(C)]
-pub struct FileHeaderRaw {
-	magic: [u8; 4],
-	pub arch_width: u8,
-	pub endianness: u8,
-	pub header_version: u8,
-	pub abi: u8,
-	padding: u64,
-	pub file_type: u16,
-	pub isa: u16,
-	pub elf_version: u32,
-	extra: ExtraHeader
+#[derive(Debug, Copy, Clone)]
+struct FileHeaderExtra<T> {
+	entry_point: T,
+	program_header_offset: T,
+	section_header_offset: T,
+	flags: u32,
+	header_size: u16,
+	program_header_entry_size: u16,
+	program_header_entry_count: u16,
+	section_header_entry_size: u16,
+	section_header_entry_count: u16,
+	section_string_table: u16
 }
 
-impl fmt::Debug for FileHeaderRaw {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct("FileHeaderRaw")
-		 .field("magic", &self.magic)
-		 .field("arch_width", &self.arch_width)
-		 .field("endianness", &self.endianness)
-		 .field("header_version", &self.header_version)
-		 .field("abi", &self.abi)
-		 .field("file_type", &self.file_type)
-		 .field("isa", &self.isa)
-		 .field("elf_version", &self.elf_version)
-		 .field("rest", &"..")
-		 .finish()
-	}
-}
-
-impl FileHeader {
-	pub(crate) fn try_new(data: &[u8]) -> Result<&FileHeader, Error> {
-		if data.len() < size_of::<FileHeaderRaw>() {
-			return Err(Error::NoHeader);
-		}
-		let header_ptr = data.as_ptr().cast::<FileHeaderRaw>();
-		if !header_ptr.is_aligned() {
-			return Err(Error::IncorrectAlign);
-		}
-
-		// SAFETY: Checked alignment, and non-null since taken from slice
-		let data = unsafe {
-			&*header_ptr
-		};
-
-		let data = <&FileHeader>::try_from(data)?;
-
-		Ok(data)
-	}
-}
-
-#[derive(Debug, Display)]
+#[derive(Debug, Copy, Clone)]
 pub enum Error {
-	#[display(fmt = "File too short")]
-	NoHeader,
-	#[display(fmt = "Data not aligned - expected alignment of {}", "mem::align_of::<FileHeader>()")]
-	IncorrectAlign,
-	#[display(fmt = "Corrupted file")]
-	WrongMagic,
-	InvalidWidth(<Width as TryFromPrimitive>::Primitive),
-	InvalidEndianness(<Endianness as TryFromPrimitive>::Primitive),
-	InvalidAbi(<Abi as TryFromPrimitive>::Primitive),
-	InvalidType(<Type as TryFromPrimitive>::Primitive),
-	InvalidIsa(<Isa as TryFromPrimitive>::Primitive),
+	NotEnoughData,
+	InvalidMagic([u8; 4]),
+	InvalidEndianness(u8),
+	UnknownWidth(u8),
+	UnknownHeaderVersion(u8),
+	UnknownElfVersion(u32),
 }
 
-#[derive(Debug, TryFromPrimitive, Eq, PartialEq)]
-#[repr(u8)]
-pub enum Width {
-	_32 = 1,
-	_64 = 2
-}
-
-#[derive(Debug, TryFromPrimitive, Eq, PartialEq)]
-#[repr(u8)]
-pub enum Endianness {
-	Little = 1,
-	Big = 2
-}
-
-#[derive(Debug, TryFromPrimitive, Eq, PartialEq)]
-#[repr(u8)]
-pub enum Abi {
-	SystemV = 0,
-	Linux = 3,
-	Popcorn = 200,
-}
-
-#[derive(Debug, TryFromPrimitive, Eq, PartialEq)]
-#[repr(u16)]
-pub enum Type {
-	Relocatable = 1,
-	Executable = 2,
-	Shared = 3,
-	Core = 4
-}
-
-#[derive(Debug, TryFromPrimitive, Eq, PartialEq)]
-#[repr(u16)]
-pub enum Isa {
-	Nonspecific = 0,
-	Sparc = 2,
-	X86 = 3,
-	Mips = 8,
-	PowerPc = 0x14,
-	Arm = 0x28,
-	SuperH = 0x2a,
-	Itanium = 0x32,
-	Amd64 = 0x3e,
-	AArch64 = 0xb7,
-	RiscV = 0xf3
-}
-
-impl From<TryFromPrimitiveError<Width>> for Error {
-	fn from(value: TryFromPrimitiveError<Width>) -> Self {
-		Self::InvalidWidth(value.number)
+impl fmt::Display for Error {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::NotEnoughData => write!(f, "not enough data"),
+			Self::InvalidEndianness(_) => write!(f, "invalid ELF endianness"),
+			Self::InvalidMagic(_) => write!(f, "invalid ELF file magic"),
+			Self::UnknownWidth(_) => write!(f, "unknown architecture width"),
+			Self::UnknownHeaderVersion(_) => write!(f, "unknown ELF version"),
+			Self::UnknownElfVersion(_) => write!(f, "unknown ELF version"),
+		}
 	}
 }
 
-impl From<TryFromPrimitiveError<Endianness>> for Error {
-	fn from(value: TryFromPrimitiveError<Endianness>) -> Self {
-		Self::InvalidEndianness(value.number)
-	}
-}
+impl core::error::Error for Error {}
 
-impl From<TryFromPrimitiveError<Abi>> for Error {
-	fn from(value: TryFromPrimitiveError<Abi>) -> Self {
-		Self::InvalidAbi(value.number)
-	}
-}
+impl Endianness {
+	#[expect(clippy::unused_self, reason = "consistency")]
+	pub(crate) const fn decode_u8(self, bytes: [u8; 1]) -> u8 { bytes[0] }
 
-impl From<TryFromPrimitiveError<Type>> for Error {
-	fn from(value: TryFromPrimitiveError<Type>) -> Self {
-		Self::InvalidType(value.number)
+	pub(crate) const fn decode_u16(self, bytes: [u8; 2]) -> u16 {
+		match self {
+			Self::LITTLE => u16::from_le_bytes(bytes),
+			Self::BIG => u16::from_be_bytes(bytes),
+			_ => panic!("not implemented: unknown endianness"),
+		}
 	}
-}
 
-impl From<TryFromPrimitiveError<Isa>> for Error {
-	fn from(value: TryFromPrimitiveError<Isa>) -> Self {
-		Self::InvalidIsa(value.number)
+	pub(crate) const fn decode_u32(self, bytes: [u8; 4]) -> u32 {
+		match self {
+			Self::LITTLE => u32::from_le_bytes(bytes),
+			Self::BIG => u32::from_be_bytes(bytes),
+			_ => panic!("not implemented: unknown endianness"),
+		}
+	}
+
+	pub(crate) const fn decode_u64(self, bytes: [u8; 8]) -> u64 {
+		match self {
+			Self::LITTLE => u64::from_le_bytes(bytes),
+			Self::BIG => u64::from_be_bytes(bytes),
+			_ => panic!("not implemented: unknown endianness"),
+		}
 	}
 }

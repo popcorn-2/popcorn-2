@@ -1,0 +1,233 @@
+use crate::raw::index_part;
+use crate::{raw, Endianness, Width};
+use bitflags::bitflags;
+
+#[derive(Debug, Copy, Clone)]
+pub struct Segment {
+	ty: Type,
+	flags: Flags,
+	file_offset: u64,
+	vaddr: u64,
+	paddr: u64,
+	file_size: u64,
+	mem_size: u64,
+	align: u64,
+}
+
+impl Segment {
+	pub const fn ty(&self) -> Type {
+		self.ty
+	}
+
+	pub const fn flags(&self) -> Flags {
+		self.flags
+	}
+
+	pub(crate) const fn file_offset(&self) -> u64 {
+		self.file_offset
+	}
+
+	pub const fn vaddr(&self) -> u64 {
+		self.vaddr
+	}
+
+	pub const fn paddr(&self) -> u64 {
+		self.paddr
+	}
+
+	pub(crate) const fn file_size(&self) -> u64 {
+		self.file_size
+	}
+
+	pub const fn mem_size(&self) -> u64 {
+		self.mem_size
+	}
+
+	pub const fn align(&self) -> u64 {
+		self.align
+	}
+}
+
+#[derive(Debug)]
+pub struct Iter<'f> {
+	entries: &'f [u8],
+	base: u64,
+	width: Width,
+	endianness: Endianness,
+	entry_size: usize,
+}
+
+impl<'f> Iter<'f> {
+	pub(crate) fn new(entries: &'f [u8], base: u64, width: Width, endianness: Endianness, entry_size: u16) -> Self {
+		Self {
+			entries,
+			base,
+			width,
+			endianness,
+			entry_size: usize::from(entry_size),
+		}
+	}
+}
+
+impl Iterator for Iter<'_> {
+	type Item = Segment;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		let (entry, rest) = self.entries.split_at_checked(self.entry_size)?;
+		self.entries = rest;
+
+		match self.width {
+			Width::X32 if entry.len() < raw::program::x32::SIZE => return None,
+			Width::X64 if entry.len() < raw::program::x64::SIZE => return None,
+			Width::X32 | Width::X64 => {},
+			_ => unimplemented!("malformed ELF file"),
+		}
+
+		let segment = match self.width {
+			Width::X32 => {
+				let ty = Type(self.endianness.decode_u32(index_part::<raw::program::x32::Type>(entry)));
+				let offset = self.endianness.decode_u32(index_part::<raw::program::x32::Offset>(entry));
+				let vaddr = self.endianness.decode_u32(index_part::<raw::program::x32::VAddr>(entry));
+				let paddr = self.endianness.decode_u32(index_part::<raw::program::x32::PAddr>(entry));
+				let file_size = self.endianness.decode_u32(index_part::<raw::program::x32::FileSize>(entry));
+				let mem_size = self.endianness.decode_u32(index_part::<raw::program::x32::MemSize>(entry));
+				let flags = Flags::from_bits_retain(self.endianness.decode_u32(index_part::<raw::program::x32::Flags>(entry)));
+				let align = self.endianness.decode_u32(index_part::<raw::program::x32::Align>(entry));
+
+				Segment {
+					ty,
+					flags,
+					file_offset: u64::from(offset),
+					vaddr: u64::from(vaddr) + self.base,
+					paddr: u64::from(paddr),
+					file_size: u64::from(file_size),
+					mem_size: u64::from(mem_size),
+					align: u64::from(align),
+				}
+			},
+			Width::X64 => {
+				let ty = Type(self.endianness.decode_u32(index_part::<raw::program::x64::Type>(entry)));
+				let offset = self.endianness.decode_u64(index_part::<raw::program::x64::Offset>(entry));
+				let vaddr = self.endianness.decode_u64(index_part::<raw::program::x64::VAddr>(entry));
+				let paddr = self.endianness.decode_u64(index_part::<raw::program::x64::PAddr>(entry));
+				let file_size = self.endianness.decode_u64(index_part::<raw::program::x64::FileSize>(entry));
+				let mem_size = self.endianness.decode_u64(index_part::<raw::program::x64::MemSize>(entry));
+				let flags = Flags::from_bits_retain(self.endianness.decode_u32(index_part::<raw::program::x64::Flags>(entry)));
+				let align = self.endianness.decode_u64(index_part::<raw::program::x64::Align>(entry));
+
+				Segment {
+					ty,
+					flags,
+					file_offset: offset,
+					vaddr: vaddr + self.base,
+					paddr,
+					file_size,
+					mem_size,
+					align,
+				}
+			},
+			_ => unimplemented!("unknown architecture width"),
+		};
+
+		Some(segment)
+	}
+
+	fn nth(&mut self, n: usize) -> Option<Self::Item> {
+		let (_, rest) = self.entries.split_at_checked(self.entry_size * n)?;
+		self.entries = rest;
+		self.next()
+	}
+}
+
+kernel_api::newtype_enum! {
+	/// Type of segment in program header table.
+	pub enum Type: u32 => {
+		/// Unused entry.
+		NULL = 0,
+		/// Segment to be loaded.
+		LOAD = 1,
+		/// Dynamic linking table.
+		DYNAMIC = 2,
+		/// Interpreter path.
+		INTERPRETER = 3,
+		/// Auxiliary data.
+		NOTE = 4,
+		/// Program header table.
+		PROGRAM_HEADER = 6,
+		/// TLS template data.
+		TLS = 7,
+		/// Lowest value reserved for OS use.
+		OS_LOW = 0x6000_0000,
+		/// Popcorn kernel module info segment.
+		KERNEL_MODULE_INFO = 0x6000_1000,
+		/// Read-only segment which requires relocation.
+		GNU_RELRO = 0x6474_E552,
+		/// EH-frame segment.
+		GNU_EH_FRAME = 0x6474_E550,
+		/// Non-executable stack marking.
+		GNU_STACK = 0x6474_E551,
+		/// Highest value reserved for OS use.
+		OS_HIGH = 0x6FFF_FFFF,
+		/// Lowest value reserved for architecture specific use.
+		PROCESSOR_LOW = 0x7000_0000,
+		/// Highest value reserved for architecture specific use.
+		PROCESSOR_HIGH = 0x7FFF_FFFF,
+	}
+}
+
+impl Type {
+	/// Create a new `SegmentType` with the given value.
+	///
+	/// If the value falls outside the OS specific reserved values, returns `None`.
+	pub fn new_os(value: u32) -> Option<Self> {
+		if (Self::OS_LOW.0..=Self::OS_HIGH.0).contains(&value) { Some(Self(value)) }
+		else { None }
+	}
+
+	/// Create a new `SegmentType` with the given value.
+	///
+	/// If the value falls outside the architecture specific reserved values, returns `None`.
+	pub fn new_processor(value: u32) -> Option<Self> {
+		if (Self::PROCESSOR_LOW.0..=Self::PROCESSOR_HIGH.0).contains(&value) { Some(Self(value)) }
+		else { None }
+	}
+}
+
+bitflags! {
+	/// Flags describing how to load a segment.
+	#[derive(Debug, Copy, Clone)]
+	#[repr(C)]
+	pub struct Flags: u32 {
+		/// Executable code.
+		const Executable = 0x1;
+		/// Writeable data.
+		const Writeable = 0x2;
+		/// Readable data.
+        const Readable = 0x4;
+		/// Must be loaded below 1MiB physical address.
+		#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+		const LowMem = 0x10000;
+		const OsMask = 0x00FF0000;
+		const ProcessorMask = 0xFF000000;
+	}
+}
+
+impl Flags {
+	/// Create a new `SegmentFlags` with the given value.
+	///
+	/// If the value falls outside the OS specific reserved values, returns `None`.
+	pub fn new_os(value: u32) -> Option<Self> {
+		let masked = value & Self::OsMask.bits();
+		if masked == value { Some(Self::from_bits_retain(value)) }
+		else { None }
+	}
+
+	/// Create a new `SegmentFlags` with the given value.
+	///
+	/// If the value falls outside the architecture specific reserved values, returns `None`.
+	pub fn new_processor(value: u32) -> Option<Self> {
+		let masked = value & Self::ProcessorMask.bits();
+		if masked == value { Some(Self::from_bits_retain(value)) }
+		else { None }
+	}
+}

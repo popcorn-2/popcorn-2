@@ -1,2 +1,3 @@
 pub mod file;
-pub mod program;
+pub mod segment;
+pub mod section;

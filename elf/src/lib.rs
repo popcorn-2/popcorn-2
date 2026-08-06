@@ -1,197 +1,197 @@
-#![no_std]
-#![deny(warnings)]
+//! An ELF parser, supporting zero-copy parsing, relocation, and load-time dynamic linking of 32
+//! and 64 bit ELF files.
+//!
+//! ELF files can be loaded from any buffer implementing [`AsRef<[u8]>`], and the various headers
+//! parsed.
+//!
+//! # Examples
+//!
+//! Load an ELF file and printing header information:
+//! ```no_run
+//! let file = std::fs::read("elf_file").expect("Failed to read file");
+//! let elf = elf::File::try_new(file).expect("Failed to parse ELF file");
+//!
+//! println!("==== File ====");
+//! println!("Width: {:?}", elf.width());
+//! println!("Data: {:?}", elf.endianness());
+//! println!("Abi: {:?}", elf.abi());
+//! println!("Isa: {:?}", elf.isa());
+//! println!("Type: {:?}", elf.ty());
+//! println!();
+//!
+//! println!("==== Segments ====");
+//! for (i, segment) in elf.segments().enumerate() {
+//!     println!("{i}: {:#x?}", segment);
+//! }
+//! println!();
+//!
+//! println!("==== Sections ====");
+//! for (i, section) in elf.sections().enumerate() {
+//!     println!("{i}: {:#x?}", section);
+//! }
+//! println!();
+//! ```
 
-extern crate alloc;
+#![feature(strict_provenance_lints)]
+#![no_std]
 
 use core::fmt;
-use core::marker::PhantomData;
-use core::mem::{size_of};
-use core::ops::{Index, IndexMut, Range};
-use core::ptr::{slice_from_raw_parts, slice_from_raw_parts_mut};
-use header::file::FileHeader;
-use header::program::ProgramHeaderEntry64;
+use header::file;
 use kernel_api::newtype_enum;
 
-mod utils;
-pub mod header;
+mod header;
 mod raw;
 
-type Error = header::file::Error;
+pub use header::file::Header as FileHeader;
+pub use header::segment;
+pub use header::section;
 
-macro_rules! file {
-	(@ref mut $ty:ty) => { &'a mut $ty };
-	(@ref const $ty:ty) => { &'a $ty };
-	(@slice mut $($arg:tt)*) => { slice_from_raw_parts_mut($($arg)*) };
-	(@slice const $($arg:tt)*) => { slice_from_raw_parts($($arg)*) };
-    ($ty:ident $m:tt) => {
-	    #[derive(Debug)]
-		#[repr(C)]
-		pub struct $ty<'a> {
-			/// Base address of the executable
-			/// Can be adjusted by calling [`File::relocate()`]
-			base: u64,
-			header: &'a FileHeader,
-			program_header: &'a [ProgramHeaderEntry64],
-			section_header: &'a [u8],
-			/// The contents of the executable (including all headers)
-			data: * $m [u8],
-			_phantom: PhantomData<file!(@ref $m [u8])>
-		}
-	    
-	    impl<'a> $ty<'a> {
-			pub fn try_new(elf_data: file!(@ref $m [u8])) -> Result< $ty <'a>, Error> {
-				let data_len = elf_data.len();
-				let data_ptr = elf_data.as_ptr();
-				let header = &elf_data[..size_of::<FileHeader>()];
-		
-				FileHeader::try_new(header).map(|header| {
-					let program_header = {
-						let Range{ start, end } = header.program_header();
-						let count = (end - start) / header.program_header_entry_size();
-						unsafe {
-							// SAFETY:
-							// start is non-null since taken from a non-null data pointer
-							// alignment checked by assertion
-							// reference only aliases with immutable reference to data
-							let start = data_ptr.byte_add(start).cast::<ProgramHeaderEntry64>();
-							assert!(start.is_aligned());
-						    &*slice_from_raw_parts(start, count)
-						}
-					};
-		
-					let section_header = {
-						let Range{ start, end } = header.section_header();
-						let count = (end - start) / header.section_header_entry_size();
-						unsafe {
-							// SAFETY:
-							// start is non-null since taken from a non-null data pointer
-							// alignment checked by assertion
-							// reference only aliases with immutable reference to data
-							let start = data_ptr.byte_add(start).cast::<u8>();
-							assert!(start.is_aligned());
-							&*slice_from_raw_parts(start, count)
-						}
-					};
-		
-					$ty {
-						base: 0,
-						header,
-						program_header,
-						section_header,
-						data: file!(@slice $m data_ptr as * $m _, data_len),
-						_phantom: PhantomData
-					}
-				})
-			}
-		
-			pub fn segments(&self) -> impl Iterator<Item = ProgramHeaderEntry64> + '_ {
-				self.program_header.iter()
-						.map(|entry| {
-							ProgramHeaderEntry64 {
-								vaddr: entry.vaddr + self.base,
-								.. *entry
-							}
-						})
-			}
-		
-			fn index_data(&self, slice: FileLocation) -> &[u8] {
-				// SAFETY: self.data must be valid, and returning an immutable reference so fine to alias with self.{program,section}_header
-				unsafe {
-					&(&*self.data)[slice.0]
-				}
-			}
-		    
-		    fn segment_for_address(&self, addr: ExecutableAddressRelocated) -> Option<ProgramHeaderEntry64> {
-				self.segments().find(|segment| segment.memory_location().contains(&addr.0))
-			}
-		
-			pub fn data_at_address(&self, addr: ExecutableAddressRelocated) -> Option<*const u8> {
-				let segment = self.segment_for_address(addr)?;
-				Some(unsafe {
-					self[segment.file_location()].as_ptr().byte_add(usize::try_from(addr.0 - segment.vaddr).unwrap())
-				})
-			}
-		    
-			#[allow(unused)]
-		    fn data_at_unrel_address(&self, addr: ExecutableAddressUnrelocated) -> Option<*const u8> { self.data_at_address(ExecutableAddressRelocated(addr.0 + self.base)) }
-			
-			pub fn entrypoint(&self) -> usize {
-				self.header.entry_point()
-			}
-		}
-	    
-	    impl<'a> Index<FileLocation> for $ty <'a> {
-			type Output = [u8];
-		
-			fn index(&self, index: FileLocation) -> &Self::Output {
-				self.index_data(index)
-			}
-		}
-    };
+#[derive(Debug, Clone, Copy)]
+pub enum ParseError {
+	FileHeader(file::Error),
 }
 
-file!(File const);
-file!(FileMut mut);
-
-impl<'a> FileMut<'a> {
-		fn index_data_mut(&mut self, slice: FileLocation) -> &mut [u8] {
-		fn ranges_overlap(a: Range<usize>, b: Range<usize>) -> bool {
-			!(a.start >= b.end || b.start >= a.end)
-		}
-
-		assert!(
-			!ranges_overlap(slice.0.clone(), 0..size_of::<FileHeader>()) &&
-			!ranges_overlap(slice.0.clone(), self.header.program_header()) &&
-			!ranges_overlap(slice.0.clone(), self.header.section_header()),
-			"Cannot mutably index into headers"
-		);
-
-		// SAFETY: self.data must be valid, and checked that reference won't alias
-		unsafe {
-			&mut (&mut *self.data)[slice.0]
+impl fmt::Display for ParseError {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::FileHeader(error) => write!(f, "File Header Error: {error}"),
 		}
 	}
+}
 
-	pub fn data_at_address_mut(&mut self, addr: ExecutableAddressRelocated) -> Option<*mut u8> {
-		let segment = self.segment_for_address(addr)?;
-		Some(unsafe {
-			self[segment.file_location()].as_mut_ptr().byte_add(usize::try_from(addr.0 - segment.vaddr).unwrap())
+impl From<file::Error> for ParseError {
+	fn from(err: file::Error) -> Self {
+		Self::FileHeader(err)
+	}
+}
+
+impl core::error::Error for ParseError {
+	fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+		match self {
+			Self::FileHeader(err) => Some(err),
+		}
+	}
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct File<D> {
+	inner: FileInner<D>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FileInner<D> {
+	file_header: FileHeader,
+	data: D,
+}
+
+impl<D: AsRef<[u8]>> File<D> {
+	pub fn try_new(from: D) -> Result<Self, ParseError> {
+		let data = from.as_ref();
+		let file_header = FileHeader::try_new(data)?;
+
+		Ok(Self {
+			inner: FileInner {
+				file_header,
+				data: from,
+			},
 		})
 	}
-
-	fn data_at_unrel_address_mut(&mut self, addr: ExecutableAddressUnrelocated) -> Option<*mut u8> { self.data_at_address_mut(ExecutableAddressRelocated(addr.0 + self.base)) }
 }
 
-impl<'a> IndexMut<FileLocation> for FileMut<'a> {
-	fn index_mut(&mut self, index: FileLocation) -> &mut Self::Output {
-		self.index_data_mut(index)
+impl<D> File<D> {
+	pub const fn width(&self) -> Width { self.inner.file_header.width() }
+
+	pub const fn endianness(&self) -> Endianness { self.inner.file_header.endianness() }
+
+	pub const fn abi(&self) -> Abi { self.inner.file_header.abi() }
+
+	pub const fn isa(&self) -> Isa { self.inner.file_header.isa() }
+
+	pub const fn ty(&self) -> Type { self.inner.file_header.ty() }
+}
+
+impl<D: AsRef<[u8]>> File<D> {
+	pub fn segments(&self) -> segment::Iter<'_> {
+		let data = self.inner.data.as_ref();
+		let entries = &data[self.inner.file_header.program_header()];
+		segment::Iter::new(
+			entries,
+			0,
+			self.width(),
+			self.endianness(),
+			self.inner.file_header.program_header_entry_size(),
+		)
+	}
+
+	pub fn sections(&self) -> section::Iter<'_, D> {
+		section::Iter::new(
+			&self.inner,
+			0,
+			self.inner.file_header.section_header(),
+		)
 	}
 }
 
-#[derive(Debug, Clone)]
-#[repr(transparent)]
-pub struct FileLocation(pub Range<usize>);
+impl<D: AsRef<[u8]>> FileInner<D> {
+	fn section_header(&self, idx: u32) -> &[u8] {
+		let section_idx = usize::try_from(idx).expect("not supported on 16 bit");
+		let section_start = section_idx * usize::from(self.file_header.section_header_entry_size());
+		let section_end = (section_idx + 1) * usize::from(self.file_header.section_header_entry_size());
+		&self.data.as_ref()[self.file_header.section_header()][section_start..section_end]
+	}
+}
 
-macro_rules! derive_fmt_filelocation {
-    ($($fmt: path)*) => {
-		$(impl $fmt for FileLocation {
-			fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-				f.write_str("(")?;
-				<usize as $fmt>::fmt(&self.0.start, f)?;
-				f.write_str(", ")?;
-				<usize as $fmt>::fmt(&self.0.end, f)?;
-				f.write_str(")")?;
-				Ok(())
-			}
-		})*
-	};
+impl<D: AsRef<[u8]>> core::ops::Index<segment::Segment> for FileInner<D> {
+	type Output = [u8];
+
+	fn index(&self, segment: segment::Segment) -> &Self::Output {
+		let start = usize::try_from(segment.file_offset()).expect("ELF file too large");
+		let end = usize::try_from(segment.file_offset() + segment.file_size()).expect("ELF file too large");
+		&self.data.as_ref()[start..end]
+	}
+}
+
+impl<D: AsRef<[u8]>> core::ops::Index<segment::Segment> for File<D> {
+	type Output = [u8];
+
+	fn index(&self, segment: segment::Segment) -> &Self::Output {
+		&self.inner[segment]
+	}
+}
+
+impl<D: AsRef<[u8]>> core::ops::Index<section::Section<'_, D>> for FileInner<D> {
+	type Output = [u8];
+
+	fn index(&self, section: section::Section<'_, D>) -> &Self::Output {
+		let start = usize::try_from(section.file_offset()).expect("ELF file too large");
+		let end = usize::try_from(section.file_offset() + section.mem_size()).expect("ELF file too large");
+		&self.data.as_ref()[start..end]
+	}
+}
+
+impl<D: AsRef<[u8]>> core::ops::Index<section::Section<'_, D>> for File<D> {
+	type Output = [u8];
+
+	fn index(&self, section: section::Section<'_, D>) -> &Self::Output {
+		&self.inner[section]
+	}
+}
+
+impl<D: AsRef<[u8]>> File<D> {
+	pub fn load_with<E>(&self, mut f: impl FnMut(&segment::Segment, &[u8]) -> Result<(), E>) -> Result<(), E> {
+		self.segments().filter(|segment| segment.ty() == segment::Type::LOAD).try_for_each(|segment| -> Result<(), E> {
+			let data = &self[segment];
+			f(&segment, data)
+		})
+	}
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct Abi {
 	pub os: OsAbi,
 	pub version: u8,
 }
 
-derive_fmt_filelocation!(fmt::Display fmt::Binary fmt::LowerHex fmt::UpperHex fmt::Octal);
 newtype_enum! {
 	pub enum OsAbi: pub u8 => {
 		SYSTEM_V = 0,
@@ -216,19 +216,10 @@ newtype_enum! {
 	}
 }
 
-#[derive(Debug, Copy, Clone)]
-#[repr(transparent)]
-pub struct ExecutableAddressRelocated(u64);
 newtype_enum! {
 	pub enum Isa: pub u16 => {
 		X86 = 0x03,
 		X86_64 = 0x3E,
-	}
-}
-
-impl ExecutableAddressRelocated {
-	pub fn get(self) -> u64 {
-		self.0
 	}
 }
 
@@ -241,19 +232,10 @@ newtype_enum! {
 	}
 }
 
-#[derive(Debug, Copy, Clone)]
-#[repr(transparent)]
-pub struct ExecutableAddressUnrelocated(u64);
 newtype_enum! {
 	pub enum Width: pub u8 => {
 		X32 = 1,
 		X64 = 2,
-	}
-}
-
-impl ExecutableAddressUnrelocated {
-	unsafe fn relocate(self, base: u64) -> ExecutableAddressRelocated {
-		ExecutableAddressRelocated(self.0 + base)
 	}
 }
 
