@@ -40,6 +40,7 @@ use header::file;
 use kernel_api::newtype_enum;
 
 mod header;
+mod note;
 mod raw;
 
 pub use header::file::Header as FileHeader;
@@ -129,6 +130,49 @@ impl<D: AsRef<[u8]>> File<D> {
 			0,
 			self.inner.file_header.section_header(),
 		)
+	}
+
+	/// Returns an iterator over [`Note`](note::Note) objects in the ELF file.
+	///
+	/// # Examples
+	///
+	/// Print the GNU build ID:
+	///
+	/// ```
+	/// use elf::File;
+	///
+	/// # fn main() -> Result<(), elf::ParseError> {
+    /// fn load_elf_file() -> &'static [u8] {
+    /// #   return include_bytes!("../tests/build-id-x64.elf");
+    ///     // ...
+    /// }
+    ///
+    /// let file = File::try_new(load_elf_file())?;
+    /// if let Some(note) = file.notes().find(|note|
+    ///     note.name() == c"GNU"
+    ///     && note.ty() == 3
+    /// ) {
+    /// #   // this weirdness is so we can doctest with a specific file without exposing the details of
+    /// #   // it in the docs
+    /// #   const TEST: [u8; 20] = [0x10, 0x57, 0xff, 0x44, 0x36, 0x9e, 0xd2, 0x50, 0xee, 0x2f, 0xe1, 0x97, 0x9e, 0x67, 0x36, 0x60, 0x6b, 0xd7, 0xaa, 0xda];
+    /// #   let mut idx = 0;
+    ///     print!("Build ID: ");
+    ///     for byte in note.description() {
+    ///         print!("{byte:x}");
+    /// #       assert_eq!(*byte, TEST[idx]);
+    /// #       idx += 1;
+    ///     }
+    ///     println!();
+    /// }
+    /// # else { panic!("test file contains a build ID") }
+    /// # Ok(())
+    /// # }
+	/// ```
+	pub fn notes(&self) -> impl Iterator<Item = note::Note<'_>> {
+		self.sections()
+			.filter(|section| section.ty() == section::Type::NOTE)
+			.map(|section| note::Iter::new(self.endianness(), &self[section]))
+			.flatten()
 	}
 }
 
