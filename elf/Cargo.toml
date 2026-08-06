@@ -12,6 +12,7 @@ derive_more = "0.99.17"
 hashbrown = "0.14.0"
 log = "0.4.19"
 num_enum = { version = "0.6.1", default-features = false }
+kernel_api = { path = "../kernel_api", default-features = false }
 
 [features]
 testing = []

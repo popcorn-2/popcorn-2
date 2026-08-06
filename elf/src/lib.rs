@@ -10,6 +10,7 @@ use core::ops::{Index, IndexMut, Range};
 use core::ptr::{slice_from_raw_parts, slice_from_raw_parts_mut};
 use header::file::FileHeader;
 use header::program::ProgramHeaderEntry64;
+use kernel_api::newtype_enum;
 
 mod utils;
 pub mod header;
@@ -184,13 +185,46 @@ macro_rules! derive_fmt_filelocation {
 			}
 		})*
 	};
+#[derive(Copy, Clone, Debug)]
+pub struct Abi {
+	pub os: OsAbi,
+	pub version: u8,
 }
 
 derive_fmt_filelocation!(fmt::Display fmt::Binary fmt::LowerHex fmt::UpperHex fmt::Octal);
+newtype_enum! {
+	pub enum OsAbi: pub u8 => {
+		SYSTEM_V = 0,
+		HP_UX = 1,
+		NET_BSD = 2,
+		GNU = 3,
+		LINUX = Self::GNU.0,
+		SOLARIS = 6,
+		AIX = 7,
+		IRIX = 8,
+		FREE_BSD = 9,
+		TRU64 = 10,
+		MODESTO = 11,
+		OPEN_BSD = 12,
+		OPEN_VMS = 13,
+		HP_NSK = 14,
+		AMIGA = 15,
+		FENIXOS = 16,
+		CLOUD_ABI = 17,
+		OPEN_VOS = 18,
+		POPCORN = 200,
+	}
+}
 
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
 pub struct ExecutableAddressRelocated(u64);
+newtype_enum! {
+	pub enum Isa: pub u16 => {
+		X86 = 0x03,
+		X86_64 = 0x3E,
+	}
+}
 
 impl ExecutableAddressRelocated {
 	pub fn get(self) -> u64 {
@@ -198,12 +232,35 @@ impl ExecutableAddressRelocated {
 	}
 }
 
+newtype_enum! {
+	pub enum Type: pub u16 => {
+		RELOCATABLE = 1,
+		EXECUTABLE = 2,
+		SHARED = 3,
+		CORE = 4,
+	}
+}
+
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
 pub struct ExecutableAddressUnrelocated(u64);
+newtype_enum! {
+	pub enum Width: pub u8 => {
+		X32 = 1,
+		X64 = 2,
+	}
+}
 
 impl ExecutableAddressUnrelocated {
 	unsafe fn relocate(self, base: u64) -> ExecutableAddressRelocated {
 		ExecutableAddressRelocated(self.0 + base)
+	}
+}
+
+newtype_enum! {
+	/// The endianness used to write headers.
+	pub enum Endianness: pub u8 => {
+		LITTLE = 1,
+		BIG = 2,
 	}
 }
