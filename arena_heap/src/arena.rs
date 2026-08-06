@@ -13,8 +13,6 @@ const GENERATION_FREE: usize = 0;
 #[cfg(feature = "generations")] const GENERATION_ALLOCATED: usize = 8;
 #[cfg(not(feature = "generations"))] const GENERATION_ALLOCATED: usize = 2;
 
-const ALIGN_OFFSET_MAGIC: usize = usize::from_be_bytes(*b"POP HEAP");
-
 #[cfg(test)]
 mod mock {
 	#![allow(unused)]
@@ -84,13 +82,24 @@ pub struct ChunkHeader {
 	prev: *mut Self,
 	generation: usize,
 	checksum: isize,
-	_redzone: [usize; 6],
+	magic: usize,
+	self_offset: usize,
 }
 
 impl ChunkHeader {
 	const CHUNK_MAGIC: isize = isize::from_be_bytes(*b"POP HEAP");
+	const ALIGN_OFFSET_MAGIC: usize = usize::from_be_bytes(*b"MAGICPOP");
 
 	unsafe fn new_in(self: *mut Self, next: *mut Self, prev: *mut Self, generation: usize) {
+		unsafe {
+			self.update_in_place(next, prev, generation);
+
+		if !next.is_null() {
+			debug_assert!(self.addr() < next.addr(), "`next` ({next:p}) must be after `self` ({self:p})");
+		}
+	}
+
+	unsafe fn update_in_place(self: *mut Self, next: *mut Self, prev: *mut Self, generation: usize) {
 		debug_assert!(self.addr() > prev.addr(), "`prev` ({prev:p}) must be before `self` ({self:p})");
 
 		if !next.is_null() {
@@ -98,15 +107,13 @@ impl ChunkHeader {
 		}
 
 		let checksum = (next.addr() as isize) + (prev.addr() as isize);
-		let this = Self {
-			next,
-			prev,
-			generation,
-			checksum: Self::CHUNK_MAGIC - checksum,
-			_redzone: [usize::MAX; 6],
-		};
 
-		unsafe { *self = this };
+		unsafe {
+			(*self).next = next;
+			(*self).prev = prev;
+			(*self).generation = generation;
+			(*self).checksum = Self::CHUNK_MAGIC - checksum;
+		}
 	}
 
 	#[cfg_attr(kasan, sanitize(address = "off"))]
@@ -165,9 +172,9 @@ impl Arena {
 		let len = mapping.byte_len();
 
 		// SAFETY: Pointer returned by Mapping::new is guaranteed to be valid for RW access for 16 KiB
-		// start - pointer returned by Mapping::new is 4K aligned which is greater than `align_of::<ChunkHeader>()`
-		// end - end of mapping is 4K aligned, therefore `virtual_end()` is more aligned than
-		// `align_of::<ChunkHeader>()`, therefore subtracting `size_of::<ChunkHeader>()` will also be suitably aligned
+		//  start - pointer returned by Mapping::new is 4K aligned which is greater than `align_of::<ChunkHeader>()`
+		//  end - end of mapping is 4K aligned, therefore `virtual_end()` is more aligned than
+		//  `align_of::<ChunkHeader>()`, therefore subtracting `size_of::<ChunkHeader>()` will also be suitably aligned
 		unsafe {
 			start.new_in(
 				end,
@@ -328,22 +335,22 @@ impl Arena {
 			no_asan_shim!(|chunk: *mut ChunkHeader, total_size: usize| {
 				let new_header = unsafe { chunk.add(1).byte_add(total_size) };
 				unsafe {
+					// insert `new_header` between `chunk` and `chunk->next`
 					new_header.new_in(
 						(*chunk).next,
 						chunk,
 						GENERATION_FREE,
 					);
 
-					// copy redzone across because `new_in` resets it but it might contain offset data
-					let redzone = (*(*chunk).next)._redzone;
-					(*chunk).next.new_in(
+					// update `chunk->next` to point to `new_header`
+					(*chunk).next.update_in_place(
 						(*(*chunk).next).next,
 						new_header,
 						(*(*chunk).next).generation,
 					);
-					(*(*chunk).next)._redzone = redzone;
 
-					chunk.new_in(
+					// update `chunk` to point to `new_header`
+					chunk.update_in_place(
 						new_header,
 						(*chunk).prev,
 						(*chunk).generation,
@@ -363,7 +370,7 @@ impl Arena {
 			unsafe { (*chunk).generation = GENERATION_ALLOCATED; };
 			assert_ne!(align_offset, usize::MAX, "invalid offset");
 			unsafe { *start.cast::<usize>().sub(1) = align_offset };
-			unsafe { *start.cast::<usize>().sub(2) = ALIGN_OFFSET_MAGIC };
+			unsafe { *start.cast::<usize>().sub(2) = ChunkHeader::ALIGN_OFFSET_MAGIC };
 		});
 
 		unsafe {
@@ -380,7 +387,6 @@ impl Arena {
 				count_to_shadow(64),
 			);
 		}
-
 
 		asan_free_range(
 			start.into(),
@@ -414,8 +420,8 @@ impl Arena {
 			let magic = unsafe { *ptr.cast::<usize>().offset(-2) };
 			(offset, magic)
 		});
-		debug_assert_eq!(magic, ALIGN_OFFSET_MAGIC, "align offset corrupted");
 		if offset == usize::MAX { let _ = unsafe { *ptr.cast::<usize>().offset(-1) }; }
+		debug_assert_eq!(magic, ChunkHeader::ALIGN_OFFSET_MAGIC, "align offset corrupted");
 		assert_ne!(offset, usize::MAX, "invalid offset");
 		let ptr = unsafe { ptr.byte_sub(offset).byte_sub(size_of::<ChunkHeader>()) };
 		trace!("dealloc chunk from {ptr:#p} with offset {offset}");
@@ -446,20 +452,19 @@ impl Arena {
 				trace!("merge right with {:#p}, next-of-next={:#p}", unsafe { (*ptr).next }, unsafe { (*(*ptr).next).next });
 
 				unsafe {
-					ptr.new_in(
+					// update `ptr` to point to `ptr->next->next`
+					ptr.update_in_place(
 						(*(*ptr).next).next,
 						(*ptr).prev,
 						core::cmp::min((*ptr).generation, (*(*ptr).next).generation),
 					);
 
-					// copy redzone across because `new_in` resets it but it might contain offset data
-					let redzone = (*(*ptr).next)._redzone;
-					(*ptr).next.new_in(
+					// update the new `ptr->next` (originally `ptr->next->next`) to point to `ptr`
+					(*ptr).next.update_in_place(
 						(*(*ptr).next).next,
 						ptr,
 						(*(*ptr).next).generation,
 					);
-					(*(*ptr).next)._redzone = redzone;
 				}
 			}
 
@@ -468,20 +473,19 @@ impl Arena {
 				trace!("merge left");
 
 				unsafe {
-					(*ptr).prev.new_in(
+					// update `ptr->prev` to point to `ptr->next`
+					(*ptr).prev.update_in_place(
 						(*ptr).next,
 						(*(*ptr).prev).prev,
 						core::cmp::min((*ptr).generation, (*(*ptr).prev).generation)
 					);
 
-					// copy redzone across because `new_in` resets it but it might contain offset data
-					let redzone = (*(*ptr).next)._redzone;
-					(*ptr).next.new_in(
+					// update `ptr->next` to point to `ptr->prev`
+					(*ptr).next.update_in_place(
 						(*(*ptr).next).next,
 						(*ptr).prev,
 						(*(*ptr).next).generation,
 					);
-					(*(*ptr).next)._redzone = redzone;
 				}
 			}
 		});
