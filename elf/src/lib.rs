@@ -13,6 +13,7 @@ use header::program::ProgramHeaderEntry64;
 
 mod utils;
 pub mod header;
+mod raw;
 
 type Error = header::file::Error;
 
