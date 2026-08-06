@@ -44,9 +44,13 @@ pub extern "Rust" fn __popcorn_kernel_heap_allocate(layout: Layout) -> Result<No
 	HEAP.alloc(layout)
 }
 
+/// # Safety
+///
+/// `ptr` must have previously been allocated by a call to `__popcorn_kernel_heap_allocate`.
 #[doc(hidden)]
 #[unsafe(no_mangle)]
 pub unsafe extern "Rust" fn __popcorn_kernel_heap_deallocate(ptr: NonNull<u8>, _layout: Layout)  {
+	// SAFETY: Caller upholds that `ptr` came from a call to `__popcorn_kernel_heap_allocate`, which only returns pointers from `HEAP.alloc()`
 	unsafe { HEAP.dealloc(ptr) }
 }
 
@@ -67,6 +71,9 @@ struct Heap {
 }
 
 impl Heap {
+	/// # Errors
+	///
+	/// Returns [`AllocError`] if no memory was available for the requested allocation.
 	fn alloc(&self, layout: Layout) -> Result<NonNull<u8>, AllocError> {
 		for arena in &*self.arenas.read() {
 			let mut arena = arena.lock();
@@ -85,23 +92,26 @@ impl Heap {
 		Ok(ptr)
 	}
 
+	/// # Safety
+	///
+	/// `ptr` must have previously been allocated by a call to `alloc`.
 	unsafe fn dealloc(&self, ptr: NonNull<u8>) {
 		let guard = self.arenas.read();
 
 		trace!("dealloc at {ptr:#p}");
 
-		let mut arena = None;
-		for arena_iter in &*guard {
-			let arena_iter = arena_iter.lock();
-			trace!("check arena at {:#x?}", arena_iter.bounds());
-			if arena_iter.bounds().contains(&ptr) {
-				arena = Some(arena_iter);
+		let mut arena = 'found: {
+			for arena_iter in &*guard {
+				let arena_iter = arena_iter.lock();
+				trace!("check arena at {:#x?}", arena_iter.bounds());
+				if arena_iter.bounds().contains(&ptr) {
+					break 'found arena_iter;
+				}
 			}
-		}
-		
-		// SAFETY: the pointer returned to dealloc must come from this allocator and therefor be in an arena
-		let mut arena = unsafe { arena.unwrap_unchecked() }; // we need this to keep the arena locked while modifying it
+			unreachable!("`ptr` not found in any arenas in this allocator");
+		};
 
+		// SAFETY: Caller upholds that `ptr` came from a call to `alloc`, which only returns pointers from `arena.try_alloc()`
 		unsafe { arena.dealloc(ptr) };
 	}
 }
@@ -112,7 +122,7 @@ mod tests {
 
 	use alloc::sync::Arc;
 	use alloc::vec;
-	use alloc::vec::Vec;
+	use log::LevelFilter;
 	use rand::prelude::{SliceRandom, IndexedRandom};
 
 	#[repr(align(128))]
@@ -124,7 +134,11 @@ mod tests {
 
 	#[test]
 	fn alloc_rand() {
-		simple_logger::SimpleLogger::new().init().unwrap();
+		simple_logger::SimpleLogger::new()
+			.with_level(LevelFilter::Debug)
+			.with_module_level("kernel_api", LevelFilter::Error)
+			.init()
+			.unwrap();
 
 		let layouts = vec![
 			Layout::new::<usize>(),
@@ -142,11 +156,14 @@ mod tests {
 			let ptr = HEAP.alloc(layout)
 			              .unwrap();
 			assert!(ptr.is_aligned_to(layout.align()));
+			debug!("alloc at {ptr:p}");
+			unsafe { ptr.write_bytes(0x36, layout.size()) };
 			allocs.push(ptr);
 		}
 
 		allocs.shuffle(&mut rng);
-		for &alloc in &allocs[0..(allocs.capacity() / 2)] {
+		for alloc in allocs.drain(..(allocs.capacity() / 2)) {
+			debug!("dealloc at {alloc:p}");
 			unsafe { HEAP.dealloc(alloc) };
 		}
 
@@ -155,11 +172,14 @@ mod tests {
 			let ptr = HEAP.alloc(layout)
 			              .unwrap();
 			assert!(ptr.is_aligned_to(layout.align()));
+			debug!("alloc at {ptr:p}");
+			unsafe { ptr.write_bytes(0x36, layout.size()) };
 			allocs.push(ptr);
 		}
 
 		allocs.shuffle(&mut rng);
 		for alloc in allocs {
+			debug!("dealloc at {alloc:p}");
 			unsafe { HEAP.dealloc(alloc) };
 		}
 	}
