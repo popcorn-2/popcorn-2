@@ -12,10 +12,6 @@ use header::file::FileHeader;
 use header::program::ProgramHeaderEntry64;
 
 mod utils;
-pub mod symbol_table;
-pub mod string_table;
-pub mod relocation;
-pub mod dynamic_table;
 pub mod header;
 
 type Error = header::file::Error;
