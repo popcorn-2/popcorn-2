@@ -41,7 +41,7 @@ use kernel_api::newtype_enum;
 
 mod header;
 mod note;
-mod raw;
+pub mod raw;
 
 pub use header::file::Header as FileHeader;
 pub use header::segment;

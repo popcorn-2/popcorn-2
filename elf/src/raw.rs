@@ -1,17 +1,17 @@
-pub trait RawHeaderPart {
+pub(crate) trait RawHeaderPart {
     const OFFSET: usize;
     const LEN: usize;
     type Output: for<'a> TryFrom<&'a [u8]>;
 }
 
-pub fn index_part<T: RawHeaderPart>(data: &[u8]) -> T::Output {
+pub(crate) fn index_part<T: RawHeaderPart>(data: &[u8]) -> T::Output {
     let data = &data[T::OFFSET .. (T::OFFSET + T::LEN)];
     T::Output::try_from(data).unwrap_or_else(|_| panic!("indexed `data` with len `T::LEN`"))
 }
 
 macro_rules! header_part {
 	($name:ident => ($offset:literal, $len:literal); $($rest:tt)*) => {
-		pub enum $name {}
+		pub(crate) enum $name {}
 		impl $crate::raw::RawHeaderPart for $name {
 			const OFFSET: usize = $offset;
 			const LEN: usize = $len;
@@ -49,6 +49,8 @@ pub mod file {
 			SectionHeaderEntryNum => (0x30, 2);
 			SectionHeaderStrTabIndex => (0x32, 2);
 		}
+
+		pub const SIZE: usize = 0x34;
 	}
 
 	pub mod x64 {
@@ -64,6 +66,8 @@ pub mod file {
 			SectionHeaderEntryNum => (0x3C, 2);
 			SectionHeaderStrTabIndex => (0x3E, 2);
 		}
+
+		pub const SIZE: usize = 0x40;
 	}
 }
 
