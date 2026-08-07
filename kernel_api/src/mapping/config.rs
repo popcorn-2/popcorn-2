@@ -3,7 +3,7 @@
 use crate::newtype_enum;
 
 newtype_enum! {
-	pub enum Ty: u8 => {
+	pub enum Ty: pub u8 => {
 		FB = 1,
 		KERNEL_DATA = 2,
 		KERNEL_CODE = 3,

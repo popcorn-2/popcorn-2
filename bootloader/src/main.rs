@@ -303,14 +303,11 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         trace!("=== btl a {addr:#018x} -> {:#018x} : kernel executable", addr as usize + count * 4096);
         uefi::Result::Ok(addr)
     }).expect("Unable to load kernel");
-    let elf::KernelLoadInfo { kernel, mut page_table, address_range, tls: kernel_tls } = kernel;
+    let elf::KernelLoadInfo { kernel, mut page_table, address_range } = kernel;
     let mut address_range = {
         address_range.start.align_down_to_page() .. address_range.end.align_up_to_page()
     };
 
-    let kernel_symbols = kernel.exported_symbols();
-    debug!("{:x?}", kernel_symbols);
-    debug!("kernel tls data = {kernel_tls:x?}");
     debug!("kernel placed at {address_range:#x?}");
 
     /*let mut testing_fn: u64 = 0;
@@ -729,7 +726,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         Vec::leak(kernel_mem_map)
     };
 
-    let kernel_entry = kernel.entrypoint();
+    let kernel_entry = kernel.entry_point();
     debug!("Handover to kernel with entrypoint at {:#x}", kernel_entry);
 
     drop(gop);
@@ -763,7 +760,6 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         test: handoff::Testing {
             module_func: unsafe { mem::transmute(1usize) }
         },
-        tls: (Range(kernel_tls.0.start, kernel_tls.0.end), kernel_tls.1),
         rsdp,
         init_exec: init_program,
         ramdisk,
@@ -938,14 +934,14 @@ fn panic_handler(info: &PanicInfo) -> ! {
  */
 
 mod paging_reasons {
-	use elf::header::program::{SegmentFlags, SegmentType};
+	use elf::segment::{Flags, Type};
 	use kernel_api::mapping::Ty;
 
-	pub fn kernel_seg_to_mapping_ty(ty: SegmentType, flags: SegmentFlags) -> Ty {
+	pub fn kernel_seg_to_mapping_ty(ty: Type, flags: Flags) -> Ty {
 		match ty {
-			SegmentType::LOAD if flags.contains(SegmentFlags::Executable) => Ty::KERNEL_CODE,
-			SegmentType::LOAD => Ty::KERNEL_DATA,
-			SegmentType::TLS => Ty::KERNEL_TLS,
+            Type::LOAD if flags.contains(Flags::Executable) => Ty::KERNEL_CODE,
+            Type::LOAD => Ty::KERNEL_DATA,
+            Type::TLS => Ty::KERNEL_TLS,
 			_ => Ty::KERNEL_OTHER,
 		}
 	}
