@@ -31,6 +31,11 @@ impl Segment {
 	///
 	/// The parsed [`FileHeader`] must be passed to determine the correct [ELF Class](Width)
 	/// and [`Endianness`](crate::Endianness) to use.
+	///
+	/// # Errors
+	///
+	/// Returns a [`ParseError`] if the entry could not be parsed, or the [`FileHeader`] contained
+	/// unsupported values.
 	pub fn try_new<D: AsRef<[u8]>>(from: D, with: &FileHeader) -> Result<Self, ParseError> {
 		let entry = from.as_ref();
 
@@ -52,7 +57,7 @@ impl Segment {
 				let flags = Flags::from_bits_retain(with.endianness().decode_u32(index_part::<raw::program::x32::Flags>(entry)));
 				let align = with.endianness().decode_u32(index_part::<raw::program::x32::Align>(entry));
 
-				Segment {
+				Self {
 					ty,
 					flags,
 					file_offset: u64::from(offset),
@@ -73,7 +78,7 @@ impl Segment {
 				let flags = Flags::from_bits_retain(with.endianness().decode_u32(index_part::<raw::program::x64::Flags>(entry)));
 				let align = with.endianness().decode_u64(index_part::<raw::program::x64::Align>(entry));
 
-				Segment {
+				Self {
 					ty,
 					flags,
 					file_offset: offset,
@@ -89,35 +94,39 @@ impl Segment {
 
 		Ok(segment)
 	}
-}
 
-impl Segment {
 	/// The type of this segment.
+	#[must_use]
 	pub const fn ty(&self) -> Type {
 		self.ty
 	}
 
 	/// Additional information about how to load this segment.
+	#[must_use]
 	pub const fn flags(&self) -> Flags {
 		self.flags
 	}
 
 	#[doc(hidden)]
+	#[must_use]
 	pub const fn file_offset(&self) -> u64 {
 		self.file_offset
 	}
 
 	/// The virtual address this segment should be loaded at.
+	#[must_use]
 	pub const fn vaddr(&self) -> u64 {
 		self.vaddr
 	}
 
 	/// The physical address this segment should be loaded at.
+	#[must_use]
 	pub const fn paddr(&self) -> u64 {
 		self.paddr
 	}
 
 	#[doc(hidden)]
+	#[must_use]
 	pub const fn file_size(&self) -> u64 {
 		self.file_size
 	}
@@ -126,11 +135,13 @@ impl Segment {
 	///
 	/// > **Note**: This may be larger than the length of the data contained
 	/// > in this segment. The remaining space should be filled with zeroes.
+	#[must_use]
 	pub const fn mem_size(&self) -> u64 {
 		self.mem_size
 	}
 
 	/// Required alignment of the start of this segment.
+	#[must_use]
 	pub const fn align(&self) -> u64 {
 		self.align
 	}
@@ -144,7 +155,7 @@ pub struct Iter<'f> {
 }
 
 impl<'f> Iter<'f> {
-	pub(crate) fn new(entries: &'f [u8], header: &'f FileHeader) -> Self {
+	pub(crate) const fn new(entries: &'f [u8], header: &'f FileHeader) -> Self {
 		Self {
 			entries,
 			header,
@@ -159,7 +170,7 @@ impl Iterator for Iter<'_> {
 		let (entry, rest) = self.entries.split_at_checked(self.header.program_header_entry_size().into())?;
 		self.entries = rest;
 
-		Segment::try_new(entry, &self.header).ok()
+		Segment::try_new(entry, self.header).ok()
 	}
 
 	fn nth(&mut self, n: usize) -> Option<Self::Item> {
@@ -210,6 +221,7 @@ impl Type {
 	/// Create a new `Type` with the given value.
 	///
 	/// If the value falls outside the OS specific reserved values, returns `None`.
+	#[must_use]
 	pub fn new_os(value: u32) -> Option<Self> {
 		if (Self::OS_LOW.0..=Self::OS_HIGH.0).contains(&value) { Some(Self(value)) }
 		else { None }
@@ -218,6 +230,7 @@ impl Type {
 	/// Create a new `Type` with the given value.
 	///
 	/// If the value falls outside the architecture specific reserved values, returns `None`.
+	#[must_use]
 	pub fn new_processor(value: u32) -> Option<Self> {
 		if (Self::PROCESSOR_LOW.0..=Self::PROCESSOR_HIGH.0).contains(&value) { Some(Self(value)) }
 		else { None }
@@ -239,9 +252,9 @@ bitflags! {
 		#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 		const LowMem = 0x10000;
         /// OS specific flags.
-		const OsMask = 0x00FF0000;
+		const OsMask = 0x00FF_0000;
         /// Architecture specific flags.
-		const ProcessorMask = 0xFF000000;
+		const ProcessorMask = 0xFF00_0000;
 	}
 }
 
@@ -249,7 +262,8 @@ impl Flags {
 	/// Create a new `SegmentFlags` with the given value.
 	///
 	/// If the value falls outside the OS specific reserved values, returns `None`.
-	pub fn new_os(value: u32) -> Option<Self> {
+	#[must_use]
+	pub const fn new_os(value: u32) -> Option<Self> {
 		let masked = value & Self::OsMask.bits();
 		if masked == value { Some(Self::from_bits_retain(value)) }
 		else { None }
@@ -258,7 +272,8 @@ impl Flags {
 	/// Create a new `SegmentFlags` with the given value.
 	///
 	/// If the value falls outside the architecture specific reserved values, returns `None`.
-	pub fn new_processor(value: u32) -> Option<Self> {
+	#[must_use]
+	pub const fn new_processor(value: u32) -> Option<Self> {
 		let masked = value & Self::ProcessorMask.bits();
 		if masked == value { Some(Self::from_bits_retain(value)) }
 		else { None }

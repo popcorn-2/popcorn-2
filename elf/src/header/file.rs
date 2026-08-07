@@ -23,6 +23,10 @@ impl Header {
 	const X64_EXTRA_LEN: usize = 0x40 - Self::NON_EXTRA_LEN;
 
 	/// Parses an ELF file header from the raw data.
+	///
+	/// # Errors
+	///
+	/// Returns an [`Error`] if the header data was invalid.
 	pub fn try_new(data: &[u8]) -> Result<Self, Error> {
 		if data.len() <= Self::NON_EXTRA_LEN {
 			return Err(Error::NotEnoughData);
@@ -126,31 +130,41 @@ impl Header {
 	/// The virtual address of the entrypoint.
 	///
 	/// Parsed from `e_entry`.
+	///
+	/// # Panics
+	///
+	/// If the entrypoint cannot fit in a [`usize`].
 	#[doc(alias = "e_entry")]
 	#[must_use]
 	// fixme: usize on 32 bit arch with 64 bit elf
-	pub const fn entry_point(&self) -> usize {
+	pub fn entry_point(&self) -> usize {
 		match &self.extra {
-			ExtraHeader::X32(extra) => extra.entry_point as usize,
-			ExtraHeader::X64(extra) => extra.entry_point as usize,
+			ExtraHeader::X32(extra) => extra.entry_point.try_into().unwrap(),
+			ExtraHeader::X64(extra) => extra.entry_point.try_into().unwrap(),
 		}
 	}
 
+	/// # Panics
+	///
+	/// If the entrypoint cannot fit in a [`usize`].
 	#[must_use]
 	// fixme: usize on 32 bit arch with 64 bit elf
-	const fn program_header_offset(&self) -> usize {
+	fn program_header_offset(&self) -> usize {
 		match &self.extra {
-			ExtraHeader::X32(extra) => extra.program_header_offset as usize,
-			ExtraHeader::X64(extra) => extra.program_header_offset as usize,
+			ExtraHeader::X32(extra) => extra.program_header_offset.try_into().unwrap(),
+			ExtraHeader::X64(extra) => extra.program_header_offset.try_into().unwrap(),
 		}
 	}
 
+	/// # Panics
+	///
+	/// If the entrypoint cannot fit in a [`usize`].
 	#[must_use]
 	// fixme: usize on 32 bit arch with 64 bit elf
-	const fn section_header_offset(&self) -> usize {
+	fn section_header_offset(&self) -> usize {
 		match &self.extra {
-			ExtraHeader::X32(extra) => extra.section_header_offset as usize,
-			ExtraHeader::X64(extra) => extra.section_header_offset as usize,
+			ExtraHeader::X32(extra) => extra.section_header_offset.try_into().unwrap(),
+			ExtraHeader::X64(extra) => extra.section_header_offset.try_into().unwrap(),
 		}
 	}
 
@@ -317,8 +331,7 @@ impl fmt::Display for Error {
 			Self::InvalidEndianness(_) => write!(f, "invalid ELF endianness"),
 			Self::InvalidMagic(_) => write!(f, "invalid ELF file magic"),
 			Self::UnknownWidth(_) => write!(f, "unknown architecture width"),
-			Self::UnknownHeaderVersion(_) => write!(f, "unknown ELF version"),
-			Self::UnknownElfVersion(_) => write!(f, "unknown ELF version"),
+			Self::UnknownHeaderVersion(_) | Self::UnknownElfVersion(_) => write!(f, "unknown ELF version"),
 		}
 	}
 }
@@ -329,6 +342,9 @@ impl Endianness {
 	#[expect(clippy::unused_self, reason = "consistency")]
 	pub(crate) const fn decode_u8(self, bytes: [u8; 1]) -> u8 { bytes[0] }
 
+	/// # Panics
+	///
+	/// If the file encoding is unsupported.
 	pub(crate) const fn decode_u16(self, bytes: [u8; 2]) -> u16 {
 		match self {
 			Self::LITTLE => u16::from_le_bytes(bytes),
@@ -337,6 +353,9 @@ impl Endianness {
 		}
 	}
 
+	/// # Panics
+	///
+	/// If the file encoding is unsupported.
 	pub(crate) const fn decode_u32(self, bytes: [u8; 4]) -> u32 {
 		match self {
 			Self::LITTLE => u32::from_le_bytes(bytes),
@@ -345,6 +364,9 @@ impl Endianness {
 		}
 	}
 
+	/// # Panics
+	///
+	/// If the file encoding is unsupported.
 	pub(crate) const fn decode_u64(self, bytes: [u8; 8]) -> u64 {
 		match self {
 			Self::LITTLE => u64::from_le_bytes(bytes),

@@ -88,21 +88,6 @@ struct FileInner<D> {
 	data: D,
 }
 
-impl<D: AsRef<[u8]>> File<D> {
-	/// Parses an ELF file from the raw data.
-	pub fn try_new(from: D) -> Result<Self, ParseError> {
-		let data = from.as_ref();
-		let file_header = FileHeader::try_new(data)?;
-
-		Ok(Self {
-			inner: FileInner {
-				file_header,
-				data: from,
-			},
-		})
-	}
-}
-
 impl<D> File<D> {
 	/// The width of data structures in the ELF file.
 	///
@@ -139,10 +124,27 @@ impl<D> File<D> {
 	///
 	/// Parsed from `e_entry`.
 	#[doc(alias = "e_entry")]
-	pub const fn entry_point(&self) -> usize { self.inner.file_header.entry_point() }
+	pub fn entry_point(&self) -> usize { self.inner.file_header.entry_point() }
 }
 
 impl<D: AsRef<[u8]>> File<D> {
+	/// Parses an ELF file from the raw data.
+	///
+	/// # Errors
+	///
+	/// Returns a [`ParseError`] if the file could not be parsed.
+	pub fn try_new(from: D) -> Result<Self, ParseError> {
+		let data = from.as_ref();
+		let file_header = FileHeader::try_new(data)?;
+
+		Ok(Self {
+			inner: FileInner {
+				file_header,
+				data: from,
+			},
+		})
+	}
+
 	/// Returns an iterator over each [`Segment`](segment::Segment) in the ELF file.
 	pub fn segments(&self) -> segment::Iter<'_> {
 		let data = self.inner.data.as_ref();
@@ -200,26 +202,44 @@ impl<D: AsRef<[u8]>> File<D> {
 	pub fn notes(&self) -> impl Iterator<Item = note::Note<'_>> {
 		self.sections()
 			.filter(|section| section.ty() == section::Type::NOTE)
-			.map(|section| note::Iter::new(self.endianness(), &self[section]))
-			.flatten()
+			.flat_map(|section| note::Iter::new(self.endianness(), &self[section]))
+	}
+
+	/// Iterates over the [loadable segments](segment::Type::LOAD) in the ELF file, calling the
+	/// provided function with the parsed segment descriptor and segment content.
+	///
+	/// # Errors
+	///
+	/// Propagates any errors from the provided function.
+	pub fn load_with<E>(&self, mut f: impl FnMut(&segment::Segment, &[u8]) -> Result<(), E>) -> Result<(), E> {
+		self.segments().filter(|segment| segment.ty() == segment::Type::LOAD).try_for_each(|segment| -> Result<(), E> {
+			let data = &self[segment];
+			f(&segment, data)
+		})
 	}
 }
 
 impl<D: AsRef<[u8]>> FileInner<D> {
+	/// Returns the section header at index `idx`.
 	fn section_header(&self, idx: u32) -> &[u8] {
-		let section_idx = usize::try_from(idx).expect("not supported on 16 bit");
-		let section_start = section_idx * usize::from(self.file_header.section_header_entry_size());
-		let section_end = (section_idx + 1) * usize::from(self.file_header.section_header_entry_size());
-		&self.data.as_ref()[self.file_header.section_header()][section_start..section_end]
+		#[expect(clippy::missing_panics_doc, reason = "allocations cannot be larger than isize::MAX so a file large enough to overflow usize cannot exist")]
+		let idx = {
+			let idx = usize::try_from(idx).expect("not supported on 16 bit");
+			let start = idx * usize::from(self.file_header.section_header_entry_size());
+			let end = (idx + 1) * usize::from(self.file_header.section_header_entry_size());
+			start..end
+		};
+
+		&self.data.as_ref()[self.file_header.section_header()][idx]
 	}
 }
 
 impl<D: AsRef<[u8]>> core::ops::Index<segment::Segment> for FileInner<D> {
 	type Output = [u8];
 
-	fn index(&self, segment: segment::Segment) -> &Self::Output {
-		let start = usize::try_from(segment.file_offset()).expect("ELF file too large");
-		let end = usize::try_from(segment.file_offset() + segment.file_size()).expect("ELF file too large");
+	fn index(&self, index: segment::Segment) -> &Self::Output {
+		let start = usize::try_from(index.file_offset()).expect("ELF file too large");
+		let end = usize::try_from(index.file_offset() + index.file_size()).expect("ELF file too large");
 		&self.data.as_ref()[start..end]
 	}
 }
@@ -227,17 +247,18 @@ impl<D: AsRef<[u8]>> core::ops::Index<segment::Segment> for FileInner<D> {
 impl<D: AsRef<[u8]>> core::ops::Index<segment::Segment> for File<D> {
 	type Output = [u8];
 
-	fn index(&self, segment: segment::Segment) -> &Self::Output {
-		&self.inner[segment]
+	/// Returns the file content in the [`Segment`](segment::Segment) `index`.
+	fn index(&self, index: segment::Segment) -> &Self::Output {
+		&self.inner[index]
 	}
 }
 
 impl<D: AsRef<[u8]>> core::ops::Index<section::Section<'_, D>> for FileInner<D> {
 	type Output = [u8];
 
-	fn index(&self, section: section::Section<'_, D>) -> &Self::Output {
-		let start = usize::try_from(section.file_offset()).expect("ELF file too large");
-		let end = usize::try_from(section.file_offset() + section.mem_size()).expect("ELF file too large");
+	fn index(&self, index: section::Section<'_, D>) -> &Self::Output {
+		let start = usize::try_from(index.file_offset()).expect("ELF file too large");
+		let end = usize::try_from(index.file_offset() + index.mem_size()).expect("ELF file too large");
 		&self.data.as_ref()[start..end]
 	}
 }
@@ -245,19 +266,9 @@ impl<D: AsRef<[u8]>> core::ops::Index<section::Section<'_, D>> for FileInner<D> 
 impl<D: AsRef<[u8]>> core::ops::Index<section::Section<'_, D>> for File<D> {
 	type Output = [u8];
 
-	fn index(&self, section: section::Section<'_, D>) -> &Self::Output {
-		&self.inner[section]
-	}
-}
-
-impl<D: AsRef<[u8]>> File<D> {
-	/// Iterates over the [loadable segments](segment::Type::LOAD) in the ELF file, calling the
-	/// provided function with the parsed segment descriptor and segment content.
-	pub fn load_with<E>(&self, mut f: impl FnMut(&segment::Segment, &[u8]) -> Result<(), E>) -> Result<(), E> {
-		self.segments().filter(|segment| segment.ty() == segment::Type::LOAD).try_for_each(|segment| -> Result<(), E> {
-			let data = &self[segment];
-			f(&segment, data)
-		})
+	/// Returns the file content in the [`Section`](section::Section) `index`.
+	fn index(&self, index: section::Section<'_, D>) -> &Self::Output {
+		&self.inner[index]
 	}
 }
 

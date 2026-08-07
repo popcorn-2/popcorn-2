@@ -6,11 +6,13 @@
 pub(crate) trait RawHeaderPart {
     const OFFSET: usize;
     const LEN: usize;
+	// fixme(generic_const_expr): replace T::Output with [u8; T::LEN]
     type Output: for<'a> TryFrom<&'a [u8]>;
 }
 
 pub(crate) fn index_part<T: RawHeaderPart>(data: &[u8]) -> T::Output {
     let data = &data[T::OFFSET .. (T::OFFSET + T::LEN)];
+	#[expect(clippy::missing_panics_doc, reason = "correct impl of RawHeaderPart will have T::OUTPUT be [u8; T::LEN]")]
     T::Output::try_from(data).unwrap_or_else(|_| panic!("indexed `data` with len `T::LEN`"))
 }
 

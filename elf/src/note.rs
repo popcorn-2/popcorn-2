@@ -13,15 +13,18 @@ pub struct Note<'f> {
 
 impl Note<'_> {
     /// The name of this note.
-    pub fn name(&self) -> &CStr { self.name }
+    #[must_use]
+    pub const fn name(&self) -> &CStr { self.name }
 
     /// The content of this note.
     ///
     /// Interpretation of this is specific to the name and type.
-    pub fn description(&self) -> &[u8] { self.description }
+    #[must_use]
+    pub const fn description(&self) -> &[u8] { self.description }
 
     /// The type of the note.
-    pub fn ty(&self) -> u32 { self.ty }
+    #[must_use]
+    pub const fn ty(&self) -> u32 { self.ty }
 }
 
 /// An iterator of each [`Note`] in a note section.
@@ -32,7 +35,7 @@ pub struct Iter<'f> {
 }
 
 impl<'f> Iter<'f> {
-    pub(crate) fn new(endianness: Endianness, data: &'f [u8]) -> Self {
+    pub(crate) const fn new(endianness: Endianness, data: &'f [u8]) -> Self {
         Self {
             endianness,
             entries: data,

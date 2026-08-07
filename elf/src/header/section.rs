@@ -105,6 +105,7 @@ impl<'f, D: AsRef<[u8]>> Section<'f, D> {
     }
 
     /// The name of this section.
+    #[must_use]
     pub fn name(&self) -> &CStr {
         let strtab = {
             let strtab = self.file.section_header(self.file.file_header.section_string_table().into());
@@ -115,6 +116,7 @@ impl<'f, D: AsRef<[u8]>> Section<'f, D> {
     }
 
     /// Returns the section specified in the `sh_link` field if it exists.
+    #[must_use]
     pub fn link(&self) -> Option<Self> {
         if self.link == 0 { return None; }
         let link = self.file.section_header(self.link);
@@ -125,16 +127,19 @@ impl<'f, D: AsRef<[u8]>> Section<'f, D> {
     }
 
     /// The type of this section.
+    #[must_use]
     pub const fn ty(&self) -> Type {
         self.ty
     }
 
     /// Additional information about the section contents.
+    #[must_use]
     pub const fn flags(&self) -> Flags {
         self.flags
     }
 
     /// The virtual address this section should be loaded at.
+    #[must_use]
     pub const fn vaddr(&self) -> u64 {
         self.vaddr
     }
@@ -147,11 +152,13 @@ impl<'f, D: AsRef<[u8]>> Section<'f, D> {
     ///
     /// > **Note**: This may be larger than the length of the data contained
     /// > in this section. The remaining space should be filled with zeroes.
+    #[must_use]
     pub const fn mem_size(&self) -> u64 {
         self.mem_size
     }
 
     /// Required alignment of the start of this section.
+    #[must_use]
     pub const fn align(&self) -> u64 {
         self.align
     }
@@ -237,6 +244,7 @@ impl Type {
     /// Create a new `Type` with the given value.
     ///
     /// If the value falls outside the OS specific reserved values, returns `None`.
+    #[must_use]
     pub fn new_os(value: u32) -> Option<Self> {
         if (Self::OS_LOW.0..=Self::OS_HIGH.0).contains(&value) { Some(Self(value)) }
         else { None }
@@ -245,6 +253,7 @@ impl Type {
     /// Create a new `Type` with the given value.
     ///
     /// If the value falls outside the architecture specific reserved values, returns `None`.
+    #[must_use]
     pub fn new_processor(value: u32) -> Option<Self> {
         if (Self::PROCESSOR_LOW.0..=Self::PROCESSOR_HIGH.0).contains(&value) { Some(Self(value)) }
         else { None }
@@ -269,9 +278,9 @@ bitflags! {
         /// Contains thread local template.
         const Tls = 0x400;
         /// OS specific flags.
-		const OsMask = 0x0F000000;
+		const OsMask = 0x0F00_0000;
         /// Architecture specific flags.
-		const ProcessorMask = 0xF0000000;
+		const ProcessorMask = 0xF000_0000;
 	}
 }
 
@@ -279,7 +288,8 @@ impl Flags {
     /// Create a new `SectionFlags` with the given value.
     ///
     /// If the value falls outside the OS specific reserved values, returns `None`.
-    pub fn new_os(value: u64) -> Option<Self> {
+    #[must_use]
+    pub const fn new_os(value: u64) -> Option<Self> {
         let masked = value & Self::OsMask.bits();
         if masked == value { Some(Self::from_bits_retain(value)) }
         else { None }
@@ -288,7 +298,8 @@ impl Flags {
     /// Create a new `SectionFlags` with the given value.
     ///
     /// If the value falls outside the architecture specific reserved values, returns `None`.
-    pub fn new_processor(value: u64) -> Option<Self> {
+    #[must_use]
+    pub const fn new_processor(value: u64) -> Option<Self> {
         let masked = value & Self::ProcessorMask.bits();
         if masked == value { Some(Self::from_bits_retain(value)) }
         else { None }
