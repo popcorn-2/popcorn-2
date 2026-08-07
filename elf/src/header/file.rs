@@ -1,9 +1,13 @@
+//! Types for reading ELF file headers.
+
 use crate::raw;
 use crate::raw::index_part;
 use crate::{Abi, Endianness, Isa, OsAbi, Type, Width};
 use core::fmt;
 use core::ops::Range;
 
+
+/// A parsed ELF file header.
 #[derive(Debug, Copy, Clone)]
 pub struct Header {
 	endianness: Endianness,
@@ -18,6 +22,7 @@ impl Header {
 	const X32_EXTRA_LEN: usize = 0x34 - Self::NON_EXTRA_LEN;
 	const X64_EXTRA_LEN: usize = 0x40 - Self::NON_EXTRA_LEN;
 
+	/// Parses an ELF file header from the raw data.
 	pub fn try_new(data: &[u8]) -> Result<Self, Error> {
 		if data.len() <= Self::NON_EXTRA_LEN {
 			return Err(Error::NotEnoughData);
@@ -96,6 +101,8 @@ impl Header {
 		})
 	}
 
+	/// The range of bytes in the file that contains the program header.
+	#[doc(alias = "e_phoff")]
 	#[must_use]
 	// fixme: usize on 32 bit arch with 64 bit elf
 	pub fn program_header(&self) -> Range<usize> {
@@ -105,6 +112,8 @@ impl Header {
 		Range {start, end: start + size }
 	}
 
+	/// The range of bytes in the file that contains the section header.
+	#[doc(alias = "e_shoff")]
 	#[must_use]
 	// fixme: usize on 32 bit arch with 64 bit elf
 	pub fn section_header(&self) -> Range<usize> {
@@ -114,6 +123,10 @@ impl Header {
 		Range {start, end: start + size}
 	}
 
+	/// The virtual address of the entrypoint.
+	///
+	/// Parsed from `e_entry`.
+	#[doc(alias = "e_entry")]
 	#[must_use]
 	// fixme: usize on 32 bit arch with 64 bit elf
 	pub const fn entry_point(&self) -> usize {
@@ -125,7 +138,7 @@ impl Header {
 
 	#[must_use]
 	// fixme: usize on 32 bit arch with 64 bit elf
-	pub const fn program_header_offset(&self) -> usize {
+	const fn program_header_offset(&self) -> usize {
 		match &self.extra {
 			ExtraHeader::X32(extra) => extra.program_header_offset as usize,
 			ExtraHeader::X64(extra) => extra.program_header_offset as usize,
@@ -134,13 +147,17 @@ impl Header {
 
 	#[must_use]
 	// fixme: usize on 32 bit arch with 64 bit elf
-	pub const fn section_header_offset(&self) -> usize {
+	const fn section_header_offset(&self) -> usize {
 		match &self.extra {
 			ExtraHeader::X32(extra) => extra.section_header_offset as usize,
 			ExtraHeader::X64(extra) => extra.section_header_offset as usize,
 		}
 	}
 
+	/// Target specific flags.
+	///
+	/// Parsed from `e_flags`.
+	#[doc(alias = "e_flags")]
 	#[must_use]
 	pub const fn flags(&self) -> u32 {
 		match &self.extra {
@@ -149,6 +166,10 @@ impl Header {
 		}
 	}
 
+	/// The total size of the file header.
+	///
+	/// Parsed from `e_ehsize`.
+	#[doc(alias = "e_ehsize")]
 	#[must_use]
 	pub const fn header_size(&self) -> u16 {
 		match &self.extra {
@@ -157,6 +178,10 @@ impl Header {
 		}
 	}
 
+	/// The size of each segment entry in the program header.
+	///
+	/// Parsed from `e_phentsize`.
+	#[doc(alias = "e_phentsize")]
 	#[must_use]
 	pub const fn program_header_entry_size(&self) -> u16 {
 		match &self.extra {
@@ -165,6 +190,10 @@ impl Header {
 		}
 	}
 
+	/// The number of segment entries in the program header.
+	///
+	/// Parsed from `e_phnum`.
+	#[doc(alias = "e_phnum")]
 	#[must_use]
 	pub const fn program_header_entry_count(&self) -> u16 {
 		match &self.extra {
@@ -173,6 +202,10 @@ impl Header {
 		}
 	}
 
+	/// The size of each section entry in the section header.
+	///
+	/// Parsed from `e_shentsize`.
+	#[doc(alias = "e_shentsize")]
 	#[must_use]
 	pub const fn section_header_entry_size(&self) -> u16 {
 		match &self.extra {
@@ -181,6 +214,10 @@ impl Header {
 		}
 	}
 
+	/// The number of section entries in the section header.
+	///
+	/// Parsed from `e_shnum`.
+	#[doc(alias = "e_shnum")]
 	#[must_use]
 	pub const fn section_header_entry_count(&self) -> u16 {
 		match &self.extra {
@@ -189,6 +226,10 @@ impl Header {
 		}
 	}
 
+	/// The index of the section containing the names of sections.
+	///
+	/// Parsed from `e_shstrndx`.
+	#[doc(alias = "e_shstrndx")]
 	#[must_use]
 	pub const fn section_string_table(&self) -> u16 {
 		match &self.extra {
@@ -197,6 +238,10 @@ impl Header {
 		}
 	}
 
+	/// The width of data structures in the ELF file.
+	///
+	/// Parsed from `e_ident[EI_CLASS]`.
+	#[doc(alias = "EI_CLASS")]
 	#[must_use]
 	pub const fn width(&self) -> Width {
 		match &self.extra {
@@ -205,15 +250,32 @@ impl Header {
 		}
 	}
 
+	/// The endianness used in headers.
+	///
+	/// Parsed from `e_ident[EI_DATA]`.
+	#[doc(alias = "EI_DATA")]
 	#[must_use]
 	pub const fn endianness(&self) -> Endianness { self.endianness }
 
+	/// The ABI the ELF file was compiled for.
+	///
+	/// Parsed from `e_ident[EI_OSABI]` and `e_ident[EI_ABIVERSION]`.
+	#[doc(alias = "EI_OSABI")]
+	#[doc(alias = "EI_ABIVERSION")]
 	#[must_use]
 	pub const fn abi(&self) -> Abi { self.abi }
 
+	/// The architecture the ELF file was compiled for.
+	///
+	/// Parsed from `e_machine`.
+	#[doc(alias = "e_machine")]
 	#[must_use]
 	pub const fn isa(&self) -> Isa { self.isa }
 
+	/// The type of ELF file.
+	///
+	/// Parsed from `e_type`.
+	#[doc(alias = "e_type")]
 	#[must_use]
 	pub const fn ty(&self) -> Type { self.file_type }
 }

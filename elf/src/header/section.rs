@@ -1,3 +1,5 @@
+//! Types for reading ELF section headers.
+
 use crate::raw::index_part;
 use crate::{raw, FileInner, Width};
 use bitflags::bitflags;
@@ -5,6 +7,7 @@ use core::ffi::CStr;
 use core::fmt;
 use core::ops::Range;
 
+/// A parsed ELF section header entry.
 pub struct Section<'f, D> {
     file: &'f FileInner<D>,
     name_idx: u32,
@@ -101,6 +104,7 @@ impl<'f, D: AsRef<[u8]>> Section<'f, D> {
         }
     }
 
+    /// The name of this section.
     pub fn name(&self) -> &CStr {
         let strtab = {
             let strtab = self.file.section_header(self.file.file_header.section_string_table().into());
@@ -110,6 +114,7 @@ impl<'f, D: AsRef<[u8]>> Section<'f, D> {
         CStr::from_bytes_until_nul(&strtab[self.name_idx as usize..]).unwrap_or(c"")
     }
 
+    /// Returns the section specified in the `sh_link` field if it exists.
     pub fn link(&self) -> Option<Self> {
         if self.link == 0 { return None; }
         let link = self.file.section_header(self.link);
@@ -119,14 +124,17 @@ impl<'f, D: AsRef<[u8]>> Section<'f, D> {
         ))
     }
 
+    /// The type of this section.
     pub const fn ty(&self) -> Type {
         self.ty
     }
 
+    /// Additional information about the section contents.
     pub const fn flags(&self) -> Flags {
         self.flags
     }
 
+    /// The virtual address this section should be loaded at.
     pub const fn vaddr(&self) -> u64 {
         self.vaddr
     }
@@ -135,20 +143,21 @@ impl<'f, D: AsRef<[u8]>> Section<'f, D> {
         self.file_offset
     }
 
+    /// Size this section takes up once loaded into memory.
+    ///
+    /// > **Note**: This may be larger than the length of the data contained
+    /// > in this section. The remaining space should be filled with zeroes.
     pub const fn mem_size(&self) -> u64 {
         self.mem_size
     }
 
+    /// Required alignment of the start of this section.
     pub const fn align(&self) -> u64 {
         self.align
     }
-
-    /*pub fn link(&self) -> Option<Self> {
-        let idx = self.link as usize;
-        self.file.sections().nth(idx)
-    }*/
 }
 
+/// An iterator of each [`Section`] in a file.
 #[derive(Debug)]
 pub struct Iter<'f, D> {
     file: &'f FileInner<D>,
@@ -183,28 +192,35 @@ impl<'f, D: AsRef<[u8]>> Iterator for Iter<'f, D> {
 }
 
 kernel_api::newtype_enum! {
-	/// Type of section in program header table.
+	/// Type of section.
 	pub enum Type: u32 => {
 		/// Unused entry.
 		NULL = 0x00,
-		/// Segment to be loaded.
+		/// Contains program data.
 		PROGRAM_BITS = 0x01,
-		/// Dynamic linking table.
+		/// Contains symbol table.
 		SYMBOL_TABLE = 0x02,
-		/// Interpreter path.
+        /// Contains string table.
 		STRING_TABLE = 0x03,
-		/// Auxiliary data.
+		/// List of relocations with addends.
 		RELA = 0x04,
+        /// Hashtable of symbols.
         HASH = 0x05,
-		/// Program header table.
+		/// Dynamic linking table.
 		DYNAMIC = 0x06,
-		/// TLS template data.
+        /// Notes.
 		NOTE = 0x07,
+        /// Reserved data space with no content.
         NO_BITS = 0x08,
+        /// List of relocations.
         REL = 0x09,
+        /// Symbol table for dynamic linking.
         DYNAMIC_SYMBOL_TABLE = 0x0B,
+        /// Array of constructor addresses.
         INIT_ARRAY = 0x0E,
+        /// Array of destructor addresses.
         FINI_ARRAY = 0x0F,
+        /// Array of pre-constructor addresses.
         PRE_INIT_ARRAY = 0x10,
 		/// Lowest value reserved for OS use.
 		OS_LOW = 0x6000_0000,
@@ -218,7 +234,7 @@ kernel_api::newtype_enum! {
 }
 
 impl Type {
-    /// Create a new `SectionType` with the given value.
+    /// Create a new `Type` with the given value.
     ///
     /// If the value falls outside the OS specific reserved values, returns `None`.
     pub fn new_os(value: u32) -> Option<Self> {
@@ -226,7 +242,7 @@ impl Type {
         else { None }
     }
 
-    /// Create a new `SectionType` with the given value.
+    /// Create a new `Type` with the given value.
     ///
     /// If the value falls outside the architecture specific reserved values, returns `None`.
     pub fn new_processor(value: u32) -> Option<Self> {
@@ -236,7 +252,7 @@ impl Type {
 }
 
 bitflags! {
-	/// Flags describing how to load a section.
+	/// Flags containing additional information about the contents of a section.
 	#[derive(Debug, Copy, Clone)]
 	#[repr(C)]
 	pub struct Flags: u64 {
@@ -246,10 +262,15 @@ bitflags! {
 		const Alloc = 0x2;
 		/// Readable data.
         const Exec = 0x4;
+        /// Can be merged with other sections.
         const Merge = 0x10;
+        /// Contains strings.
         const Strings = 0x20;
+        /// Contains thread local template.
         const Tls = 0x400;
+        /// OS specific flags.
 		const OsMask = 0x0F000000;
+        /// Architecture specific flags.
 		const ProcessorMask = 0xF0000000;
 	}
 }

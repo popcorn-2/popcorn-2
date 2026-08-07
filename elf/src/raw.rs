@@ -1,3 +1,8 @@
+//! Raw constants defining the layout of sections of an ELF file.
+//!
+//! Each module contains `x32` and `x64` submodules which contain any constants that depend
+//! on the [ELF Class](crate::Width).
+
 pub(crate) trait RawHeaderPart {
     const OFFSET: usize;
     const LEN: usize;
@@ -23,6 +28,7 @@ macro_rules! header_part {
 	() => {};
 }
 
+/// Raw constants defining the layout of the file header.
 pub mod file {
 	header_part! {
 		Magic => (0x00, 4);
@@ -36,6 +42,7 @@ pub mod file {
 		FileVersion => (0x14, 4);
 	}
 
+	/// File header for [ELF Class 32](crate::Width::X32) files.
 	pub mod x32 {
 		header_part! {
 			Entry => (0x18, 4);
@@ -50,9 +57,11 @@ pub mod file {
 			SectionHeaderStrTabIndex => (0x32, 2);
 		}
 
+		/// Total size of this header.
 		pub const SIZE: usize = 0x34;
 	}
 
+	/// File header for [ELF Class 64](crate::Width::X64) files.
 	pub mod x64 {
 		header_part! {
 			Entry => (0x18, 8);
@@ -67,11 +76,14 @@ pub mod file {
 			SectionHeaderStrTabIndex => (0x3E, 2);
 		}
 
+		/// Total size of this header.
 		pub const SIZE: usize = 0x40;
 	}
 }
 
+/// Raw constants defining the layout of the program header.
 pub mod program {
+	/// Program header for [ELF Class 32](crate::Width::X32) files.
 	pub mod x32 {
 		header_part! {
 			Type => (0x00, 4);
@@ -84,9 +96,11 @@ pub mod program {
 			Align => (0x1C, 4);
 		}
 
+		/// Total size of this header.
 		pub const SIZE: usize = 0x20;
 	}
 
+	/// Program header for [ELF Class 64](crate::Width::X64) files.
 	pub mod x64 {
 		header_part! {
 			Type => (0x00, 4);
@@ -99,11 +113,14 @@ pub mod program {
 			Align => (0x30, 8);
 		}
 
+		/// Total size of this header.
 		pub const SIZE: usize = 0x38;
 	}
 }
 
+/// Raw constants defining the layout of the section header.
 pub mod section {
+	/// Section header for [ELF Class 32](crate::Width::X32) files.
 	pub mod x32 {
 		header_part! {
 			Name => (0x00, 4);
@@ -118,9 +135,11 @@ pub mod section {
 			EntrySize => (0x24, 4);
 		}
 
+		/// Total size of this header.
 		pub const SIZE: usize = 0x28;
 	}
 
+	/// Section header for [ELF Class 64](crate::Width::X64) files.
 	pub mod x64 {
 		header_part! {
 			Name => (0x00, 4);
@@ -135,6 +154,7 @@ pub mod section {
 			EntrySize => (0x38, 8);
 		}
 
+		/// Total size of this header.
 		pub const SIZE: usize = 0x3C;
 	}
 }

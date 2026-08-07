@@ -1,13 +1,19 @@
+//! Types for reading ELF program headers.
+
 use crate::raw::index_part;
 use crate::{raw, FileHeader, Width};
 use bitflags::bitflags;
 
+/// The error returned when parsing a [`Segment`].
 #[derive(Debug, Copy, Clone)]
 pub enum ParseError {
+	/// The passed file is too short for the expected length of a program header entry.
 	NotEnoughData,
+	/// The passed file contains invalid data.
 	InvalidFile,
 }
 
+/// A parsed ELF program header entry.
 #[derive(Debug, Copy, Clone)]
 pub struct Segment {
 	ty: Type,
@@ -21,6 +27,10 @@ pub struct Segment {
 }
 
 impl Segment {
+	/// Parses a segment descriptor from the raw contents of a program header entry.
+	///
+	/// The parsed [`FileHeader`] must be passed to determine the correct [ELF Class](Width)
+	/// and [`Endianness`](crate::Endianness) to use.
 	pub fn try_new<D: AsRef<[u8]>>(from: D, with: &FileHeader) -> Result<Self, ParseError> {
 		let entry = from.as_ref();
 
@@ -82,10 +92,12 @@ impl Segment {
 }
 
 impl Segment {
+	/// The type of this segment.
 	pub const fn ty(&self) -> Type {
 		self.ty
 	}
 
+	/// Additional information about how to load this segment.
 	pub const fn flags(&self) -> Flags {
 		self.flags
 	}
@@ -95,10 +107,12 @@ impl Segment {
 		self.file_offset
 	}
 
+	/// The virtual address this segment should be loaded at.
 	pub const fn vaddr(&self) -> u64 {
 		self.vaddr
 	}
 
+	/// The physical address this segment should be loaded at.
 	pub const fn paddr(&self) -> u64 {
 		self.paddr
 	}
@@ -108,15 +122,21 @@ impl Segment {
 		self.file_size
 	}
 
+	/// Size this segment takes up once loaded into memory.
+	///
+	/// > **Note**: This may be larger than the length of the data contained
+	/// > in this segment. The remaining space should be filled with zeroes.
 	pub const fn mem_size(&self) -> u64 {
 		self.mem_size
 	}
 
+	/// Required alignment of the start of this segment.
 	pub const fn align(&self) -> u64 {
 		self.align
 	}
 }
 
+/// An iterator of each [`Segment`] in a file.
 #[derive(Debug)]
 pub struct Iter<'f> {
 	entries: &'f [u8],
@@ -187,7 +207,7 @@ kernel_api::newtype_enum! {
 }
 
 impl Type {
-	/// Create a new `SegmentType` with the given value.
+	/// Create a new `Type` with the given value.
 	///
 	/// If the value falls outside the OS specific reserved values, returns `None`.
 	pub fn new_os(value: u32) -> Option<Self> {
@@ -195,7 +215,7 @@ impl Type {
 		else { None }
 	}
 
-	/// Create a new `SegmentType` with the given value.
+	/// Create a new `Type` with the given value.
 	///
 	/// If the value falls outside the architecture specific reserved values, returns `None`.
 	pub fn new_processor(value: u32) -> Option<Self> {
@@ -205,7 +225,7 @@ impl Type {
 }
 
 bitflags! {
-	/// Flags describing how to load a segment.
+	/// Flags containing additional information describing how to load a segment.
 	#[derive(Debug, Copy, Clone)]
 	#[repr(C)]
 	pub struct Flags: u32 {
@@ -218,7 +238,9 @@ bitflags! {
 		/// Must be loaded below 1MiB physical address.
 		#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 		const LowMem = 0x10000;
+        /// OS specific flags.
 		const OsMask = 0x00FF0000;
+        /// Architecture specific flags.
 		const ProcessorMask = 0xFF000000;
 	}
 }

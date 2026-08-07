@@ -1,6 +1,9 @@
+//! Types for reading ELF note sections.
+
 use core::ffi::CStr;
 use crate::Endianness;
 
+/// A parsed ELF note entry.
 #[derive(Clone, Copy, Debug)]
 pub struct Note<'f> {
     name: &'f CStr,
@@ -9,11 +12,20 @@ pub struct Note<'f> {
 }
 
 impl Note<'_> {
+    /// The name of this note.
     pub fn name(&self) -> &CStr { self.name }
+
+    /// The content of this note.
+    ///
+    /// Interpretation of this is specific to the name and type.
     pub fn description(&self) -> &[u8] { self.description }
+
+    /// The type of the note.
     pub fn ty(&self) -> u32 { self.ty }
 }
 
+/// An iterator of each [`Note`] in a note section.
+#[derive(Debug)]
 pub struct Iter<'f> {
     endianness: Endianness,
     entries: &'f [u8],

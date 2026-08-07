@@ -40,15 +40,17 @@ use header::file;
 use kernel_api::newtype_enum;
 
 mod header;
-mod note;
+pub mod note;
 pub mod raw;
 
 pub use header::file::Header as FileHeader;
 pub use header::segment;
 pub use header::section;
 
+/// The error returned when parsing a [`File`].
 #[derive(Debug, Clone, Copy)]
 pub enum ParseError {
+	/// An error was encountered parsing the [`FileHeader`].
 	FileHeader(file::Error),
 }
 
@@ -74,6 +76,7 @@ impl core::error::Error for ParseError {
 	}
 }
 
+/// A parsed ELF file.
 #[derive(Debug, Clone, Copy)]
 pub struct File<D> {
 	inner: FileInner<D>,
@@ -86,6 +89,7 @@ struct FileInner<D> {
 }
 
 impl<D: AsRef<[u8]>> File<D> {
+	/// Parses an ELF file from the raw data.
 	pub fn try_new(from: D) -> Result<Self, ParseError> {
 		let data = from.as_ref();
 		let file_header = FileHeader::try_new(data)?;
@@ -100,20 +104,46 @@ impl<D: AsRef<[u8]>> File<D> {
 }
 
 impl<D> File<D> {
+	/// The width of data structures in the ELF file.
+	///
+	/// Parsed from `e_ident[EI_CLASS]`.
+	#[doc(alias = "EI_CLASS")]
 	pub const fn width(&self) -> Width { self.inner.file_header.width() }
 
+	/// The endianness used in headers.
+	///
+	/// Parsed from `e_ident[EI_DATA]`.
+	#[doc(alias = "EI_DATA")]
 	pub const fn endianness(&self) -> Endianness { self.inner.file_header.endianness() }
 
+	/// The ABI the ELF file was compiled for.
+	///
+	/// Parsed from `e_ident[EI_OSABI]` and `e_ident[EI_ABIVERSION]`.
+	#[doc(alias = "EI_OSABI")]
+	#[doc(alias = "EI_ABIVERSION")]
 	pub const fn abi(&self) -> Abi { self.inner.file_header.abi() }
 
+	/// The architecture the ELF file was compiled for.
+	///
+	/// Parsed from `e_machine`.
+	#[doc(alias = "e_machine")]
 	pub const fn isa(&self) -> Isa { self.inner.file_header.isa() }
 
+	/// The type of ELF file.
+	///
+	/// Parsed from `e_type`.
+	#[doc(alias = "e_type")]
 	pub const fn ty(&self) -> Type { self.inner.file_header.ty() }
 
+	/// The virtual address of the entrypoint of the ELF file.
+	///
+	/// Parsed from `e_entry`.
+	#[doc(alias = "e_entry")]
 	pub const fn entry_point(&self) -> usize { self.inner.file_header.entry_point() }
 }
 
 impl<D: AsRef<[u8]>> File<D> {
+	/// Returns an iterator over each [`Segment`](segment::Segment) in the ELF file.
 	pub fn segments(&self) -> segment::Iter<'_> {
 		let data = self.inner.data.as_ref();
 		let entries = &data[self.inner.file_header.program_header()];
@@ -123,6 +153,7 @@ impl<D: AsRef<[u8]>> File<D> {
 		)
 	}
 
+	/// Returns an iterator over each [`Section`](section::Section) in the ELF file.
 	pub fn sections(&self) -> section::Iter<'_, D> {
 		section::Iter::new(
 			&self.inner,
@@ -130,7 +161,7 @@ impl<D: AsRef<[u8]>> File<D> {
 		)
 	}
 
-	/// Returns an iterator over [`Note`](note::Note) objects in the ELF file.
+	/// Returns an iterator over each [`Note`](note::Note) object in the ELF file.
 	///
 	/// # Examples
 	///
@@ -220,6 +251,8 @@ impl<D: AsRef<[u8]>> core::ops::Index<section::Section<'_, D>> for File<D> {
 }
 
 impl<D: AsRef<[u8]>> File<D> {
+	/// Iterates over the [loadable segments](segment::Type::LOAD) in the ELF file, calling the
+	/// provided function with the parsed segment descriptor and segment content.
 	pub fn load_with<E>(&self, mut f: impl FnMut(&segment::Segment, &[u8]) -> Result<(), E>) -> Result<(), E> {
 		self.segments().filter(|segment| segment.ty() == segment::Type::LOAD).try_for_each(|segment| -> Result<(), E> {
 			let data = &self[segment];
@@ -228,63 +261,99 @@ impl<D: AsRef<[u8]>> File<D> {
 	}
 }
 
+/// The ABI an ELF file was compiled for.
 #[derive(Copy, Clone, Debug)]
 pub struct Abi {
+	/// The OS.
 	pub os: OsAbi,
+	/// The version of the ABI.
 	pub version: u8,
 }
 
 newtype_enum! {
+	/// The OS an ELF file is compiled for.
 	pub enum OsAbi: pub u8 => {
+		/// System V ABI.
 		SYSTEM_V = 0,
+		/// Hewlett-Packard HP-UX.
 		HP_UX = 1,
+		/// NetBSD.
 		NET_BSD = 2,
+		/// GNU.
 		GNU = 3,
+		/// Linux.
 		LINUX = Self::GNU.0,
+		/// Sun Solaris.
 		SOLARIS = 6,
+		/// AIX.
 		AIX = 7,
+		/// IRIX.
 		IRIX = 8,
+		/// FreeBSD.
 		FREE_BSD = 9,
+		/// Compaq TRU64 UNIX.
 		TRU64 = 10,
+		/// Novell Modesto.
 		MODESTO = 11,
+		/// Open BSD.
 		OPEN_BSD = 12,
+		/// Open VMS.
 		OPEN_VMS = 13,
+		/// Hewlett-Packard Non-Stop Kernel.
 		HP_NSK = 14,
+		/// Amiga OS.
 		AMIGA = 15,
+		/// FenixOS.
 		FENIXOS = 16,
+		/// Nuxi CloudABI.
 		CLOUD_ABI = 17,
+		/// Stratus Technologies OpenVOS.
 		OPEN_VOS = 18,
+		/// Popcorn2.
 		POPCORN = 200,
 	}
 }
 
 newtype_enum! {
+	/// The architecture an ELF file is compiled for.
 	pub enum Isa: pub u16 => {
+		/// Intel x86.
 		X86 = 0x03,
+		/// Intel x86_64.
 		X86_64 = 0x3E,
 	}
 }
 
 newtype_enum! {
+	/// The type of ELF file.
 	pub enum Type: pub u16 => {
+		/// Relocatable object file.
 		RELOCATABLE = 1,
+		/// Executable file.
 		EXECUTABLE = 2,
+		/// Dynamically linked object file.
 		SHARED = 3,
+		/// Core dump.
 		CORE = 4,
 	}
 }
 
 newtype_enum! {
+	/// The data size used in headers.
 	pub enum Width: pub u8 => {
+		/// 32-bit ELF file.
 		X32 = 1,
+		/// 64-bit ELF file.
 		X64 = 2,
 	}
 }
 
 newtype_enum! {
-	/// The endianness used to write headers.
+	/// The endianness used for the content of headers.
 	pub enum Endianness: pub u8 => {
+		/// Little endian, 2's complement encoding.
 		LITTLE = 1,
+		/// Big endian, 2's complement encoding.
 		BIG = 2,
 	}
 }
