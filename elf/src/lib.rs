@@ -33,6 +33,7 @@
 //! ```
 
 #![feature(strict_provenance_lints)]
+#![deny(unsafe_code)]
 #![no_std]
 
 use core::fmt;
