@@ -90,7 +90,8 @@ impl Segment {
 		self.flags
 	}
 
-	pub(crate) const fn file_offset(&self) -> u64 {
+	#[doc(hidden)]
+	pub const fn file_offset(&self) -> u64 {
 		self.file_offset
 	}
 
@@ -102,7 +103,8 @@ impl Segment {
 		self.paddr
 	}
 
-	pub(crate) const fn file_size(&self) -> u64 {
+	#[doc(hidden)]
+	pub const fn file_size(&self) -> u64 {
 		self.file_size
 	}
 
