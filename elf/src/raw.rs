@@ -138,23 +138,3 @@ pub mod section {
 		pub const SIZE: usize = 0x3C;
 	}
 }
-
-pub mod dynamic {
-	pub mod x32 {
-		header_part! {
-			Tag => (0x00, 4);
-			Un => (0x04, 4);
-		}
-
-		pub const SIZE: usize = 0x08;
-	}
-
-	pub mod x64 {
-		header_part! {
-			Tag => (0x00, 8);
-			Un => (0x08, 8);
-		}
-
-		pub const SIZE: usize = 0x10;
-	}
-}

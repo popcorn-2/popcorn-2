@@ -126,7 +126,6 @@ impl<D: AsRef<[u8]>> File<D> {
 	pub fn sections(&self) -> section::Iter<'_, D> {
 		section::Iter::new(
 			&self.inner,
-			0,
 			self.inner.file_header.section_header(),
 		)
 	}

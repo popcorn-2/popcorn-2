@@ -153,15 +153,13 @@ impl<'f, D: AsRef<[u8]>> Section<'f, D> {
 pub struct Iter<'f, D> {
     file: &'f FileInner<D>,
     entries: &'f [u8],
-    base: u64,
 }
 
 impl<'f, D: AsRef<[u8]>> Iter<'f, D> {
-    pub(crate) fn new(file: &'f FileInner<D>, base: u64, entries: Range<usize>) -> Self {
+    pub(crate) fn new(file: &'f FileInner<D>, entries: Range<usize>) -> Self {
         Self {
             file,
             entries: &file.data.as_ref()[entries],
-            base,
         }
     }
 }
