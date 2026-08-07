@@ -141,7 +141,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     };
 
     // SAFETY: We don't touch the logger after calling exit_boot_services()
-    // (unless someone breaks the code)
+    //  (unless someone breaks the code)
     unsafe { logging::init(&mut *uart).unwrap(); }
 
     if let Ok(image) = services.open_protocol_exclusive::<LoadedImage>(image_handle) {
@@ -226,19 +226,6 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         Err(e) => return e.status()
     };
 
-    /*
-    let Ok(popfs_driver) = fs.read(Path::new(cstr16!(r"EFI\POPCORN\popfs.efi"))) else {
-        panic!("Unable to find popfs driver")
-    };
-     TODO: Check if already loaded and if not, add to Driver#### efivars, adjust BootNext to point to uwave, then reboot
-    let popfs_driver = services.load_image(image_handle, LoadImageSource::FromBuffer {
-
-        buffer: &popfs_driver,
-        file_path: None,
-    }).unwrap();
-    services.start_image(popfs_driver).unwrap();
-     */
-
     let Ok(config) = fs.read_to_string(Path::new(cstr16!(r"EFI\POPCORN\config.toml"))) else {
         panic!("Unable to find bootloader config file")
     };
@@ -285,18 +272,6 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let (mut kernel, symbol_map, init_program, ramdisk) = locate_kernel(&image_handle, &services);
 
-
-    // =========== test code using kernel from efi part ===========
-
-    /*
-
-    let modules = config.kernel_config.modules.into_iter().map(CString16::try_from)
-                        .map(|r| r.map(PathBuf::from))
-                        .collect::<Result<Vec<_>, _>>()
-                        .expect("Invalid module path");
-
-     */
-
     // FIXME: This shouldn't just be KERNEL_CODE
     let kernel = elf::load_kernel(&mut kernel, |count, ty| {
         let addr = services.allocate_pages(ty, MemoryType::LOADER_DATA, count)?;
@@ -309,82 +284,6 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     };
 
     debug!("kernel placed at {address_range:#x?}");
-
-    /*let mut testing_fn: u64 = 0;
-    for module in &modules {
-        let result: Result<(),ModuleLoadError> = try {
-            let base = kernel_last_page;
-            info!("Loading module from `{}` at base address of {:#x}", module, base);
-            let mut module = fs.read(module).map_err(|_| ModuleLoadError::FileNotFound)?;
-
-            let module = {
-                let mut module = ::elf::File::try_new(&mut module).map_err(|_| ModuleLoadError::InvalidElf)?;
-                module.relocate(base.try_into().unwrap());
-                module.link(&kernel_symbols).map_err(|e| ModuleLoadError::LinkingFailed(e.name().to_owned()))?;
-                module
-            };
-
-            module.segments().filter(|segment| segment.segment_type == SegmentType::LOAD)
-                  .try_for_each(|segment| {
-                      let segment_vaddr = usize::try_from(segment.vaddr).unwrap();
-
-                      let page_count = (usize::try_from(segment.memory_size).unwrap() + PAGE_SIZE - 1) / PAGE_SIZE;
-                      let last_page = segment_vaddr + page_count * PAGE_SIZE;
-                      if last_page > kernel_last_page { kernel_last_page = last_page; }
-
-                      let Ok(allocation) = services.allocate_pages(AllocateType::AnyPages, memory_types::MODULE_CODE, page_count) else {
-                          return Err(ModuleLoadError::Oom);
-                      };
-
-                      unsafe {
-                          ptr::copy_nonoverlapping(module[segment.file_location()].as_ptr(), allocation as *mut _, segment.file_size.try_into().unwrap());
-                          ptr::write_bytes((allocation + segment.file_size) as *mut u8, 0, (segment.memory_size - segment.file_size).try_into().unwrap());
-                      }
-
-                      kernel_page_table.try_map_range(Page(segment_vaddr.try_into().unwrap()), Frame(allocation.try_into().unwrap()), page_count.try_into().unwrap(), || todo!())
-                                       .map_err(|e: MapError<()>| match e {
-                                           MapError::AlreadyMapped => unreachable!(),
-                                           MapError::SelfMapOverwrite => panic!("Attempted to overwrite page table self map"),
-                                           MapError::AllocationError(_) => ModuleLoadError::Oom
-                                       })?;
-
-                      Ok(())
-                  })?;
-
-            let module_exports = module.exported_symbols();
-            let mut author = "[UNKNOWN]";
-            let mut fqn = "[UNKNOWN]";
-            let mut name = Option::<&str>::None;
-
-            if let Some(allocator_entrypoint) = module_exports.get(c"__popcorn_module_main_allocator") {
-                testing_fn = allocator_entrypoint.value.get();
-            }
-            if let Some(symbol) = module_exports.get(c"__popcorn_module_author") {
-                let author_data = module.data_at_address(symbol.value).unwrap();
-                let author_data = unsafe { &*slice_from_raw_parts(author_data, symbol.size.try_into().unwrap()) };
-                author = core::str::from_utf8(author_data).map_err(|_| ModuleLoadError::InvalidAuthorMetadata)?;
-            }
-            if let Some(symbol) = module_exports.get(c"__popcorn_module_modulename") {
-                let name_data = module.data_at_address(symbol.value).unwrap();
-                let name_data = unsafe { &*slice_from_raw_parts(name_data, symbol.size.try_into().unwrap()) };
-                name = Some(core::str::from_utf8(name_data).map_err(|_| ModuleLoadError::InvalidNameMetadata)?);
-            }
-            if let Some(symbol) = module_exports.get(c"__popcorn_module_modulefqn") {
-                let fqn_data = module.data_at_address(symbol.value).unwrap();
-                let fqn_data = unsafe { &*slice_from_raw_parts(fqn_data, symbol.size.try_into().unwrap()) };
-                fqn = core::str::from_utf8(fqn_data).map_err(|_| ModuleLoadError::InvalidFqnMetadata)?;
-            }
-
-            match name {
-                Some(name) => info!("Loaded module `{name}` ({fqn}) by `{author}`"),
-                None => info!("Loaded module `{fqn}` by `{author}`")
-            }
-        };
-
-        if let Err(e) = result {
-            panic!("Failed to load module: {e}")
-        }
-    }*/
 
     // map framebuffer
     let framebuffer_info: Option<handoff::Framebuffer> = try {
@@ -823,7 +722,7 @@ fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Op
     let root_partition_handle = root_partition_handle.expect("No popcorn system disk found");
 
     let mut fs = {
-        debug!("root partition protos: {:?}", services.protocols_per_handle(root_partition_handle).as_deref());
+        debug!("system partition protos: {:?}", services.protocols_per_handle(root_partition_handle).as_deref());
 
         let Ok(proto) = services.open_protocol_exclusive::<SimpleFileSystem>(root_partition_handle) else {
             panic!()
@@ -833,19 +732,11 @@ fn locate_kernel(image_handle: &Handle, services: &BootServices) -> (Vec<u8>, Op
     };
 
     // TODO: versioning
-    let symbol_map = fs.read(Path::new(cstr16!(r"\kernel\kernel.map"))).ok();
-    let init_program = fs.read(Path::new(cstr16!(r"\user\init.exec"))).expect("Could not find `init`");
-    let ramdisk = fs.read(Path::new(cstr16!(r"\user\init.tar"))).expect("Could not find ramdisk");
-    let kernel_data = fs.read(Path::new(cstr16!(r"\kernel\kernel.exec"))).expect("Unable to find a bootable kernel");
+    let symbol_map = fs.read(Path::new(cstr16!(r"\kernel.map"))).ok();
+    let init_program = fs.read(Path::new(cstr16!(r"\bin\init.exec"))).expect("Could not find `init`");
+    let ramdisk = fs.read(Path::new(cstr16!(r"\etc\init.tar"))).expect("Could not find ramdisk");
+    let kernel_data = fs.read(Path::new(cstr16!(r"\kernel.exec"))).expect("Unable to find a bootable kernel");
 
-    /*
-    let symbol_map = fs.read(Path::new(cstr16!(r"\EFI\POPCORN\symbols.map")))
-                       .ok().map(|v| {
-        debug!("{:x?}", &v[0..10]);
-        let p = Box::into_raw(v.into_boxed_slice());
-        unsafe { NonNull::new_unchecked(p) }
-    });
-     */
     (kernel_data, symbol_map, init_program, ramdisk)
 }
 
