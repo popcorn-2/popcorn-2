@@ -50,7 +50,7 @@ use core::num::NonZero;
 use core::panic::AssertUnwindSafe;
 use core::time::Duration;
 use hashbrown::HashMap;
-use elf::header::program::{SegmentFlags, SegmentType};
+use elf::segment::Flags as SegmentFlags;
 use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
 use kernel_api::{dbg, is_x86_feature_detected, mapping};
@@ -863,32 +863,31 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 
 		let file = elf::File::try_new(&init_data).unwrap();
 
-		for segment in file.segments()
-		                   .filter(|s| s.segment_type == SegmentType::LOAD) {
-			assert_eq!(segment.alignment, 4096, "Not designed for !=1 page alignment");
+		file.load_with(|segment, data| {
+			assert_eq!(segment.align(), 4096, "Not designed for !=1 page alignment");
 
-			let addr = VirtualAddress::new(segment.vaddr.try_into().unwrap());
+			let addr = VirtualAddress::new(segment.vaddr().try_into().unwrap());
 			let segment_page_offset = addr - *addr.align_down_to_page();
 
-			let len = segment_page_offset + usize::try_from(segment.memory_size).unwrap();
+			let len = segment_page_offset + usize::try_from(segment.mem_size()).unwrap();
 			let len = len.div_ceil(4096);
-			
-			let (_, mut mapping) = mapping::Config::new(len.try_into().unwrap(), mapping::Ty::USER_CODE)
-						.virtual_location(addr.align_down_to_page())
-						.protection(
-							segment.segment_flags.contains(SegmentFlags::Writeable),
-							segment.segment_flags.contains(SegmentFlags::Executable),
-							true,
-						)
-						.map_in::<mapping::UnsafeMmap>("/user/init.exec".into(), address_space)
-						.unwrap();
 
-			assert!(segment.file_size <= segment.memory_size);
+			let (_, mut mapping) = mapping::Config::new(len.try_into().unwrap(), mapping::Ty::USER_CODE)
+				.virtual_location(addr.align_down_to_page())
+				.protection(
+					segment.flags().contains(SegmentFlags::Writeable),
+					segment.flags().contains(SegmentFlags::Executable),
+					true,
+				)
+				.map_in::<mapping::UnsafeMmap>("/user/init.exec".into(), address_space)
+				.unwrap();
+
+			assert!(data.len() <= segment.mem_size() as usize);
 
 			let base = unsafe {
 				LocalUser::try_from(mapping.as_mut_ptr())
-						.expect("`initd` should be loaded in loader thread")
-						.byte_add(segment_page_offset)
+					.expect("`initd` should be loaded in loader thread")
+					.byte_add(segment_page_offset)
 			};
 			debug_assert_eq!(base.addr(), addr, "mapping for elf executable should be same as addr in file");
 
@@ -897,20 +896,20 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 				if is_x86_feature_detected!("smap") { core::arch::asm!("stac", options(nomem, nostack, preserves_flags)); }
 				core::arch::asm!(
 					"mov {0:r}, cr0",
-                    "and {0:r}, ~0x10000",
+					"and {0:r}, ~0x10000",
 					"mov cr0, {0:r}",
 					out(reg) _,
 					options(nomem, nostack, preserves_flags)
 				);
 				ptr::copy_nonoverlapping(
-					file[segment.file_location()].as_ptr(),
+					data.as_ptr(),
 					base.addr().as_ptr(),
-					segment.file_size.try_into().unwrap(),
+					data.len().try_into().unwrap(),
 				);
 				ptr::write_bytes(
-					base.addr().as_ptr().byte_add(segment.file_size.try_into().unwrap()),
+					base.addr().as_ptr().byte_add(data.len().try_into().unwrap()),
 					0,
-					(segment.memory_size - segment.file_size).try_into().unwrap(),
+					usize::try_from(segment.mem_size()).unwrap() - data.len(),
 				);
 				core::arch::asm!(
 					"mov {0:r}, cr0",
@@ -921,11 +920,13 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 				);
 				if is_x86_feature_detected!("smap") { core::arch::asm!("clac", options(nomem, nostack, preserves_flags)); }
 			}
-		}
+
+			Ok::<(), core::convert::Infallible>(())
+		}).unwrap();
 		
 		debug!("{address_space:?}");
 
-		(VirtualAddress::new(file.entrypoint()), stack_top)
+		(VirtualAddress::new(file.entry_point()), stack_top)
 	};
 	drop(init_data);
 	{

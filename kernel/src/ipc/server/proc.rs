@@ -4,11 +4,10 @@ use core::future::Future;
 use core::hint::unreachable_unchecked;
 use core::mem::MaybeUninit;
 use core::num::NonZero;
-use core::ops::Range;
 use core::ptr;
 use slab::Slab;
-use elf::header::file::{Endianness, FileHeader, FileHeaderRaw, Isa, Type, Width};
-use elf::header::program::{ProgramHeaderEntry64, SegmentFlags, SegmentType};
+use elf::{Endianness, Isa, Type, Width, FileHeader};
+use elf::segment::{Segment, Flags as SegmentFlags, Type as SegmentType};
 use kernel_api::address_space::AddressSpace;
 use kernel_api::executor::block_on;
 use kernel_api::mapping::{Caching, Config, Mmap, Stack, Ty, UnsafeMmap};
@@ -392,70 +391,57 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 		async fn read_elf_header_from(handle: &Arc<Handle>) -> syscall::Result<FileHeader> {
 			if !handle.has_protocols(&[<dyn Read>::UID, <dyn Seek>::UID]) { return Err(Error::InvalidArg); }
 
-			let mut raw_header = MaybeUninit::<FileHeaderRaw>::uninit();
+			let mut raw_header = MaybeUninit::<[u8; elf::raw::file::x64::SIZE]>::uninit();
 
 			let res = handle.kernel_syscall(
 				<dyn Read>::UID,
 				1,
 				[
 					raw_header.as_mut_ptr().addr(),
-					size_of::<FileHeaderRaw>(),
+					elf::raw::file::x64::SIZE,
 					0,
 					0,
 				]
 			).await?;
 
 			debug!("read {res} bytes from ELF file");
-			if (res as usize) < size_of::<FileHeaderRaw>() { return Err(Error::EndOfData); }
-			let header = <&FileHeader>::try_from(unsafe { raw_header.assume_init_ref() });
+			if (res as usize) < elf::raw::file::x64::SIZE { return Err(Error::EndOfData); }
+			let header = FileHeader::try_new(unsafe { raw_header.assume_init_ref() });
 			info!("elf header: {header:#?}");
-			let header: &FileHeader = header.map_err(|e| {
+			let header = header.map_err(|e| {
 				debug!("failed to parse ELF header: {e:?}");
 				Error::InvalidArg
 			})?;
-			if header.width != Width::_64 {
+			if header.width() != Width::X64 {
 				debug!("not 64 bit");
 				return Err(Error::InvalidArg);
 			}
-			if header.endianness != Endianness::Little {
+			if header.endianness() != Endianness::LITTLE {
 				debug!("not little endian");
 				return Err(Error::InvalidArg);
 			}
-			if header.isa != Isa::Amd64 {
+			if header.isa() != Isa::X86_64 {
 				debug!("not amd64");
-				return Err(Error::InvalidArg);
-			}
-			if header.elf_version != 1 {
-				debug!("not elf v1");
 				return Err(Error::InvalidArg);
 			}
 
 			// move out of a MaybeUninit which we don't use again
-			Ok(unsafe { ptr::read(header) })
+			Ok(header)
 		}
 
 		async fn load_elf_from_with_offset(handle: &Arc<Handle>, header: &FileHeader, address_space: &AddressSpace, base: Option<VirtualAddress>) -> syscall::Result<VirtualAddress> {
 			let offset = base.map(|addr| addr.addr).unwrap_or(0);
 
-			let Range {
-				start: mut program_header_start,
-				end: program_header_end,
-			} = header.program_header();
-
-			let program_header_count = (program_header_end - program_header_start) / size_of::<ProgramHeaderEntry64>();
-
-			debug!("program header from {program_header_start}->{program_header_end} ({program_header_count})");
-
 			let mut interp_handle = None;
 			let mut highest_addr = VirtualAddress::new(0);
 
-			for _ in 0..program_header_count {
+			for entry_start in header.program_header().step_by(header.program_header_entry_size().into()) {
 				let _ = block_on(
 					handle.kernel_syscall(
 						<dyn Seek>::UID,
 						2,
 						[
-							program_header_start,
+							entry_start,
 							0,
 							0,
 							0,
@@ -463,32 +449,31 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 					)
 				)?;
 
-				let mut raw = MaybeUninit::<ProgramHeaderEntry64>::uninit();
+				let mut raw = MaybeUninit::<[u8; elf::raw::program::x64::SIZE]>::uninit();
 				let res = block_on(
 					handle.kernel_syscall(
 						<dyn Read>::UID,
 						1,
 						[
 							raw.as_mut_ptr().addr(),
-							size_of::<ProgramHeaderEntry64>(),
+							elf::raw::program::x64::SIZE,
 							0,
 							0,
 						]
 					)
 				)?;
-				if (res as usize) < size_of::<ProgramHeaderEntry64>() { Err(Error::EndOfData)?; }
-				let segment = unsafe { raw.assume_init() };
+				if (res as usize) < elf::raw::program::x64::SIZE { Err(Error::EndOfData)?; }
+				let segment = Segment::try_new(unsafe { raw.assume_init() }, header)
+					.map_err(|_| Error::InvalidArg)?;
 				info!("found header {segment:#?}");
 
-				program_header_start += size_of::<ProgramHeaderEntry64>();
-
-				if segment.segment_type == SegmentType::LOAD {
+				if segment.ty() == SegmentType::LOAD {
 					let _ = block_on(
 						handle.kernel_syscall(
 							<dyn Seek>::UID,
 							2,
 							[
-								segment.file_location().0.start,
+								segment.file_offset().try_into().unwrap(),
 								0,
 								0,
 								0,
@@ -496,24 +481,24 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 						)
 					)?;
 
-					assert_eq!(segment.alignment as usize, PAGE_SIZE, "Not designed for !=1 page alignment");
+					assert_eq!(segment.align() as usize, PAGE_SIZE, "Not designed for !=1 page alignment");
 
-					let addr = VirtualAddress::new(segment.vaddr.try_into().unwrap()) + offset;
+					let addr = VirtualAddress::new(segment.vaddr().try_into().unwrap()) + offset;
 					let segment_page_offset = addr - *addr.align_down_to_page();
 
-					let len = segment_page_offset + usize::try_from(segment.memory_size).unwrap();
+					let len = segment_page_offset + usize::try_from(segment.mem_size()).unwrap();
 					if let Some(len) = NonZero::new(len.div_ceil(PAGE_SIZE)) {
 						let (mapping_key, page) = {
 							let (mapping_key, mapping) = Config::new(len, Ty::USER_CODE)
 									.protection(
 										true, // segment.segment_flags.contains(SegmentFlags::Writeable),
-										segment.segment_flags.contains(SegmentFlags::Executable),
+										segment.flags().contains(SegmentFlags::Executable),
 										true
 									)
 									.virtual_location(addr.align_down_to_page())
 									.map_in::<UnsafeMmap>(Cow::Owned(String::from(&**handle.endpoint())), &address_space)?;
 
-							assert!(segment.file_size <= segment.memory_size);
+							assert!(segment.file_size() <= segment.mem_size());
 
 							if mapping.as_ptr_range().end.addr() > highest_addr {
 								highest_addr = mapping.as_ptr_range().end.addr();
@@ -528,7 +513,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 								1,
 								[
 									page.as_ptr().addr() + segment_page_offset,
-									segment.file_size.try_into().unwrap(),
+									segment.file_size().try_into().unwrap(),
 									0,
 									0,
 								]
@@ -538,29 +523,29 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 							e @ Err(Error::InvalidArg | Error::InvalidHandle | Error::InvalidPointer) => e.expect("args should be valid"),
 							Err(e) => Err(e)?,
 						};
-						if (res as u64) < segment.file_size { Err(Error::EndOfData)?; }
+						if (res as u64) < segment.file_size() { Err(Error::EndOfData)?; }
 
 						let mut mapping = address_space.get(mapping_key).expect("mapping should still exist");
 						let zero_start = unsafe {
 							let ptr = mapping.as_mut_ptr()
-							                 .byte_add(segment.file_size.try_into().unwrap())
+							                 .byte_add(segment.file_size().try_into().unwrap())
 							                 .byte_add(segment_page_offset);
 							kernel_api::ptr::slice_from_raw_parts_mut(
 								ptr,
-								(segment.memory_size - segment.file_size).try_into().unwrap(),
+								(segment.mem_size() - segment.file_size()).try_into().unwrap(),
 							)
 						};
 						zero_start.fill(0).unwrap();
 
 						// todo: make read-only pages actually read-only
 					}
-				} else if segment.segment_type == SegmentType::INTERPRETER {
+				} else if segment.ty() == SegmentType::INTERPRETER {
 					let _ = block_on(
 						handle.kernel_syscall(
 							<dyn Seek>::UID,
 							2,
 							[
-								segment.file_location().0.start,
+								segment.file_offset().try_into().unwrap(),
 								0,
 								0,
 								0,
@@ -568,7 +553,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 						)
 					)?;
 
-					let mut buffer = Vec::<u8>::with_capacity(segment.file_size as usize);
+					let mut buffer = Vec::<u8>::with_capacity(segment.file_size() as usize);
 
 					let res = match block_on(
 						handle.kernel_syscall(
@@ -576,7 +561,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 							1,
 							[
 								buffer.as_mut_ptr().addr(),
-								segment.file_size.try_into().unwrap(),
+								segment.file_size().try_into().unwrap(),
 								0,
 								0,
 							]
@@ -586,9 +571,9 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 						e @ Err(Error::InvalidArg | Error::InvalidHandle | Error::InvalidPointer) => e.expect("args should be valid"),
 						Err(e) => Err(e)?,
 					};
-					if (res as u64) < segment.file_size { Err(Error::EndOfData)?; }
+					if (res as u64) < segment.file_size() { Err(Error::EndOfData)?; }
 
-					unsafe { buffer.set_len(segment.file_size as usize) };
+					unsafe { buffer.set_len(segment.file_size() as usize) };
 
 					// chop off the NUL byte
 					let interpreter_path = str::from_utf8(&buffer[..buffer.len()-1]).unwrap();
@@ -604,7 +589,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 
 				let interp_header = block_on(read_elf_header_from(&interp_handle))?;
 
-				if interp_header.file_type != Type::Shared {
+				if interp_header.ty() != Type::SHARED {
 					warn!("not shared library");
 					return Err(Error::InvalidArg);
 				}
@@ -623,7 +608,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 		let address_space = AddressSpace::empty()?;
 
 		let header = read_elf_header_from(&handle).await?;
-		if header.file_type != Type::Executable {
+		if header.ty() != Type::EXECUTABLE {
 			warn!("not executable");
 			return Err(Error::InvalidArg);
 		}
