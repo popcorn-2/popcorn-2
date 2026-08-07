@@ -12,12 +12,6 @@ use kernel_api::mapping::Ty;
 #[derive(Debug, Copy, Clone)]
 pub struct Page(pub u64);
 
-/*impl From<KernelPage> for Page {
-	fn from(value: KernelPage) -> Self {
-		Page(value.start().addr.try_into().unwrap())
-	}
-}*/
-
 impl Page {
 	const fn l4_index(self) -> u64 { (self.0 & amd64::L4_MASK) >> amd64::L4_SHIFT }
 	const fn l3_index(self) -> u64 { (self.0 & amd64::L3_MASK) >> amd64::L3_SHIFT }
@@ -27,12 +21,6 @@ impl Page {
 
 #[derive(Debug, Copy, Clone)]
 pub struct Frame(pub u64);
-
-/*impl From<KernelFrame> for Frame {
-	fn from(value: KernelFrame) -> Self {
-		Frame(value.start().addr.try_into().unwrap())
-	}
-}*/
 
 pub struct PageTable(&'static mut Table<Level4>);
 
@@ -111,17 +99,6 @@ impl fmt::Pointer for PageTable {
 		}
 	}
 }
-
-/*
-impl From<&PageTable> for KernelFrame {
-	fn from(value: &PageTable) -> Self {
-		unsafe {
-			KernelFrame::new(
-				PhysicalAddress::new(value.table_addr())
-			)
-		}
-	}
-}*/
 
 #[derive(Debug, Copy, Clone)]
 pub enum MapError<E> {
