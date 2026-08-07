@@ -119,10 +119,7 @@ impl<D: AsRef<[u8]>> File<D> {
 		let entries = &data[self.inner.file_header.program_header()];
 		segment::Iter::new(
 			entries,
-			0,
-			self.width(),
-			self.endianness(),
-			self.inner.file_header.program_header_entry_size(),
+			&self.inner.file_header,
 		)
 	}
 

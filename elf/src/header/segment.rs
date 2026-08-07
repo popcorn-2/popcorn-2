@@ -1,6 +1,12 @@
 use crate::raw::index_part;
-use crate::{raw, Endianness, Width};
+use crate::{raw, FileHeader, Width};
 use bitflags::bitflags;
+
+#[derive(Debug, Copy, Clone)]
+pub enum ParseError {
+	NotEnoughData,
+	InvalidFile,
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct Segment {
@@ -12,6 +18,67 @@ pub struct Segment {
 	file_size: u64,
 	mem_size: u64,
 	align: u64,
+}
+
+impl Segment {
+	pub fn try_new<D: AsRef<[u8]>>(from: D, with: &FileHeader) -> Result<Self, ParseError> {
+		let entry = from.as_ref();
+
+		match with.width() {
+			Width::X32 if entry.len() < raw::program::x32::SIZE => return Err(ParseError::NotEnoughData),
+			Width::X64 if entry.len() < raw::program::x64::SIZE => return Err(ParseError::NotEnoughData),
+			Width::X32 | Width::X64 => {},
+			_ => return Err(ParseError::InvalidFile),
+		}
+
+		let segment = match with.width() {
+			Width::X32 => {
+				let ty = Type(with.endianness().decode_u32(index_part::<raw::program::x32::Type>(entry)));
+				let offset = with.endianness().decode_u32(index_part::<raw::program::x32::Offset>(entry));
+				let vaddr = with.endianness().decode_u32(index_part::<raw::program::x32::VAddr>(entry));
+				let paddr = with.endianness().decode_u32(index_part::<raw::program::x32::PAddr>(entry));
+				let file_size = with.endianness().decode_u32(index_part::<raw::program::x32::FileSize>(entry));
+				let mem_size = with.endianness().decode_u32(index_part::<raw::program::x32::MemSize>(entry));
+				let flags = Flags::from_bits_retain(with.endianness().decode_u32(index_part::<raw::program::x32::Flags>(entry)));
+				let align = with.endianness().decode_u32(index_part::<raw::program::x32::Align>(entry));
+
+				Segment {
+					ty,
+					flags,
+					file_offset: u64::from(offset),
+					vaddr: u64::from(vaddr),
+					paddr: u64::from(paddr),
+					file_size: u64::from(file_size),
+					mem_size: u64::from(mem_size),
+					align: u64::from(align),
+				}
+			},
+			Width::X64 => {
+				let ty = Type(with.endianness().decode_u32(index_part::<raw::program::x64::Type>(entry)));
+				let offset = with.endianness().decode_u64(index_part::<raw::program::x64::Offset>(entry));
+				let vaddr = with.endianness().decode_u64(index_part::<raw::program::x64::VAddr>(entry));
+				let paddr = with.endianness().decode_u64(index_part::<raw::program::x64::PAddr>(entry));
+				let file_size = with.endianness().decode_u64(index_part::<raw::program::x64::FileSize>(entry));
+				let mem_size = with.endianness().decode_u64(index_part::<raw::program::x64::MemSize>(entry));
+				let flags = Flags::from_bits_retain(with.endianness().decode_u32(index_part::<raw::program::x64::Flags>(entry)));
+				let align = with.endianness().decode_u64(index_part::<raw::program::x64::Align>(entry));
+
+				Segment {
+					ty,
+					flags,
+					file_offset: offset,
+					vaddr,
+					paddr,
+					file_size,
+					mem_size,
+					align,
+				}
+			},
+			_ => return Err(ParseError::InvalidFile),
+		};
+
+		Ok(segment)
+	}
 }
 
 impl Segment {
@@ -51,20 +118,14 @@ impl Segment {
 #[derive(Debug)]
 pub struct Iter<'f> {
 	entries: &'f [u8],
-	base: u64,
-	width: Width,
-	endianness: Endianness,
-	entry_size: usize,
+	header: &'f FileHeader,
 }
 
 impl<'f> Iter<'f> {
-	pub(crate) fn new(entries: &'f [u8], base: u64, width: Width, endianness: Endianness, entry_size: u16) -> Self {
+	pub(crate) fn new(entries: &'f [u8], header: &'f FileHeader) -> Self {
 		Self {
 			entries,
-			base,
-			width,
-			endianness,
-			entry_size: usize::from(entry_size),
+			header,
 		}
 	}
 }
@@ -73,67 +134,15 @@ impl Iterator for Iter<'_> {
 	type Item = Segment;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let (entry, rest) = self.entries.split_at_checked(self.entry_size)?;
+		let (entry, rest) = self.entries.split_at_checked(self.header.program_header_entry_size().into())?;
 		self.entries = rest;
 
-		match self.width {
-			Width::X32 if entry.len() < raw::program::x32::SIZE => return None,
-			Width::X64 if entry.len() < raw::program::x64::SIZE => return None,
-			Width::X32 | Width::X64 => {},
-			_ => unimplemented!("malformed ELF file"),
-		}
-
-		let segment = match self.width {
-			Width::X32 => {
-				let ty = Type(self.endianness.decode_u32(index_part::<raw::program::x32::Type>(entry)));
-				let offset = self.endianness.decode_u32(index_part::<raw::program::x32::Offset>(entry));
-				let vaddr = self.endianness.decode_u32(index_part::<raw::program::x32::VAddr>(entry));
-				let paddr = self.endianness.decode_u32(index_part::<raw::program::x32::PAddr>(entry));
-				let file_size = self.endianness.decode_u32(index_part::<raw::program::x32::FileSize>(entry));
-				let mem_size = self.endianness.decode_u32(index_part::<raw::program::x32::MemSize>(entry));
-				let flags = Flags::from_bits_retain(self.endianness.decode_u32(index_part::<raw::program::x32::Flags>(entry)));
-				let align = self.endianness.decode_u32(index_part::<raw::program::x32::Align>(entry));
-
-				Segment {
-					ty,
-					flags,
-					file_offset: u64::from(offset),
-					vaddr: u64::from(vaddr) + self.base,
-					paddr: u64::from(paddr),
-					file_size: u64::from(file_size),
-					mem_size: u64::from(mem_size),
-					align: u64::from(align),
-				}
-			},
-			Width::X64 => {
-				let ty = Type(self.endianness.decode_u32(index_part::<raw::program::x64::Type>(entry)));
-				let offset = self.endianness.decode_u64(index_part::<raw::program::x64::Offset>(entry));
-				let vaddr = self.endianness.decode_u64(index_part::<raw::program::x64::VAddr>(entry));
-				let paddr = self.endianness.decode_u64(index_part::<raw::program::x64::PAddr>(entry));
-				let file_size = self.endianness.decode_u64(index_part::<raw::program::x64::FileSize>(entry));
-				let mem_size = self.endianness.decode_u64(index_part::<raw::program::x64::MemSize>(entry));
-				let flags = Flags::from_bits_retain(self.endianness.decode_u32(index_part::<raw::program::x64::Flags>(entry)));
-				let align = self.endianness.decode_u64(index_part::<raw::program::x64::Align>(entry));
-
-				Segment {
-					ty,
-					flags,
-					file_offset: offset,
-					vaddr: vaddr + self.base,
-					paddr,
-					file_size,
-					mem_size,
-					align,
-				}
-			},
-			_ => unimplemented!("unknown architecture width"),
-		};
-
-		Some(segment)
+		Segment::try_new(entry, &self.header).ok()
 	}
 
 	fn nth(&mut self, n: usize) -> Option<Self::Item> {
-		let (_, rest) = self.entries.split_at_checked(self.entry_size * n)?;
+		let entry_size = usize::from(self.header.program_header_entry_size());
+		let (_, rest) = self.entries.split_at_checked(entry_size * n)?;
 		self.entries = rest;
 		self.next()
 	}
