@@ -28,10 +28,12 @@ const PAGE_MAP_OFFSET_LEN: u64 = 2u64.pow(46);
 #[entry]
 fn bootloader_entry() -> Status {
     let error = main().expect_err("Ok path will never return");
-    error!("{}", error);
+    error!("{error}");
     for source in error.sources() {
         error!(target: "<continuation>", "Caused by: {}", source);
     }
+
+	debug!("{error:?}");
 
 	boot::stall(Duration::from_secs(10));
 
