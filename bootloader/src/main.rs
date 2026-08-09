@@ -1,6 +1,4 @@
-#![feature(try_blocks)]
 #![feature(arbitrary_self_types)]
-#![feature(step_trait)]
 #![feature(error_iter)]
 #![feature(duration_integer_division)]
 #![no_main]
@@ -18,7 +16,7 @@ use uefi::{entry, println, Status, boot};
 
 //mod paging;
 mod logging;
-//mod elf;
+mod elf;
 mod fs;
 mod loader;
 
@@ -48,6 +46,8 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	let mut rootfs = fs::locate_rootfs()?;
 	let version = loader::find_latest_kernel(&mut *rootfs)?;
 	info!("Booting kernel {version}");
+	let kernel = loader::unpack_kernel(rootfs, version)?;
+	let loaded_kernel = elf::load_kernel(kernel.kernel)?;
 
 	loop {}
 

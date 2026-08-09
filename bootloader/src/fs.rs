@@ -3,11 +3,10 @@ use core::error::Error;
 use core::fmt;
 use core::iter::zip;
 use log::{debug, info};
-use uefi::{boot, Status, StatusExt, Guid, guid, println};
+use uefi::{boot, Status, Guid, guid};
 use uefi::boot::{ScopedProtocol, SearchType};
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::device_path::{DevicePath, DeviceSubType, DeviceType};
-use uefi::proto::media::disk::DiskIo;
 use uefi::proto::media::partition::{GptPartitionType, PartitionInfo};
 use uefi::proto::media::fs::SimpleFileSystem;
 
@@ -28,7 +27,7 @@ impl From<Status> for RootfsError {
 }
 
 impl fmt::Display for RootfsError {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
 			Self::UefiError(status) => write!(f, "UEFI error: {}", status),
 			Self::LocateDiskError(status) => write!(f, "locate disk error: {}", status),
@@ -62,7 +61,7 @@ pub fn locate_rootfs() -> Result<ScopedProtocol<SimpleFileSystem>, Box<dyn Error
 		});
 
 	// find a partition with the correct GUID for the rootfs
-	let mut filesystems = filesystems.filter(|(device_path, handle)| {
+	let mut filesystems = filesystems.filter(|(device_path, _)| {
 		let Ok(partition) = boot::locate_device_path::<PartitionInfo>(&mut &**device_path) else { return false; };
 		let Ok(partition) = boot::open_protocol_exclusive::<PartitionInfo>(partition) else { return false; };
 
