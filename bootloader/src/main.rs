@@ -3,6 +3,8 @@
 #![feature(arbitrary_self_types)]
 #![feature(error_iter)]
 #![feature(duration_integer_division)]
+#![feature(strict_provenance_lints)]
+#![cfg_attr(doc, feature(rustdoc_missing_doc_code_examples))]
 #![no_main]
 #![no_std]
 
