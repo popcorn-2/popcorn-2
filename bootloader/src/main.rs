@@ -1,3 +1,5 @@
+//! A cross-platform UEFI bootloader for loading Popcorn2.
+
 #![feature(arbitrary_self_types)]
 #![feature(error_iter)]
 #![feature(duration_integer_division)]

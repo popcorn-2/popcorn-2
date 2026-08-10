@@ -120,11 +120,14 @@ pub enum ParseVersionError {
 
 impl fmt::Display for ParseVersionError {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "invalid kernel version")
+		match self {
+			Self::InvalidChar(c) => write!(f, "invalid kernel version: found char `{c}`"),
+			Self::NotEnoughSegments(left) => write!(f, "invalid kernel version: missing {left} segmentss"),
+		}
 	}
 }
 
-impl core::error::Error for ParseVersionError {}
+impl Error for ParseVersionError {}
 
 pub struct KernelVersion {
 	major: u32,
@@ -140,6 +143,7 @@ impl fmt::Display for KernelVersion {
 
 pub struct KernelFiles {
 	pub kernel: Vec<u8>,
+	#[expect(unused, reason = "not supported yet")]
 	pub symbol_map: Option<Vec<u8>>,
 }
 

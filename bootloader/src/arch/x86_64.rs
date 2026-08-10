@@ -227,7 +227,7 @@ pub struct AlreadyMappedError(Ty);
 
 impl fmt::Display for AlreadyMappedError {
 	fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(fmt, "address is already mapped")
+		write!(fmt, "address is already mapped for type {:?}", self.0)
 	}
 }
 
