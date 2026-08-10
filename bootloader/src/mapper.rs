@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use core::fmt::Debug;
 use core::{fmt, ptr};
 use log::{debug, warn};
-use uefi::{boot, Status, StatusExt};
+use uefi::{boot, Status, StatusExt as _};
 use uefi::boot::{AllocateType, MemoryType};
 use elf::{segment, File, OsAbi, Isa};
 use elf::segment::Flags;
@@ -15,8 +15,8 @@ use crate::fs::KernelFiles;
 
 #[derive(Debug)]
 pub enum Error {
-	ElfError(elf::ParseError),
-	UefiError(uefi::Error),
+	Elf(elf::ParseError),
+	Uefi(uefi::Error),
 	NoStack,
 	NoKasan,
 	WrongAbi,
@@ -26,22 +26,22 @@ pub enum Error {
 
 impl From<elf::ParseError> for Error {
 	fn from(value: elf::ParseError) -> Self {
-		Self::ElfError(value)
+		Self::Elf(value)
 	}
 }
 
 impl From<uefi::Error> for Error {
 	fn from(value: uefi::Error) -> Self {
-		Self::UefiError(value)
+		Self::Uefi(value)
 	}
 }
 
 impl fmt::Display for Error {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
-			Error::ElfError(error) => write!(f, "elf error: {error}"),
-			Error::UefiError(error) => write!(f, "uefi error: {error}"),
-			Error::MalformedKernel | Error::WrongArchitecture | Error::NoKasan | Error::NoStack | Error::WrongAbi => write!(f, "malformed kernel image"),
+			Self::Elf(error) => write!(f, "elf error: {error}"),
+			Self::Uefi(error) => write!(f, "uefi error: {error}"),
+			Self::MalformedKernel | Self::WrongArchitecture | Self::NoKasan | Self::NoStack | Self::WrongAbi => write!(f, "malformed kernel image"),
 		}
 	}
 }
@@ -49,9 +49,9 @@ impl fmt::Display for Error {
 impl core::error::Error for Error {
 	fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
 		match self {
-			Error::ElfError(error) => Some(error),
-			Error::UefiError(error) => Some(error),
-			Error::MalformedKernel | Error::WrongArchitecture | Error::NoKasan | Error::NoStack | Error::WrongAbi => None,
+			Self::Elf(error) => Some(error),
+			Self::Uefi(error) => Some(error),
+			Self::MalformedKernel | Self::WrongArchitecture | Self::NoKasan | Self::NoStack | Self::WrongAbi => None,
 		}
 	}
 }
@@ -65,6 +65,9 @@ pub struct Mapper {
 }
 
 impl Mapper {
+	/// # Errors
+	///
+	/// Returns an error if the kernel is invalid for this system, or memory allocation or mapping failed.
 	pub fn try_new(kernel: KernelFiles) -> Result<Self, Box<dyn core::error::Error>> {
 		let kernel = File::try_new(kernel.kernel)?;
 
@@ -127,6 +130,7 @@ impl Mapper {
 				crate::paging_reasons::kernel_seg_to_mapping_ty(segment.ty(), segment.flags()),
 			)?;
 
+			// SAFETY: firmware returns unaliased writable memory
 			unsafe {
 				ptr::write_bytes(
 					mem.as_ptr(),
@@ -138,7 +142,7 @@ impl Mapper {
 					data.as_ptr(),
 					mem.as_ptr(),
 					data.len(),
-				)
+				);
 			}
 
 			mapper.init_shadow(
@@ -174,6 +178,9 @@ impl Mapper {
 		Ok(mapper)
 	}
 
+	/// # Errors
+	///
+	/// Returns an error if memory allocation or mapping failed.
 	pub fn new_mapping(
 		&mut self,
 		physical_base: Option<RawFrame>,
@@ -183,7 +190,7 @@ impl Mapper {
 	) -> Result<(RawFrame, RawPage), Box<dyn core::error::Error>> {
 		if boot::PAGE_SIZE != kernel_api::memory::PAGE_SIZE { unimplemented!("fixme"); }
 
-		let physical_base = physical_base.map(uefi::Result::Ok).unwrap_or_else(|| {
+		let physical_base = physical_base.map_or_else(|| {
 			Ok(RawFrame::new(
 				boot::allocate_pages(
 					AllocateType::AnyPages,
@@ -191,7 +198,7 @@ impl Mapper {
 					count,
 				)?.addr().get()
 			))
-		})?;
+		}, uefi::Result::Ok)?;
 
 		let virtual_base = virtual_base.unwrap_or_else(|| {
 			self.next_page = self.next_page - count;
@@ -224,6 +231,9 @@ impl Mapper {
 		Ok((physical_base, virtual_base))
 	}
 
+	/// # Errors
+	///
+	/// Returns an error if memory allocation or mapping failed.
 	fn init_shadow(&mut self, base: VirtualAddress, bytes: usize, val: u8) -> Result<(), Box<dyn core::error::Error>> {
 		if !self.kasan_enabled { return Ok(()); }
 
@@ -236,6 +246,7 @@ impl Mapper {
 			(shadow_end.addr - shadow_start.addr).div_ceil(boot::PAGE_SIZE),
 		)?;
 
+		// SAFETY: firmware returns unaliased writable memory
 		unsafe {
 			ptr::write_bytes(
 				mem.as_ptr(),
@@ -247,33 +258,36 @@ impl Mapper {
 				mem.as_ptr().add(mem_to_shadow(base).addr - shadow_start.addr),
 				val,
 				count_to_shadow(bytes),
-			)
+			);
 		}
 
 		for i in 0..(shadow_end - shadow_start) {
 			if let Err(err) = self.page_table.try_map_range_with(
 				shadow_start + i,
-				RawFrame::new(mem.addr().get()) + i,
+				RawFrame::new(mem.expose_provenance().get()) + i,
 				1,
 				TableEntryFlags::GLOBAL | TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE,
 				Ty::SHADOW_MEM,
 			) {
 				if err.is::<AlreadyMappedError>() {
-					warn!("leaking memory :(");
 					// fixme: don't leak memory
+					warn!("leaking memory :(");
+					#[expect(clippy::missing_panics_doc, reason = "infallible")]
 					let mapped = self.page_table.translate_page(shadow_start + i)
 						.expect("just got an already mapped error for this page");
-					let current_val = unsafe { (mapped.addr as *mut u8).read() };
+					// SAFETY: All memory in preboot environment is identity mapped, and page tables
+					//  only point to valid memory
+					let current_val = unsafe { ptr::with_exposed_provenance_mut::<u8>(mapped.addr).read() };
 					if current_val == val { continue; }
-					else { unimplemented!("{current_val:#x} != {val:#x}") }
-				} else { return Err(err.into()); }
+					unimplemented!("{current_val:#x} != {val:#x}");
+				} else { return Err(err); }
 			}
 		}
 
 		Ok(())
 	}
 
-	pub fn finalize(self) -> (PageTable, VirtualAddress, handoff::Stack, RawPage) {
+	pub const fn finalize(self) -> (PageTable, VirtualAddress, handoff::Stack, RawPage) {
 		let Self { page_table, entrypoint, stack, next_page, .. } = self;
 		(page_table, entrypoint, stack, next_page)
 	}

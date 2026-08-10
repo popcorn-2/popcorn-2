@@ -26,22 +26,22 @@
 /// let x: u128 = 56;
 /// assert_eq!(x.truncate::<usize>(), 56);
 /// ```
-pub trait Truncate: Sized {
+pub const trait Truncate: Sized {
 	/// Truncates `self` to type `T`.
 	#[expect(rustdoc::missing_doc_code_examples, reason = "example in trait level docs")]
-	fn truncate<T: TruncateFrom<Self>>(self) -> T {
+	fn truncate<T: const TruncateFrom<Self>>(self) -> T {
 		T::truncate_from(self)
 	}
 }
 
 #[doc(hidden)]
-pub trait TruncateFrom<T> {
+pub const trait TruncateFrom<T> {
 	fn truncate_from(val: T) -> Self;
 }
 
 macro_rules! impl_truncate {
     ($($t:path)* => $u:path) => {
-	    $(impl TruncateFrom<$t> for $u {
+	    $(impl const TruncateFrom<$t> for $u {
 		    fn truncate_from(val: $t) -> Self {
 			    #![allow(clippy::cast_possible_truncation, reason = "definition of better function")]
 			    val as $u
@@ -50,18 +50,18 @@ macro_rules! impl_truncate {
     };
 }
 
-impl Truncate for u128 {}
-impl Truncate for u64 {}
-impl Truncate for u32 {}
-impl Truncate for u16 {}
+impl const Truncate for u128 {}
+impl const Truncate for u64 {}
+impl const Truncate for u32 {}
+impl const Truncate for u16 {}
 
-impl Truncate for i128 {}
-impl Truncate for i64 {}
-impl Truncate for i32 {}
-impl Truncate for i16 {}
+impl const Truncate for i128 {}
+impl const Truncate for i64 {}
+impl const Truncate for i32 {}
+impl const Truncate for i16 {}
 
-impl Truncate for usize {}
-impl Truncate for isize {}
+impl const Truncate for usize {}
+impl const Truncate for isize {}
 
 impl_truncate!(u128 u64 u32 u16 => u8);
 impl_truncate!(u128 u64 u32 => u16);

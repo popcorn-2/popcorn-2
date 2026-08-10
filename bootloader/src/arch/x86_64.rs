@@ -1,14 +1,15 @@
 use alloc::boxed::Box;
 use core::arch::asm;
 use core::error::Error;
-use core::fmt;
+use core::{fmt, ptr};
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
-use core::ops::{Index, IndexMut};
+use core::ops::{Index as _, IndexMut as _};
 use bitflags::bitflags;
 use log::trace;
 use uefi::boot;
 use uefi::boot::{AllocateType, MemoryType};
+use kernel_api::int_extension::Truncate;
 use kernel_api::mapping::Ty;
 use kernel_api::memory::{RawFrame, RawPage, VirtualAddress};
 use utils::handoff;
@@ -27,7 +28,7 @@ pub fn final_init() {
 			"rdmsr",
 			"or eax, 0x801",
 			"wrmsr",
-			in("ecx") 0xC0000080u32,
+			in("ecx") 0xC000_0080u32,
 			out("eax") _,
 			out("edx") _
 		);
@@ -58,11 +59,11 @@ pub fn handover(entry: VirtualAddress, stack_ptr: VirtualAddress, handoff: *cons
 	}
 }
 
-#[allow(clippy::unusual_byte_groupings)]
+#[expect(clippy::unusual_byte_groupings, reason = "clearer for page indices")]
 trait PageExt {
 	const L4_SHIFT: usize = 12 + 9*3;
 	const L3_SHIFT: usize = 12 + 9*2;
-	const L2_SHIFT: usize = 12 + 9*1;
+	const L2_SHIFT: usize = 12 + 9;
 	const L1_SHIFT: usize = 12;
 	const L4_MASK:  usize = 0o777_000_000_000_0000;
 	const L3_MASK:  usize =     0o777_000_000_0000;
@@ -94,10 +95,15 @@ impl<Level: TableLevel> Table<Level> {
 
 impl<Level: ParentTableLevel> Table<Level> {
 	pub fn get_child_table(&self, index: usize) -> Option<&'static Table<Level::Child>> {
+		// SAFETY: All memory in preboot environment is identity mapped, and page tables
+		//  only point to valid memory
 		self.0[index].pointed_frame()
-			.map(|frame| unsafe { &*(frame.addr as *const Table<_>) })
+			.map(|frame| unsafe { &*ptr::with_exposed_provenance(frame.addr) })
 	}
 
+	/// # Errors
+	///
+	/// Returns the firmware error if memory allocation failed.
 	fn try_get_or_create_child_table(&mut self, index: usize) -> uefi::Result<&'static mut Table<Level::Child>> {
 		let entry = &mut self.0[index];
 		entry.pointed_frame()
@@ -108,12 +114,17 @@ impl<Level: ParentTableLevel> Table<Level> {
 					MemoryType::LOADER_DATA,
 					1,
 				)?.cast::<MaybeUninit<Table<_>>>();
-				assert!(table_ptr.is_aligned());
+				// SAFETY: firmware returns unaliased writable memory
 				let table = unsafe { table_ptr.as_mut() };
 				let table = table.write(Table::new());
-				entry.set_pointed_frame(RawFrame::new(table_ptr.addr().get()), TableEntryFlags::PERMISSIVE).unwrap();
+				#[expect(clippy::missing_panics_doc, reason = "infallible")]
+				entry.set_pointed_frame(RawFrame::new(table_ptr.expose_provenance().get()), TableEntryFlags::PERMISSIVE).expect("just checked there was no frame mapped");
 				Ok(table)
-			}, |frame| Ok(unsafe { &mut *(frame.addr as *mut Table<_>) }))
+			}, |frame| {
+				// SAFETY: All memory in preboot environment is identity mapped, and page tables
+				//  only point to valid memory
+				Ok(unsafe { &mut *ptr::with_exposed_provenance_mut(frame.addr) })
+			})
 	}
 }
 
@@ -145,11 +156,11 @@ impl ParentTableLevel for Level2 { type Child = Level1; }
 struct TableEntry(usize);
 
 impl fmt::Debug for TableEntry {
-	fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-		let f = self.pointed_frame();
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let frame = self.pointed_frame();
 		let flags = self.flags();
-		fmt.debug_struct("TableEntry")
-			.field("frame", &f)
+		f.debug_struct("TableEntry")
+			.field("frame", &frame)
 			.field("flags", &flags)
 			.finish()
 	}
@@ -184,21 +195,21 @@ impl TableEntryFlags {
 		Self::from_bits_retain(low | high)
 	}
 
-	pub fn to_ty(self) -> Ty {
+	pub const fn to_ty(self) -> Ty {
 		let low = (self.bits() >> 9) & 7;
 		let high = (self.bits() >> (52 - 3)) & 0x3ff8;
-		Ty((low | high) as u8)
+		Ty(Truncate::truncate(low | high))
 	}
 }
 
 impl TableEntry {
 	const fn new() -> Self { Self(TableEntryFlags::WRITABLE.bits()) }
 
-	fn flags(&self) -> TableEntryFlags {
+	const fn flags(&self) -> TableEntryFlags {
 		TableEntryFlags::from_bits_truncate(self.0)
 	}
 
-	fn pointed_frame(&self) -> Option<RawFrame> {
+	const fn pointed_frame(&self) -> Option<RawFrame> {
 		if self.flags().contains(TableEntryFlags::PRESENT) {
 			Some(RawFrame::new(self.0 & 0x000f_ffff_ffff_f000))
 		} else { None }
@@ -210,6 +221,9 @@ impl TableEntry {
 		self.0 |= (flags | TableEntryFlags::PRESENT).bits();
 	}
 
+	/// # Errors
+	///
+	/// Returns an error if the page is already mapped.
 	fn set_pointed_frame(&mut self, frame: RawFrame, flags: TableEntryFlags) -> Result<(), AlreadyMappedError> {
 		if self.pointed_frame().is_some() {
 			Err(AlreadyMappedError(self.flags().to_ty()))
@@ -226,21 +240,26 @@ pub struct PageTable(&'static mut Table<Level4>);
 pub struct AlreadyMappedError(Ty);
 
 impl fmt::Display for AlreadyMappedError {
-	fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(fmt, "address is already mapped for type {:?}", self.0)
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "address is already mapped for type {:?}", self.0)
 	}
 }
 
 impl Error for AlreadyMappedError {}
 
 impl PageTable {
-	pub fn new() -> Result<PageTable, Box<dyn Error>> {
+	/// # Errors
+	///
+	/// Returns an error on failure to allocate memory for the page table.
+	pub fn new() -> Result<Self, Box<dyn Error>> {
+		const { assert!(align_of::<Table<Level4>>() <= boot::PAGE_SIZE, "Table alignment must fit in UEFI provided alignment"); }
+
 		let mut l4 = boot::allocate_pages(
 			AllocateType::AnyPages,
 			MemoryType::LOADER_DATA,
 			1,
 		)?.cast::<MaybeUninit<Table<Level4>>>();
-		debug_assert!(l4.is_aligned());
+		// SAFETY: firmware returns unaliased writable memory
 		let l4 = unsafe { l4.as_mut() }.write(Table::new());
 
 		let mut l3_kernel_tables = boot::allocate_pages(
@@ -248,21 +267,26 @@ impl PageTable {
 			MemoryType::LOADER_DATA,
 			256,
 		)?.cast::<[MaybeUninit<Table<Level3>>; 256]>();
+		// SAFETY: firmware returns unaliased writable memory
 		let l3_kernel_tables = unsafe { l3_kernel_tables.as_mut() };
 
-		for (i, l3) in l3_kernel_tables.into_iter().enumerate() {
+		for (i, l3) in l3_kernel_tables.iter_mut().enumerate() {
 			let l3 = l3.write(Table::new());
+			#[expect(clippy::missing_panics_doc, reason = "infallible")]
 			l4.0[i + 256].set_pointed_frame(
 				RawFrame::new(
-					(&raw const *l3).addr()
+					(&raw const *l3).expose_provenance()
 				),
 				TableEntryFlags::PERMISSIVE,
-			)?;
+			).expect("just created an empty page table");
 		}
 
-		Ok(PageTable(l4))
+		Ok(Self(l4))
 	}
 
+	/// # Errors
+	///
+	/// Returns an error if memory allocation failed, or a page is already mapped.
 	pub fn try_map_range_with(&mut self, page_start: RawPage, frame_start: RawFrame, count: usize, flags: TableEntryFlags, ty: Ty) -> Result<(), Box<dyn Error>> {
 		for i in 0..count {
 			let page = page_start + i;
@@ -275,7 +299,7 @@ impl PageTable {
 
 			let flags = flags | TableEntryFlags::from_ty(ty);
 			entry.set_pointed_frame(frame, flags)?;
-			trace!(target: "vmsan", "=== map va {:#018x} -> pa {:#018x} : ty={ty:?}", page, frame);
+			trace!(target: "vmsan", "=== map va {page:#018x} -> pa {frame:#018x} : ty={ty:?}");
 		}
 		Ok(())
 	}
@@ -288,8 +312,12 @@ impl PageTable {
 		entry.pointed_frame()
 	}
 
-	pub fn switch(&self) {
-		let addr = self.0 as *const _ as usize;
-		unsafe{ asm!("mov cr3, {}", in(reg) addr, options(nostack, preserves_flags)); }
+	/// # Safety
+	///
+	/// Must not invalidate or modify any outstanding references.
+	pub unsafe fn switch(&self) {
+		let addr = ptr::from_ref(self.0);
+		// SAFETY: upheld by caller
+		unsafe { asm!("mov cr3, {}", in(reg) addr, options(nostack, preserves_flags)); }
 	}
 }
