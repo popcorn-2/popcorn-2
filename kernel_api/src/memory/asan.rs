@@ -51,9 +51,24 @@ const SHADOW_MAP_SIZE: usize = cfg_select! {
 	target_arch = "x86_64" => 16*1024*1024*1024*1024,
 };
 
+/// Converts the passed `address` into the corresponding address in the shadow map.
+#[must_use]
+pub fn mem_to_shadow(address: VirtualAddress) -> VirtualAddress {
+	let ret = (address.addr >> 3) + SHADOW_MAP_SHIFT;
+	let ret = VirtualAddress::new(ret);
+	debug_assert!(ret >= SHADOW_MAP_START && ret < SHADOW_MAP_END, "address = {address:#x}, ret = {ret:#x}, start = {SHADOW_MAP_START:#x}, end = {SHADOW_MAP_END:#x}");
+	ret
+}
+
+/// Converts the number of bytes into the lower bound number of bytes in the shadow map.
+#[must_use]
+pub const fn count_to_shadow(count: usize) -> usize {
+	count / 8
+}
+
 #[cfg(feature = "full")] pub use full::*;
 #[cfg(feature = "full")] mod full {
-	use super::{SHADOW_MAP_SHIFT, SHADOW_MAP_START, SHADOW_MAP_END, SHADOW_MAP_SIZE};
+	use super::{SHADOW_MAP_SHIFT, SHADOW_MAP_START, SHADOW_MAP_END, SHADOW_MAP_SIZE, mem_to_shadow, count_to_shadow};
 	use crate::memory::VirtualAddress;
 	use core::cmp::max;
 	use core::fmt::Write as _;
@@ -601,20 +616,5 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 			7 => write_shadow_map_for(last, 7),
 			_ => unreachable!("x % 8 < 8"),
 		}
-	}
-
-	/// Converts the passed `address` into the corresponding address in the shadow map.
-	#[must_use]
-	pub fn mem_to_shadow(address: VirtualAddress) -> VirtualAddress {
-		let ret = (address.addr >> 3) + SHADOW_MAP_SHIFT;
-		let ret = VirtualAddress::new(ret);
-		debug_assert!(ret >= SHADOW_MAP_START && ret < SHADOW_MAP_END, "address = {address:#x}, ret = {ret:#x}, start = {SHADOW_MAP_START:#x}, end = {SHADOW_MAP_END:#x}");
-		ret
-	}
-
-	/// Converts the number of bytes into the lower bound number of bytes in the shadow map.
-	#[must_use]
-	pub const fn count_to_shadow(count: usize) -> usize {
-		count / 8
 	}
 }
