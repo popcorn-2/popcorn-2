@@ -336,6 +336,13 @@ newtype_enum! {
 	}
 }
 
+impl Isa {
+	pub const TARGET: Self = cfg_select! {
+		target_arch = "x86" => Self::X86,
+		target_arch = "x86_64" => Self::X86_64,
+	};
+}
+
 newtype_enum! {
 	/// The type of ELF file.
 	pub enum Type: pub u16 => {
