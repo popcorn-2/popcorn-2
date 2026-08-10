@@ -33,25 +33,25 @@
 //! ```
 
 #![feature(strict_provenance_lints)]
+#![cfg_attr(doc, feature(rustdoc_missing_doc_code_examples))]
 #![deny(unsafe_code)]
-#![no_std]
+#![cfg_attr(not(doc), no_std)]
 
 use core::fmt;
-use header::file;
 use kernel_api::newtype_enum;
 
 mod header;
 pub mod note;
 pub mod raw;
 
-pub use header::file::Header as FileHeader;
 pub use header::segment;
 pub use header::section;
+pub use header::file;
 
 /// The error returned when parsing a [`File`].
 #[derive(Debug, Clone, Copy)]
 pub enum ParseError {
-	/// An error was encountered parsing the [`FileHeader`].
+	/// An error was encountered parsing the file [`Header`](file::Header).
 	FileHeader(file::Error),
 }
 
@@ -85,7 +85,7 @@ pub struct File<D> {
 
 #[derive(Debug, Clone, Copy)]
 struct FileInner<D> {
-	file_header: FileHeader,
+	file_header: file::Header,
 	data: D,
 }
 
@@ -136,7 +136,7 @@ impl<D: AsRef<[u8]>> File<D> {
 	/// Returns a [`ParseError`] if the file could not be parsed.
 	pub fn try_new(from: D) -> Result<Self, ParseError> {
 		let data = from.as_ref();
-		let file_header = FileHeader::try_new(data)?;
+		let file_header = file::Header::try_new(data)?;
 
 		Ok(Self {
 			inner: FileInner {
@@ -157,6 +157,22 @@ impl<D: AsRef<[u8]>> File<D> {
 	}
 
 	/// Returns an iterator over each [`Section`](section::Section) in the ELF file.
+	///
+	/// # Examples
+	///
+	/// Print the name of each section in a file:
+	/// ```
+	/// use elf::File;
+	///
+	/// fn parse_file() -> File<&'static u8> {
+	///     // ...
+	/// #   return File::try_new(include_bytes!("../tests/dynamic-x64.elf")).unwrap();
+	/// }
+	///
+	/// for section in parse_file().sections() {
+	///     println!("{}", section.name().to_string_lossy());
+	/// }
+	/// ```
 	pub fn sections(&self) -> section::Iter<'_, D> {
 		section::Iter::new(
 			&self.inner,
@@ -212,6 +228,35 @@ impl<D: AsRef<[u8]>> File<D> {
 	/// # Errors
 	///
 	/// Propagates any errors from the provided function.
+	///
+	/// # Examples
+	///
+	/// Load a parsed ELF file into memory:
+	/// ```rust,no_run
+	/// use std::io::{Seek, SeekFrom, Write};
+	/// use elf::File;
+	///
+	/// fn parse_file() -> File<&'static u8> {
+	///     // ...
+	/// #   return File::try_new(include_bytes!("../tests/dynamic-x64.elf")).unwrap();
+	/// }
+	///
+	/// fn get_target_pid() -> usize {
+	///     // ...
+	/// #   0
+	/// }
+	///
+	/// let file = parse_file();
+	/// let target = std::fs::File::open(format!("/proc/{}/map"), get_target_pid()).unwrap();
+	///
+	/// file.load_with(|segment, data| {
+	///     target.seek(SeekFrom::Start(segment.vaddr()))?;
+	///     target.write_all(data);
+	///     for _ in 0..(segment.mem_size() as usize) - data.len() {
+	///         target.write_all(&[0])?;
+	///     }
+	/// });
+	/// ```
 	pub fn load_with<E>(&self, mut f: impl FnMut(&segment::Segment, &[u8]) -> Result<(), E>) -> Result<(), E> {
 		self.segments().filter(|segment| segment.ty() == segment::Type::LOAD).try_for_each(|segment| -> Result<(), E> {
 			let data = &self[segment];
@@ -274,6 +319,24 @@ impl<D: AsRef<[u8]>> core::ops::Index<section::Section<'_, D>> for File<D> {
 }
 
 /// The ABI an ELF file was compiled for.
+///
+/// # Examples
+///
+/// Check if ELF file uses any OS specific extensions:
+/// ```
+/// use elf::{File, OsAbi};
+///
+/// fn parse_file() -> File<&'static u8> {
+///     // ...
+/// #   return File::try_new(include_bytes!("../tests/dynamic-x64.elf")).unwrap();
+/// }
+///
+/// match parse_file().abi().os {
+/// #   x if x != OsAbi::POPCORN { panic!("incorrect OsAbi read") },
+///     OsAbi::SYSTEM_V => println!("no extensions"),
+///     os => println!("{os:?} extensions used in file")
+/// }
+/// ```
 #[derive(Copy, Clone, Debug)]
 pub struct Abi {
 	/// The OS.
@@ -337,6 +400,7 @@ newtype_enum! {
 }
 
 impl Isa {
+	/// The `Isa` value corresponding to the current compiler target.
 	pub const TARGET: Self = cfg_select! {
 		target_arch = "x86" => Self::X86,
 		target_arch = "x86_64" => Self::X86_64,

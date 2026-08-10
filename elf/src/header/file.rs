@@ -40,7 +40,7 @@ impl Header {
 		let endianness = Endianness(index_part::<raw::file::Data>(data)[0]);
 		match endianness {
 			Endianness::BIG | Endianness::LITTLE => {},
-			Endianness(endianness) => return Err(Error::InvalidEndianness(endianness)),
+			Endianness(endianness) => return Err(Error::UnsupportedEndianness(endianness)),
 		}
 
 		let width = Width(endianness.decode_u8(index_part::<raw::file::Class>(data)));
@@ -90,11 +90,11 @@ impl Header {
 					section_string_table: endianness.decode_u16(index_part::<raw::file::x64::SectionHeaderStrTabIndex>(data)),
 				})
 			},
-			Width(width) => return Err(Error::UnknownWidth(width)),
+			Width(width) => return Err(Error::UnsupportedWidth(width)),
 		};
 
-		if header_version != 1 { return Err(Error::UnknownHeaderVersion(header_version)); }
-		if elf_version != 1 { return Err(Error::UnknownElfVersion(elf_version)); }
+		if header_version != 1 { return Err(Error::UnsupportedHeaderVersion(header_version)); }
+		if elf_version != 1 { return Err(Error::UnsupportedElfVersion(elf_version)); }
 
 		Ok(Self {
 			endianness,
@@ -314,24 +314,31 @@ struct FileHeaderExtra<T> {
 	section_string_table: u16
 }
 
+/// The error returned when parsing a file [`Header`].
 #[derive(Debug, Copy, Clone)]
 pub enum Error {
+	/// Data passed is too short to contain a file header.
 	NotEnoughData,
+	/// Found the contained bytes instead of the expected ELF magic.
 	InvalidMagic([u8; 4]),
-	InvalidEndianness(u8),
-	UnknownWidth(u8),
-	UnknownHeaderVersion(u8),
-	UnknownElfVersion(u32),
+	/// Found an unsupported endianness value.
+	UnsupportedEndianness(u8),
+	/// Found an unsupported width value.
+	UnsupportedWidth(u8),
+	/// Found an unsupported file header version.
+	UnsupportedHeaderVersion(u8),
+	/// Found an unsupported ELF version.
+	UnsupportedElfVersion(u32),
 }
 
 impl fmt::Display for Error {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
 			Self::NotEnoughData => write!(f, "not enough data"),
-			Self::InvalidEndianness(_) => write!(f, "invalid ELF endianness"),
+			Self::UnsupportedEndianness(_) => write!(f, "invalid ELF endianness"),
 			Self::InvalidMagic(_) => write!(f, "invalid ELF file magic"),
-			Self::UnknownWidth(_) => write!(f, "unknown architecture width"),
-			Self::UnknownHeaderVersion(_) | Self::UnknownElfVersion(_) => write!(f, "unknown ELF version"),
+			Self::UnsupportedWidth(_) => write!(f, "unknown architecture width"),
+			Self::UnsupportedHeaderVersion(_) | Self::UnsupportedElfVersion(_) => write!(f, "unknown ELF version"),
 		}
 	}
 }

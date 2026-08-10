@@ -1,7 +1,7 @@
 //! Types for reading ELF program headers.
 
 use crate::raw::index_part;
-use crate::{raw, FileHeader, Width};
+use crate::{raw, file::Header as FileHeader, Width};
 use bitflags::bitflags;
 use kernel_api::memory::{PhysicalAddress, VirtualAddress};
 
@@ -30,12 +30,12 @@ pub struct Segment {
 impl Segment {
 	/// Parses a segment descriptor from the raw contents of a program header entry.
 	///
-	/// The parsed [`FileHeader`] must be passed to determine the correct [ELF Class](Width)
+	/// The parsed file [`Header`](FileHeader) must be passed to determine the correct [ELF Class](Width)
 	/// and [`Endianness`](crate::Endianness) to use.
 	///
 	/// # Errors
 	///
-	/// Returns a [`ParseError`] if the entry could not be parsed, or the [`FileHeader`] contained
+	/// Returns a [`ParseError`] if the entry could not be parsed, or the file [`Header`](FileHeader) contained
 	/// unsupported values.
 	pub fn try_new<D: AsRef<[u8]>>(from: D, with: &FileHeader) -> Result<Self, ParseError> {
 		let entry = from.as_ref();
