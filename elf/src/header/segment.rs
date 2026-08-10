@@ -3,6 +3,7 @@
 use crate::raw::index_part;
 use crate::{raw, FileHeader, Width};
 use bitflags::bitflags;
+use kernel_api::memory::{PhysicalAddress, VirtualAddress};
 
 /// The error returned when parsing a [`Segment`].
 #[derive(Debug, Copy, Clone)]
@@ -115,14 +116,16 @@ impl Segment {
 
 	/// The virtual address this segment should be loaded at.
 	#[must_use]
-	pub const fn vaddr(&self) -> u64 {
-		self.vaddr
+	pub const fn vaddr(&self) -> VirtualAddress {
+		// fixme
+		VirtualAddress::new(self.vaddr as usize)
 	}
 
 	/// The physical address this segment should be loaded at.
 	#[must_use]
-	pub const fn paddr(&self) -> u64 {
-		self.paddr
+	pub const fn paddr(&self) -> PhysicalAddress {
+		// fixme
+		PhysicalAddress::new(self.paddr as usize)
 	}
 
 	#[doc(hidden)]
@@ -136,14 +139,16 @@ impl Segment {
 	/// > **Note**: This may be larger than the length of the data contained
 	/// > in this segment. The remaining space should be filled with zeroes.
 	#[must_use]
-	pub const fn mem_size(&self) -> u64 {
-		self.mem_size
+	pub const fn mem_size(&self) -> usize {
+		// fixme
+		self.mem_size as usize
 	}
 
 	/// Required alignment of the start of this segment.
 	#[must_use]
-	pub const fn align(&self) -> u64 {
-		self.align
+	pub const fn align(&self) -> usize {
+		// fixme
+		self.align as usize
 	}
 }
 
