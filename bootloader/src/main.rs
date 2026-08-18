@@ -13,6 +13,10 @@ use core::panic::PanicInfo;
 use core::time::Duration;
 use log::{debug, error, info};
 use uefi::{entry, println, Status, boot};
+use uefi::boot::MemoryType;
+use uefi::mem::memory_map::MemoryMap;
+use kernel_api::mapping::Ty;
+use kernel_api::memory::{RawFrame, RawPage};
 use crate::mapper::Mapper;
 
 mod framebuffer;
@@ -48,6 +52,46 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	let mut mapper = Mapper::try_new(kernel)?;
 
 	let framebuffer = framebuffer::map_framebuffer(&mut mapper)?;
+
+	debug!("mapping page map region");
+	let mem_map = boot::memory_map(MemoryType::LOADER_DATA)?;
+	for entry in mem_map.entries().filter(|entry|
+		entry.ty == MemoryType::BOOT_SERVICES_CODE ||
+		entry.ty == MemoryType::BOOT_SERVICES_DATA ||
+		entry.ty == MemoryType::PERSISTENT_MEMORY ||
+		entry.ty == MemoryType::LOADER_CODE ||
+		entry.ty == MemoryType::LOADER_DATA ||
+		entry.ty == MemoryType::ACPI_NON_VOLATILE ||
+		entry.ty == MemoryType::ACPI_RECLAIM ||
+		entry.ty == MemoryType::RUNTIME_SERVICES_CODE ||
+		entry.ty == MemoryType::RUNTIME_SERVICES_DATA ||
+		entry.ty == MemoryType::CONVENTIONAL
+	) {
+		// fixme: conversion
+		let base = RawFrame::new(entry.phys_start as usize);
+		mapper.new_mapping(
+			Some(base),
+			Some(base.to_virtual().align_down_to_page()),
+			entry.page_count as usize,
+			Ty::MEM_MAP,
+		)?;
+	}
+
+	debug!("identity mapping bootloader");
+	for entry in mem_map.entries().filter(|entry|
+		entry.ty == MemoryType::LOADER_CODE ||
+		entry.ty == MemoryType::LOADER_DATA
+	) {
+		// fixme: conversion
+		let base = RawFrame::new(entry.phys_start as usize);
+		let base_virt = RawPage::new(entry.phys_start as usize);
+		mapper.new_mapping(
+			Some(base),
+			Some(base_virt),
+			entry.page_count as usize,
+			Ty::LOADER_CODE,
+		)?;
+	}
 
 	loop {}
 }
