@@ -15,7 +15,7 @@ use log::{debug, error, info};
 use uefi::{entry, println, Status, boot};
 use crate::mapper::Mapper;
 
-//mod paging;
+mod framebuffer;
 mod logging;
 mod mapper;
 mod fs;
@@ -46,6 +46,8 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	info!("Booting kernel {version}");
 	let kernel = fs::unpack_kernel(rootfs, version)?;
 	let mut mapper = Mapper::try_new(kernel)?;
+
+	let framebuffer = framebuffer::map_framebuffer(&mut mapper)?;
 
 	loop {}
 }

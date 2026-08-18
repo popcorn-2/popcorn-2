@@ -613,7 +613,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let (update_line, _picos_per_tick) = if let Some(fb) = fb {
 		let size = fb.stride * fb.height;
 		let stride = fb.stride;
-		let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.as_ptr().cast::<u32>(), size) };
+		let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.cast::<u32>(), size) };
 
 		// Clear to true black to match background of BGRT logo
 		for pixel in fb_data.iter_mut() {
