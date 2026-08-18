@@ -29,7 +29,7 @@ elf = { version = "0.1.0", path = "../elf" }
 # module shims
 arena_heap = { path = "../arena_heap", features = ["checksum"] }
 bitmap_allocator = { path = "../bitmap_allocator" }
-ranged_btree_allocator = { version = "0.1.0", path = "../ranged_btree_allocator" }
+linked_list_allocator = { version = "0.1.0", path = "../linked_list_allocator" }
 oneshot = { version = "0.1.11", default-features = false, features = ["async"] }
 
 [dev-dependencies]
@@ -44,4 +44,4 @@ default = []
 junit_test_out = []
 preemptive = []
 "log.scheduler" = []
-kasan = [ "unwinding/kasan", "kernel_api/kasan", "ranged_btree_allocator/kasan", "arena_heap/kasan" ]
+kasan = [ "unwinding/kasan", "kernel_api/kasan", "linked_list_allocator/kasan", "arena_heap/kasan" ]

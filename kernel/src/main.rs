@@ -542,7 +542,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		memory::physical::init_dmamem(allocator);
 
 		let btree_alloc = {
-			let mut btree_alloc = ranged_btree_allocator::RangedBtreeAllocator::new(
+			let mut btree_alloc = linked_list_allocator::LinkedListAllocator::new(
 				// unfortunately this means a page is missing :(
 				RawPage::new(kernel_api::memory::asan::SHADOW_MAP_END.addr) ..RawPage::new(memory::r#virtual::vmem_bootstrap_end() as usize)
 			).unwrap();

@@ -10,7 +10,7 @@ use kernel_api::allocator::{AllocError, highmem, Vmm};
 use kernel_api::mapping::{Mappable, Mapping, Ty};
 use kernel_api::memory::{PAGE_SIZE, RawPage, VirtualAddress, RawFrame, PhysicalAddress};
 use kernel_api::sync::{LazyLock, MappedSpinlockGuard, RwSpinlock, Spinlock, SpinlockGuard};
-use ranged_btree_allocator::RangedBtreeAllocator;
+use linked_list_allocator::LinkedListAllocator;
 
 #[unsafe(export_name = "__popcorn_memory_virtual_kernel_global")]
 pub static GLOBAL_VIRTUAL_ALLOCATOR: LazyLock<RwSpinlock<&'static (dyn Vmm + Sync)>> = LazyLock::new(|| RwSpinlock::new(BOOTSTRAP.deref()));
@@ -83,7 +83,7 @@ use crate::memory::paging::ktable;
 
 pub(crate) struct AddressSpaceInner {
 	ttable: TTableTy,
-	allocator: RangedBtreeAllocator,
+	allocator: LinkedListAllocator,
 	maps: Spinlock<Slab<(Cow<'static, str>, Mapping<Box<dyn Mappable + Send>, Userspace>)>>,
 }
 
@@ -116,7 +116,7 @@ mod private {
 }
 
 pub trait AddressSpaceExt: private::Sealed + Sized {
-	fn from_parts(ttable: TTableTy, allocator: RangedBtreeAllocator) -> Self;
+	fn from_parts(ttable: TTableTy, allocator: LinkedListAllocator) -> Self;
 	fn empty() -> Result<Self, AllocError>;
 	fn get(&self, key: MappingKey) -> Option<MappingEntry<'_>>;
 	fn ttable(&self) -> &TTableTy;
@@ -131,7 +131,7 @@ fn to_inner(address_space: &AddressSpace) -> &AddressSpaceInner {
 }
 
 impl AddressSpaceExt for AddressSpace {
-	fn from_parts(ttable: TTableTy, allocator: RangedBtreeAllocator) -> Self {
+	fn from_parts(ttable: TTableTy, allocator: LinkedListAllocator) -> Self {
 		let inner = AddressSpaceInner {
 			ttable,
 			allocator,
@@ -143,7 +143,7 @@ impl AddressSpaceExt for AddressSpace {
 	fn empty() -> Result<Self, AllocError> {
 		Ok(AddressSpaceExt::from_parts(
 			TTableTy::new(&*ktable(), highmem())?,
-			RangedBtreeAllocator::new(Range {
+			LinkedListAllocator::new(Range {
 				start: RawPage::new(0x200000),
 				end: RawPage::new(0x8000_0000_0000),
 			})?,
