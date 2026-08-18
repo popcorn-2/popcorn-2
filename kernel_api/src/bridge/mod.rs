@@ -3,6 +3,7 @@
 
 /// ABI for kernel version 0.1.0.
 #[cfg(kernel_version = "0.1.0")]
+/// ABI for kernel version 0.1.0.
 mod kernel_abi_v1;
 
 #[cfg(kernel_version = "0.1.0")]
