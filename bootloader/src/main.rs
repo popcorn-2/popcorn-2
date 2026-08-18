@@ -13,10 +13,11 @@ use core::panic::PanicInfo;
 use core::time::Duration;
 use log::{debug, error, info};
 use uefi::{entry, println, Status, boot};
+use crate::mapper::Mapper;
 
 //mod paging;
 mod logging;
-mod elf;
+mod mapper;
 mod fs;
 mod arch;
 
@@ -44,7 +45,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	let version = fs::find_latest_kernel(&mut *rootfs)?;
 	info!("Booting kernel {version}");
 	let kernel = fs::unpack_kernel(rootfs, version)?;
-	let loaded_kernel = elf::load_kernel(kernel.kernel)?;
+	let mut mapper = Mapper::try_new(kernel)?;
 
 	loop {}
 }

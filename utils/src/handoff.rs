@@ -76,9 +76,9 @@ pub struct Memory {
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct Stack {
-	pub top_virt: RawPage,
+	pub page_count: usize,
 	pub bottom_virt: RawPage,
-	pub top_phys: RawFrame,
+	pub bottom_phys: RawFrame,
 }
 
 #[derive(Debug, Clone, Copy)]

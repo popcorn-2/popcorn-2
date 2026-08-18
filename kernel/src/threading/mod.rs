@@ -128,18 +128,17 @@ pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
 	);
 
 	// fixme: is highmem always correct?
-	let stack_phys_len = stack.top_virt - stack.bottom_virt - 1;
 	let stack_frames = unsafe {
 		Frames::<true>::from_raw(Range {
-			start: stack.top_phys - stack_phys_len,
-			end: stack.top_phys,
+			start: stack.bottom_phys,
+			end: stack.bottom_phys + stack.page_count,
 		}, highmem())
 	};
 
 	let stack = unsafe {
 		Mapping::from_raw_parts(
 			stack_frames,
-			stack.bottom_virt,
+			stack.bottom_virt - 1,
 			Protection { executable: false, writable: true, user_accessible: false },
 			Caching::Normal,
 		)

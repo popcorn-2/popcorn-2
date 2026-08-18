@@ -189,7 +189,7 @@ name = "bootloader"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.4.2",
- "elf",
+ "elf 0.1.0 (git+https://github.com/popcorn-2/elf.git)",
  "kernel_api",
  "log",
  "uefi",
@@ -400,6 +400,15 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 [[package]]
 name = "elf"
 version = "0.1.0"
+dependencies = [
+ "bitflags 2.4.2",
+ "kernel_api",
+]
+
+[[package]]
+name = "elf"
+version = "0.1.0"
+source = "git+https://github.com/popcorn-2/elf.git#1e385f44e9e5ad1f91aea9573a227fedcf3056bb"
 dependencies = [
  "bitflags 2.4.2",
  "kernel_api",
@@ -626,7 +635,7 @@ dependencies = [
  "bitflags 2.4.2",
  "bitmap_allocator",
  "derive_more 0.99.17",
- "elf",
+ "elf 0.1.0",
  "futures",
  "hashbrown 0.14.5",
  "itertools",
