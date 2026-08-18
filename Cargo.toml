@@ -15,7 +15,6 @@ members = [
 	"kernel_module_macros",
 	"elf",
 	"macros",
-	"popfs",
 	"kernel_api",
 	"kernel_default_heap",
 	"bitmap_allocator",
