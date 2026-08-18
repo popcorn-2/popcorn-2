@@ -1,6 +1,7 @@
 use core::fmt::{Debug, Formatter};
 use core::ptr::NonNull;
 use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
+use core::range::Range;
 
 #[repr(C)]
 pub struct Data {
@@ -84,17 +85,8 @@ pub struct MemoryMapEntry {
 }
 
 impl MemoryMapEntry {
-	pub fn start(self) -> PhysicalAddress { self.coverage.0 }
-	pub fn end(self) -> PhysicalAddress { self.coverage.1 }
-}
-
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct Range<T>(pub T, pub T);
-
-impl<T> Range<T> {
-	pub fn start(self) -> T { self.0 }
-	pub fn end(self) -> T { self.1 }
+	pub fn start(self) -> PhysicalAddress { self.coverage.start }
+	pub fn end(self) -> PhysicalAddress { self.coverage.end }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
