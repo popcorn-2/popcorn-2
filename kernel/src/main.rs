@@ -532,7 +532,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		debug!("Initialising highmem");
 
 		let allocator = memory::physical::with_highmem_as(&watermark_allocator, || unsafe {
-			bitmap_allocator::Wrapped::new(
+			bitmap_allocator::BitmapAllocator::new(
 				RawFrame::new(0)..max_usable_memory.align_down_to_frame(),
 				&mut spaces,
 			).expect("unable to create highmem")
