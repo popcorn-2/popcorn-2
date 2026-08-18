@@ -64,7 +64,7 @@ impl ColorMask {
 #[repr(C)]
 pub struct Memory {
 	pub map: &'static [MemoryMapEntry],
-	pub used: Range<RawPage>,
+	pub lowest_used: RawPage,
 	pub stack: Stack
 }
 
