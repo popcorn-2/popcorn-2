@@ -15,7 +15,7 @@ serde = { version = "1.0.163", default-features = false, features = ["derive"] }
 utils = { path = "../utils" }
 more-asserts = "0.3.1"
 derive_more = "0.99.17"
-elf = { version = "0.1.0", path = "../elf" }
+elf = { git = "https://github.com/popcorn-2/elf.git" }
 kernel_api = { version = "1.1.0", path = "../kernel_api", default-features = false }
 
 [features]

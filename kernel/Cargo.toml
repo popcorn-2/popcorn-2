@@ -24,7 +24,7 @@ futures = { version = "0.3.31", default-features = false }
 # kernel repo deps
 kernel_api = { path = "../kernel_api" }
 utils = { path = "../utils" }
-elf = { version = "0.1.0", path = "../elf" }
+elf = { git = "https://github.com/popcorn-2/elf.git" }
 
 # module shims
 arena_heap = { path = "../arena_heap", features = ["checksum"] }

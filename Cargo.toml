@@ -13,7 +13,6 @@ members = [
 	"targa",
 	"ranged_btree",
 	"kernel_module_macros",
-	"elf",
 	"macros",
 	"popfs",
 	"kernel_api",

@@ -133,7 +133,7 @@ name = "arena_heap"
 version = "0.1.0"
 dependencies = [
  "aliasable",
- "kernel_api",
+ "kernel_api 1.1.0",
  "log",
 ]
 
@@ -180,7 +180,7 @@ checksum = "ed570934406eb16438a4e976b1b4500774099c13b8cb96eec99f620f05090ddf"
 name = "bitmap_allocator"
 version = "0.1.0"
 dependencies = [
- "kernel_api",
+ "kernel_api 1.1.0",
  "log",
 ]
 
@@ -191,7 +191,7 @@ dependencies = [
  "bitflags 2.4.2",
  "derive_more 0.99.17",
  "elf",
- "kernel_api",
+ "kernel_api 1.1.0",
  "log",
  "more-asserts",
  "serde",
@@ -405,9 +405,10 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 [[package]]
 name = "elf"
 version = "0.1.0"
+source = "git+https://github.com/popcorn-2/elf.git#1e385f44e9e5ad1f91aea9573a227fedcf3056bb"
 dependencies = [
  "bitflags 2.4.2",
- "kernel_api",
+ "kernel_api 1.1.0 (git+https://github.com/popcorn-2/popcorn-2.git)",
 ]
 
 [[package]]
@@ -635,7 +636,7 @@ dependencies = [
  "futures",
  "hashbrown 0.14.5",
  "itertools",
- "kernel_api",
+ "kernel_api 1.1.0",
  "linked_list_allocator",
  "log",
  "minicov",
@@ -663,10 +664,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "kernel_api"
+version = "1.1.0"
+source = "git+https://github.com/popcorn-2/popcorn-2.git#529394e0cb8b94f7ee67d62a67c6bd822cfacd23"
+dependencies = [
+ "crossbeam-queue",
+ "futures",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "log",
+]
+
+[[package]]
 name = "kernel_default_heap"
 version = "0.1.0"
 dependencies = [
- "kernel_api",
+ "kernel_api 1.1.0",
  "log",
 ]
 
@@ -689,7 +702,7 @@ checksum = "58f929b4d672ea937a23a1ab494143d968337a5f47e56d0815df1e0890ddf174"
 name = "linked_list_allocator"
 version = "0.1.0"
 dependencies = [
- "kernel_api",
+ "kernel_api 1.1.0",
  "log",
 ]
 
@@ -1186,7 +1199,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "utils"
 version = "0.1.0"
 dependencies = [
- "kernel_api",
+ "kernel_api 1.1.0",
 ]
 
 [[package]]
