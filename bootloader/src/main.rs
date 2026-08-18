@@ -10,13 +10,17 @@ use alloc::boxed::Box;
 use core::convert::Infallible;
 use core::error::Error;
 use core::panic::PanicInfo;
+use core::range::Range;
+use core::slice;
 use core::time::Duration;
 use log::{debug, error, info};
-use uefi::{entry, println, Status, boot};
+use uefi::{entry, println, Status, boot, system};
 use uefi::boot::MemoryType;
-use uefi::mem::memory_map::MemoryMap;
+use uefi::mem::memory_map::{MemoryMap, MemoryMapMut};
+use uefi::table::cfg::ConfigTableEntry;
 use kernel_api::mapping::Ty;
-use kernel_api::memory::{RawFrame, RawPage};
+use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
+use utils::handoff;
 use crate::mapper::Mapper;
 
 mod framebuffer;
@@ -93,7 +97,79 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 		)?;
 	}
 
-	loop {}
+	info!("setting up system for kernel entry");
+
+	arch::final_init();
+	let (page_table, entry, stack, lowest_used) = mapper.finalize();
+
+	let rsdp = system::with_config_table(|config_tables| {
+		if let Some(xsdp) = config_tables.iter().find(|table| table.guid == ConfigTableEntry::ACPI2_GUID) {
+			PhysicalAddress::new(xsdp.address as usize)
+		} else if let Some(rsdp) = config_tables.iter().find(|table| table.guid == ConfigTableEntry::ACPI_GUID) {
+			PhysicalAddress::new(rsdp.address as usize)
+		} else {
+			panic!("No RSDP found");
+		}
+	});
+
+	let mut handoff = handoff::Data {
+		framebuffer: Some(framebuffer),
+		memory: handoff::Memory {
+			map: &[],
+			lowest_used,
+			stack,
+		},
+		log: handoff::Logging {
+			symbol_map: None,
+		},
+		rsdp,
+		init_exec: &[],
+		ramdisk: &[],
+	};
+
+	const {
+		// check that it's valid to overwrite the array in-place
+		assert!(size_of::<handoff::MemoryMapEntry>() <= size_of::<boot::MemoryDescriptor>());
+		assert!(align_of::<handoff::MemoryMapEntry>() <= align_of::<boot::MemoryDescriptor>());
+	}
+
+	let mut map = unsafe { boot::exit_boot_services(None) };
+	map.sort();
+	let len = map.len();
+	let mut buffer = unsafe { map.buffer_mut() };
+	for i in 0..len {
+		let entry = unsafe { &*buffer.as_ptr().cast::<boot::MemoryDescriptor>().add(i) };
+		let start = PhysicalAddress::new(entry.phys_start as usize);
+		let entry = handoff::MemoryMapEntry {
+			coverage: Range { start, end: start + entry.page_count as usize },
+			ty: match entry.ty {
+				_ if entry.virt_start >= lowest_used.addr as u64 => handoff::MemoryType::KernelData,
+				MemoryType::CONVENTIONAL |
+				MemoryType::BOOT_SERVICES_CODE |
+				MemoryType::BOOT_SERVICES_DATA |
+				MemoryType::PERSISTENT_MEMORY => handoff::MemoryType::Free,
+				MemoryType::LOADER_CODE => handoff::MemoryType::BootloaderCode,
+				MemoryType::LOADER_DATA => handoff::MemoryType::BootloaderData,
+				MemoryType::ACPI_NON_VOLATILE => handoff::MemoryType::AcpiPreserve,
+				MemoryType::ACPI_RECLAIM => handoff::MemoryType::AcpiReclaim,
+				MemoryType::RUNTIME_SERVICES_CODE => handoff::MemoryType::RuntimeCode,
+				MemoryType::RUNTIME_SERVICES_DATA => handoff::MemoryType::RuntimeData,
+				_ => handoff::MemoryType::Reserved
+			}
+		};
+		unsafe { buffer.as_mut_ptr().cast::<handoff::MemoryMapEntry>().write(entry) };
+		buffer = &mut buffer[size_of::<handoff::MemoryMapEntry>()..];
+	}
+
+	handoff.memory.map = unsafe {
+		slice::from_raw_parts(
+			buffer.as_ptr().cast::<handoff::MemoryMapEntry>(),
+			len,
+		)
+	};
+
+	page_table.switch();
+	arch::handover(entry, *(stack.bottom_virt + stack.page_count), &handoff)
 }
 
 #[panic_handler]
