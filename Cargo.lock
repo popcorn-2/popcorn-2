@@ -895,7 +895,7 @@ name = "popfs"
 version = "0.1.0"
 dependencies = [
  "uefi",
- "uefi-raw",
+ "uefi-raw 0.11.0",
  "uefi-services",
 ]
 
@@ -1103,7 +1103,7 @@ dependencies = [
  "ptr_meta",
  "ucs2",
  "uefi-macros",
- "uefi-raw",
+ "uefi-raw 0.3.0",
  "uguid",
 ]
 
@@ -1126,6 +1126,16 @@ checksum = "62642516099c6441a5f41b0da8486d5fc3515a0603b0fdaea67b31600e22082e"
 dependencies = [
  "bitflags 2.4.2",
  "ptr_meta",
+ "uguid",
+]
+
+[[package]]
+name = "uefi-raw"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cad96b8baaf1615d3fdd0f03d04a0b487d857c1b51b19dcbfe05e2e3c447b78"
+dependencies = [
+ "bitflags 2.4.2",
  "uguid",
 ]
 
