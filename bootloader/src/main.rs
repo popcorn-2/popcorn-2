@@ -13,13 +13,14 @@ use core::convert::Infallible;
 use core::error::Error;
 use core::panic::PanicInfo;
 use core::time::Duration;
-use log::error;
+use log::{debug, error, info};
 use uefi::{entry, println, Status, boot};
 
 //mod paging;
 mod logging;
 //mod elf;
 mod fs;
+mod loader;
 
 const PAGE_MAP_OFFSET: u64 = 0xffff_8000_0000_0000;
 const PAGE_MAP_OFFSET_LEN: u64 = 2u64.pow(46);
@@ -42,7 +43,9 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 
 	logging::init()?;
 
-	let rootfs = fs::locate_rootfs()?;
+	let mut rootfs = fs::locate_rootfs()?;
+	let version = loader::find_latest_kernel(&mut *rootfs)?;
+	info!("Booting kernel {version}");
 
 	loop {}
 }
