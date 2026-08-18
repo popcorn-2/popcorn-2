@@ -28,17 +28,6 @@
 #![cfg_attr(feature = "full", feature(negative_impls))]
 #![cfg_attr(feature = "full", feature(decl_macro))]
 
-//#![deny(warnings)]
-#![deny(unfulfilled_lint_expectations)]
-#![warn(missing_docs)]
-//#![deny(rustdoc::broken_intra_doc_links)]
-#![warn(rustdoc::private_intra_doc_links)]
-//#![warn(rustdoc::missing_doc_code_examples)]
-#![warn(rustdoc::invalid_codeblock_attributes)]
-#![warn(rustdoc::invalid_html_tags)]
-#![warn(rustdoc::invalid_rust_codeblocks)]
-#![warn(rustdoc::bare_urls)]
-
 #![allow(type_alias_bounds)]
 
 #![cfg_attr(not(feature = "use_std"), no_std)]

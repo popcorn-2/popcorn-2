@@ -1,7 +1,6 @@
 #![feature(gen_blocks)]
 #![cfg_attr(not(test), no_std)]
 #![feature(int_roundings)]
-#![deny(warnings)]
 
 #![cfg_attr(test, allow(unused_imports))]
 

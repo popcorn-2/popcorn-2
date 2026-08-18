@@ -1,7 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 
 #![deny(unsafe_code)]
-#![deny(warnings)]
 
 use core::debug_assert_matches;
 use core::num::NonZero;

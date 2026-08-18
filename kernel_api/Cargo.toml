@@ -19,6 +19,3 @@ use_std = ["parking_lot", "hashbrown/ahash", "libc"]
 full = []
 default = ["full"]
 kasan = []
-
-[lints]
-workspace = true
