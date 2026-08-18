@@ -18,7 +18,6 @@ use uefi::{entry, println, Status, boot};
 mod logging;
 mod elf;
 mod fs;
-mod loader;
 
 const PAGE_MAP_OFFSET: u64 = 0xffff_8000_0000_0000;
 const PAGE_MAP_OFFSET_LEN: u64 = 2u64.pow(46);
@@ -44,9 +43,9 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	logging::init()?;
 
 	let mut rootfs = fs::locate_rootfs()?;
-	let version = loader::find_latest_kernel(&mut *rootfs)?;
+	let version = fs::find_latest_kernel(&mut *rootfs)?;
 	info!("Booting kernel {version}");
-	let kernel = loader::unpack_kernel(rootfs, version)?;
+	let kernel = fs::unpack_kernel(rootfs, version)?;
 	let loaded_kernel = elf::load_kernel(kernel.kernel)?;
 
 	loop {}
