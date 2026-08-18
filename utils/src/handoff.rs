@@ -6,9 +6,7 @@ use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
 pub struct Data {
 	pub framebuffer: Option<Framebuffer>,
 	pub memory: Memory,
-	pub modules: Modules,
 	pub log: Logging,
-	pub test: Testing,
 	pub rsdp: PhysicalAddress,
 	pub init_exec: &'static [u8],
 	pub ramdisk: &'static [u8],
@@ -19,9 +17,7 @@ impl Debug for Data {
 		f.debug_struct("Data")
 				.field("framebuffer", &self.framebuffer)
 				.field("memory", &self.memory)
-				.field("modules", &self.modules)
 				.field("log", &self.log)
-				.field("test", &self.test)
 				.field("rsdp", &self.rsdp)
 		        .finish_non_exhaustive()
 	}
@@ -121,18 +117,6 @@ pub enum MemoryType {
 }
 
 #[repr(C)]
-pub struct Modules {
-
-}
-
-impl Debug for Modules {
-	fn fmt(&self, _f: &mut Formatter<'_>) -> core::fmt::Result {
-		// <(*const ()) as core::fmt::Pointer>::fmt(&{self.phys_allocator_start as *const ()}, f)
-		Ok(())
-	}
-}
-
-#[repr(C)]
 pub struct Logging {
 	pub symbol_map: Option<NonNull<[u8]>>
 }
@@ -143,15 +127,3 @@ impl Debug for Logging {
 				.finish_non_exhaustive()
 	}
 }
-
-#[repr(C)]
-pub struct Testing {
-	pub module_func: extern "sysv64" fn()
-}
-
-impl Debug for Testing {
-	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		<*const () as core::fmt::Pointer>::fmt(&{self.module_func as *const ()}, f)
-	}
-}
-
