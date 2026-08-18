@@ -48,6 +48,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	let mut rootfs = fs::locate_rootfs()?;
 	let version = loader::find_latest_kernel(&mut *rootfs)?;
 	info!("Booting kernel {version}");
+	let kernel = loader::unpack_kernel(rootfs, version)?;
 
 	loop {}
 }
