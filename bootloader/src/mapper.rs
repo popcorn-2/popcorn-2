@@ -1,4 +1,6 @@
 use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::{fmt, ptr};
 use log::{debug, warn};
@@ -62,6 +64,7 @@ pub struct Mapper {
 	entrypoint: VirtualAddress,
 	stack: handoff::Stack,
 	kasan_enabled: bool,
+	used_frames: Vec<RawFrame>,
 }
 
 impl Mapper {
@@ -103,6 +106,7 @@ impl Mapper {
 				bottom_phys: RawFrame::new(0),
 			},
 			kasan_enabled,
+			used_frames: vec![],
 		};
 
 		kernel.load_with(|segment, data| -> Result<(), Box<dyn core::error::Error>> {
@@ -114,6 +118,8 @@ impl Mapper {
 				MemoryType::LOADER_DATA,
 				segment.mem_size().div_ceil(boot::PAGE_SIZE),
 			)?;
+			let base_frame = RawFrame::new(mem.expose_provenance().get());
+			mapper.used_frames.extend(base_frame..(base_frame + segment.mem_size().div_ceil(kernel_api::memory::PAGE_SIZE)));
 
 			let mut flags = TableEntryFlags::GLOBAL;
 			if !segment.flags().contains(Flags::Executable) { flags |= TableEntryFlags::NO_EXECUTE; }
@@ -121,7 +127,7 @@ impl Mapper {
 
 			mapper.page_table.try_map_range_with(
 				segment.vaddr().align_down_to_page(),
-				RawFrame::new(mem.addr().get()),
+				base_frame,
 				segment.mem_size().div_ceil(kernel_api::memory::PAGE_SIZE),
 				flags,
 				crate::paging_reasons::kernel_seg_to_mapping_ty(segment.ty(), segment.flags()),
@@ -207,6 +213,8 @@ impl Mapper {
 			_ => unimplemented!(),
 		};
 
+		self.used_frames.extend(physical_base..(physical_base + count));
+
 		self.page_table.try_map_range_with(
 			virtual_base,
 			physical_base,
@@ -251,9 +259,10 @@ impl Mapper {
 		}
 
 		for i in 0..(shadow_end - shadow_start) {
+			let frame = RawFrame::new(mem.expose_provenance().get()) + i;
 			if let Err(err) = self.page_table.try_map_range_with(
 				shadow_start + i,
-				RawFrame::new(mem.addr().get()) + i,
+				frame,
 				1,
 				TableEntryFlags::GLOBAL | TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE,
 				Ty::SHADOW_MEM,
@@ -267,14 +276,16 @@ impl Mapper {
 					if current_val == val { continue; }
 					else { unimplemented!("{current_val:#x} != {val:#x}") }
 				} else { return Err(err.into()); }
+			} else {
+				self.used_frames.push(frame);
 			}
 		}
 
 		Ok(())
 	}
 
-	pub fn finalize(self) -> (PageTable, VirtualAddress, handoff::Stack, RawPage) {
-		let Self { page_table, entrypoint, stack, next_page, .. } = self;
-		(page_table, entrypoint, stack, next_page)
+	pub fn finalize(self) -> (PageTable, VirtualAddress, handoff::Stack, RawPage, &'static [RawFrame]) {
+		let Self { page_table, entrypoint, stack, next_page, used_frames, .. } = self;
+		(page_table, entrypoint, stack, next_page, Vec::leak(used_frames))
 	}
 }

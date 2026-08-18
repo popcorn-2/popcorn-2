@@ -104,7 +104,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	info!("setting up system for kernel entry");
 
 	arch::final_init();
-	let (page_table, entry, stack, lowest_used) = mapper.finalize();
+	let (page_table, entry, stack, lowest_used, used_frames) = mapper.finalize();
 
 	let rsdp = system::with_config_table(|config_tables| {
 		if let Some(xsdp) = config_tables.iter().find(|table| table.guid == ConfigTableEntry::ACPI2_GUID) {
@@ -147,7 +147,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 		let entry = handoff::MemoryMapEntry {
 			coverage: Range { start, end: start + entry.page_count as usize },
 			ty: match entry.ty {
-				_ if entry.virt_start >= lowest_used.addr as u64 => handoff::MemoryType::KernelData,
+				_ if used_frames.contains(&RawFrame::new(entry.phys_start as usize)) => handoff::MemoryType::KernelData,
 				MemoryType::CONVENTIONAL |
 				MemoryType::BOOT_SERVICES_CODE |
 				MemoryType::BOOT_SERVICES_DATA |
