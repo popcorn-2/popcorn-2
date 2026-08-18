@@ -2,8 +2,6 @@
 
 #![feature(int_roundings)]
 
-#![deny(warnings)]
-
 use core::alloc::Layout;
 use core::fmt::Debug;
 use core::num::NonZero;

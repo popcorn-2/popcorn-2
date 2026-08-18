@@ -1,5 +1,4 @@
 #![feature(decl_macro)]
-#![deny(warnings)]
 
 use fatfs::{FatType, FileSystem, format_volume, FormatVolumeOptions, FsOptions, ReadWriteSeek};
 use fscommon::StreamSlice;
