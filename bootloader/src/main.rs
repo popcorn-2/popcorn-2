@@ -18,9 +18,7 @@ use uefi::{entry, println, Status, boot};
 mod logging;
 mod elf;
 mod fs;
-
-const PAGE_MAP_OFFSET: u64 = 0xffff_8000_0000_0000;
-const PAGE_MAP_OFFSET_LEN: u64 = 2u64.pow(46);
+mod arch;
 
 #[entry]
 fn bootloader_entry() -> Status {
