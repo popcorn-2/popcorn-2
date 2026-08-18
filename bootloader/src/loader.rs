@@ -17,7 +17,7 @@ pub enum ParseVersionError {
 }
 
 impl fmt::Display for ParseVersionError {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "invalid kernel version")
 	}
 }
@@ -31,7 +31,7 @@ pub struct KernelVersion {
 }
 
 impl fmt::Display for KernelVersion {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
 	}
 }

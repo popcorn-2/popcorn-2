@@ -1,6 +1,4 @@
-#![feature(try_blocks)]
 #![feature(arbitrary_self_types)]
-#![feature(step_trait)]
 #![feature(error_iter)]
 #![feature(duration_integer_division)]
 #![no_main]
