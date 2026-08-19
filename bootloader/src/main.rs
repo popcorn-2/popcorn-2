@@ -98,7 +98,8 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	debug!("identity mapping bootloader");
 	for entry in mem_map.entries().filter(|entry|
 		entry.ty == MemoryType::LOADER_CODE ||
-		entry.ty == MemoryType::LOADER_DATA
+		entry.ty == MemoryType::LOADER_DATA ||
+		entry.ty == MemoryType::BOOT_SERVICES_DATA // needed for stack
 	) {
 		// fixme: conversion
 		let base = RawFrame::new(entry.phys_start as usize);
@@ -107,7 +108,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 			Some(base),
 			Some(base_virt),
 			entry.page_count as usize,
-			Ty::LOADER_CODE,
+			if entry.ty == MemoryType::LOADER_CODE { Ty::LOADER_CODE } else { Ty::LOADER_DATA },
 		)?;
 	}
 
