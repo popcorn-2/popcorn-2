@@ -131,7 +131,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	let mut handoff = handoff::Data {
 		framebuffer,
 		memory: handoff::Memory {
-			map: &[],
+			map: Range { start: PhysicalAddress::new(0), end: PhysicalAddress::new(0) },
 			lowest_used,
 			stack,
 		},
@@ -147,7 +147,15 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	//  page tables and jumping to kernel
 	let map = unsafe { boot::exit_boot_services(None) };
 	// SAFETY: boot services just exited
-	handoff.memory.map = unsafe { convert_mem_map(map, used_frames) };
+	handoff.memory.map = {
+		let map = unsafe { convert_mem_map(map, used_frames) };
+		// this was allocated during exit_boot_services so won't have been identity mapped
+		// so just pass the kernel the physical address and let it deal with it
+		let core::ops::Range { start, end } = map.as_ptr_range();
+		let start = PhysicalAddress::new(start.addr());
+		let end = PhysicalAddress::new(end.addr());
+		Range { start, end }
+	};
 
 	// SAFETY: all bootloader data is mapped to same location
 	unsafe { page_table.switch() };
