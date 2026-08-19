@@ -15,7 +15,6 @@ members = [
 	"kernel_module_macros",
 	"elf",
 	"macros",
-	"popfs",
 	"kernel_api",
 	"kernel_default_heap",
 	"bitmap_allocator",
@@ -165,3 +164,6 @@ missing_doc_code_examples = "warn"
 invalid_codeblock_attributes = "deny"
 invalid_html_tags = "deny"
 invalid_rust_codeblocks = "deny"
+
+[patch.'https://github.com/popcorn-2/popcorn-2.git']
+kernel_api = { path = "kernel_api" }

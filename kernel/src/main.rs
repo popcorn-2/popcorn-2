@@ -542,36 +542,21 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		memory::physical::init_dmamem(allocator);
 
 		let btree_alloc = {
-			let mut btree_alloc = linked_list_allocator::LinkedListAllocator::new(
-				// unfortunately this means a page is missing :(
-				RawPage::new(kernel_api::memory::asan::SHADOW_MAP_END.addr) ..RawPage::new(memory::r#virtual::vmem_bootstrap_end() as usize)
-			).unwrap();
-
-			let virtual_reserved = [
-				// entire bootstrap region in case adding allocations uses more heap
-				//Page::new(VirtualAddress::new(memory::r#virtual::vmem_bootstrap_start() as usize))..Page::new(VirtualAddress::new(memory::r#virtual::vmem_bootstrap_end() as usize)),
-				// ^ vmem is now included in the handoff used struct
-
-				{
-					let used = if cfg!(not(feature = "kasan")) { unsafe { (**handoff_data).memory.used } }
-						else {
-							#[sanitize(address = "off")]
-							#[inline(never)]
-							fn no_sanitizer_shim(data: &HandoffWrapper) -> utils::handoff::Range<RawPage> {
-								unsafe {
-									(***data).memory.used
-								}
-							}
-							no_sanitizer_shim(&handoff_data)
-						};
-					used.start()..used.end()
+			let lowest_used = if cfg!(not(feature = "kasan")) { unsafe { (**handoff_data).memory.lowest_used } }
+			else {
+				#[sanitize(address = "off")]
+				#[inline(never)]
+				fn no_sanitizer_shim(data: &HandoffWrapper) -> RawPage {
+					unsafe {
+						(***data).memory.lowest_used
+					}
 				}
-			].into_iter();
-			debug!("virtual_reserved = {virtual_reserved:#x?}");
+				no_sanitizer_shim(&handoff_data)
+			};
 
-			btree_alloc.add_allocations(virtual_reserved);
-
-			btree_alloc
+			linked_list_allocator::LinkedListAllocator::new(
+				RawPage::new(kernel_api::memory::asan::SHADOW_MAP_END.addr)..lowest_used
+			).unwrap()
 		};
 
 		debug!("btree_alloc = {btree_alloc:x?}");
@@ -613,7 +598,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let (update_line, _picos_per_tick) = if let Some(fb) = fb {
 		let size = fb.stride * fb.height;
 		let stride = fb.stride;
-		let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.as_ptr().cast::<u32>(), size) };
+		let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.cast::<u32>(), size) };
 
 		// Clear to true black to match background of BGRT logo
 		for pixel in fb_data.iter_mut() {

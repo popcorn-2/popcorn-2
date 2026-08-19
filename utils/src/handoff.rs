@@ -1,15 +1,13 @@
 use core::fmt::{Debug, Formatter};
 use core::ptr::NonNull;
 use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
-use kernel_api::ptr::Unique;
+use core::range::Range;
 
 #[repr(C)]
 pub struct Data {
 	pub framebuffer: Option<Framebuffer>,
 	pub memory: Memory,
-	pub modules: Modules,
 	pub log: Logging,
-	pub test: Testing,
 	pub rsdp: PhysicalAddress,
 	pub init_exec: &'static [u8],
 	pub ramdisk: &'static [u8],
@@ -20,9 +18,7 @@ impl Debug for Data {
 		f.debug_struct("Data")
 				.field("framebuffer", &self.framebuffer)
 				.field("memory", &self.memory)
-				.field("modules", &self.modules)
 				.field("log", &self.log)
-				.field("test", &self.test)
 				.field("rsdp", &self.rsdp)
 		        .finish_non_exhaustive()
 	}
@@ -31,7 +27,7 @@ impl Debug for Data {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Framebuffer {
-	pub buffer: Unique<u8>,
+	pub buffer: *mut u8,
 	pub stride: usize,
 	pub width: usize,
 	pub height: usize,
@@ -69,16 +65,16 @@ impl ColorMask {
 #[repr(C)]
 pub struct Memory {
 	pub map: &'static [MemoryMapEntry],
-	pub used: Range<RawPage>,
+	pub lowest_used: RawPage,
 	pub stack: Stack
 }
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct Stack {
-	pub top_virt: RawPage,
+	pub page_count: usize,
 	pub bottom_virt: RawPage,
-	pub top_phys: RawFrame,
+	pub bottom_phys: RawFrame,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -89,17 +85,8 @@ pub struct MemoryMapEntry {
 }
 
 impl MemoryMapEntry {
-	pub fn start(self) -> PhysicalAddress { self.coverage.0 }
-	pub fn end(self) -> PhysicalAddress { self.coverage.1 }
-}
-
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct Range<T>(pub T, pub T);
-
-impl<T> Range<T> {
-	pub fn start(self) -> T { self.0 }
-	pub fn end(self) -> T { self.1 }
+	pub fn start(self) -> PhysicalAddress { self.coverage.start }
+	pub fn end(self) -> PhysicalAddress { self.coverage.end }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -122,18 +109,6 @@ pub enum MemoryType {
 }
 
 #[repr(C)]
-pub struct Modules {
-
-}
-
-impl Debug for Modules {
-	fn fmt(&self, _f: &mut Formatter<'_>) -> core::fmt::Result {
-		// <(*const ()) as core::fmt::Pointer>::fmt(&{self.phys_allocator_start as *const ()}, f)
-		Ok(())
-	}
-}
-
-#[repr(C)]
 pub struct Logging {
 	pub symbol_map: Option<NonNull<[u8]>>
 }
@@ -144,15 +119,3 @@ impl Debug for Logging {
 				.finish_non_exhaustive()
 	}
 }
-
-#[repr(C)]
-pub struct Testing {
-	pub module_func: extern "sysv64" fn()
-}
-
-impl Debug for Testing {
-	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		<*const () as core::fmt::Pointer>::fmt(&{self.module_func as *const ()}, f)
-	}
-}
-

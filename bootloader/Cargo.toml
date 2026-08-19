@@ -7,16 +7,11 @@ edition = "2024"
 
 [dependencies]
 bitflags = { version = "2.3.1" }
-log = { version = "0.4.17", features = ["max_level_debug", "release_max_level_info"] }
-uefi = { version = "0.24.0", default-features = false, features = ["alloc"] }
-uefi-services = { version = "0.21.0", default-features = false }
-toml = { git = "https://github.com/diondokter/toml-rs.git", default-features=false }
-serde = { version = "1.0.163", default-features = false, features = ["derive"] }
+log = { version = "0.4.17", features = ["max_level_trace", "release_max_level_debug"] }
+uefi = { version = "0.39.0", default-features = false, features = ["alloc", "global_allocator"] }
 utils = { path = "../utils" }
-more-asserts = "0.3.1"
-derive_more = "0.99.17"
-elf = { version = "0.1.0", path = "../elf" }
+elf = { git = "https://github.com/popcorn-2/elf.git" }
 kernel_api = { version = "1.1.0", path = "../kernel_api", default-features = false }
 
-[features]
-kasan = [] # causes the bootloader to allocate memory for the kasan shadow map
+[lints]
+workspace = true

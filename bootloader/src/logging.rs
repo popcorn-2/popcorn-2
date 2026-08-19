@@ -1,59 +1,97 @@
-use core::fmt::Write;
-use core::mem;
-use core::ptr::{addr_of, NonNull};
+use core::fmt;
+use core::fmt::Write as _;
+use core::time::Duration;
+use log::{Level, LevelFilter, Log, Metadata, Record, SetLoggerError as SetLoggerErrorInner};
+use uefi::proto::console::text::{Color, Key};
+use uefi::{boot, println, system, Char16};
 
-use log::{Level, Log, Metadata, Record, SetLoggerError};
+static LOGGER: Logger = Logger;
 
-static mut LOGGER: Logger = Logger { uart: None };
+struct Logger;
 
-struct Logger {
-	uart: Option<NonNull<dyn Write>>
+#[derive(Debug)]
+pub struct SetLoggerError(SetLoggerErrorInner);
+
+impl From<SetLoggerErrorInner> for SetLoggerError {
+	fn from(inner: SetLoggerErrorInner) -> Self {
+		Self(inner)
+	}
 }
 
-unsafe impl Send for Logger {}
-unsafe impl Sync for Logger {}
+impl core::error::Error for SetLoggerError {}
 
-pub unsafe fn init(uart: &mut dyn Write) -> Result<(), SetLoggerError> {
-	LOGGER = Logger { uart: Some(NonNull::from(mem::transmute::<_, &'static _>(uart))) };
+impl fmt::Display for SetLoggerError {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		self.0.fmt(f)
+	}
+}
 
-	log::set_logger(&*addr_of!(LOGGER))
-		.map(move |_| log::set_max_level(log::STATIC_MAX_LEVEL))
+/// # Errors
+///
+/// Returns an error if called more than once.
+pub fn init() -> Result<(), SetLoggerError> {
+	log::set_logger(&LOGGER)?;
+	#[cfg(debug_assertions)] log::set_max_level(LevelFilter::Debug);
+	#[cfg(not(debug_assertions))] log::set_max_level(LevelFilter::Info);
+
+	check_verbose_mode();
+
+	Ok(())
+}
+
+fn check_verbose_mode() {
+	const TIMEOUT: Duration = Duration::from_secs(2);
+	const SLEEP: Duration = Duration::from_millis(50);
+
+	// SAFETY: all ASCII chars are valid UCS-2
+	const CHAR16_VL: Char16 = unsafe { Char16::from_u16_unchecked(b'v' as u16) };
+	// SAFETY: all ASCII chars are valid UCS-2
+	const CHAR16_VU: Char16 = unsafe { Char16::from_u16_unchecked(b'V' as u16) };
+
+	println!("Press `V` to enable verbose mode");
+
+	let verbose_mode = system::with_stdin(|stdin| {
+		for _ in 0..TIMEOUT.div_duration_ceil(SLEEP) {
+			if let Ok(Some(Key::Printable(CHAR16_VL | CHAR16_VU))) = stdin.read_key() {
+				return true;
+			}
+			boot::stall(SLEEP);
+		}
+		false
+	});
+
+	if verbose_mode {
+		println!("Verbose mode enabled");
+		log::set_max_level(LevelFilter::Debug);
+	}
 }
 
 impl Log for Logger {
-	fn enabled(&self, _metadata: &Metadata) -> bool {
-		self.uart.is_some()
+	fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
+		true
 	}
 
-	fn log(&self, record: &Record) {
-		let st = unsafe { uefi_services::system_table().as_mut() };
-		let stdout = st.stdout();
-		
-		unsafe {
-			//let vec = &mut *self.vec.get();
-			//write!(stdout, "{}: ", record.level());
-			if let Some(mut uart) = self.uart {
-				let uart = uart.as_mut();
+	fn log(&self, record: &Record<'_>) {
+		system::with_stdout(|stdout| {
+			if record.target() != "<continuation>" {
+				let _ = match record.level() {
+					Level::Error => stdout.set_color(Color::Red, Color::Black),
+					Level::Warn => stdout.set_color(Color::Yellow, Color::Black),
+					Level::Info => stdout.set_color(Color::Magenta, Color::Black),
+					Level::Debug => stdout.set_color(Color::Cyan, Color::Black),
+					Level::Trace => stdout.set_color(Color::White, Color::Black),
+				};
 
-				if self.enabled(record.metadata()) {
-					match record.level() {
-						Level::Error => write!(uart, "\u{001b}[31m\u{001b}[1mERROR\u{001b}[0m\u{001b}[1m"),
-						Level::Warn => write!(uart, "\u{001b}[33m\u{001b}[1mWARN\u{001b}[0m\u{001b}[1m"),
-						Level::Info => write!(uart, "\u{001b}[35mINFO\u{001b}[0m"),
-						Level::Debug => write!(uart, "\u{001b}[34mDEBUG\u{001b}[0m"),
-						Level::Trace => write!(uart, "\u{001b}[0mTRACE")
-					};
-					write!(uart, ": ");
-				}
+				let _ = write!(stdout, "{}: ", record.level());
 
 				if let Some(file) = record.file() && let Some(line) = record.line() {
-					let _ = write!(uart, "{}:{} - ", file, line);
-					//let _ = write!(stdout, "{}:{} - ", file, line);
+					let _ = write!(stdout, "{file}:{line} - ");
 				}
-				let _ = writeln!(uart, "{}\u{001b}[0m", record.args());
-				//let _ = writeln!(stdout, "{}", record.args());
 			}
-		}
+
+			let _ = stdout.set_color(Color::White, Color::Black);
+			let _ = writeln!(stdout, "{}", record.args());
+		});
 	}
 
 	fn flush(&self) {}
