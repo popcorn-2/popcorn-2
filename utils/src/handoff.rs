@@ -5,7 +5,7 @@ use core::range::Range;
 
 #[repr(C)]
 pub struct Data {
-	pub framebuffer: Option<Framebuffer>,
+	pub framebuffer: Framebuffer,
 	pub memory: Memory,
 	pub log: Logging,
 	pub rsdp: PhysicalAddress,
@@ -64,7 +64,7 @@ impl ColorMask {
 #[derive(Debug)]
 #[repr(C)]
 pub struct Memory {
-	pub map: &'static [MemoryMapEntry],
+	pub map: Range<PhysicalAddress>,
 	pub lowest_used: RawPage,
 	pub stack: Stack
 }

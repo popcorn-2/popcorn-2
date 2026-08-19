@@ -86,12 +86,12 @@ impl Mapper {
 		let kernel_first_page = (kernel_first_page - 8usize*1024*1024).align_down_to_page(); // vmem bootstrap region
 
 		let kasan_enabled = {
-			let note = kernel.notes().find(|note| note.name() == c"Popcorn" && note.ty() == 1).ok_or(Error::NoKasan)?;
+			let note = kernel.notes().find(|note| note.name() == c"Popcorn" && note.ty() == 0x200).ok_or(Error::NoKasan)?;
 			note.description()[0] != 0
 		};
 
 		let stack_page_count = {
-			let note = kernel.notes().find(|note| note.name() == c"Popcorn" && note.ty() == 2).ok_or(Error::NoStack)?;
+			let note = kernel.notes().find(|note| note.name() == c"Popcorn" && note.ty() == 0x201).ok_or(Error::NoStack)?;
 			let payload = <[u8; 4]>::try_from(note.description()).map_err(|_| Error::NoStack)?;
 			u32::from_ne_bytes(payload)
 		};
@@ -244,6 +244,7 @@ impl Mapper {
 	/// Returns an error if memory allocation or mapping failed.
 	fn init_shadow(&mut self, base: VirtualAddress, bytes: usize, val: u8) -> Result<(), Box<dyn core::error::Error>> {
 		if !self.kasan_enabled { return Ok(()); }
+		if !base.is_higher_half() { return Ok(()); }
 
 		let shadow_start = mem_to_shadow(base).align_down_to_page();
 		let shadow_end = mem_to_shadow(base + bytes).align_up_to_page();

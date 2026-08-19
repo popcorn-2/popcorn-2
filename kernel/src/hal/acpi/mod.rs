@@ -13,9 +13,9 @@ pub fn tables() -> &'static AcpiTables<Handler> {
 	TABLES.get().expect("ACPI tables not yet parsed")
 }
 
-pub unsafe fn init_tables(rsdp_addr: usize) {
+pub unsafe fn init_tables(rsdp_addr: PhysicalAddress) {
 	TABLES.get_or_init(|| {
-		let tables = unsafe { AcpiTables::from_rsdp(Handler::new(&Allocator), rsdp_addr) }
+		let tables = unsafe { AcpiTables::from_rsdp(Handler::new(&Allocator), rsdp_addr.addr) }
 				.expect("Invalid ACPI table");
 		unsafe { Syncify::new(tables) }
 	});

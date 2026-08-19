@@ -7,10 +7,12 @@ use kernel_api::allocator::AllocError;
 use kernel_api::is_x86_feature_detected;
 use kernel_api::mapping::{Mapping, Stack};
 use kernel_api::memory::VirtualAddress;
+use crate::hal;
 use crate::hal::IpiTarget;
 use crate::hal::{Hal, SaveStateTr, ThreadControlBlock};
 use crate::hal::arch::amd64::msr::{rdmsr, wrmsr};
 use crate::hal::interrupts_v2::Vector;
+use crate::memory::paging::init_page_table;
 
 mod gdt;
 mod tss;
@@ -43,7 +45,7 @@ unsafe impl Hal for Amd64Hal {
 		Ok(())
 	}
 
-	fn early_init() {
+	fn early_init() -> Self::TTableTy {
 		let tss = tss::TSS.get_or_init(|| {
 			tss::Tss::new()
 		});
@@ -105,6 +107,11 @@ unsafe impl Hal for Amd64Hal {
 				)
 			}
 		}
+
+
+		let (ktable, ttable) = unsafe { paging::construct_tables() };
+		unsafe { init_page_table(ktable) };
+		ttable
 	}
 
 	#[inline]

@@ -15,6 +15,7 @@ extern crate alloc;
 use alloc::boxed::Box;
 use core::convert::Infallible;
 use core::error::Error;
+use core::mem::ManuallyDrop;
 use core::panic::PanicInfo;
 use core::range::Range;
 use core::slice;
@@ -97,7 +98,8 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	debug!("identity mapping bootloader");
 	for entry in mem_map.entries().filter(|entry|
 		entry.ty == MemoryType::LOADER_CODE ||
-		entry.ty == MemoryType::LOADER_DATA
+		entry.ty == MemoryType::LOADER_DATA ||
+		entry.ty == MemoryType::BOOT_SERVICES_DATA // needed for stack
 	) {
 		// fixme: conversion
 		let base = RawFrame::new(entry.phys_start as usize);
@@ -106,7 +108,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 			Some(base),
 			Some(base_virt),
 			entry.page_count as usize,
-			Ty::LOADER_CODE,
+			if entry.ty == MemoryType::LOADER_CODE { Ty::LOADER_CODE } else { Ty::LOADER_DATA },
 		)?;
 	}
 
@@ -127,9 +129,9 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	});
 
 	let mut handoff = handoff::Data {
-		framebuffer: Some(framebuffer),
+		framebuffer,
 		memory: handoff::Memory {
-			map: &[],
+			map: Range { start: PhysicalAddress::new(0), end: PhysicalAddress::new(0) },
 			lowest_used,
 			stack,
 		},
@@ -145,7 +147,15 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	//  page tables and jumping to kernel
 	let map = unsafe { boot::exit_boot_services(None) };
 	// SAFETY: boot services just exited
-	handoff.memory.map = unsafe { convert_mem_map(map, used_frames) };
+	handoff.memory.map = {
+		let map = unsafe { convert_mem_map(map, used_frames) };
+		// this was allocated during exit_boot_services so won't have been identity mapped
+		// so just pass the kernel the physical address and let it deal with it
+		let core::ops::Range { start, end } = map.as_ptr_range();
+		let start = PhysicalAddress::new(start.addr());
+		let end = PhysicalAddress::new(end.addr());
+		Range { start, end }
+	};
 
 	// SAFETY: all bootloader data is mapped to same location
 	unsafe { page_table.switch() };
@@ -162,35 +172,39 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 /// # Safety
 ///
 /// This must only be called after boot services has been exited.
-unsafe fn convert_mem_map(mut map: MemoryMapOwned, kernel_frames: &[RawFrame]) -> &'static [handoff::MemoryMapEntry] {
+unsafe fn convert_mem_map(map: MemoryMapOwned, used_frames: &[RawFrame]) -> &'static [handoff::MemoryMapEntry] {
+	// drop impl segfaults trying to read from system table
+	let mut map = ManuallyDrop::new(map);
+
+	let descriptor_size = map.meta().desc_size;
 	const {
 		// check that it's valid to overwrite the array in-place
-		assert!(size_of::<handoff::MemoryMapEntry>() <= size_of::<boot::MemoryDescriptor>(), "UEFI descriptor too small");
 		assert!(align_of::<handoff::MemoryMapEntry>() <= align_of::<boot::MemoryDescriptor>(), "buffer too low alignment");
 	}
+	assert!(size_of::<handoff::MemoryMapEntry>() <= descriptor_size, "UEFI descriptor too small");
 
 	map.sort();
 
 	let len = map.len();
+
+	// convert buffer to raw pointer to prevent aliasing issues
 	// SAFETY: `map` is only accessed through `buffer`
-	let mut buffer = unsafe { map.buffer_mut() };
-	#[expect(clippy::cast_ptr_alignment, reason = "buffer was allocated as aligned by firmware")]
-	let buffer_start = buffer.as_ptr().cast::<boot::MemoryDescriptor>();
+	let buffer = core::ptr::from_mut(unsafe { map.buffer_mut() }) as *mut u8;
 
 	for i in 0..len {
 		// SAFETY: `buffer` is large enough to hold `len` elements of `boot::MemoryDescriptor`
-		let entry = unsafe { &*buffer_start.add(i) };
+		let entry = unsafe { &*buffer.byte_add(descriptor_size * i).cast::<boot::MemoryDescriptor>() };
 		let start = PhysicalAddress::new(entry.phys_start as usize);
 		let entry = handoff::MemoryMapEntry {
-			coverage: Range { start, end: start + entry.page_count as usize },
+			coverage: Range { start, end: start + (entry.page_count as usize * boot::PAGE_SIZE) },
 			ty: match entry.ty {
-				_ if kernel_frames.contains(&RawFrame::new(entry.phys_start as usize)) => handoff::MemoryType::KernelData,
 				MemoryType::CONVENTIONAL |
 				MemoryType::BOOT_SERVICES_CODE |
 				MemoryType::BOOT_SERVICES_DATA |
 				MemoryType::PERSISTENT_MEMORY => handoff::MemoryType::Free,
-				MemoryType::LOADER_CODE => handoff::MemoryType::BootloaderCode,
+				MemoryType::LOADER_DATA if used_frames.contains(&RawFrame::new(start.addr)) => handoff::MemoryType::KernelData,
 				MemoryType::LOADER_DATA => handoff::MemoryType::BootloaderData,
+				MemoryType::LOADER_CODE => handoff::MemoryType::BootloaderCode,
 				MemoryType::ACPI_NON_VOLATILE => handoff::MemoryType::AcpiPreserve,
 				MemoryType::ACPI_RECLAIM => handoff::MemoryType::AcpiReclaim,
 				MemoryType::RUNTIME_SERVICES_CODE => handoff::MemoryType::RuntimeCode,
@@ -202,16 +216,15 @@ unsafe fn convert_mem_map(mut map: MemoryMapOwned, kernel_frames: &[RawFrame]) -
 		// SAFETY: pointer was acquired from a mut reference
 		unsafe {
 			#[expect(clippy::cast_ptr_alignment, reason = "manually checked alignment")]
-			buffer.as_mut_ptr().cast::<handoff::MemoryMapEntry>().write(entry);
+			buffer.cast::<handoff::MemoryMapEntry>().add(i).write(entry);
 		}
-		buffer = &mut buffer[size_of::<handoff::MemoryMapEntry>()..];
 	}
 
 	// SAFETY: creating from data we just initialised, and boot services has been exited
 	//  so the buffer is leaked and therefore 'static
 	unsafe {
 		slice::from_raw_parts(
-			buffer_start.cast::<handoff::MemoryMapEntry>(),
+			buffer.cast::<handoff::MemoryMapEntry>(),
 			len,
 		)
 	}

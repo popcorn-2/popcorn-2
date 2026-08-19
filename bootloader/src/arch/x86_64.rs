@@ -40,22 +40,23 @@ pub fn handover(entry: VirtualAddress, stack_ptr: VirtualAddress, handoff: *cons
 	// SAFETY: never return to rust code from this again
 	unsafe {
 		asm!(
+			"wrmsr",
+
 			"mov rsp, {stack}",
 
 			"cld", // clear direction flag
 
-			"mov eax, 0xead10ca1",
-			"mov edx, 0xd", // edx:eax = 0xdead10ca1 ('dead local')
-			"mov ecx, 0xc0000101", // ecx = GSBase MSR
-			"wrmsr",
-
 			"push 0",
 			"xor ebp, ebp",
+
 			"jmp {entry}",
 
 			stack = in(reg) stack_ptr,
 			entry = in(reg) entry.addr,
 			in("rdi") handoff,
+			in("rax") 0xead10ca1u32,
+			in("rdx") 0xdu32, // edx:eax = 0xdead10ca1 ('dead local')
+			in("rcx") 0xc0000101u32, // ecx = GSBase MSR
 			options(noreturn))
 	}
 }
