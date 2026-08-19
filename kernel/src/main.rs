@@ -22,7 +22,6 @@
 #![feature(prelude_import)]
 #![feature(super_let)]
 #![feature(try_blocks)]
-#![feature(sanitize)]
 #![feature(derive_const)]
 #![feature(const_default)]
 #![feature(const_convert)]
@@ -50,14 +49,13 @@ use core::panic::AssertUnwindSafe;
 use core::time::Duration;
 use hashbrown::HashMap;
 use elf::segment::Flags as SegmentFlags;
-use handoff_protection::HandoffWrapper;
 use hal::exception::DebugTy;
 use kernel_api::{dbg, is_x86_feature_detected, mapping};
 use kernel_api::mapping::Stack;
 use kernel_api::ptr::LocalUser;
 use kernel_api::time::Instant;
 use utils::handoff::MemoryType;
-#[cfg(feature = "kasan")] use utils::handoff::MemoryMapEntry;
+use utils::handoff::MemoryMapEntry;
 use crate::hal::exception::Ty;
 #[cfg(feature = "kasan")] use crate::hal::paging2::Flags;
 use crate::hal::paging2::KTable;
@@ -361,140 +359,110 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 	})
 }
 
-mod handoff_protection {
-	use core::ops::Deref;
-	use derive_more::Constructor;
-	use crate::{hal, panicking};
+mod handoff {
+	use core::marker::PhantomData;
+	use core::ptr::NonNull;
+	use kernel_api::memory::asan::no_asan_shim;
+	use utils::handoff::MemoryMapEntry;
+	use crate::panicking;
 	use crate::panicking::SymbolMap;
+	use core::ops::Range;
+	use kernel_api::dbg;
+	use kernel_api::memory::{PhysicalAddress, RawPage};
 
-	#[derive(Constructor)]
-	pub struct HandoffWrapper(*const utils::handoff::Data, hal::TTableTy);
+	#[derive(Clone, Debug)]
+	pub struct MemoryMapIter<'data> {
+		map: Range<*const MemoryMapEntry>,
+		_phantom: PhantomData<&'data [MemoryMapEntry]>,
+	}
 
-	impl HandoffWrapper {
-		pub fn to_empty_ttable(self) -> hal::TTableTy {
-			// todo!("empty the ttable");
-			*panicking::SYMBOL_MAP.write() = SymbolMap::from(None); // fixme: HACK
-			self.1
+	unsafe impl Send for MemoryMapIter<'_> {}
+
+	impl Iterator for MemoryMapIter<'_> {
+		type Item = MemoryMapEntry;
+
+		fn next(&mut self) -> Option<Self::Item> {
+			let this = self;
+			no_asan_shim!(|this: &mut MemoryMapIter<'_>| -> Option<MemoryMapEntry> {
+				if this.map.is_empty() { return None; }
+				let item = unsafe { *this.map.start };
+				this.map.start = this.map.start.wrapping_add(1);
+				Some(item)
+			})
 		}
 	}
 
-	impl Deref for HandoffWrapper {
-		type Target = *const utils::handoff::Data;
-
-		fn deref(&self) -> &Self::Target {
-			&self.0
+	impl DoubleEndedIterator for MemoryMapIter<'_> {
+		fn next_back(&mut self) -> Option<Self::Item> {
+			let this = self;
+			no_asan_shim!(|this: &mut MemoryMapIter<'_>| -> Option<MemoryMapEntry> {
+				if this.map.is_empty() { return None; }
+				this.map.end = this.map.end.wrapping_sub(1);
+				Some(unsafe { *this.map.end })
+			})
 		}
+	}
+
+	pub struct ParsedHandoff<'data> {
+		pub memory_map: MemoryMapIter<'data>,
+		pub max_vmem: RawPage,
+		pub rsdp: PhysicalAddress,
+		pub framebuffer: utils::handoff::Framebuffer,
+		pub stack: utils::handoff::Stack,
+	}
+
+	pub fn process_handoff(handoff_data: &*const utils::handoff::Data) -> ParsedHandoff<'_> {
+		debug!("parsing handoff data");
+		let symbol_map = no_asan_shim!(|handoff_data: &*const utils::handoff::Data| -> Option<NonNull<[u8]>> {
+			unsafe { (**handoff_data).log.symbol_map }
+		});
+		*panicking::SYMBOL_MAP.write() = SymbolMap::from(symbol_map);
+
+		no_asan_shim!(|handoff_data: &*const utils::handoff::Data| -> ParsedHandoff<'_> {
+			let core::range::Range { start, end } = unsafe { (**handoff_data).memory.map };
+			let memory_map = MemoryMapIter {
+				map: start.to_virtual().as_ptr().cast_const().cast::<MemoryMapEntry>()..end.to_virtual().as_ptr().cast_const().cast::<MemoryMapEntry>(),
+				_phantom: PhantomData,
+			};
+
+			let max_vmem = unsafe { (**handoff_data).memory.lowest_used };
+			let rsdp = unsafe { (**handoff_data).rsdp };
+			let framebuffer = unsafe { (**handoff_data).framebuffer };
+			let stack = unsafe { (**handoff_data).memory.stack };
+
+			ParsedHandoff {
+				memory_map: dbg!(memory_map),
+				max_vmem,
+				rsdp,
+				framebuffer,
+				stack,
+			}
+		})
 	}
 }
 
 #[unsafe(export_name = "_start")]
-extern "sysv64" fn kstart(handoff_data: *const utils::handoff::Data) -> ! {
-	sprintln!("Hello world!");
+extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
+	sprintln!("POP");
 
-	let ttable = unsafe {
-		use memory::paging::init_page_table;
-
-		let (ktable, ttable) = hal::construct_tables();
-
-		init_page_table(ktable);
-		ttable
-	};
-
-	#[cfg(not(test))] kmain(HandoffWrapper::new(handoff_data, ttable));
-	#[cfg(test)] {
-		let mut spaces = handoff_data.memory.map.iter().filter(|entry|
-				entry.ty == MemoryType::Free
-						|| entry.ty == MemoryType::AcpiReclaim
-						|| entry.ty == MemoryType::BootloaderCode
-						|| entry.ty == MemoryType::BootloaderData
-		).map(|entry| {
-            Frame::new(entry.start().align_up())..Frame::new(entry.end().align_down())
-        });
-
-		let mut watermark_allocator = memory::watermark_allocator::WatermarkAllocator::new(&mut spaces);
-		memory::physical::with_highmem_as(&mut watermark_allocator, || test_main());
-
-		unreachable!("test harness returned")
-	}
-}
-
-fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let _ = logging::init();
-	sprintln!("logging initialised");
+	let init_ttable = hal::early_init();
 
-	#[cfg(not(feature = "kasan"))] {
-		let map = unsafe { (**handoff_data).log.symbol_map };
-		*panicking::SYMBOL_MAP.write() = SymbolMap::from(map);
-		
-		sprintln!("Handoff data:\n{:x?}", unsafe { &**handoff_data });
-	}
-	#[cfg(feature = "kasan")] {
-		#[sanitize(address = "off")]
-		#[inline(never)]
-		fn no_sanitizer_shim(data: &HandoffWrapper) -> Option<NonNull<[u8]>> {
-			unsafe {
-				(***data).log.symbol_map
-			}
-		}
-		let map = no_sanitizer_shim(&handoff_data);
-		
-		*panicking::SYMBOL_MAP.write() = SymbolMap::from(map);
-	}
-
-	hal::early_init();
-	
-	#[cfg(feature = "kasan")] let usable_memory = {
-		#[sanitize(address = "off")]
-		#[inline(never)]
-		fn no_sanitizer_shim(data: &HandoffWrapper) -> impl DoubleEndedIterator<Item = MemoryMapEntry> + Clone + '_ {
-			#[derive(Clone)]
-			struct Iter<'data> {
-				map: core::ops::Range<*const MemoryMapEntry>,
-				_phantom: PhantomData<&'data HandoffWrapper>,
-			}
-			
-			unsafe impl Send for Iter<'_> {}
-			
-			impl Iterator for Iter<'_> {
-				type Item = MemoryMapEntry;
-
-				#[sanitize(address = "off")]
-				#[inline(never)]
-				fn next(&mut self) -> Option<Self::Item> {
-					if self.map.is_empty() { return None; }
-					let item = unsafe { *self.map.start };
-					self.map.start = unsafe { self.map.start.offset(1) };
-					Some(item)
-				}
-			}
-
-			impl DoubleEndedIterator for Iter<'_> {
-				#[sanitize(address = "off")]
-				#[inline(never)]
-				fn next_back(&mut self) -> Option<Self::Item> {
-					if self.map.is_empty() { return None; }
-					let item = unsafe { *self.map.end.offset(-1) };
-					self.map.end = unsafe { self.map.end.offset(-1) };
-					Some(item)
-				}
-			}
-			
-			unsafe {
-				let map = (***data).memory.map.as_ptr_range();
-				Iter {
-					map,
-					_phantom: PhantomData
-				}
-			}
-		}
-		
-		no_sanitizer_shim(&handoff_data)
-	};
-
-	#[cfg(not(feature = "kasan"))] let usable_memory = unsafe { (**handoff_data).memory.map.iter() };
-	let usable_memory = usable_memory.filter(|entry|
-		entry.ty == MemoryType::Free || entry.ty == MemoryType::BootloaderCode
-	);
+	let parsed_handoff = handoff::process_handoff(&handoff_data);
+	let free_memory = parsed_handoff.memory_map
+		.inspect(|entry| sprintln!("{entry:#x?}"))
+		.filter(|entry|
+			entry.ty == MemoryType::Free ||
+			entry.ty == MemoryType::BootloaderCode ||
+			// technically this is still referenced until pmm initialisation
+			// however allocations only occur after this iterator is read
+			// during pmm init, so by the time allocations occur, this will
+			// be free
+			entry.ty == MemoryType::BootloaderData ||
+			// we don't yet support UEFI runtime services
+			entry.ty == MemoryType::RuntimeCode ||
+			entry.ty == MemoryType::RuntimeData
+		);
 
 	// Split allocator system is used when a significant portion of memory is above the 4GiB boundary
 	// This allows better optimization for non-DMA allocations as well as reducing pressure on memory usable by DMA
@@ -502,7 +470,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let split_allocators = if cfg!(not(target_pointer_width = "32")) {
 		const FOUR_GB: PhysicalAddress = PhysicalAddress::new(1<<32);
 
-		let bytes_over_4gb: usize = usable_memory.clone()
+		let bytes_over_4gb: usize = free_memory.clone()
 				.filter(|entry| entry.start() >= FOUR_GB)
 				.map(|entry| entry.end() - entry.start())
 				.sum();
@@ -517,86 +485,56 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 			todo!("split allocators not supported yet :(");
 		}
 
-		let max_usable_memory = usable_memory.clone()
-		                                     .max_by(|a, b| a.end().cmp(&b.end()))
-		                                     .expect("Free memory should exist");
-		let max_usable_memory = max_usable_memory.end();
+		let max_usable_memory = free_memory.clone()
+			.map(MemoryMapEntry::end)
+			.max()
+			.expect("Free memory should exist");
 
-		let mut spaces = usable_memory.clone()
-		                              .map(|entry| {
-			                              entry.start().align_up_to_frame() .. entry.end().align_down_to_frame()
+		// we need handoff data to stick around until the non-bootstrap allocator is initialised,
+		// so skip loader data in the bootstrap allocator
+		let mut bootstrap_spaces = free_memory.clone()
+		                              .filter_map(|entry| {
+			                              (entry.ty != MemoryType::BootloaderData).then_some(
+			                                entry.start().align_up_to_frame() .. entry.end().align_down_to_frame()
+			                              )
 		                              });
 
-		let mut spaces2 = spaces.clone();
-		let watermark_allocator = WatermarkAllocator::new(&mut spaces2);
+		let all_spaces = free_memory
+			.map(|entry| {
+				entry.start().align_up_to_frame() .. entry.end().align_down_to_frame()
+			});
+
+		let watermark_allocator = WatermarkAllocator::new(&mut bootstrap_spaces);
 
 		debug!("Initialising highmem");
 
-		let allocator = memory::physical::with_highmem_as(&watermark_allocator, || unsafe {
-			bitmap_allocator::BitmapAllocator::new(
-				RawFrame::new(0)..max_usable_memory.align_down_to_frame(),
-				&mut spaces,
-			).expect("unable to create highmem")
-		});
+		let allocator = unsafe {
+			memory::physical::with_highmem_as(&watermark_allocator, || unsafe {
+				bitmap_allocator::BitmapAllocator::new(
+					RawFrame::new(0)..max_usable_memory.align_down_to_frame(),
+					all_spaces,
+				).expect("unable to create highmem")
+			})
+		};
 
 		memory::physical::init_highmem(allocator);
 		memory::physical::init_dmamem(allocator);
 
-		let btree_alloc = {
-			let lowest_used = if cfg!(not(feature = "kasan")) { unsafe { (**handoff_data).memory.lowest_used } }
-			else {
-				#[sanitize(address = "off")]
-				#[inline(never)]
-				fn no_sanitizer_shim(data: &HandoffWrapper) -> RawPage {
-					unsafe {
-						(***data).memory.lowest_used
-					}
-				}
-				no_sanitizer_shim(&handoff_data)
-			};
-
-			linked_list_allocator::LinkedListAllocator::new(
-				RawPage::new(kernel_api::memory::asan::SHADOW_MAP_END.addr)..lowest_used
-			).unwrap()
-		};
+		let btree_alloc = linked_list_allocator::LinkedListAllocator::new(
+			RawPage::new(kernel_api::memory::asan::SHADOW_MAP_END.addr)..parsed_handoff.max_vmem,
+		).unwrap();
 
 		debug!("btree_alloc = {btree_alloc:x?}");
 
 		*memory::r#virtual::GLOBAL_VIRTUAL_ALLOCATOR.write() = Box::leak(Box::new(btree_alloc));
 	}
-	drop(usable_memory);
 
 	percpu::Percpu::init();
 
-	let rsdp = unsafe {
-		if cfg!(not(feature = "kasan")) {
-			(**handoff_data).rsdp.addr
-		} else {
-			#[sanitize(address = "off")]
-			#[inline(never)]
-			fn no_sanitizer_shim(data: &HandoffWrapper) -> usize {
-				unsafe {
-					(***data).rsdp.addr
-				}
-			}
-			no_sanitizer_shim(&handoff_data)
-		}
-	};
-	unsafe { hal::acpi::init_tables(rsdp) };
-
-	let fb = if cfg!(not(feature = "kasan")) { unsafe { (**handoff_data).framebuffer } }
-		else {
-			#[sanitize(address = "off")]
-			#[inline(never)]
-			fn no_sanitizer_shim(data: &HandoffWrapper) -> utils::handoff::Framebuffer {
-				unsafe {
-					(***data).framebuffer
-				}
-			}
-			no_sanitizer_shim(&handoff_data)
-		};
+	unsafe { hal::acpi::init_tables(parsed_handoff.rsdp) };
 
 	let (mut update_line, _picos_per_tick) = {
+		let fb = parsed_handoff.framebuffer;
 		let size = fb.stride * fb.height;
 		let stride = fb.stride;
 		let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.cast::<u32>(), size) };
@@ -678,62 +616,9 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let x = get_foo();
 	assert_eq!(x, 6, "TLS value should be 6");
 
-	/*if let Ok(hpet) = ::acpi::hpet::HpetInfo::new(hal::acpi::tables()) {
-		unsafe { hal::arch::hpet::Hpet::init(hpet, hal::acpi::Handler::new(&hal::acpi::Allocator)); }
-	}*/
-
 	hal::post_acpi_init();
-	
-	let init_data = if cfg!(not(feature = "kasan")) {
-		unsafe { Box::<[_]>::from((**handoff_data).init_exec) }
-	} else {
-		#[sanitize(address = "off")]
-		#[inline(never)]
-		fn no_sanitizer_shim(data: &HandoffWrapper) -> Box<[u8]> {
-			unsafe {
-				let data = (***data).init_exec;
-				let mut ret = Box::<[u8]>::new_zeroed_slice(data.len());
-				let core::ops::Range { start: mut start_dest, end: end_dest } = (&mut *ret).as_mut_ptr_range();
-				let core::ops::Range { start: mut start_src, .. } = data.as_ptr_range();
-				while start_dest != end_dest {
-					// do it this way instead of calls to memcpy or similar so that it's all contained in the no_sanitize function
-					*start_dest.cast() = *start_src;
-					
-					start_src = start_src.offset(1);
-					start_dest = start_dest.offset(1);
-				}
-				ret.assume_init()
-			}
-		}
-		no_sanitizer_shim(&handoff_data)
-	};
 
-	let ramdisk_data = if cfg!(not(feature = "kasan")) {
-		unsafe { Box::<[_]>::from((**handoff_data).ramdisk) }
-	} else {
-		#[sanitize(address = "off")]
-		#[inline(never)]
-		fn no_sanitizer_shim(data: &HandoffWrapper) -> Box<[u8]> {
-			unsafe {
-				let data = (***data).ramdisk;
-				let mut ret = Box::<[u8]>::new_zeroed_slice(data.len());
-				let core::ops::Range { start: mut start_dest, end: end_dest } = (&mut *ret).as_mut_ptr_range();
-				let core::ops::Range { start: mut start_src, .. } = data.as_ptr_range();
-				while start_dest != end_dest {
-					// do it this way instead of calls to memcpy or similar so that it's all contained in the no_sanitize function
-					*start_dest.cast() = *start_src;
-
-					start_src = start_src.offset(1);
-					start_dest = start_dest.offset(1);
-				}
-				ret.assume_init()
-			}
-		}
-		no_sanitizer_shim(&handoff_data)
-	};
-	let ramdisk_server = ipc::init_ramdisk(ramdisk_data, PhysicalAddress::new(rsdp));
-
-	let init_thread = threading::init(handoff_data);
+	let init_thread = threading::init(parsed_handoff.stack, init_ttable);
 	debug!("Init running on {init_thread:?}");
 
 	let _animation = move || {
@@ -751,45 +636,9 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	threading::debug();
 	threading::yield_now();
 
-	/*threading::spawn_kernel(|| {
-		threading::sleep(Duration::from_secs(2));
-		let dangly_ptr = User::<*const u8>::new_in(
-			ptr::dangling(),
-			AddressSpaceInner::to_api(
-				percpu_v2!(current_thread).read().as_ref().expect("can only syscall from thread")
-				                          .tcb_ref().address_space
-			)
-		);
+	todo!();
 
-		let handle = ipc::open(
-			"fs:/foo.txt",
-			&[<dyn ipc::protocol::generated::CoreIoRead>::UID, <dyn ipc::protocol::generated::CoreIoSeek>::UID],
-			dangly_ptr,
-		);
-		let handle = dbg!(handle).unwrap();
-		let res = percpu_v2!(current_thread).read().as_ref()
-		                                    .unwrap()
-		                                    .tcb_ref().handles.push(handle).unwrap();
-
-		let mut buf = [0u8; 16];
-		let buf_ptr = buf.as_mut_ptr();
-		let buf_size = 16;
-
-		let res = ipc::entry(
-			<dyn ipc::protocol::generated::CoreIoRead>::UID,
-			1,
-			res as usize,
-			buf_ptr as usize,
-			buf_size,
-			0, 0
-		);
-		if let Ok(bytes) = res {
-			let buf = ByteStr::new(&buf[..(bytes as usize)]);
-			info!("read bytes {} from `/foo.txt`", &buf)
-		}
-	}, Cow::Borrowed("fs tester")).unwrap();*/
-
-	let (entrypoint, stack) = {
+	/*let (entrypoint, stack) = {
 		let guard = percpu::percpu_v2!(current_thread).read();
 		let address_space = &guard
 				.as_ref()
@@ -955,7 +804,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		thread.handles.openat(5, acpi_handle)
 		      .expect("unable to open fd 5");
 	}
-	hal::switch_to_userspace_at(entrypoint, stack);
+	hal::switch_to_userspace_at(entrypoint, stack);*/
 }
 
 #[cfg(not(test))]

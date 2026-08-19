@@ -30,7 +30,7 @@ pub unsafe trait Hal {
 	fn breakpoint();
 	fn exit(result: Result) -> !;
 	fn debug_output(data: &[u8]) -> core::result::Result<(), ()>;
-	fn early_init();
+	fn early_init() -> Self::TTableTy;
 	fn post_acpi_init();
 	fn enable_interrupts();
 	fn get_and_disable_interrupts() -> usize;
@@ -73,7 +73,7 @@ mod hal_impl {
 	#[inline] #[expect(unused)] pub fn breakpoint() { <arch::Arch as Hal>::breakpoint() }
 	#[inline] #[expect(unused)] pub fn exit(result: Result) -> ! { <arch::Arch as Hal>::exit(result) }
 	#[inline] #[expect(unused)] pub fn debug_output(data: &[u8]) -> core::result::Result<(), ()> { <arch::Arch as Hal>::debug_output(data) }
-	#[inline] pub fn early_init() { <arch::Arch as Hal>::early_init() }
+	#[inline] pub fn early_init() -> TTableTy { <arch::Arch as Hal>::early_init() }
 	#[inline] pub fn post_acpi_init() { <arch::Arch as Hal>::post_acpi_init() }
 	#[unsafe(export_name = "__popcorn_enable_irq")] pub fn enable_interrupts() { <arch::Arch as Hal>::enable_interrupts() }
 	#[unsafe(export_name = "__popcorn_disable_irq")] pub fn get_and_disable_interrupts() -> usize { <arch::Arch as Hal>::get_and_disable_interrupts() }

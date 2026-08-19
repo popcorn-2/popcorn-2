@@ -106,21 +106,9 @@ fn unblock_thread(this: &Arc<ThreadMeta>) {
 /// Initializes the scheduler for the bootstrap core, and creates the [`ThreadControlBlock`] for the already running
 /// first thread. Using `handoff_data`, this moves ownership of the in-use stack and page tables into the new
 /// [`ThreadControlBlock`].
-pub fn init(handoff_data: crate::HandoffWrapper) -> (ThreadId, CoreId) {
-	let stack = if cfg!(not(feature = "kasan")) { unsafe { (**handoff_data).memory.stack } }
-			else {
-				#[sanitize(address = "off")]
-				#[inline(never)]
-				fn no_sanitizer_shim(data: &crate::HandoffWrapper) -> utils::handoff::Stack {
-					unsafe {
-						(***data).memory.stack
-					}
-				}
-				no_sanitizer_shim(&handoff_data)
-			};
-
+pub fn init(stack: utils::handoff::Stack, ttable: TTableTy) -> (ThreadId, CoreId) {
 	let address_space = AddressSpace::from_parts(
-		handoff_data.to_empty_ttable(),
+		ttable,
 		LinkedListAllocator::new(Range { // todo: make this a bit nicer
 			start: RawPage::new(0x200000),
 			end: RawPage::new(0x8000_0000_0000),
