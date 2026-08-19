@@ -108,6 +108,25 @@ unsafe impl Hal for Amd64Hal {
 			}
 		}
 
+		if !is_x86_feature_detected!("xsave") {
+			panic!("`xsave` not supported");
+		}
+
+		let mut xcr0 = 0b11u32; // x87 and SSE enabed
+
+		if is_x86_feature_detected!("xsave_avx") {
+			xcr0 |= 1 << 2;
+		}
+
+		if is_x86_feature_detected!("xsave_avx512_opmask")
+			&& is_x86_feature_detected!("xsave_avx512_zmm_hi16")
+			&& is_x86_feature_detected!("xsave_avx512_zmm_hi256") {
+			xcr0 |= 0b111 << 5;
+		}
+
+		unsafe {
+			asm!("xsetbv", in("rcx") 0, in("eax") xcr0, in("edx") 0);
+		}
 
 		let (ktable, ttable) = unsafe { paging::construct_tables() };
 		unsafe { init_page_table(ktable) };
