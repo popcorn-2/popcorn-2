@@ -587,7 +587,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		else {
 			#[sanitize(address = "off")]
 			#[inline(never)]
-			fn no_sanitizer_shim(data: &HandoffWrapper) -> Option<utils::handoff::Framebuffer> {
+			fn no_sanitizer_shim(data: &HandoffWrapper) -> utils::handoff::Framebuffer {
 				unsafe {
 					(***data).framebuffer
 				}
@@ -595,7 +595,7 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 			no_sanitizer_shim(&handoff_data)
 		};
 
-	let (update_line, _picos_per_tick) = if let Some(fb) = fb {
+	let (mut update_line, _picos_per_tick) = {
 		let size = fb.stride * fb.height;
 		let stride = fb.stride;
 		let fb_data = unsafe { &mut *slice_from_raw_parts_mut(fb.buffer.cast::<u32>(), size) };
@@ -671,8 +671,8 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 		};
 
 		update_line();
-		(Some(update_line), Some(picos_per_tick))
-	} else { (None, None) };
+		(update_line, picos_per_tick)
+	};
 
 	let x = get_foo();
 	assert_eq!(x, 6, "TLS value should be 6");
@@ -735,19 +735,18 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 	let init_thread = threading::init(handoff_data);
 	debug!("Init running on {init_thread:?}");
 
-	if let Some(mut update_line) = update_line {
-		let _animation = move || {
-			let mut next_time = Instant::now();
-			loop {
-				next_time += Duration::from_millis(500); //Duration::from_nanos(1302083);
-				update_line();
-				kernel_api::executor::block_on(threading::sleep_until(next_time));
-			}
-		};
+	let _animation = move || {
+		let mut next_time = Instant::now();
+		loop {
+			next_time += Duration::from_millis(500); //Duration::from_nanos(1302083);
+			update_line();
+			kernel_api::executor::block_on(threading::sleep_until(next_time));
+		}
+	};
 
-		/*let task = threading::spawn_kernel(animation, Cow::Borrowed("Boot animation")).unwrap();
-		debug!("Boot animation running on {task:?}");*/
-	}
+	/*let task = threading::spawn_kernel(animation, Cow::Borrowed("Boot animation")).unwrap();
+	debug!("Boot animation running on {task:?}");*/
+
 	threading::debug();
 	threading::yield_now();
 
@@ -814,18 +813,11 @@ fn kmain(handoff_data: HandoffWrapper) -> ! {
 				env_vars.extend([
 					format!("POPCORN_TSC_NUM={num}"),
 					format!("POPCORN_TSC_DENOM={denom}"),
+					format!("POPCORN_FRAMEBUFFER_ADDR={:x}", fb.physical_address),
+					format!("POPCORN_FRAMEBUFFER_WIDTH={}", fb.width),
+					format!("POPCORN_FRAMEBUFFER_STRIDE={}", fb.stride),
+					format!("POPCORN_FRAMEBUFFER_HEIGHT={}", fb.height),
 				]);
-			}
-
-			if let Some(fb) = fb {
-				env_vars.extend(
-					[
-						format!("POPCORN_FRAMEBUFFER_ADDR={:x}", fb.physical_address),
-						format!("POPCORN_FRAMEBUFFER_WIDTH={}", fb.width),
-						format!("POPCORN_FRAMEBUFFER_STRIDE={}", fb.stride),
-						format!("POPCORN_FRAMEBUFFER_HEIGHT={}", fb.height),
-					]
-				);
 			}
 
 			let stack_top = loader::set_up_stack(

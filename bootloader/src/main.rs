@@ -127,7 +127,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	});
 
 	let mut handoff = handoff::Data {
-		framebuffer: Some(framebuffer),
+		framebuffer,
 		memory: handoff::Memory {
 			map: &[],
 			lowest_used,

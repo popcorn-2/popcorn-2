@@ -5,7 +5,7 @@ use core::range::Range;
 
 #[repr(C)]
 pub struct Data {
-	pub framebuffer: Option<Framebuffer>,
+	pub framebuffer: Framebuffer,
 	pub memory: Memory,
 	pub log: Logging,
 	pub rsdp: PhysicalAddress,
