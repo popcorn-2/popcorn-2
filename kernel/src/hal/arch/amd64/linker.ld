@@ -7,6 +7,7 @@ PHDRS {
     text PT_LOAD FLAGS(0x5) ;
     data PT_LOAD FLAGS(0x6) ;
     dynamic PT_DYNAMIC ;
+    note PT_NOTE ;
     gnu_eh_frame 0x6474E550 FLAGS(0x4) ;
     lazy PT_LOAD FLAGS(0x20006) ;
 }
@@ -131,6 +132,11 @@ SECTIONS {
 	{
 	    *(.dynamic .dynamic.*)
 	} :data :dynamic
+
+	.note :
+	{
+	    *(.note .note.*)
+	} :note
 
 	/DISCARD/ : {
 		*(.debug_gdb_scripts .debug_gdb_scripts.*)

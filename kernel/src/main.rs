@@ -83,6 +83,7 @@ mod ipc;
 mod io_ext;
 mod percpu;
 mod loader;
+mod notes;
 
 // The compiler expects the prelude definition to be defined before it's use statement
 mod prelude;

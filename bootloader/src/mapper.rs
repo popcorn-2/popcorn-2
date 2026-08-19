@@ -86,12 +86,12 @@ impl Mapper {
 		let kernel_first_page = (kernel_first_page - 8usize*1024*1024).align_down_to_page(); // vmem bootstrap region
 
 		let kasan_enabled = {
-			let note = kernel.notes().find(|note| note.name() == c"Popcorn" && note.ty() == 1).ok_or(Error::NoKasan)?;
+			let note = kernel.notes().find(|note| note.name() == c"Popcorn" && note.ty() == 0x200).ok_or(Error::NoKasan)?;
 			note.description()[0] != 0
 		};
 
 		let stack_page_count = {
-			let note = kernel.notes().find(|note| note.name() == c"Popcorn" && note.ty() == 2).ok_or(Error::NoStack)?;
+			let note = kernel.notes().find(|note| note.name() == c"Popcorn" && note.ty() == 0x201).ok_or(Error::NoStack)?;
 			let payload = <[u8; 4]>::try_from(note.description()).map_err(|_| Error::NoStack)?;
 			u32::from_ne_bytes(payload)
 		};
