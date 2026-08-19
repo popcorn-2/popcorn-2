@@ -172,7 +172,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 /// # Safety
 ///
 /// This must only be called after boot services has been exited.
-unsafe fn convert_mem_map(map: MemoryMapOwned, kernel_frames: &[RawFrame]) -> &'static [handoff::MemoryMapEntry] {
+unsafe fn convert_mem_map(map: MemoryMapOwned, used_frames: &[RawFrame]) -> &'static [handoff::MemoryMapEntry] {
 	// drop impl segfaults trying to read from system table
 	let mut map = ManuallyDrop::new(map);
 
@@ -196,15 +196,15 @@ unsafe fn convert_mem_map(map: MemoryMapOwned, kernel_frames: &[RawFrame]) -> &'
 		let entry = unsafe { &*buffer.byte_add(descriptor_size * i).cast::<boot::MemoryDescriptor>() };
 		let start = PhysicalAddress::new(entry.phys_start as usize);
 		let entry = handoff::MemoryMapEntry {
-			coverage: Range { start, end: start + entry.page_count as usize },
+			coverage: Range { start, end: start + (entry.page_count as usize * boot::PAGE_SIZE) },
 			ty: match entry.ty {
-				_ if kernel_frames.contains(&RawFrame::new(entry.phys_start as usize)) => handoff::MemoryType::KernelData,
 				MemoryType::CONVENTIONAL |
 				MemoryType::BOOT_SERVICES_CODE |
 				MemoryType::BOOT_SERVICES_DATA |
 				MemoryType::PERSISTENT_MEMORY => handoff::MemoryType::Free,
-				MemoryType::LOADER_CODE => handoff::MemoryType::BootloaderCode,
+				MemoryType::LOADER_DATA if used_frames.contains(&RawFrame::new(start.addr)) => handoff::MemoryType::KernelData,
 				MemoryType::LOADER_DATA => handoff::MemoryType::BootloaderData,
+				MemoryType::LOADER_CODE => handoff::MemoryType::BootloaderCode,
 				MemoryType::ACPI_NON_VOLATILE => handoff::MemoryType::AcpiPreserve,
 				MemoryType::ACPI_RECLAIM => handoff::MemoryType::AcpiReclaim,
 				MemoryType::RUNTIME_SERVICES_CODE => handoff::MemoryType::RuntimeCode,
