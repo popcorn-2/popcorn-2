@@ -10,6 +10,7 @@ use kernel_api::memory::asan::{asan_free_range, set_shadow_heap_free, set_shadow
 use kernel_api::memory::{PAGE_SIZE, VirtualAddress};
 
 const GENERATION_FREE: usize = 0;
+const FREE_PLUS_ONE: usize = GENERATION_FREE + 1;
 #[cfg(any(feature = "generations", kasan))] const GENERATION_ALLOCATED: usize = 8;
 #[cfg(not(any(feature = "generations", kasan)))] const GENERATION_ALLOCATED: usize = 2;
 
@@ -76,30 +77,41 @@ pub struct Arena {
 
 unsafe impl Send for Arena {}
 
+// INVARIANT: `next` and `prev` must either be null or point to another `ChunkHeader` within
+//  the same allocation, where `next` has an address greater than `self`, and `prev` an address
+//  less than `self`
 #[repr(C)] // to make sure we can reuse the redzone just by offsetting -1 usize from end
 pub struct ChunkHeader {
 	next: *mut Self,
 	prev: *mut Self,
 	generation: usize,
-	checksum: isize,
+	checksum: usize,
 	magic: usize,
 	self_offset: usize,
 }
 
 impl ChunkHeader {
-	const CHUNK_MAGIC: isize = isize::from_be_bytes(*b"POP HEAP");
+	const CHUNK_MAGIC: usize = usize::from_be_bytes(*b"POP HEAP");
 	const ALIGN_OFFSET_MAGIC: usize = usize::from_be_bytes(*b"MAGICPOP");
 
+	/// # Safety
+	///
+	/// - `self` must be valid for writes.
+	/// - `self`, `next` and `prev` must cone from the same allocation.
 	unsafe fn new_in(self: *mut Self, next: *mut Self, prev: *mut Self, generation: usize) {
+		// SAFETY: requirements upheld by caller
 		unsafe {
 			self.update_in_place(next, prev, generation);
-		}
 
-		if !next.is_null() {
-			debug_assert!(self.addr() < next.addr(), "`next` ({next:p}) must be after `self` ({self:p})");
+			(*self).magic = usize::from_be_bytes(*b"NUSEDYET");
+			(*self).self_offset = usize::MAX;
 		}
 	}
 
+	/// # Safety
+	///
+	/// - `self` must be valid for writes.
+	/// - `self`, `next` and `prev` must cone from the same allocation.
 	unsafe fn update_in_place(self: *mut Self, next: *mut Self, prev: *mut Self, generation: usize) {
 		debug_assert!(self.addr() > prev.addr(), "`prev` ({prev:p}) must be before `self` ({self:p})");
 
@@ -107,21 +119,35 @@ impl ChunkHeader {
 			debug_assert!(self.addr() < next.addr(), "`next` ({next:p}) must be after `self` ({self:p})");
 		}
 
-		let checksum = (next.addr() as isize) + (prev.addr() as isize);
+		let checksum = next.addr().wrapping_add(prev.addr());
 
+		// SAFETY: `self` is valid for writes as upheld by caller
 		unsafe {
 			(*self).next = next;
 			(*self).prev = prev;
 			(*self).generation = generation;
-			(*self).checksum = Self::CHUNK_MAGIC - checksum;
+			(*self).checksum = Self::CHUNK_MAGIC.wrapping_sub(checksum);
 		}
 	}
 
+	/// # Safety
+	///
+	/// `self` must be valid for reads.
+	///
+	/// # Panics
+	///
+	/// If `self` points to a sentinel chunk.
 	#[cfg_attr(kasan, sanitize(address = "off"))]
 	#[cfg_attr(kasan, inline(never))]
 	unsafe fn size(self: *mut Self) -> usize {
-		assert!(unsafe { !(*self).next.is_null() }, "sentinel chunk has no size");
-		let total_size = unsafe { (*self).next.byte_offset_from_unsigned(self) };
+		// SAFETY: `self` valid for reads as upheld by caller
+		let next = unsafe { (*self).next };
+
+		assert!(!next.is_null(), "sentinel chunk has no size");
+
+		// SAFETY: invariant of `ChunkHeader` that `next` (if non-null) is from the same
+		//  allocation as `self` and has a larger address
+		let total_size = unsafe { next.byte_offset_from_unsigned(self) };
 		total_size - size_of::<Self>()
 	}
 
@@ -129,15 +155,26 @@ impl ChunkHeader {
 		unsafe { self.cast::<u8>().byte_add(size_of::<Self>()) }
 	}
 
+	/// # Safety
+	///
+	/// `self` must be valid for reads.
+	///
+	/// # Panics
+	///
+	/// If the stored checksum is invalid. Additional checks may be performed when `debug_assertions`
+	/// are enabled.
 	#[cfg_attr(kasan, sanitize(address = "off"))]
 	#[cfg_attr(kasan, inline(never))]
 	unsafe fn check_magic(self: *mut Self) {
+		// SAFETY: `self` valid for reads as upheld by caller
 		let next = unsafe { (*self).next };
+		// SAFETY: `self` valid for reads as upheld by caller
 		let prev = unsafe { (*self).prev };
 
-		let checksum = (next.addr() as isize) + (prev.addr() as isize);
+		let checksum = next.addr().wrapping_add(prev.addr());
 		assert_eq!(
-			unsafe { (*self).checksum } + checksum,
+			// SAFETY: `self` valid for reads as upheld by caller
+			unsafe { (*self).checksum }.wrapping_add(checksum),
 			Self::CHUNK_MAGIC,
 			"heap header magic invalid"
 		);
@@ -155,15 +192,22 @@ impl Arena {
 	const GROW_FACTOR: usize = 2;
 	const MINIMUM_USABLE_ALLOC: usize = 2 * size_of::<usize>();
 
+	/// # Errors
+	///
+	/// Returns [`AllocError`] if backing memory for the arena could not be allocated.
 	pub fn with_capacity(capacity: usize) -> Result<Self, AllocError> {
+		const { assert!(align_of::<ChunkHeader>() <= PAGE_SIZE, "alignment of ChunkHeader too high for PAGE_SIZE") };
+
 		let page_count = core::cmp::max(
 			Self::INITIAL_AREA_PAGE_COUNT,
 			(capacity + 2 * size_of::<ChunkHeader>()).div_ceil((4096 * 2) / 3), // add a bit of extra space
 		);
 
+		#[expect(clippy::missing_panics_doc, reason = "infallible as `Self::INITIAL_AREA_PAGE_COUNT` is non-zero")]
 		#[cfg(not(test))] let mut mapping = Config::new(NonZero::new(page_count).unwrap(), Ty::HEAP)
 				.protection(true, false, false)
 				.map()?;
+		#[expect(clippy::missing_panics_doc, reason = "infallible as `Self::INITIAL_AREA_PAGE_COUNT` is non-zero")]
 		#[cfg(test)] let mut mapping = mock::Mapping::new(NonZero::new(page_count).unwrap());
 
 		let Range { start, end } = mapping.as_mut_ptr_range();
@@ -219,6 +263,9 @@ impl Arena {
 		})
 	}
 
+	/// # Errors
+	///
+	/// Returns [`AllocError`] if there is no space in this arena for `layout`.
 	pub fn try_alloc(&mut self, layout: Layout) -> Result<NonNull<u8>, AllocError> {
 		let size = layout.size() + 64; // fixme: hacksssssss
 
@@ -243,8 +290,9 @@ impl Arena {
 							if let Ok(res) = unsafe { Arena::alloc_in(*current_chunk, layout) } { return Some(res); }
 						}
 					}
+					#[expect(clippy::allow_attributes, reason = "lint may only sometimes trigger")]
 					#[allow(unreachable_patterns, reason = "may not exist depending on how many generations exist")]
-					GENERATION_FREE..GENERATION_ALLOCATED => {
+					FREE_PLUS_ONE..GENERATION_ALLOCATED => {
 						unsafe { (**current_chunk).generation -= 1 };
 					}
 					_ => {}
@@ -310,6 +358,18 @@ impl Arena {
 		unsafe { Self::alloc_in(old_sentinel, layout) }
 	}
 
+	/// # Safety
+	///
+	/// `chunk` must be valid for reads and writes.
+	///
+	/// # Errors
+	///
+	/// Returns [`AllocError`] if the provided chunk is too small for `layout`.
+	///
+	/// # Panics
+	///
+	/// Panics if an aligned pointer for `layout` cannot exist.
+	/// May panic if the heap is corrupted.
 	unsafe fn alloc_in(chunk: *mut ChunkHeader, layout: Layout) -> Result<NonNull<u8>, AllocError> {
 		unsafe { chunk.check_magic() };
 
@@ -322,7 +382,7 @@ impl Arena {
 		let chunk_size = unsafe { chunk.size() };
 		if size + align_offset > chunk_size { return Err(AllocError::heap()); }
 
-		#[cfg(not(kasan))] assert_eq!(unsafe { (*chunk).generation }, GENERATION_FREE);
+		#[cfg(not(kasan))] assert_eq!(unsafe { (*chunk).generation }, GENERATION_FREE, "chunk is already allocated");
 
 		let (start, total_size) = unsafe {
 			let start = start_ptr.add(align_offset);
@@ -343,14 +403,14 @@ impl Arena {
 						GENERATION_FREE,
 					);
 
-					// update `chunk->next` to point to `new_header`
+					// update `chunk->next` to point back to `new_header`
 					(*chunk).next.update_in_place(
 						(*(*chunk).next).next,
 						new_header,
 						(*(*chunk).next).generation,
 					);
 
-					// update `chunk` to point to `new_header`
+					// update `chunk` to point forwards to `new_header`
 					chunk.update_in_place(
 						new_header,
 						(*chunk).prev,
@@ -396,11 +456,11 @@ impl Arena {
 
 		no_asan_shim!(
 			|chunk: *mut ChunkHeader, start: *mut u8, layout: Layout| {
-				debug_assert!(unsafe { (*chunk).next.byte_offset_from_unsigned(start) } >= layout.size());
+				debug_assert!(unsafe { (*chunk).next.byte_offset_from_unsigned(start) } >= layout.size(), "next chunk header inserted within allocation");
 			}
 		);
-		debug_assert!(allocation_end.addr - start.addr() >= layout.size());
-		debug_assert!(start.is_aligned_to(layout.align()));
+		debug_assert!(allocation_end.addr - start.addr() >= layout.size(), "returned allocation isn't sized for expected layout");
+		debug_assert!(start.is_aligned_to(layout.align()), "returned pointer isn't aligned for expected layout");
 
 		unsafe { Ok(NonNull::new_unchecked(start)) }
 	}
@@ -408,20 +468,28 @@ impl Arena {
 	pub const fn bounds(&self) -> Range<NonNull<u8>> {
 		let end = unsafe { self.first.byte_add(self.len) };
 		Range {
+			#[expect(clippy::missing_panics_doc, reason = "panic caused by internal invariant violation")]
 			start: NonNull::new(self.first.cast()).expect("arena should not be at null"),
+			#[expect(clippy::missing_panics_doc, reason = "panic caused by internal invariant violation")]
 			end: NonNull::new(end.cast()).expect("arena should not be at null"),
 		}
 	}
 
+	/// # Safety
+	///
+	/// `ptr` must have been previously returned from a call to [`try_alloc()`](Self::try_alloc).
+	///
+	/// # Panics
+	///
+	/// May panic if parts of the heap are corrupted.
 	pub unsafe fn dealloc(&mut self, ptr: NonNull<u8>) {
 		let ptr = self.first.with_addr(ptr.addr().get());
 
 		let (offset, magic) = no_asan_shim!(|ptr: *mut ChunkHeader| -> (usize, usize) {
-			let offset = unsafe { *ptr.cast::<usize>().offset(-1) };
-			let magic = unsafe { *ptr.cast::<usize>().offset(-2) };
+			let offset = unsafe { *ptr.cast::<usize>().sub(1) };
+			let magic = unsafe { *ptr.cast::<usize>().sub(2) };
 			(offset, magic)
 		});
-		if offset == usize::MAX { let _ = unsafe { *ptr.cast::<usize>().offset(-1) }; }
 		debug_assert_eq!(magic, ChunkHeader::ALIGN_OFFSET_MAGIC, "align offset corrupted");
 		assert_ne!(offset, usize::MAX, "invalid offset");
 		let ptr = unsafe { ptr.byte_sub(offset).byte_sub(size_of::<ChunkHeader>()) };
@@ -436,8 +504,6 @@ impl Arena {
 			} else {
 				unsafe { (*ptr).generation = GENERATION_ALLOCATED - 1 };
 			}
-
-			trace!("sanity: {:#p}, {:#p}", unsafe { (*ptr).prev }, unsafe { (*ptr).next });
 		});
 
 		unsafe {
