@@ -2,7 +2,7 @@ use core::alloc::Layout;
 use core::arch::{asm, naked_asm};
 use core::arch::x86_64::CpuidResult;
 use core::fmt::Debug;
-use core::mem::{MaybeUninit, offset_of, ManuallyDrop};
+use core::mem::{offset_of, ManuallyDrop};
 use core::ptr::NonNull;
 use core::sync::atomic::Ordering;
 use kernel_api::address_space::Kernel;
@@ -115,6 +115,15 @@ unsafe impl Hal for Amd64Hal {
 			panic!("`xsave` not supported");
 		}
 
+		unsafe {
+			asm!(
+				"mov {0}, cr4",
+				"or {0}, (1<<9) | (1<<10) | (1<<18)", // set OSFXSR, OSXMMEXCPT and OSXSAVE bits to signify to userspace that we support sse/avx
+				"mov cr4, {0}",
+				out(reg) _,
+			)
+		}
+
 		let mut xcr0 = 0b11u32; // x87 and SSE enabed
 
 		if is_x86_feature_detected!("xsave_avx") {
@@ -194,6 +203,18 @@ unsafe impl Hal for Amd64Hal {
 
 		debug!("rflags = {:#x}", to.register_state.rflags);
 
+		#[cfg(kasan)] {
+			let CpuidResult { ebx: xsave_size, .. } = core::arch::x86_64::__cpuid_count(0xd, 0);
+			kernel_api::memory::asan::__asan_store_n(
+				from.register_state.xsave.as_ptr().into(),
+				xsave_size as usize,
+			);
+			kernel_api::memory::asan::__asan_load_n(
+				to.register_state.xsave.as_ptr().into(),
+				xsave_size as usize,
+			);
+		}
+
 		return unsafe { inner(from, &to) };
 
 		#[unsafe(naked)] // todo: convert to normal inline asm
@@ -213,15 +234,14 @@ unsafe impl Hal for Amd64Hal {
 				"pop rbx",
 				"mov [rdi + {rflags_offset}], rbx",
 
-				// todo: check this bit
 				"xor ecx, ecx",
-				"// xgetbv",
-				"mov rbx, [rdi + {xsave_ptr_offset}]",
-				"// xsave [rbx]",
+				"xgetbv",
+				"mov rcx, [rdi + {xsave_ptr_offset}]",
+				"xsave [rcx]",
 	
 				// restore all registers from `to` Amd64SaveState struct
-				"mov rbx, [rsi + {xsave_ptr_offset}]",
-				"// xrstor [rbx]",
+				"mov rcx, [rsi + {xsave_ptr_offset}]",
+				"xrstor [rcx]",
 				"mov rbx, [rsi + {rflags_offset}]",
 				"push rbx",
 				"popfq",
