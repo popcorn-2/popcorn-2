@@ -1,6 +1,9 @@
+use core::alloc::Layout;
 use core::arch::{asm, naked_asm};
+use core::arch::x86_64::CpuidResult;
 use core::fmt::Debug;
-use core::mem::{MaybeUninit, offset_of, ManuallyDrop};
+use core::mem::{offset_of, ManuallyDrop};
+use core::ptr::NonNull;
 use core::sync::atomic::Ordering;
 use kernel_api::address_space::Kernel;
 use kernel_api::allocator::AllocError;
@@ -108,6 +111,34 @@ unsafe impl Hal for Amd64Hal {
 			}
 		}
 
+		if !is_x86_feature_detected!("xsave") {
+			panic!("`xsave` not supported");
+		}
+
+		unsafe {
+			asm!(
+				"mov {0}, cr4",
+				"or {0}, (1<<9) | (1<<10) | (1<<18)", // set OSFXSR, OSXMMEXCPT and OSXSAVE bits to signify to userspace that we support sse/avx
+				"mov cr4, {0}",
+				out(reg) _,
+			)
+		}
+
+		let mut xcr0 = 0b11u32; // x87 and SSE enabed
+
+		if is_x86_feature_detected!("xsave_avx") {
+			xcr0 |= 1 << 2;
+		}
+
+		if is_x86_feature_detected!("xsave_avx512_opmask")
+			&& is_x86_feature_detected!("xsave_avx512_zmm_hi16")
+			&& is_x86_feature_detected!("xsave_avx512_zmm_hi256") {
+			xcr0 |= 0b111 << 5;
+		}
+
+		unsafe {
+			asm!("xsetbv", in("rcx") 0, in("eax") xcr0, in("edx") 0);
+		}
 
 		let (ktable, ttable) = unsafe { paging::construct_tables() };
 		unsafe { init_page_table(ktable) };
@@ -172,6 +203,18 @@ unsafe impl Hal for Amd64Hal {
 
 		debug!("rflags = {:#x}", to.register_state.rflags);
 
+		#[cfg(kasan)] {
+			let CpuidResult { ebx: xsave_size, .. } = core::arch::x86_64::__cpuid_count(0xd, 0);
+			kernel_api::memory::asan::__asan_store_n(
+				from.register_state.xsave.as_ptr().into(),
+				xsave_size as usize,
+			);
+			kernel_api::memory::asan::__asan_load_n(
+				to.register_state.xsave.as_ptr().into(),
+				xsave_size as usize,
+			);
+		}
+
 		return unsafe { inner(from, &to) };
 
 		#[unsafe(naked)] // todo: convert to normal inline asm
@@ -191,15 +234,14 @@ unsafe impl Hal for Amd64Hal {
 				"pop rbx",
 				"mov [rdi + {rflags_offset}], rbx",
 
-				// todo: check this bit
 				"xor ecx, ecx",
-				"// xgetbv",
-				"mov rbx, [rdi + {xsave_ptr_offset}]",
-				"// xsave [rbx]",
+				"xgetbv",
+				"mov rcx, [rdi + {xsave_ptr_offset}]",
+				"xsave [rcx]",
 	
 				// restore all registers from `to` Amd64SaveState struct
-				"mov rbx, [rsi + {xsave_ptr_offset}]",
-				"// xrstor [rbx]",
+				"mov rcx, [rsi + {xsave_ptr_offset}]",
+				"xrstor [rcx]",
 				"mov rbx, [rsi + {rflags_offset}]",
 				"push rbx",
 				"popfq",
@@ -296,13 +338,58 @@ pub struct Amd64SaveState {
 	pub rflags: usize,
 	pub fs: usize,
 	pub gs: usize,
-	pub xsave: Box<[MaybeUninit<u512>]>,
+	xsave: Xsave,
 }
 
-#[allow(non_camel_case_types)]
-#[doc(hidden)]
-#[repr(align(64), C)] // we want an array of this to behave exactly like a 64 byte aligned `u8` array
-pub struct u512([u8; 64]);
+#[derive(Debug)]
+struct Xsave {
+	layout: Layout,
+	allocation: NonNull<u8>,
+}
+
+impl Xsave {
+	fn new() -> Self {
+		let CpuidResult { ebx: xsave_size, .. } = core::arch::x86_64::__cpuid_count(0xd, 0);
+		let layout = Layout::from_size_align(
+			xsave_size as usize,
+			64,
+		).expect("invalid layout for xsave region");
+		let allocation = unsafe {
+			NonNull::new(alloc::alloc::alloc_zeroed(layout)) // we want the header to be zeroed, and it's easier to just zero the whole thing
+				.expect("failed to allocate xsave region")
+		};
+
+		// fixme: mxcsr should be copied when spawning child thread, only reset for processes
+		let mxcsr_val: u32 =
+			1<<12 | // Precision masked
+			1<<11 | // Underflow masked
+			1<<10 | // Overflow masked
+			1<<9  | // Underflow masked
+			1<<8  | // Denormal masked
+			1<<7;   // Invalid op masked
+
+		unsafe {
+			// fixme: set x87 control word too
+			*allocation.as_ptr().byte_add(24).cast::<u32>() = mxcsr_val; // write initial MXCSR val to XSAVE header
+			*allocation.as_ptr().byte_add(512).cast::<u64>() = 0b11;     // mark x87 and SSE state of XSTATE_BV as needing restore
+		}
+
+		Self {
+			layout,
+			allocation,
+		}
+	}
+}
+
+unsafe impl Send for Xsave {}
+
+impl Drop for Xsave {
+	fn drop(&mut self) {
+		unsafe {
+			alloc::alloc::dealloc(self.allocation.as_ptr(), self.layout);
+		}
+	}
+}
 
 impl Amd64SaveState {
 	#[unsafe(naked)]
@@ -345,7 +432,7 @@ impl Default for Amd64SaveState {
 			// Reserved bit 1 = 1
 			// IE = 0
 			rflags: 0x02,
-			xsave: Box::new_zeroed_slice(0), // we want the header to be zeroed and it's easier to just zero the whole thing
+			xsave: Xsave::new(),
 		}
 	}
 }
@@ -362,7 +449,7 @@ impl SaveStateTr for Amd64SaveState {
 			stack_top.sub(6)
 		};
 
-		Ok(Self {
+		Ok(Amd64SaveState {
 			rsp: stack_start.addr(),
 			.. Self::default()
 		})
