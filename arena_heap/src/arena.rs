@@ -173,9 +173,9 @@ impl Arena {
 		let len = mapping.byte_len();
 
 		// SAFETY: Pointer returned by Mapping::new is guaranteed to be valid for RW access for 16 KiB
-		// start - pointer returned by Mapping::new is 4K aligned which is greater than `align_of::<ChunkHeader>()`
-		// end - end of mapping is 4K aligned, therefore `virtual_end()` is more aligned than
-		// `align_of::<ChunkHeader>()`, therefore subtracting `size_of::<ChunkHeader>()` will also be suitably aligned
+		//  start - pointer returned by Mapping::new is 4K aligned which is greater than `align_of::<ChunkHeader>()`
+		//  end - end of mapping is 4K aligned, therefore `virtual_end()` is more aligned than
+		//  `align_of::<ChunkHeader>()`, therefore subtracting `size_of::<ChunkHeader>()` will also be suitably aligned
 		unsafe {
 			start.new_in(
 				end,
