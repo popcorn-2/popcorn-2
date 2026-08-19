@@ -63,6 +63,11 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 
 	logging::init()?;
 
+	match option_env!("GIT_HASH") {
+		Some(git_hash) => debug!("bootloader {} ({} {})", env!("CARGO_PKG_VERSION"), git_hash.split_at(7).0, env!("BUILD_TIMESTAMP")),
+		None => debug!("bootloader {} ({})", env!("CARGO_PKG_VERSION"), env!("BUILD_TIMESTAMP")),
+	}
+
 	let mut rootfs = fs::locate_rootfs()?;
 	let version = fs::find_latest_kernel(&mut rootfs)?;
 	info!("Booting kernel {version}");

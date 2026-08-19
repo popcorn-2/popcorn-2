@@ -13,5 +13,8 @@ utils = { path = "../utils" }
 elf = { git = "https://github.com/popcorn-2/elf.git" }
 kernel_api = { version = "1.1.0", path = "../kernel_api", default-features = false }
 
+[build-dependencies]
+chrono = "0.4.45"
+
 [lints]
 workspace = true
