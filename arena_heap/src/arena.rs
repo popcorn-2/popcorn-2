@@ -10,8 +10,8 @@ use kernel_api::memory::asan::{asan_free_range, set_shadow_heap_free, set_shadow
 use kernel_api::memory::{PAGE_SIZE, VirtualAddress};
 
 const GENERATION_FREE: usize = 0;
-#[cfg(feature = "generations")] const GENERATION_ALLOCATED: usize = 8;
-#[cfg(not(feature = "generations"))] const GENERATION_ALLOCATED: usize = 2;
+#[cfg(any(feature = "generations", kasan))] const GENERATION_ALLOCATED: usize = 8;
+#[cfg(not(any(feature = "generations", kasan)))] const GENERATION_ALLOCATED: usize = 2;
 
 #[cfg(test)]
 mod mock {
