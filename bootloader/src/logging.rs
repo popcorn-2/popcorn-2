@@ -1,5 +1,5 @@
 use core::fmt;
-use core::fmt::Write;
+use core::fmt::Write as _;
 use core::time::Duration;
 use log::{Level, LevelFilter, Log, Metadata, Record, SetLoggerError as SetLoggerErrorInner};
 use uefi::proto::console::text::{Color, Key};
@@ -26,6 +26,9 @@ impl fmt::Display for SetLoggerError {
 	}
 }
 
+/// # Errors
+///
+/// Returns an error if called more than once.
 pub fn init() -> Result<(), SetLoggerError> {
 	log::set_logger(&LOGGER)?;
 	#[cfg(debug_assertions)] log::set_max_level(LevelFilter::Debug);
@@ -37,21 +40,20 @@ pub fn init() -> Result<(), SetLoggerError> {
 }
 
 fn check_verbose_mode() {
-	const TIMEOUT: Duration = Duration::from_millis(2000);
+	const TIMEOUT: Duration = Duration::from_secs(2);
 	const SLEEP: Duration = Duration::from_millis(50);
 
+	// SAFETY: all ASCII chars are valid UCS-2
 	const CHAR16_VL: Char16 = unsafe { Char16::from_u16_unchecked(b'v' as u16) };
+	// SAFETY: all ASCII chars are valid UCS-2
 	const CHAR16_VU: Char16 = unsafe { Char16::from_u16_unchecked(b'V' as u16) };
 
 	println!("Press `V` to enable verbose mode");
 
 	let verbose_mode = system::with_stdin(|stdin| {
 		for _ in 0..TIMEOUT.div_duration_ceil(SLEEP) {
-			if let Ok(Some(key)) = stdin.read_key() {
-				match key {
-					Key::Printable(CHAR16_VL | CHAR16_VU) => return true,
-					_ => {},
-				}
+			if let Ok(Some(Key::Printable(CHAR16_VL | CHAR16_VU))) = stdin.read_key() {
+				return true;
 			}
 			boot::stall(SLEEP);
 		}
@@ -83,7 +85,7 @@ impl Log for Logger {
 				let _ = write!(stdout, "{}: ", record.level());
 
 				if let Some(file) = record.file() && let Some(line) = record.line() {
-					let _ = write!(stdout, "{}:{} - ", file, line);
+					let _ = write!(stdout, "{file}:{line} - ");
 				}
 			}
 

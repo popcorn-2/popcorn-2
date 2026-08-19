@@ -10,10 +10,18 @@ use kernel_api::mapping::Ty;
 use kernel_api::memory::RawFrame;
 use utils::handoff::ColorMask;
 
+/// # Errors
+///
+/// Returns any errors from the firmware, or if memory mapping failed.
+///
+/// # Panics
+///
+/// If an unsupported framebuffer type is used by the system.
 pub fn map_framebuffer(mapper: &mut Mapper) -> Result<handoff::Framebuffer, Box<dyn Error>> {
 	debug!("mapping framebuffer");
 
 	let handle = boot::get_handle_for_protocol::<GraphicsOutput>()?;
+	// SAFETY: framebuffer shouldn't disappear while system is running?
 	let mut gop = unsafe { boot::open_protocol::<GraphicsOutput>(
 		OpenProtocolParams {
 			handle,

@@ -8,6 +8,8 @@
 #![no_main]
 #![no_std]
 
+#![expect(clippy::cast_possible_truncation, reason = "needs thought and rework of dependencies")]
+
 extern crate alloc;
 
 use alloc::boxed::Box;
@@ -20,7 +22,7 @@ use core::time::Duration;
 use log::{debug, error, info};
 use uefi::{entry, println, Status, boot, system};
 use uefi::boot::MemoryType;
-use uefi::mem::memory_map::{MemoryMap, MemoryMapMut};
+use uefi::mem::memory_map::{MemoryMap as _, MemoryMapMut as _, MemoryMapOwned};
 use uefi::table::cfg::ConfigTableEntry;
 use kernel_api::mapping::Ty;
 use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
@@ -38,7 +40,7 @@ fn bootloader_entry() -> Status {
     let error = main().expect_err("Ok path will never return");
     error!("{error}");
     for source in error.sources() {
-        error!(target: "<continuation>", "Caused by: {}", source);
+        error!(target: "<continuation>", "Caused by: {source}");
     }
 
 	debug!("{error:?}");
@@ -48,13 +50,20 @@ fn bootloader_entry() -> Status {
     Status::ABORTED
 }
 
+/// # Errors
+///
+/// Returns an error for any failure that prevented the kernel from starting.
+///
+/// # Panics
+///
+/// If the system environment or firmware prevents a boot finishing.
 fn main() -> Result<Infallible, Box<dyn Error>> {
     println!("Loading popcorn2...");
 
 	logging::init()?;
 
 	let mut rootfs = fs::locate_rootfs()?;
-	let version = fs::find_latest_kernel(&mut *rootfs)?;
+	let version = fs::find_latest_kernel(&mut rootfs)?;
 	info!("Booting kernel {version}");
 	let kernel = fs::unpack_kernel(rootfs, version)?;
 	let mut mapper = Mapper::try_new(kernel)?;
@@ -77,7 +86,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	) {
 		// fixme: conversion
 		let base = RawFrame::new(entry.phys_start as usize);
-		mapper.new_mapping(
+		let _ = mapper.new_mapping(
 			Some(base),
 			Some(base.to_virtual().align_down_to_page()),
 			entry.page_count as usize,
@@ -93,7 +102,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 		// fixme: conversion
 		let base = RawFrame::new(entry.phys_start as usize);
 		let base_virt = RawPage::new(entry.phys_start as usize);
-		mapper.new_mapping(
+		let _ = mapper.new_mapping(
 			Some(base),
 			Some(base_virt),
 			entry.page_count as usize,
@@ -107,10 +116,11 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	let (page_table, entry, stack, lowest_used, used_frames) = mapper.finalize();
 
 	let rsdp = system::with_config_table(|config_tables| {
+		#[expect(clippy::option_if_let_else, reason = "more easily readable")]
 		if let Some(xsdp) = config_tables.iter().find(|table| table.guid == ConfigTableEntry::ACPI2_GUID) {
-			PhysicalAddress::new(xsdp.address as usize)
+			PhysicalAddress::new(xsdp.address.addr())
 		} else if let Some(rsdp) = config_tables.iter().find(|table| table.guid == ConfigTableEntry::ACPI_GUID) {
-			PhysicalAddress::new(rsdp.address as usize)
+			PhysicalAddress::new(rsdp.address.addr())
 		} else {
 			panic!("No RSDP found");
 		}
@@ -131,23 +141,50 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 		ramdisk: &[],
 	};
 
+	// SAFETY: only actions that happen after exiting boot services are switching
+	//  page tables and jumping to kernel
+	let map = unsafe { boot::exit_boot_services(None) };
+	// SAFETY: boot services just exited
+	handoff.memory.map = unsafe { convert_mem_map(map, used_frames) };
+
+	// SAFETY: all bootloader data is mapped to same location
+	unsafe { page_table.switch() };
+	arch::handover(entry, *(stack.bottom_virt + stack.page_count), &raw const handoff)
+}
+
+// When exiting boot services, the firmware generates a final meomry map.
+// This needs converting to pass to the kernel, but we can't allocate any
+// new memory since boot services has been exited.
+// As long as each kernel entry is smaller than each UEFI entry, the UEFI buffer
+// is suitably aligned for kernel entries, and we work from one end to the other,
+// never reading the section we've already replaced, then the entire memory map
+// can be converted in place.
+/// # Safety
+///
+/// This must only be called after boot services has been exited.
+unsafe fn convert_mem_map(mut map: MemoryMapOwned, kernel_frames: &[RawFrame]) -> &'static [handoff::MemoryMapEntry] {
 	const {
 		// check that it's valid to overwrite the array in-place
-		assert!(size_of::<handoff::MemoryMapEntry>() <= size_of::<boot::MemoryDescriptor>());
-		assert!(align_of::<handoff::MemoryMapEntry>() <= align_of::<boot::MemoryDescriptor>());
+		assert!(size_of::<handoff::MemoryMapEntry>() <= size_of::<boot::MemoryDescriptor>(), "UEFI descriptor too small");
+		assert!(align_of::<handoff::MemoryMapEntry>() <= align_of::<boot::MemoryDescriptor>(), "buffer too low alignment");
 	}
 
-	let mut map = unsafe { boot::exit_boot_services(None) };
 	map.sort();
+
 	let len = map.len();
+	// SAFETY: `map` is only accessed through `buffer`
 	let mut buffer = unsafe { map.buffer_mut() };
+	#[expect(clippy::cast_ptr_alignment, reason = "buffer was allocated as aligned by firmware")]
+	let buffer_start = buffer.as_ptr().cast::<boot::MemoryDescriptor>();
+
 	for i in 0..len {
-		let entry = unsafe { &*buffer.as_ptr().cast::<boot::MemoryDescriptor>().add(i) };
+		// SAFETY: `buffer` is large enough to hold `len` elements of `boot::MemoryDescriptor`
+		let entry = unsafe { &*buffer_start.add(i) };
 		let start = PhysicalAddress::new(entry.phys_start as usize);
 		let entry = handoff::MemoryMapEntry {
 			coverage: Range { start, end: start + entry.page_count as usize },
 			ty: match entry.ty {
-				_ if used_frames.contains(&RawFrame::new(entry.phys_start as usize)) => handoff::MemoryType::KernelData,
+				_ if kernel_frames.contains(&RawFrame::new(entry.phys_start as usize)) => handoff::MemoryType::KernelData,
 				MemoryType::CONVENTIONAL |
 				MemoryType::BOOT_SERVICES_CODE |
 				MemoryType::BOOT_SERVICES_DATA |
@@ -161,19 +198,23 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 				_ => handoff::MemoryType::Reserved
 			}
 		};
-		unsafe { buffer.as_mut_ptr().cast::<handoff::MemoryMapEntry>().write(entry) };
+
+		// SAFETY: pointer was acquired from a mut reference
+		unsafe {
+			#[expect(clippy::cast_ptr_alignment, reason = "manually checked alignment")]
+			buffer.as_mut_ptr().cast::<handoff::MemoryMapEntry>().write(entry);
+		}
 		buffer = &mut buffer[size_of::<handoff::MemoryMapEntry>()..];
 	}
 
-	handoff.memory.map = unsafe {
+	// SAFETY: creating from data we just initialised, and boot services has been exited
+	//  so the buffer is leaked and therefore 'static
+	unsafe {
 		slice::from_raw_parts(
-			buffer.as_ptr().cast::<handoff::MemoryMapEntry>(),
+			buffer_start.cast::<handoff::MemoryMapEntry>(),
 			len,
 		)
-	};
-
-	page_table.switch();
-	arch::handover(entry, *(stack.bottom_virt + stack.page_count), &handoff)
+	}
 }
 
 #[panic_handler]
@@ -208,7 +249,7 @@ mod paging_reasons {
 	use elf::segment::{Flags, Type};
 	use kernel_api::mapping::Ty;
 
-	pub fn kernel_seg_to_mapping_ty(ty: Type, flags: Flags) -> Ty {
+	pub const fn kernel_seg_to_mapping_ty(ty: Type, flags: Flags) -> Ty {
 		match ty {
             Type::LOAD if flags.contains(Flags::Executable) => Ty::KERNEL_CODE,
             Type::LOAD => Ty::KERNEL_DATA,

@@ -13,7 +13,7 @@ use uefi::proto::device_path::{DevicePath, DeviceSubType, DeviceType};
 use uefi::proto::media::file::{FileAttribute, FileMode};
 use uefi::proto::media::partition::{GptPartitionType, PartitionInfo};
 use uefi::proto::media::fs::SimpleFileSystem;
-use uefi::proto::media::file::File;
+use uefi::proto::media::file::File as _;
 
 const ROOTFS_GUID: Guid = cfg_select! {
 	target_arch = "x86_64" => guid!("8A6CC16C-D110-46F1-813F-0382046342C8"),
@@ -34,8 +34,8 @@ impl From<Status> for RootfsError {
 impl fmt::Display for RootfsError {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
-			Self::UefiError(status) => write!(f, "UEFI error: {}", status),
-			Self::LocateDiskError(status) => write!(f, "locate disk error: {}", status),
+			Self::UefiError(status) => write!(f, "UEFI error: {status}"),
+			Self::LocateDiskError(status) => write!(f, "locate disk error: {status}"),
 		}
 	}
 }
@@ -43,18 +43,20 @@ impl fmt::Display for RootfsError {
 impl Error for RootfsError {
 	fn source(&self) -> Option<&(dyn Error + 'static)> {
 		match self {
-			Self::UefiError(status) => Some(status),
-			Self::LocateDiskError(status) => Some(status),
+			Self::UefiError(status) | Self::LocateDiskError(status) => Some(status),
 		}
 	}
 }
 
+/// # Errors
+///
+/// Returns any errors from the firmware.
 pub fn locate_rootfs() -> Result<ScopedProtocol<SimpleFileSystem>, Box<dyn Error>> {
 	let disk = locate_kernel_disk()?;
 	let filesystems = boot::locate_handle_buffer(SearchType::from_proto::<SimpleFileSystem>())?;
 
 	// filter filesystems to the same disk as we're booted from
-	let filesystems = filesystems.into_iter()
+	let filesystems = filesystems.iter()
 		.inspect(|handle| {
 			if let Ok(path) = boot::open_protocol_exclusive::<DevicePath>(**handle) {
 				debug!("found FS at {}", &*path);
@@ -62,7 +64,7 @@ pub fn locate_rootfs() -> Result<ScopedProtocol<SimpleFileSystem>, Box<dyn Error
 		})
 		.filter_map(|handle| {
 			let Ok(device_path) = boot::open_protocol_exclusive::<DevicePath>(*handle) else { return None; };
-			is_same_disk(&*disk, &*device_path).then(|| (device_path, handle))
+			is_same_disk(&disk, &device_path).then_some((device_path, handle))
 		});
 
 	// find a partition with the correct GUID for the rootfs
@@ -70,21 +72,21 @@ pub fn locate_rootfs() -> Result<ScopedProtocol<SimpleFileSystem>, Box<dyn Error
 		let Ok(partition) = boot::locate_device_path::<PartitionInfo>(&mut &**device_path) else { return false; };
 		let Ok(partition) = boot::open_protocol_exclusive::<PartitionInfo>(partition) else { return false; };
 
-		if let Some(entry) = partition.gpt_partition_entry() {
+		partition.gpt_partition_entry().is_some_and(|entry| {
 			let ty = entry.partition_type_guid;
 			ty == GptPartitionType(ROOTFS_GUID)
-		} else { false }
+		})
 	});
 
 	let (path, handle) = filesystems.next().ok_or(uefi::Error::new(Status::NOT_FOUND, ()))?;
 	info!("booting from {}", &*path);
-	for (path, _) in filesystems {
-		debug!("also found {}", &*path);
-	}
 
 	Ok(boot::open_protocol_exclusive::<SimpleFileSystem>(*handle)?)
 }
 
+/// # Errors
+///
+/// Returns an error if the boot drive could not be detected.
 fn locate_kernel_disk() -> Result<ScopedProtocol<DevicePath>, RootfsError> {
 	let image = boot::image_handle();
 	let image = boot::open_protocol_exclusive::<LoadedImage>(image).map_err(RootfsError::LocateDiskError)?;
@@ -94,9 +96,10 @@ fn locate_kernel_disk() -> Result<ScopedProtocol<DevicePath>, RootfsError> {
 }
 
 fn is_same_disk(lhs: &DevicePath, rhs: &DevicePath) -> bool {
-	let mut paths = zip(lhs.node_iter(), rhs.node_iter());
+	let paths = zip(lhs.node_iter(), rhs.node_iter());
 
-	while let Some((lhs, rhs)) = paths.next() {
+	#[expect(clippy::shadow_unrelated, reason = "false positive")]
+	for (lhs, rhs) in paths {
 		if lhs.device_type() == DeviceType::MEDIA && lhs.sub_type() == DeviceSubType::MEDIA_HARD_DRIVE {
 			// reached a partition but have matched so far so must be on same disk
 			return true;
@@ -119,12 +122,16 @@ pub enum ParseVersionError {
 
 impl fmt::Display for ParseVersionError {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "invalid kernel version")
+		match self {
+			Self::InvalidChar(char) => write!(f, "invalid kernel version: found char `{char}`"),
+			Self::NotEnoughSegments(left) => write!(f, "invalid kernel version: missing {left} segmentss"),
+		}
 	}
 }
 
-impl core::error::Error for ParseVersionError {}
+impl Error for ParseVersionError {}
 
+#[derive(Debug, Copy, Clone)]
 pub struct KernelVersion {
 	major: u32,
 	minor: u32,
@@ -139,9 +146,13 @@ impl fmt::Display for KernelVersion {
 
 pub struct KernelFiles {
 	pub kernel: Vec<u8>,
+	#[expect(unused, reason = "not supported yet")]
 	pub symbol_map: Option<Vec<u8>>,
 }
 
+/// # Errors
+///
+/// Returns an error if the string contained an invalid kernel filename.
 fn parse_kernel_version(from: &CStr16) -> Result<KernelVersion, ParseVersionError> {
 	let mut version = KernelVersion {
 		major: 0,
@@ -152,15 +163,15 @@ fn parse_kernel_version(from: &CStr16) -> Result<KernelVersion, ParseVersionErro
 
 	// skip `kernel-` portion
 	let iter = from.iter().skip(7).copied().map(char::from);
-	for c in iter {
-		if let Some(digit) = c.to_digit(10) {
+	for char in iter {
+		if let Some(digit) = char.to_digit(10) {
 			*targets[0] *= 10;
 			*targets[0] += digit;
-		} else if c == '.' {
+		} else if char == '.' {
 			if targets.len() == 1 { break; }
-			else { targets = &mut targets[1..]; }
+			targets = &mut targets[1..];
 		} else {
-			return Err(ParseVersionError::InvalidChar(c));
+			return Err(ParseVersionError::InvalidChar(char));
 		}
 	}
 
@@ -169,7 +180,10 @@ fn parse_kernel_version(from: &CStr16) -> Result<KernelVersion, ParseVersionErro
 	Ok(version)
 }
 
-pub fn find_latest_kernel(fs: &mut SimpleFileSystem) -> Result<KernelVersion, Box<dyn core::error::Error>> {
+/// # Errors
+///
+/// Returns firmware errors if file access failed, or the filesystem layout is invalid.
+pub fn find_latest_kernel(fs: &mut SimpleFileSystem) -> Result<KernelVersion, Box<dyn Error>> {
 	let mut root_dir = fs.open_volume()?;
 	let system_dir = root_dir.open(
 		cstr16!("System\\kernel"),
@@ -185,20 +199,24 @@ pub fn find_latest_kernel(fs: &mut SimpleFileSystem) -> Result<KernelVersion, Bo
 			debug!("found file: {}", file.file_name());
 
 			let iter = file.file_name().iter();
-			if iter.copied().map(char::from).zip("kernel-".chars()).all(|(a, b)| a == b) {
+			if iter.copied().map(char::from).zip("kernel-".chars()).all(|(lhs, rhs)| lhs == rhs) {
 				debug!("found potential kernel at {}", file.file_name());
 				let version = parse_kernel_version(file.file_name())?;
 				debug!("parsed version: {version}");
 				break 'kernel_bin version;
 			}
 		}
-		panic!("no kernel file found");
+
+		return Err(uefi::Error::new(Status::NOT_FOUND, ()).into());
 	};
 
 	Ok(version)
 }
 
-pub fn unpack_kernel(fs: ScopedProtocol<SimpleFileSystem>, version: KernelVersion) -> Result<KernelFiles, Box<dyn core::error::Error>> {
+/// # Errors
+///
+/// Returns firmware errors if file access failed.
+pub fn unpack_kernel(fs: ScopedProtocol<SimpleFileSystem>, version: KernelVersion) -> Result<KernelFiles, Box<dyn Error>> {
 	let kernel_path = {
 		let path = format!("System\\kernel\\kernel-{version}.exec");
 		CString16::try_from(&*path)?

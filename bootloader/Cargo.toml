@@ -12,3 +12,6 @@ uefi = { version = "0.39.0", default-features = false, features = ["alloc", "glo
 utils = { path = "../utils" }
 elf = { git = "https://github.com/popcorn-2/elf.git" }
 kernel_api = { version = "1.1.0", path = "../kernel_api", default-features = false }
+
+[lints]
+workspace = true
