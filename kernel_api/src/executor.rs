@@ -25,7 +25,7 @@ impl Wake for ThreadMeta {
 pub fn block_on<T, F: Future<Output = T>>(f: F) -> T {
 	let mut f = pin!(f);
 
-	let val = loop {
+	loop {
 		let waker = {
 			let mut meta = MaybeUninit::<Arc<ThreadMeta>>::uninit();
 			crate::bridge::threading::with_current_thread(meta.as_mut_ptr().cast(), |meta, ptr| {
@@ -62,9 +62,7 @@ pub fn block_on<T, F: Future<Output = T>>(f: F) -> T {
 				crate::bridge::executor::yield_from_async_block();
 			}
 		}
-	};
-
-	val
+	}
 }
 
 /// Spawns a future on the kernel's async executor

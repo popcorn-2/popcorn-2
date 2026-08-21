@@ -94,6 +94,9 @@ impl<T> Receiver<T> {
 
 	/// The number of items available to pop from the channel
 	pub fn len(&self) -> usize { self.inner.queue.len() }
+
+	/// Returns `true` if there are no items in the channel.
+	pub fn is_empty(&self) -> bool { self.inner.queue.is_empty() }
 }
 
 impl<T> Debug for Sender<T> {

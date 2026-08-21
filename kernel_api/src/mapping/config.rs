@@ -111,6 +111,15 @@ mod full {
 	}
 
 	#[derive(Debug)]
+	#[non_exhaustive]
+	pub struct MappingMeta<T: DerefMut<Target = Mapping<Box<dyn Mappable + Send>, Userspace>>> {
+		/// A key to access the mapping in future.
+		pub key: MappingKey,
+		/// An accessor to modify the mapping.
+		pub mapping: T,
+	}
+
+	#[derive(Debug)]
 	pub struct Config {
 		physical_location: Location<RawFrame>,
 		virtual_location: Location<RawPage>,
@@ -192,7 +201,8 @@ mod full {
 		}*/
 
 		//#[cfg(not(feature = "use_std"))]
-		pub fn map_in<'a, R: Mappable + Default + Send + 'static>(self, name: Cow<'static, str>, address_space: &'a AddressSpace) -> Result<(MappingKey, impl DerefMut<Target = Mapping<Box<dyn Mappable + Send>, Userspace>> + 'a), AllocError> {
+		#[expect(clippy::type_complexity, reason = "cannot simplify further")]
+		pub fn map_in<'a, R: Mappable + Default + Send + 'static>(self, name: Cow<'static, str>, address_space: &'a AddressSpace) -> Result<MappingMeta<impl DerefMut<Target = Mapping<Box<dyn Mappable + Send>, Userspace>> + 'a>, AllocError> {
 			trace!("create mmap({}) with {self:#?}", core::any::type_name::<R>());
 			let userspace = Userspace {
 				inner: AddressSpace::clone(address_space),
@@ -209,7 +219,8 @@ mod full {
 				protection: map.protection,
 			};
 
-			Ok(address_space.push_mapping(name, map))
+			let (key, mapping) = address_space.push_mapping(name, map);
+			Ok(MappingMeta { key, mapping })
 		}
 
 		//#[cfg(not(feature = "use_std"))]
@@ -225,7 +236,7 @@ mod full {
 					(frames.base(), Backing::Contiguous(frames))
 				},
 				(AllocatorTy::Pmm(allocator), Location::Any) => {
-					let mut frames = allocator.allocate(self.page_count)?;
+					let frames = allocator.allocate(self.page_count)?;
 					(frames.base(), Backing::Contiguous(frames))
 				},
 				(AllocatorTy::Vmo(vmo), _) => {
@@ -274,7 +285,7 @@ mod full {
 				physical_location: Location::Any,
 				virtual_location: Location::Any,
 				page_count,
-				physical_allocator: AllocatorTy::Pmm(DynPmm::from(highmem()).into()),
+				physical_allocator: AllocatorTy::Pmm(highmem().into()),
 				protection: Protection::new(),
 				caching: Caching::new(),
 				reason: ty,

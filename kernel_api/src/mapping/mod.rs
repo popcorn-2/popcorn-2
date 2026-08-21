@@ -12,7 +12,7 @@ mod full {
 	use alloc::sync::Arc;
 	use super::*;
 	use core::fmt::{Debug, Formatter};
-	use crate::{address_space, dbg};
+	use crate::address_space;
 	use core::mem::ManuallyDrop;
 	use core::num::NonZero;
 	use core::ops::Range;
@@ -114,6 +114,15 @@ mod full {
 			self.as_ptr_range().start
 		}
 
+		/// # Safety
+		///
+		/// A section of virtual memory starting at `base_page` must be allocation by the kernel global virtual allocator.
+		/// This section must be equal in length to `R::virtual_size(frames.count())`.
+		/// The section of virtual memory from `base_page + R::base_virtual_offset()` must be contiguously mapped to the
+		/// physical memory owned by `frames`, with the cache and protection attributes given in `caching` and `protection`.
+		///
+		/// These requirements are always upheld by the return values of [`into_raw_parts`]. Other mapping sources are
+		/// allowed if all the invariants are upheld.
 		//#[cfg(not(feature = "use_std"))]
 		pub unsafe fn from_raw_parts<const RAM: bool, T>(
 			frames: Frames<RAM, T>,
@@ -186,11 +195,6 @@ mod full {
 			                      )?;
 
 			debug!("growing mmap({})", core::any::type_name::<R>());
-			let _ = dbg!(self.virtual_start);
-			let _ = dbg!(self.virtual_valid_start());
-			let _ = dbg!(self.page_len());
-			let _ = dbg!(extra_length);
-			let _ = dbg!(self.raw.virtual_size(self.page_len()));
 
 			match self.address_space.map_contiguous(
 				self.virtual_valid_start() + self.page_len(),
@@ -278,7 +282,7 @@ mod full {
 
 			match unsafe { ManuallyDrop::take(&mut self.backing) } {
 				Backing::Contiguous(frames) => drop(frames),
-				Backing::Discontiguous { pmm, frame_count } => {
+				Backing::Discontiguous { .. } => {
 					warn!("ignoring discontiguous page drop");
 				}
 				Backing::Vmo { handle, .. } => drop(handle),

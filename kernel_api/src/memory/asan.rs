@@ -11,13 +11,13 @@
 //! - `0xfb`: Heap right redzone - memory just after a heap allocation
 //! - `0xfc`: Heap headers - memory used by heap internals
 //! - `0xfd`: Freed heap memory - heap memory that has recently been deallocated, and is currently
-//!                               in a quarantine period
+//!   in a quarantine period
 //! - `0xf1`: Stack left redzone - memory just before a stack allocation
 //! - `0xf2`: Stack mid redzone - memory between two stack allocations
 //! - `0xf3`: Stack right redzone - memory just after a stack allocation
 //! - `0xf4`: Stack guard page - the page of unmapped memory below the stack to catch stack overflows
 //! - `0xf5`: Stack after return - the stack frame of a function that has already returned, used to
-//!                                catch dangling references returned by a function
+//!   catch dangling references returned by a function
 //! - `0xf8`: Stack use after scope - a stack slot in the current function but is now out of scope
 //! - `0xf9`: Global redzone - memory around global variables
 //! - `0xc0`: Freed virtual memory - memory that has just been deallocated by a [`Vmm`](crate::allocator::Vmm)
@@ -162,7 +162,7 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 		let _ = writeln!(&mut writer, "Shadow bytes around the buggy address:");
 
 		for i in dump_start..=dump_end {
-			if (i - dump_start) % 16 == 0 {
+			if (i - dump_start).is_multiple_of(16) {
 				let _ = write!(&mut writer, "  0x{:016x}:", i);
 			}
 			let byte = read_shadow_map_raw(i - SHADOW_MAP_START);
@@ -173,7 +173,7 @@ Shadow byte legend (one shadow byte represents 8 kernel bytes):
 				let _ = write!(&mut writer, " {:02x}", byte);
 			}
 
-			if (i - dump_start + 1) % 16 == 0 {
+			if (i - dump_start).is_multiple_of(16) {
 				let _ = writeln!(&mut writer);
 			}
 		}

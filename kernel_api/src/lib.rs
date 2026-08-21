@@ -11,12 +11,12 @@
 #![feature(const_convert)]
 #![feature(const_ops)]
 #![feature(const_option_ops)]
+#![feature(integer_widen_truncate)]
+#![cfg_attr(doc, feature(rustdoc_missing_doc_code_examples))]
 
 #![cfg_attr(target_has_atomic_load_store = "128", feature(integer_atomics))]
 
 #![cfg_attr(feature = "full", feature(type_changing_struct_update))]
-#![cfg_attr(feature = "full", feature(never_type))]
-#![cfg_attr(feature = "full", feature(debug_closure_helpers))]
 #![cfg_attr(feature = "full", feature(unsize))]
 #![cfg_attr(feature = "full", feature(dispatch_from_dyn))]
 #![cfg_attr(feature = "full", feature(coerce_unsized))]
@@ -27,6 +27,9 @@
 #![cfg_attr(feature = "full", feature(sanitize))]
 #![cfg_attr(feature = "full", feature(negative_impls))]
 #![cfg_attr(feature = "full", feature(decl_macro))]
+#![cfg_attr(feature = "full", feature(never_type))]
+#![cfg_attr(feature = "full", feature(debug_closure_helpers))]
+#![cfg_attr(feature = "full", feature(const_default))]
 
 #![allow(type_alias_bounds)]
 
@@ -73,6 +76,9 @@ pub mod channel;
 #[cfg(feature = "full")]
 pub mod modules;
 
+pub mod num;
+
+#[cfg(feature = "full")]
 mod sealed {
     pub trait Sealed {}
 }

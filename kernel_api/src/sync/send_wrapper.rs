@@ -1,5 +1,4 @@
 use core::mem::{ManuallyDrop, MaybeUninit};
-use core::ptr::addr_of_mut;
 use crate::address_space::WeakAddressSpace;
 
 #[derive(Debug)]
@@ -27,11 +26,12 @@ impl<T> SendWrapper<T> {
 		this.into_inner_helper()
 	}
 
+	#[expect(clippy::wrong_self_convention, reason = "needs to be callable from drop impl")]
 	fn into_inner_helper(&mut self) -> T {
 		let weak = unsafe { ManuallyDrop::take(&mut self.address_space) };
 		let is_current = MaybeUninit::<bool>::uninit();
 		let mut payload = (weak, is_current);
-		crate::bridge::threading::with_current_thread(addr_of_mut!(payload).cast(), |meta, payload| {
+		crate::bridge::threading::with_current_thread((&raw mut payload).cast(), |meta, payload| {
 			let payload = unsafe { &mut *payload.cast::<(WeakAddressSpace, MaybeUninit<bool>)>() };
 			let is_current = WeakAddressSpace::ptr_eq(&payload.0, &meta.address_space);
 			payload.1.write(is_current);

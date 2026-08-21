@@ -45,3 +45,6 @@ junit_test_out = []
 preemptive = []
 "log.scheduler" = []
 kasan = [ "unwinding/kasan", "kernel_api/kasan", "linked_list_allocator/kasan", "arena_heap/kasan" ]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kernel_version, values("0.1.0"))', 'cfg(kasan, values(none()))'] }

@@ -13,13 +13,14 @@ use core::mem::ManuallyDrop;
 use core::ops::{Deref, DerefMut};
 use core::ptr;
 use core::ptr::DynMetadata;
-use core::sync::atomic::{AtomicU128, Ordering};
+use core::sync::atomic::Ordering;
 use crate::allocator::Vmm;
 use crate::mapping::{Caching, MapPageError, Mappable, Mapping, Protection};
 use crate::memory::{RawFrame, RawPage};
 use crate::sync::RwReadGuard;
 
 #[cfg(debug_assertions)] use core::sync::atomic::AtomicBool;
+use crate::num::{ufat, AtomicUfat};
 
 // this an Arc around `kernel::memory::virtual::AddressSpaceInner`
 // we could also use an extern type here instead of `dyn Any` but that
@@ -32,7 +33,7 @@ pub(crate) struct WeakAddressSpace(Weak<dyn Any + Send + Sync>);
 
 pub struct AddressSpace {
 	#[doc(hidden)]
-	pub __ptr: AtomicU128,
+	pub __ptr: AtomicUfat,
 	#[cfg(debug_assertions)] personality: AtomicBool,
 }
 
@@ -41,7 +42,7 @@ impl AddressSpace {
 	pub fn __new(address_space: Arc<dyn Any + Send + Sync>) -> Self {
 		let ptr = Arc::into_raw(address_space);
 		AddressSpace {
-			__ptr: AtomicU128::new(Self::convert_u128(ptr)),
+			__ptr: AtomicUfat::new(Self::convert_ufat(ptr)),
 			#[cfg(debug_assertions)] personality: AtomicBool::new(false),
 		}
 	}
@@ -52,23 +53,20 @@ impl AddressSpace {
 		let strong = unsafe { Arc::from_raw(ptr) };
 		WeakAddressSpace(Arc::downgrade(&strong))
 	}
-	
-	pub(crate) fn as_ptr(&self) -> *const () {
-		self.__extract_ptr(Ordering::SeqCst)
-				.to_raw_parts().0
-	}
 
-	fn convert_u128(ptr: *const (dyn Any + Send + Sync)) -> u128 {
+	fn convert_ufat(ptr: *const (dyn Any + Send + Sync)) -> ufat {
 		let (ptr, meta) = ptr.to_raw_parts();
-		let val = (ptr.expose_provenance() as u128) << 64 | unsafe { core::mem::transmute::<_, usize>(meta) } as u128;
-		val
+		ufat::new(
+			ptr.expose_provenance(),
+			unsafe { core::mem::transmute::<DynMetadata<dyn Any + Send + Sync>, usize>(meta) }
+		)
 	}
 
 	#[doc(hidden)]
 	pub fn __extract_ptr(&self, ordering: Ordering) -> *const (dyn Any + Send + Sync) {
 		let val = self.__ptr.load(ordering);
-		let meta = unsafe { core::mem::transmute::<_, DynMetadata<dyn Any + Send + Sync>>(val as usize) };
-		let ptr = ptr::with_exposed_provenance::<()>((val >> 64) as usize);
+		let meta = unsafe { core::mem::transmute::<usize, DynMetadata<dyn Any + Send + Sync>>(val.lower()) };
+		let ptr = ptr::with_exposed_provenance::<()>(val.upper());
 		ptr::from_raw_parts(ptr, meta)
 	}
 
@@ -113,13 +111,16 @@ impl AddressSpace {
 		this.__ptr.load(Ordering::Relaxed) == other.__ptr.load(Ordering::Relaxed)
 	}
 
+	/// # Safety
+	///
+	/// Must not execute simultaneously with any other methods being called on `self`.
 	pub unsafe fn swap(&self, other: AddressSpace, ordering: Ordering) -> AddressSpace {
 		let _guard = self.__assert_in_use();
 		let other = ManuallyDrop::new(other);
 		let other = other.__ptr.load(ordering);
 		let old = self.__ptr.swap(other, ordering);
 		AddressSpace {
-			__ptr: AtomicU128::new(old),
+			__ptr: AtomicUfat::new(old),
 			#[cfg(debug_assertions)] personality: AtomicBool::new(false),
 		}
 	}
@@ -131,7 +132,7 @@ impl Clone for AddressSpace {
 		let ptr = self.__extract_ptr(Ordering::SeqCst);
 		unsafe { Arc::increment_strong_count(ptr) };
 		Self {
-			__ptr: AtomicU128::new(Self::convert_u128(ptr)),
+			__ptr: AtomicUfat::new(Self::convert_ufat(ptr)),
 			#[cfg(debug_assertions)] personality: AtomicBool::new(false),
 		}
 	}
@@ -159,7 +160,7 @@ pub trait Ty: crate::sealed::Sealed {
 impl WeakAddressSpace {
 	pub fn ptr_eq(this: &Self, other: &AddressSpace) -> bool {
 		let val = this.0.as_ptr();
-		AddressSpace::convert_u128(val) == other.__ptr.load(Ordering::Relaxed)
+		AddressSpace::convert_ufat(val) == other.__ptr.load(Ordering::Relaxed)
 	}
 }
 

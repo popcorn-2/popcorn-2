@@ -177,7 +177,8 @@ unsafe impl lock_api::RawRwLockUpgrade for RwCount {
     }
 
     unsafe fn upgrade(&self) {
-        while !self.try_upgrade() {
+        // SAFETY: `RawRwLockUpgrade::upgrade()` and `RawRwLockUpgrade::try_upgrade()` have same safety requirements
+        while unsafe { !self.try_upgrade() } {
             core::hint::spin_loop();
         }
     }

@@ -1,6 +1,5 @@
 use core::marker::PhantomData;
 use core::num::NonZero;
-use core::ptr::addr_of;
 use crate::memory::{Frames, RawFrame};
 use crate::sync::RwSpinlock;
 use crate::allocator::AllocError;
@@ -93,7 +92,7 @@ pub unsafe trait Pmm<const RAM_ONLY: bool>: Sync + Sized { // todo: can we remov
 	unsafe fn deallocate_raw(&self, base: RawFrame, count: NonZero<usize>);
 }
 
-unsafe impl<'a, const RAM_ONLY: bool, T: Pmm<RAM_ONLY> + ?Sized> Pmm<RAM_ONLY> for &'a T {
+unsafe impl<const RAM_ONLY: bool, T: Pmm<RAM_ONLY>> Pmm<RAM_ONLY> for &T {
 	fn allocate_one_raw(&self) -> Result<RawFrame, AllocError> {
 		(**self).allocate_one_raw()
 	}
@@ -107,7 +106,7 @@ unsafe impl<'a, const RAM_ONLY: bool, T: Pmm<RAM_ONLY> + ?Sized> Pmm<RAM_ONLY> f
 	}
 
 	unsafe fn deallocate_raw(&self, base: RawFrame, count: NonZero<usize>) {
-		(**self).deallocate_raw(base, count)
+		unsafe { (**self).deallocate_raw(base, count) }
 	}
 }
 
@@ -133,9 +132,10 @@ unsafe impl Pmm<true> for GlobalAllocator {
 
 	#[inline]
 	unsafe fn deallocate_raw(&self, base: RawFrame, count: NonZero<usize>) {
-		self.__rwlock.read()
-		    .expect("no global Pmm")
-		    .deallocate_raw(base, count)
+		let pmm = self.__rwlock.read()
+		    .expect("no global Pmm");
+
+		unsafe { pmm.deallocate_raw(base, count) }
 	}
 }
 
@@ -155,12 +155,53 @@ unsafe impl<const RAM: bool> Send for DynPmm<'_, RAM> {}
 
 impl<'a, const RAM: bool, T: Pmm<RAM>> const From<&'a T> for DynPmm<'a, RAM> {
 	fn from(value: &'a T) -> Self {
+		/// # Safety
+		/// `this` must be valid to convert to a reference to `T`.
+		/// # Errors
+		/// See [`Pmm::allocate_raw_at`].
+		#[inline]
+		unsafe fn allocate_raw_at_shim<const RAM: bool, T: Pmm<RAM>>(this: *const (), at: RawFrame, count: NonZero<usize>) -> Result<RawFrame, AllocError> {
+			// SAFETY: `this` is valid to convert to ref to `T`, upheld by caller
+			T::allocate_raw_at(unsafe { &*this.cast() }, at, count)
+		}
+
+		/// # Safety
+		/// `this` must be valid to convert to a reference to `T`.
+		/// # Errors
+		/// See [`Pmm::allocate_one_raw`].
+		#[inline]
+		unsafe fn allocate_one_raw_shim<const RAM: bool, T: Pmm<RAM>>(this: *const ()) -> Result<RawFrame, AllocError> {
+			// SAFETY: `this` is valid to convert to ref to `T`, upheld by caller
+			T::allocate_one_raw(unsafe { &*this.cast() })
+		}
+
+		/// # Safety
+		/// `this` must be valid to convert to a reference to `T`.
+		/// # Errors
+		/// See [`Pmm::allocate_raw`].
+		#[inline]
+		unsafe fn allocate_raw_shim<const RAM: bool, T: Pmm<RAM>>(this: *const (), count: NonZero<usize>) -> Result<RawFrame, AllocError> {
+			// SAFETY: `this` is valid to convert to ref to `T`, upheld by caller
+			T::allocate_raw(unsafe { &*this.cast() }, count)
+		}
+
+		/// # Safety
+		/// `this` must be valid to convert to a reference to `T`, and all safety requirements of `Pmm::deallocate_raw`
+		/// must be upheld.
+		#[inline]
+		unsafe fn deallocate_raw_shim<const RAM: bool, T: Pmm<RAM>>(this: *const (), base: RawFrame, count: NonZero<usize>) {
+			// SAFETY: `this` is valid to convert to ref to `T`, upheld by caller
+			let this = unsafe { &*this.cast() };
+			// SAFETY: safety requirements of `deallocate_raw` upheld by caller
+			unsafe { T::deallocate_raw(this, base, count) }
+		}
+
 		DynPmm {
-			data: addr_of!(*value).cast(),
-			allocate_raw_at: unsafe { core::mem::transmute(T::allocate_raw_at as fn(_, _, _) -> _) },
-			allocate_one_raw: unsafe { core::mem::transmute(T::allocate_one_raw as fn(_) -> _) },
-			allocate_raw: unsafe { core::mem::transmute(T::allocate_raw as fn(_, _) -> _) },
-			deallocate_raw: unsafe { core::mem::transmute(T::deallocate_raw as unsafe fn(_, _, _)) },
+			data: core::ptr::from_ref(value).cast(),
+			allocate_raw_at: allocate_raw_at_shim::<RAM, T>,
+			allocate_one_raw: allocate_one_raw_shim::<RAM, T>,
+			allocate_raw: allocate_raw_shim::<RAM, T>,
+			deallocate_raw: deallocate_raw_shim::<RAM, T>,
 			_phantom: PhantomData,
 		}
 	}
