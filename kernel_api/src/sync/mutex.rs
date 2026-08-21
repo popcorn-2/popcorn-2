@@ -79,6 +79,10 @@ unsafe impl Send for RawSpinlock {}
 unsafe impl Sync for RawSpinlock {}
 
 impl RawSpinlock {
+	/// # Safety
+	///
+	/// This method may only be called if the mutex is held in the current context, i.e. it must
+	/// be paired with a successful call to [`lock`](`Self::lock`) or [`try_lock`](`Self::try_lock`).
     unsafe fn unlock_no_interrupts(&self) {
         let old_state = self.state.swap(State::Unlocked.into(), Ordering::Release);
         let old_state = State::try_from(old_state).expect("Spinlock in undefined state");
@@ -109,12 +113,12 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
         let irq_state = crate::bridge::irq::disable();
 
         let mut p = true;
-        while let Err(_) = self.state.compare_exchange_weak(
+        while self.state.compare_exchange_weak(
             State::Unlocked.into(),
             State::Locked.into(),
             Ordering::Acquire,
             Ordering::Relaxed
-        ) {
+        ).is_err() {
             core::hint::spin_loop();
             if p {
                 p = false;

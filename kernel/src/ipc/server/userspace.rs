@@ -4,7 +4,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 use slab::Slab;
 use kernel_api::{channel, dbg};
-use kernel_api::mapping::{Config, Mmap, Ty};
+use kernel_api::mapping::{Config, MappingMeta, Mmap, Ty};
 use kernel_api::memory::VirtualAddress;
 use kernel_api::ptr::{local_slice_from_raw_parts, LocalUser};
 use kernel_api::sync::Spinlock;
@@ -53,7 +53,7 @@ impl UserspaceServer {
 				let buffer_size = NonZero::new(buffer_size).expect("must have non-zero buffer size");
 				let buffer_size = buffer_size.div_ceil(NonZero::new(4096).unwrap());
 
-				let (mapping_key, mut buffer) = Config::new(buffer_size, Ty::USER_PACKET_BUFFER)
+				let MappingMeta { key, mapping: mut buffer, .. } = Config::new(buffer_size, Ty::USER_PACKET_BUFFER)
 						.protection(true, false, true)
 						.map_in::<Mmap>("[packet buffer]".into(), address_space)
 						.unwrap();
@@ -75,7 +75,7 @@ impl UserspaceServer {
 				*raw = RawPacket::Processing {
 					// serializer isn't actually used for `ctor` so just pass an invalid one that makes no allocation
 					serializer: Serializer::new(ServerId::INVALID, Box::from([])),
-					buffer: Some(mapping_key),
+					buffer: Some(key),
 				};
 
 				dbg!(Packet {
@@ -116,7 +116,7 @@ impl UserspaceServer {
 					match NonZero::new(buffer_size) {
 						None => (None, VirtualAddress::new(0)),
 						Some(buffer_size) => {
-							let (mapping_key, mut buffer) = Config::new(buffer_size, Ty::USER_PACKET_BUFFER)
+							let MappingMeta { key, mapping: mut buffer, .. } = Config::new(buffer_size, Ty::USER_PACKET_BUFFER)
 									.protection(true, false, true)
 									.map_in::<Mmap>("[packet buffer]".into(), address_space)
 									.unwrap();
@@ -125,7 +125,7 @@ impl UserspaceServer {
 								buffer.as_mut_ptr().copy_from_other_address_space(buffer_data.as_ptr().cast(), buffer_data.len()).unwrap();
 							}
 
-							(Some(mapping_key), buffer.as_ptr().addr())
+							(Some(key), buffer.as_ptr().addr())
 						}
 					}
 				};

@@ -10,7 +10,7 @@ use elf::{Endianness, Isa, Type, Width, FileHeader};
 use elf::segment::{Segment, Flags as SegmentFlags, Type as SegmentType};
 use kernel_api::address_space::AddressSpace;
 use kernel_api::executor::block_on;
-use kernel_api::mapping::{Caching, Config, Mmap, Stack, Ty, UnsafeMmap};
+use kernel_api::mapping::{Caching, Config, MappingMeta, Mmap, Stack, Ty, UnsafeMmap};
 use kernel_api::memory::{PAGE_SIZE, PhysicalAddress, VirtualAddress, RawPage};
 use kernel_api::sync::{OnceLock, Spinlock};
 use kernel_api::syscall;
@@ -108,15 +108,19 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 			Thread::Running(meta) => meta,
 		};
 
-		let (_, mapping) = Config::new(len, Ty::USER_MMAP)
-				.protection(true, false, true)
-				.map_in::<Mmap>("".into(), &thread.address_space)?;
+		let ret = {
+			let MappingMeta { mapping, ..} = Config::new(len, Ty::USER_MMAP)
+					.protection(true, false, true)
+					.map_in::<Mmap>("".into(), &thread.address_space)?;
 
-		let ret = mapping.as_ptr();
+			let ret = mapping.as_ptr();
+
+			Ok(ret.addr().as_ptr().cast_const())
+		};
 
 		debug!("{:?}", thread.address_space);
 
-		Ok(ret.addr().as_ptr().cast_const())
+		ret
 	}
 
 	fn unstable_anon_dealloc(&self, handle: isize, pointer: *const u8) -> impl Future<Output = Result<(), Error>> {
@@ -230,18 +234,22 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 			Thread::Running(meta) => meta,
 		};
 
-		let (_, mapping) = Config::new(len, Ty::USER_MMIO)
-				.physical_location(physical_addr.align_down_to_frame())
-				.with_allocator(&hal::acpi::Allocator)
-				.protection(true, false, true)
-				.caching(Caching::Mmio)
-				.map_in::<Mmap>("[mmio]".into(), &thread.address_space)?;
+		let ret = {
+			let MappingMeta { mapping, ..} = Config::new(len, Ty::USER_MMIO)
+					.physical_location(physical_addr.align_down_to_frame())
+					.with_allocator(&hal::acpi::Allocator)
+					.protection(true, false, true)
+					.caching(Caching::Mmio)
+					.map_in::<Mmap>("mmio_legacy".into(), &thread.address_space)?;
 
-		let ret = mapping.as_ptr();
+			let ret = mapping.as_ptr();
+
+			Ok(ret.addr().as_ptr().cast_const())
+		};
 
 		debug!("{:?}", thread.address_space);
 
-		Ok(ret.addr().as_ptr().cast_const())
+		ret
 	}
 
 	fn map_vmo(&self, handle: isize, vmo: Arc<Handle>, address: *const u8, len: usize, offset: usize) -> impl Future<Output = Result<*const u8, Error>> {
@@ -262,8 +270,7 @@ impl protocol::generated::core::proc::Thread for ProcServer {
 
 			let ret = {
 				let name = String::from(&**vmo.endpoint());
-
-				let (_, mapping) = Config::new(len, Ty::USER_MMAP)
+				let MappingMeta { mapping, ..} = Config::new(len, Ty::USER_MMAP)
 					.protection(true, false, true)
 					.with_vmo(vmo, offset)
 					.map_in::<Mmap>(Cow::Owned(name), &thread.address_space)?;
@@ -311,7 +318,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 		handle_nums.insert(Box::from("thread.main"), main_thread_handle);
 
 		let stack_top = {
-			let (_, mut stack) = Config::new(NonZero::new(128).unwrap(), Ty::USER_STACK)
+			let MappingMeta { mapping: mut stack, ..} = Config::new(NonZero::new(128).unwrap(), Ty::USER_STACK)
 					.protection(true, false, true)
 					.virtual_location(RawPage::new(0x40000000))
 					.map_in::<Stack>(format!("[stack:{main_thread_handle}]").into(), &meta.address_space)?;
@@ -489,7 +496,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 					let len = segment_page_offset + usize::try_from(segment.mem_size()).unwrap();
 					if let Some(len) = NonZero::new(len.div_ceil(PAGE_SIZE)) {
 						let (mapping_key, page) = {
-							let (mapping_key, mapping) = Config::new(len, Ty::USER_CODE)
+							let MappingMeta { key, mapping, .. } = Config::new(len, Ty::USER_CODE)
 									.protection(
 										true, // segment.segment_flags.contains(SegmentFlags::Writeable),
 										segment.flags().contains(SegmentFlags::Executable),
@@ -504,7 +511,7 @@ impl protocol::generated::core::proc::Builder for ProcServer {
 								highest_addr = mapping.as_ptr_range().end.addr();
 							}
 
-							(mapping_key, mapping.virtual_valid_start())  // fixme: is it sound to drop the mapping here?
+							(key, mapping.virtual_valid_start())  // fixme: is it sound to drop the mapping here?
 						};
 
 						let res = match block_on(

@@ -88,11 +88,11 @@ pub(super) fn detect() -> Initializer {
 		(0, 0, 0, 0) // CPUID does not support "Extended Features"
 	};
 
-	let (extended_features_1_eax, extended_features_1_ecx) = if extended_features_eax >= 1 {
-		let CpuidResult { eax, ecx, .. } = __cpuid_count(0x0000_0007_u32, 1);
-		(eax, ecx)
+	let extended_features_1_eax = if extended_features_eax >= 1 {
+		let CpuidResult { eax, .. } = __cpuid_count(0x0000_0007, 1);
+		eax
 	} else {
-		(0, 0) // CPUID does not support "Extended Features"
+		0 // CPUID does not support "Extended Features"
 	};
 
 	let (_xsave_xcr0_high, xsave_xcr0_low) = if proc_info_ecx & (1 << 26) != 0 {

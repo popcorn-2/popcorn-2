@@ -2,9 +2,7 @@ use crate::ptr::{impls, LocalUser, PointerError};
 use core::fmt;
 use core::fmt::Formatter;
 use core::mem::MaybeUninit;
-use core::ptr::addr_of;
 use crate::address_space::AddressSpace;
-use crate::dbg;
 use crate::memory::VirtualAddress;
 
 /// A pointer to a potentially invalid address, tied to a specific address space
@@ -345,7 +343,8 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	/// See safety requirements for [`<*mut T>::offset()`]
 	pub const unsafe fn offset(self, count: isize) -> Self where T: Sized {
 		Self {
-			ptr: self.ptr.offset(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::offset()`
+			ptr: unsafe { self.ptr.offset(count) },
 			address_space: self.address_space,
 		}
 	}
@@ -357,7 +356,8 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	/// See safety requirements for [`<*mut T>::byte_offset()`]
 	pub const unsafe fn byte_offset(self, count: isize) -> Self {
 		Self {
-			ptr: self.ptr.byte_offset(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::byte_offset()`
+			ptr: unsafe { self.ptr.byte_offset(count) },
 			address_space: self.address_space,
 		}
 	}
@@ -372,7 +372,8 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	/// See safety requirements for [`<*mut T>::add()`]
 	pub const unsafe fn add(self, count: usize) -> Self where T: Sized {
 		Self {
-			ptr: self.ptr.add(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::add()`
+			ptr: unsafe { self.ptr.add(count) },
 			address_space: self.address_space,
 		}
 	}
@@ -384,7 +385,8 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	/// See safety requirements for [`<*mut T>::byte_add()`]
 	pub const unsafe fn byte_add(self, count: usize) -> Self {
 		Self {
-			ptr: self.ptr.byte_add(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::byte_add()`
+			ptr: unsafe { self.ptr.byte_add(count) },
 			address_space: self.address_space,
 		}
 	}
@@ -399,7 +401,8 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	/// See safety requirements for [`<*mut T>::sub()`]
 	pub const unsafe fn sub(self, count: usize) -> Self where T: Sized {
 		Self {
-			ptr: self.ptr.sub(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::sub()`
+			ptr: unsafe { self.ptr.sub(count) },
 			address_space: self.address_space,
 		}
 	}
@@ -411,7 +414,8 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	/// See safety requirements for [`<*mut T>::byte_sub()`]
 	pub const unsafe fn byte_sub(self, count: usize) -> Self {
 		Self {
-			ptr: self.ptr.byte_sub(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::byte_sub()`
+			ptr: unsafe { self.ptr.byte_sub(count) },
 			address_space: self.address_space,
 		}
 	}
@@ -450,11 +454,20 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 	}*/
 
 	pub fn write_other_address_space(self, value: T) -> Result<(), PointerError> where T: Sized {
-		unsafe { self.copy_from_other_address_space(addr_of!(value), 1)? };
+		unsafe { self.copy_from_other_address_space(&raw const value, 1)? };
 		core::mem::forget(value);
 		Ok(())
 	}
 
+	/// # Safety
+	///
+	/// `src` must be [valid](`core::ptr#safety`) for reads of `count * size_of::<T>()` bytes or that number must be 0.
+	///
+	/// Like [`core::ptr::read`], `copy_from_other_address_space` creates a bitwise copy of `T`, regardless of
+	/// whether `T` is [`Copy`]. If `T` is not [`Copy`], using both the values
+	/// in the region beginning at `*start` and the region pointed to by `self` can
+	/// [violate memory safety](`core::ptr::read#ownership-of-the-returned-value`).
+	// FIXME(soundness): doesn't check if `self` points to conventional memory and therefore may write outside the page map region
 	pub unsafe fn copy_from_other_address_space(self, start: *const T, count: usize) -> Result<(), PointerError> where T: Sized {
 		let Some(address_space) = self.address_space else {
 			return Err(PointerError {});
@@ -462,12 +475,11 @@ impl<'a, T: ?Sized> User<'a, *mut T> {
 
 		let dest_start = self.ptr.cast::<u8>();
 		let mut chunk_start = dest_start;
-		let end = unsafe { self.ptr.offset(count as isize).cast::<u8>() };
+		let end = unsafe { self.ptr.add(count).cast::<u8>() };
 
 		loop {
 			let chunk_end = {
 				let chunk_page_end = VirtualAddress::from(chunk_start).align_down_to_page() + 1usize;
-				dbg!(chunk_start, chunk_page_end);
 				if chunk_page_end.addr >= end.addr() {
 					end
 				} else {
@@ -607,11 +619,11 @@ impl<'a, T> User<'a, *mut [T]> {
 
 		Ok(count)
 	}
-	*/
+
 
 	pub fn write_from_slice_other_address_space(self, slice: &[T]) -> Result<usize, PointerError> {
 		todo!()
-	}
+	}*/
 	
 	pub fn fill(self, value: u8) -> Result<(), PointerError> {
 		impls::checked_fill(
@@ -624,6 +636,10 @@ impl<'a, T> User<'a, *mut [T]> {
 	}
 }
 
+/// # Safety
+///
+/// If `data` points to accessible memory, it must point to `len` elements of type `T`.
+/// See [`User::<*const T>::new`](`User::<*const T>::new#safety`) for more details.
 pub unsafe fn slice_from_raw_parts<T>(data: User<*const T>, len: usize) -> User<*const [T]> {
 	let ptr = core::ptr::slice_from_raw_parts(data.ptr, len);
 	User {

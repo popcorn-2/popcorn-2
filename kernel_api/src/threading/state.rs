@@ -1,37 +1,37 @@
 use core::fmt::{Debug, Formatter};
-use core::ptr::addr_of;
-use core::sync::atomic::{Ordering, AtomicU128};
+use core::sync::atomic::Ordering;
+use crate::num::{ufat, AtomicUfat};
 
-fn into_raw(state: ThreadState) -> u128 {
-	let tag = unsafe { *addr_of!(state).cast::<u8>() } as u128;
+fn into_raw(state: ThreadState) -> ufat {
+	let tag = usize::from(unsafe { *(&raw const state).cast::<u8>() });
 
 	match state {
 		ThreadState::Killed(exit_code) => {
-			let upper = exit_code as u128;
-			(upper << 64) | tag
+			let upper = exit_code.cast_unsigned();
+			ufat::new(upper, tag)
 		}
-		_ => tag,
+		_ => ufat::new(0, tag),
 	}
 }
 
-fn from_raw(raw: u128) -> ThreadState {
-	let tag = raw as u8;
+fn from_raw(raw: ufat) -> ThreadState {
+	let tag = raw.truncate::<u8>();
 
 	match tag {
 		0 => ThreadState::Ready,
 		1 => ThreadState::Running,
 		2 => ThreadState::Parked,
 		3 => ThreadState::NearlyParked,
-		4 => ThreadState::Killed((raw >> 64) as isize),
+		4 => ThreadState::Killed(raw.upper().cast_signed()),
 		_ => unreachable!("invalid thread state"),
 	}
 }
 
-pub struct AtomicThreadState(AtomicU128);
+pub struct AtomicThreadState(AtomicUfat);
 
 impl AtomicThreadState {
 	pub fn new(state: ThreadState) -> Self {
-		AtomicThreadState(AtomicU128::new(into_raw(state)))
+		AtomicThreadState(AtomicUfat::new(into_raw(state)))
 	}
 
 	pub fn store(&self, state: ThreadState, ordering: Ordering) {

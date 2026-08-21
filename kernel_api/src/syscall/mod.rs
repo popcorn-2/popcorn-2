@@ -22,3 +22,9 @@ impl AsyncMap {
 		self.queue.push((key, result));
 	}
 }
+
+impl Default for AsyncMap {
+	fn default() -> Self {
+		Self::new()
+	}
+}

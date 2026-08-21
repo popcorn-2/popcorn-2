@@ -22,7 +22,6 @@ use core::fmt;
 #[cfg(feature = "full")] use core::ops::Range;
 #[cfg(feature = "full")] use core::marker::PhantomData;
 #[cfg(feature = "full")] use core::mem::{ManuallyDrop, MaybeUninit};
-#[cfg(feature = "full")] use core::ptr::addr_of;
 #[cfg(feature = "full")] use crate::allocator::{DynPmm, Pmm};
 
 mod type_ops;
@@ -47,7 +46,7 @@ pub struct RawPage {
 impl RawPage {
     #[track_caller]
     pub fn new(addr: usize) -> Self {
-        if addr % PAGE_SIZE != 0 { panic!("unaligned `RawPage`") };
+        assert!(addr.is_multiple_of(PAGE_SIZE), "unaligned `RawPage`");
         RawPage { inner: VirtualAddress::new(addr) }
     }
 }
@@ -69,7 +68,7 @@ pub struct RawFrame {
 impl RawFrame {
     #[track_caller]
     pub const fn new(addr: usize) -> Self {
-        if addr % PAGE_SIZE != 0 { panic!("unaligned `RawFrame`") };
+        assert!(addr.is_multiple_of(PAGE_SIZE), "unaligned `RawFrame`");
         RawFrame { inner: PhysicalAddress::new(addr) }
     }
     
@@ -122,8 +121,15 @@ impl<const RAM: bool, T> Frames<RAM, T> {
 		self.raw.clone()
 	}
 
+    /// # Safety
+    ///
+    /// Behaviour is undefined if any of the following conditions are violated:
+    ///
+    /// * `self` must be valid for reads.
+    /// * `self` must be properly aligned.
+    /// * `self` must point to a properly initialized value of `Frames`.
     pub unsafe fn base_raw(self: *const Self) -> RawFrame {
-        unsafe { *addr_of!((*self).raw.start) }
+        unsafe { (*self).raw.start }
     }
 
     pub(crate) fn into_raw(self) -> (Range<RawFrame>, DynPmm<'static, RAM>) {
@@ -131,6 +137,9 @@ impl<const RAM: bool, T> Frames<RAM, T> {
 	    (this.raw.clone(), this.pmm)
     }
 
+    /// # Safety
+    ///
+    /// `raw` must be an unaliased region of memory allocated by the allocator `pmm`.
     pub unsafe fn from_raw(raw: Range<RawFrame>, pmm: DynPmm<'static, RAM>) -> Self {
         Self {
             raw,
@@ -142,7 +151,10 @@ impl<const RAM: bool, T> Frames<RAM, T> {
 
 #[cfg(feature = "full")]
 impl<T> Frames<false, T> {
-	pub(crate) unsafe fn from_raw_tuple<const RAM: bool>((raw, pmm): (Range<RawFrame>, DynPmm<'static, RAM>)) -> Self {
+    /// # Safety
+    ///
+    /// See [`Frames::from_raw`].
+    pub(crate) unsafe fn from_raw_tuple<const RAM: bool>((raw, pmm): (Range<RawFrame>, DynPmm<'static, RAM>)) -> Self {
 		Self {
 			raw,
 			pmm: pmm.into(),

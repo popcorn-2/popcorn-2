@@ -1,4 +1,3 @@
-use alloc::borrow::Cow;
 use alloc::sync::Arc;
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
@@ -72,11 +71,20 @@ impl HandleMap {
 		this.map.lock().remove(&val).ok_or(Error::InvalidHandle)
 	}
 
+	/// # Safety
+	///
+	/// There must be no outstanding references from [`deref()`].
 	pub unsafe fn swap(&self, other: HandleMap, ordering: Ordering) -> HandleMap {
 		let other = ManuallyDrop::new(other);
 		let other = other.0.load(ordering);
 		let old = self.0.swap(other, ordering);
 		HandleMap(AtomicPtr::new(old))
+	}
+}
+
+impl Default for HandleMap {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 

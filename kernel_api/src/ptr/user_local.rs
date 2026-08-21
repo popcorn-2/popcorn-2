@@ -222,7 +222,8 @@ impl<T: ?Sized> LocalUser<*mut T> {
 	/// See safety requirements for [`<*mut T>::offset()`]
 	pub const unsafe fn offset(self, count: isize) -> Self where T: Sized {
 		Self {
-			ptr: self.ptr.offset(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::offset()`
+			ptr: unsafe { self.ptr.offset(count) },
 		}
 	}
 
@@ -233,7 +234,8 @@ impl<T: ?Sized> LocalUser<*mut T> {
 	/// See safety requirements for [`<*mut T>::byte_offset()`]
 	pub const unsafe fn byte_offset(self, count: isize) -> Self {
 		Self {
-			ptr: self.ptr.byte_offset(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::byte_offset()`
+			ptr: unsafe { self.ptr.byte_offset(count) },
 		}
 	}
 
@@ -247,7 +249,8 @@ impl<T: ?Sized> LocalUser<*mut T> {
 	/// See safety requirements for [`<*mut T>::add()`]
 	pub const unsafe fn add(self, count: usize) -> Self where T: Sized {
 		Self {
-			ptr: self.ptr.add(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::add()`
+			ptr: unsafe { self.ptr.add(count) },
 		}
 	}
 
@@ -258,7 +261,8 @@ impl<T: ?Sized> LocalUser<*mut T> {
 	/// See safety requirements for [`<*mut T>::byte_add()`]
 	pub const unsafe fn byte_add(self, count: usize) -> Self {
 		Self {
-			ptr: self.ptr.byte_add(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::byte_add()`
+			ptr: unsafe { self.ptr.byte_add(count) },
 		}
 	}
 
@@ -272,7 +276,8 @@ impl<T: ?Sized> LocalUser<*mut T> {
 	/// See safety requirements for [`<*mut T>::sub()`]
 	pub const unsafe fn sub(self, count: usize) -> Self where T: Sized {
 		Self {
-			ptr: self.ptr.sub(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::sub()`
+			ptr: unsafe { self.ptr.sub(count) },
 		}
 	}
 
@@ -283,7 +288,8 @@ impl<T: ?Sized> LocalUser<*mut T> {
 	/// See safety requirements for [`<*mut T>::byte_sub()`]
 	pub const unsafe fn byte_sub(self, count: usize) -> Self {
 		Self {
-			ptr: self.ptr.byte_sub(count),
+			// SAFETY: this function has the same safety requirements as `<*mut T>::byte_sub()`
+			ptr: unsafe { self.ptr.byte_sub(count) },
 		}
 	}
 
@@ -403,6 +409,10 @@ impl<T> LocalUser<*mut [T]> {
 	}
 }
 
+/// # Safety
+///
+/// If `data` points to accessible memory, it must point to `len` elements of type `T`.
+/// See [`LocalUser::<*const T>::new`](`LocalUser::<*const T>::new#safety`) for more details.
 pub unsafe fn local_slice_from_raw_parts<T>(data: LocalUser<*const T>, len: usize) -> LocalUser<*const [T]> {
 	let ptr = core::ptr::slice_from_raw_parts(data.ptr, len);
 	LocalUser {

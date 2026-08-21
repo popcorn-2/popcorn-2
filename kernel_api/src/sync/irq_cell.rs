@@ -24,6 +24,11 @@ impl<T: ?Sized> IrqCell<T> {
 		IrqGuard { cell: self, _phantom_not_send: PhantomData }
 	}
 
+	/// # Safety
+	///
+	/// The `IrqCell` must already be logically locked by the current CPU.
+	///
+	/// Only one `IrqGuard` must exist at any one time.
 	pub unsafe fn make_guard_unchecked(&self) -> IrqGuard<'_, T> {
 		// Unsafety: is this actually needed?
 		debug_assert!(self.state.get().is_some(), "Created IrqGuard for unlocked IrqCell");
@@ -31,6 +36,10 @@ impl<T: ?Sized> IrqCell<T> {
 		IrqGuard { cell: self, _phantom_not_send: PhantomData }
 	}
 
+	/// # Safety
+	///
+	/// The current CPU must logically own an [`IrqGuard`] that has discarded in a way
+	/// that prevents its [`Drop`] impl being called.
 	pub unsafe fn unlock(&self) {
 		let old_state = self.state.take();
 		crate::bridge::irq::set(old_state.unwrap());

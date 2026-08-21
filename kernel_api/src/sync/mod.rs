@@ -3,6 +3,7 @@
 //! These are currently based on spinlocks but this may be changed in future
 
 use core::ops::{Deref, DerefMut};
+
 #[cfg(not(feature = "use_std"))]
 pub use mutex::{Spinlock, SpinlockGuard, SpinlockGuardExt, MappedSpinlockGuard};
 #[cfg(feature = "use_std")]
@@ -11,7 +12,7 @@ pub use parking_lot::{Mutex as Spinlock, MutexGuard as SpinlockGuard, MappedMute
 pub use send_wrapper::*;
 
 #[cfg(not(feature = "use_std"))]
-pub use once::{LazyLock, Once, OnceLock, BootstrapOnceLock};
+pub use once::{LazyLock, Once, OnceLock};
 #[cfg(feature = "use_std")]
 pub use std::sync::{LazyLock, Once, OnceLock};
 
@@ -38,9 +39,13 @@ mod irq_cell;
 #[cfg(not(feature = "use_std"))]
 mod send_wrapper;
 
+#[doc(hidden)]
 pub struct Syncify<T>(T);
 
 impl<T> Syncify<T> {
+	/// # Safety
+	///
+	/// The contained value must only be accessed (including dropping) on other threads if it is [`Sync`]/[`Send`].
 	pub unsafe fn new(t: T) -> Self { Self(t) }
 
 	pub fn into_inner(self) -> T { self.0 }
