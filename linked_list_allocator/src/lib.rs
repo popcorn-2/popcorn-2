@@ -46,6 +46,8 @@ use kernel_api::sync::Spinlock;
 use kernel_api::allocator::{Vmm, AllocError};
 use kernel_api::memory::asan::{asan_free_range, set_shadow_free_vmem, mem_to_shadow, count_to_shadow};
 
+pub unsafe fn foo() {}
+
 /// A virtual memory allocator using a singly linked list to store allocation metadata.
 ///
 /// `LinkedListAllocator` will allocate from the [`highmem`](kernel_api::memory#highmem) allocator
