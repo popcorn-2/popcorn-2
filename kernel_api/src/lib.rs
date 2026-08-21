@@ -18,6 +18,7 @@
 #![feature(const_clone)]
 #![feature(const_default)]
 #![feature(strict_provenance_lints)]
+#![feature(integer_widen_truncate)]
 #![cfg_attr(doc, feature(rustdoc_missing_doc_code_examples))]
 #![feature(prelude_import)]
 
@@ -81,6 +82,8 @@ pub mod channel;
 
 #[cfg(feature = "full")]
 pub mod modules;
+
+pub mod num;
 
 mod sealed {
     pub trait Sealed {}
