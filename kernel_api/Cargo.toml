@@ -19,3 +19,6 @@ use_std = ["parking_lot", "hashbrown/ahash", "libc"]
 full = []
 default = ["full"]
 kasan = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kernel_version, values("0.1.0"))', 'cfg(kasan, values(none()))'] }
