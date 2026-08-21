@@ -36,7 +36,7 @@ pub struct Symbol {
 }
 
 pub fn get_symbol_from_ip(ip: usize) -> Symbol {
-	#[cfg_attr(feature = "kasan", expect(unused))]
+	#[cfg_attr(kasan, expect(unused))]
 	struct SymbolMapIterator {
 		index: usize,
 		str: NonNull<[u8]>
@@ -45,12 +45,12 @@ pub fn get_symbol_from_ip(ip: usize) -> Symbol {
 	impl Iterator for SymbolMapIterator {
 		type Item = (usize, &'static str, &'static str);
 
-		#[cfg(feature = "kasan")]
+		#[cfg(kasan)]
 		fn next(&mut self) -> Option<Self::Item> {
 			None // todo
 		}
 
-		#[cfg(not(feature = "kasan"))]
+		#[cfg(not(kasan))]
 		fn next(&mut self) -> Option<Self::Item> {
 			let str = unsafe { self.str.as_ref() };
 

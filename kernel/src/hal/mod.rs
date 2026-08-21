@@ -89,7 +89,7 @@ mod hal_impl {
 	#[inline] pub fn wait_for_interrupt() { <arch::Arch as Hal>::wait_for_interrupt() }
 	#[inline] pub fn first_thread_init(tcb: &ThreadControlBlock) { <arch::Arch as Hal>::first_thread_init(tcb) }
 	#[inline] pub fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! {
-		#[cfg(feature = "kasan")] {
+		#[cfg(kasan)] {
 			let guard = percpu_v2!(current_thread).read();
 			let thread_stack = &guard
 					.as_ref()

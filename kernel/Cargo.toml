@@ -43,7 +43,6 @@ pipc = { git = "https://github.com/popcorn-2/pipc.git" }
 default = []
 junit_test_out = []
 preemptive = []
-kasan = []
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kernel_version, values("0.1.0"))', 'cfg(kasan, values(none()))'] }
