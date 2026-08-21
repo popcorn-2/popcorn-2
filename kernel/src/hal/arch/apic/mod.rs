@@ -80,7 +80,6 @@ pub(in crate::hal) fn init() {
 #[expect(dead_code)]
 pub fn send_self_ipi(vector: usize) {
 	assert!(48 <= vector && vector < 256, "Invalid IPI vector");
-	#[cfg(feature = "log.scheduler")] debug!("self IPI vector {vector:#x}");
 	// let vector = vector as u32;
 	
 	todo!()
