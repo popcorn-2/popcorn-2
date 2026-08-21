@@ -30,8 +30,6 @@ pub fn yield_now() {
 pub fn yield_now_inner(inside_park: bool) {
 	#[inline]
 	fn do_thread_switch(from: ThreadControlBlock, to: &ThreadControlBlock, inside_park: bool) {
-		#[cfg(feature = "log.scheduler")] trace!("[a] switch from `{:?}` to `{:?}`", from.thread_id, to.thread_id);
-
 		assert!(to.state.runnable());
 		to.state.store(ThreadState::Running, Ordering::SeqCst);
 
@@ -58,8 +56,6 @@ pub fn yield_now_inner(inside_park: bool) {
 		unsafe {
 			post_switch_cleanup(from);
 		}
-		
-		#[cfg(feature = "log.scheduler")] trace!("new woken due to {reason:?}");
 	}
 
 	let scheduler = scheduler::local_scheduler();

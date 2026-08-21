@@ -37,13 +37,13 @@ extern crate unwinding;
 extern crate kernel_api; // to pull in asan runtime
 
 #[cfg(not(test))] use core::panic::PanicInfo;
-#[cfg(feature = "kasan")] use core::ptr::NonNull;
-#[cfg(feature = "kasan")] use kernel_api::allocator::Pmm;
+#[cfg(kasan)] use core::ptr::NonNull;
+#[cfg(kasan)] use kernel_api::allocator::Pmm;
 use core::ptr::{addr_of, addr_of_mut, slice_from_raw_parts_mut};
 use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 use core::ptr;
 use core::cmp::{max, min};
-#[cfg(feature = "kasan")] use core::marker::PhantomData;
+#[cfg(kasan)] use core::marker::PhantomData;
 use core::num::NonZero;
 use core::panic::AssertUnwindSafe;
 use core::time::Duration;
@@ -57,7 +57,7 @@ use kernel_api::time::Instant;
 use utils::handoff::MemoryType;
 use utils::handoff::MemoryMapEntry;
 use crate::hal::exception::Ty;
-#[cfg(feature = "kasan")] use crate::hal::paging2::Flags;
+#[cfg(kasan)] use crate::hal::paging2::Flags;
 use crate::hal::paging2::KTable;
 use kernel_api::syscall::handle::Handle;
 use crate::ipc::protocol::Protocol;
@@ -264,7 +264,7 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 					dbg!(fault.access_addr >= kernel_api::memory::asan::SHADOW_MAP_START);
 					dbg!(fault.access_addr < kernel_api::memory::asan::SHADOW_MAP_END);
 					dbg!(phys());
-					#[cfg(feature = "kasan")]
+					#[cfg(kasan)]
 					if !fault.meta.present()
 							&& fault.access_addr >= kernel_api::memory::asan::SHADOW_MAP_START
 							&& fault.access_addr < kernel_api::memory::asan::SHADOW_MAP_END {

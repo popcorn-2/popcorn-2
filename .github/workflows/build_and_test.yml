@@ -11,8 +11,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/trunk' }}
+
 jobs:
-  build-kernel:
+  bootloader:
     runs-on: ubuntu-latest
     steps:
       - name: 'Check out'
@@ -23,21 +27,29 @@ jobs:
       - name: 'Install tooling'
         uses: ./kernel/.github/actions/install-tooling
       - uses: r7kamura/rust-problem-matchers@v1
-      - name: 'Build kernel'
+      - name: 'Run clippy'
+        continue-on-error: true
+        run: ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ run @core/bootloader cargo clippy -- -Dwarnings
+      - name: 'Run build'
+        run: ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ build @core/bootloader
+  kernel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Check out'
+        uses: actions/checkout@v6
+        with:
+          submodules: 'recursive'
+          path: 'kernel'
+      - name: 'Install tooling'
+        uses: ./kernel/.github/actions/install-tooling
+      - uses: r7kamura/rust-problem-matchers@v1
+      - name: 'Run clippy (stable)'
+        continue-on-error: true
+        run: ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ run @core/kernel cargo clippy -p kernel -- -Dwarnings
+      - name: 'Check kernel-next'
+        run: ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ run @core/kernel cargo check -p kernel --all-features
+      - name: 'Run build'
         run: ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ build @core/kernel
-  clippy-kernel:
-    runs-on: ubuntu-latest
-    steps:
-      - name: 'Check out'
-        uses: actions/checkout@v6
-        with:
-          submodules: 'recursive'
-          path: 'kernel'
-      - name: 'Install tooling'
-        uses: ./kernel/.github/actions/install-tooling
-      - uses: r7kamura/rust-problem-matchers@v1
-      - name: 'Run clippy on kernel'
-        run: ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ run @core/kernel cargo clippy -p kernel --keep-going -- -Dwarnings
   # test:
   #   runs-on: ubuntu-latest
   #   permissions:
