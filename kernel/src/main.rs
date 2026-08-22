@@ -26,6 +26,7 @@
 #![feature(const_default)]
 #![feature(const_convert)]
 
+#![cfg_attr(feature = "hal-next", feature(integer_widen_truncate))]
 #![no_std]
 #![no_main]
 
