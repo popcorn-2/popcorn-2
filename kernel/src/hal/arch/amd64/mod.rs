@@ -49,24 +49,26 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	fn early_init() -> Self::TTableTy {
-		let tss = tss::TSS.get_or_init(|| {
-			tss::Tss::new()
-		});
+		#[cfg(not(feature = "hal-next"))] {
+			let tss = tss::TSS.get_or_init(|| {
+				tss::Tss::new()
+			});
 
-		let gdt = gdt::GDT.get_or_init(|| {
-			use gdt::{Entry, EntryTy, Privilege};
+			let gdt = gdt::GDT.get_or_init(|| {
+				use gdt::{Entry, EntryTy, Privilege};
 
-			let mut gdt = gdt::Gdt::new();
-			gdt.add_entry(EntryTy::KernelCode, Entry::new(Privilege::Ring0, true, true));
-			gdt.add_entry(EntryTy::KernelData, Entry::new(Privilege::Ring0, false, true));
-			gdt.add_entry(EntryTy::UserLongCode, Entry::new(Privilege::Ring3, true, true));
-			gdt.add_entry(EntryTy::UserData, Entry::new(Privilege::Ring3, false, true));
-			gdt.add_tss(tss);
-			gdt
-		});
+				let mut gdt = gdt::Gdt::new();
+				gdt.add_entry(EntryTy::KernelCode, Entry::new(Privilege::Ring0, true, true));
+				gdt.add_entry(EntryTy::KernelData, Entry::new(Privilege::Ring0, false, true));
+				gdt.add_entry(EntryTy::UserLongCode, Entry::new(Privilege::Ring3, true, true));
+				gdt.add_entry(EntryTy::UserData, Entry::new(Privilege::Ring3, false, true));
+				gdt.add_tss(tss);
+				gdt
+			});
 
-		gdt.load();
-		gdt.load_tss();
+			gdt.load();
+			gdt.load_tss();
+		}
 
 		wrmsr(
 			msr::STAR,
@@ -192,8 +194,9 @@ unsafe impl Hal for Amd64Hal {
 	unsafe extern "C" fn switch_thread<'a>(from: &'a mut ManuallyDrop<ThreadControlBlock>, to: &ThreadControlBlock) -> &'a mut ManuallyDrop<ThreadControlBlock> {
 		// currently in kernel mode so even if we get an interrupt on the new TSS.privilege_stack_table[0] value
 		// the CPU won't pay attention to it
-		tss::TSS.get().expect("TSS should be initialised")
+		#[cfg(not(feature = "hal-next"))] tss::TSS.get().expect("TSS should be initialised")
 				.set_rsp0(to.kernel_stack.as_ptr_range().end.into());
+		#[cfg(feature = "hal-next")] crate::arch::x86_64::tss::BSP_TSS.set_rsp0(to.kernel_stack.as_ptr_range().end.into());
 		percpu_v2!(kernel_stack_top).store(to.kernel_stack.as_ptr_range().end.cast_mut(), Ordering::Relaxed);
 		
 		from.register_state.fs = rdmsr(msr::FS_BASE) as usize;
@@ -303,7 +306,8 @@ unsafe impl Hal for Amd64Hal {
 
 	fn first_thread_init(tcb: &ThreadControlBlock) {
 		let tss_rsp0 = tcb.kernel_stack.as_ptr_range().end.into();
-		tss::TSS.get().expect("no TSS").set_rsp0(tss_rsp0);
+		#[cfg(not(feature = "hal-next"))] tss::TSS.get().expect("no TSS").set_rsp0(tss_rsp0);
+		#[cfg(feature = "hal-next")] crate::arch::x86_64::tss::BSP_TSS.set_rsp0(tss_rsp0);
 	}
 
 	extern "C" fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! {
