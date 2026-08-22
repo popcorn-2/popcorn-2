@@ -1,5 +1,5 @@
 use core::sync::atomic::AtomicPtr;
-use kernel_api::memory::PAGE_SIZE;
+use kernel_api::memory::{VirtualAddress, PAGE_SIZE};
 
 pub static BSP_TSS: Tss = {
 	let mut tss = Tss::new();
@@ -50,6 +50,16 @@ impl Tss {
 			_reserved2: 0,
 			_reserved3: 0,
 			iopb: size_of::<Self>().truncate(),
+		}
+	}
+
+	pub fn set_rsp0(&self, value: VirtualAddress) {
+		unsafe {
+			core::arch::asm!(
+				"lock xchg qword ptr [{}], {}",
+				in(reg) &raw const self.rsp0,
+				inout(reg) value.addr => _,
+			);
 		}
 	}
 }
