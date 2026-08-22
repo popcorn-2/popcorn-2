@@ -9,3 +9,7 @@ cfg_select! {
 }
 
 mod common;
+
+pub use imp_arch::{
+	target_bsp_start,
+};

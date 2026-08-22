@@ -448,6 +448,9 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 	sprintln!("POP");
 
 	let _ = logging::init();
+
+	#[cfg(feature = "hal-next")] arch::target_bsp_start();
+
 	let init_ttable = hal::early_init();
 
 	let parsed_handoff = handoff::process_handoff(&handoff_data);
