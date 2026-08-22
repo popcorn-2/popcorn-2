@@ -1,7 +1,20 @@
 use core::sync::atomic::AtomicPtr;
+use kernel_api::memory::PAGE_SIZE;
+
+pub static BSP_TSS: Tss = {
+	let mut tss = Tss::new();
+	let stack = &raw mut BSP_DOUBLE_FAULT_STACK;
+	let stack_end = unsafe { stack.add(1) };
+	tss.ist1 = AtomicPtr::new(stack_end.cast());
+	tss
+};
+
+struct StaticStack([u8; PAGE_SIZE * 3]);
+
+static mut BSP_DOUBLE_FAULT_STACK: StaticStack = StaticStack([0; PAGE_SIZE * 3]);
 
 #[repr(C, packed(4))]
-struct Tss {
+pub struct Tss {
 	_reserved: u32,
 	rsp0: AtomicPtr<u8>,
 	rsp1: AtomicPtr<u8>,
