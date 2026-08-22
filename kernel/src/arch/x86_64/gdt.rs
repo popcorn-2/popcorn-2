@@ -20,6 +20,12 @@ pub struct Gdt {
 }
 
 impl Gdt {
+	pub const KERNEL_CODE_SEGMENT: usize = offset_of!(Self, kernel_code);
+	pub const KERNEL_DATA_SEGMENT: usize = offset_of!(Self, kernel_data);
+	pub const USER_CODE_SEGMENT: usize = offset_of!(Self, user_long_code);
+	pub const USER_DATA_SEGMENT: usize = offset_of!(Self, user_data);
+	pub const TSS_SEGMENT: usize = offset_of!(Self, tss);
+
 	fn new() -> Self {
 		Self {
 			null: Entry::NULL,
@@ -61,9 +67,9 @@ impl Gdt {
 
 				pointer = in(reg) &ptr,
 				scratch = out(reg) _,
-				code_segment = const offset_of!(Gdt, kernel_code),
-				data_segment = const offset_of!(Gdt, kernel_data),
-				tss_segment = in(reg) offset_of!(Gdt, tss),
+				code_segment = const Self::KERNEL_CODE_SEGMENT,
+				data_segment = const Self::KERNEL_DATA_SEGMENT,
+				tss_segment = in(reg) Self::TSS_SEGMENT,
 			);
 		}
 	}

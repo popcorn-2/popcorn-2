@@ -6,7 +6,7 @@ x86_64_interrupt_stub:
     .cfi_offset rip, -40 # %RA = CFA - 5*8 (offset of rip in stack frame)
     .cfi_offset rsp, -16 # %RSP = CFA - 2*8 (offset of rsp in stack frame)
 
-    cmp byte ptr [rsp + 24], 0x8 # check if CS == kernel CS (24 because CS is at 8, and then we also have error code + vector)
+    cmp byte ptr [rsp + 24], {code_segment} # check if CS == kernel CS (24 because CS is at 8, and then we also have error code + vector)
     je 2f
     swapgs # if not, we come from userspace, so swap GS and kernel GS
     2:
@@ -71,7 +71,7 @@ x86_64_interrupt_stub:
     add rsp, 16
     .cfi_def_cfa_offset 40
 
-    cmp byte ptr [rsp + 8], 0x8 # check if CS == kernel CS (already popped vector num and error code so only +8)
+    cmp byte ptr [rsp + 8], {code_segment} # check if CS == kernel CS (already popped vector num and error code so only +8)
     je 3f
     swapgs # if not, we come from userspace, so swap GS and kernel GS
     3:
