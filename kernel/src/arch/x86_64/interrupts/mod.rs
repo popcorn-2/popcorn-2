@@ -1,3 +1,5 @@
+mod handler;
+
 use core::arch::{asm, global_asm};
 use core::panic::AssertUnwindSafe;
 use kernel_api::memory::VirtualAddress;
@@ -5,7 +7,7 @@ use crate::hal::exception::{DebugTy, Exception, PageFault, PageFaultMeta, Ty};
 use crate::arch::x86_64::msr;
 
 global_asm!(
-	include_str!("asm/interrupt_stub.asm"),
+	include_str!("../asm/interrupt_stub.asm"),
 	entrypoint = sym x86_64_interrupt_entry,
 	code_segment = const super::gdt::Gdt::KERNEL_CODE_SEGMENT,
 );
