@@ -13,4 +13,5 @@ mod common;
 
 pub use imp_arch::{
 	target_bsp_start,
+	get_and_disable_interrupts,
 };
