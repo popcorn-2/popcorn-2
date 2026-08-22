@@ -82,6 +82,8 @@ mod io_ext;
 mod percpu;
 mod loader;
 mod notes;
+#[cfg(feature = "hal-next")]
+mod arch;
 
 // The compiler expects the prelude definition to be defined before it's use statement
 mod prelude;
