@@ -25,7 +25,8 @@
 #![feature(derive_const)]
 #![feature(const_default)]
 #![feature(const_convert)]
-
+#![cfg_attr(feature = "hal-next", feature(abi_custom))]
+#![cfg_attr(feature = "hal-next", feature(integer_widen_truncate))]
 #![no_std]
 #![no_main]
 
@@ -82,6 +83,8 @@ mod io_ext;
 mod percpu;
 mod loader;
 mod notes;
+#[cfg(feature = "hal-next")]
+mod arch;
 
 // The compiler expects the prelude definition to be defined before it's use statement
 mod prelude;
@@ -446,6 +449,9 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 	sprintln!("POP");
 
 	let _ = logging::init();
+
+	#[cfg(feature = "hal-next")] arch::target_bsp_start();
+
 	let init_ttable = hal::early_init();
 
 	let parsed_handoff = handoff::process_handoff(&handoff_data);
