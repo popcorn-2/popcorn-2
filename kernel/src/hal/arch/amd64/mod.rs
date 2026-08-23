@@ -84,8 +84,8 @@ unsafe impl Hal for Amd64Hal {
 			);
 
 			interrupts::init_idt();
+			pic::init();
 		}
-		pic::init();
 
 		Self::enable_interrupts();
 
