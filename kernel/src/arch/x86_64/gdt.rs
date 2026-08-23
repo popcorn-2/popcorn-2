@@ -1,5 +1,6 @@
 use core::mem::offset_of;
 use core::ptr;
+use kernel_api::num::ufat;
 use kernel_api::sync::LazyLock;
 
 pub static BSP_GDT: LazyLock<Gdt> = LazyLock::new(|| {
@@ -79,7 +80,7 @@ impl Gdt {
 struct Entry(usize);
 
 #[repr(C)]
-struct SystemEntry(usize, usize);
+struct SystemEntry(ufat);
 
 impl Entry {
 	const NULL: Self = Self(0);
@@ -108,19 +109,21 @@ impl Entry {
 }
 
 impl SystemEntry {
-	const NULL: Self = Self(0, 0);
+	const NULL: Self = Self(ufat::new(0, 0));
 
 	fn from_tss(tss: &'static super::tss::Tss) -> Self {
 		let base = ptr::from_ref(tss).expose_provenance();
 		let limit = size_of::<super::tss::Tss>() - 1;
 
 		SystemEntry(
-			(limit & 0xFFFF) |
-				(base & 0xFFFFFF) << 16 |
-				(0x9 << 40) | // non-busy 64 bit TSS
-				(1 << 47) | // present
-				((base >> 24) & 0xFF) << 56,
-			base >> 32,
+			ufat::new(
+				base >> 32,
+				(limit & 0xFFFF) |
+					(base & 0xFFFFFF) << 16 |
+					(0x9 << 40) | // non-busy 64 bit TSS
+					(1 << 47) | // present
+					((base >> 24) & 0xFF) << 56,
+			)
 		)
 	}
 }
