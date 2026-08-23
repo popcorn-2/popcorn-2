@@ -84,7 +84,7 @@ unsafe impl Hal for Amd64Hal {
 			       // OF, DF, SF, ZF, AF, PF, CF = 0 as required by SysV
 		);
 
-		interrupts::init_idt();
+		#[cfg(not(feature = "hal-next"))] interrupts::init_idt();
 		pic::init();
 
 		Self::enable_interrupts();
