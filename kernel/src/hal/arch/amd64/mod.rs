@@ -68,23 +68,23 @@ unsafe impl Hal for Amd64Hal {
 
 			gdt.load();
 			gdt.load_tss();
+
+			wrmsr(
+				msr::STAR,
+				((24 | 0b11) << 48) | (8 << 32),
+			);
+			wrmsr(
+				msr::LSTAR,
+				interrupts::amd64_syscall_handler as *const () as u64,
+			);
+			wrmsr(
+				msr::SFMASK,
+				0xED5, // IF - disabled
+				// OF, DF, SF, ZF, AF, PF, CF = 0 as required by SysV
+			);
+
+			interrupts::init_idt();
 		}
-
-		wrmsr(
-			msr::STAR,
-			((24 | 0b11) << 48) | (8 << 32),
-		);
-		wrmsr(
-			msr::LSTAR,
-			interrupts::amd64_syscall_handler as *const () as u64,
-		);
-		wrmsr(
-			msr::SFMASK,
-			0xED5, // IF - disabled
-			       // OF, DF, SF, ZF, AF, PF, CF = 0 as required by SysV
-		);
-
-		#[cfg(not(feature = "hal-next"))] interrupts::init_idt();
 		pic::init();
 
 		Self::enable_interrupts();
