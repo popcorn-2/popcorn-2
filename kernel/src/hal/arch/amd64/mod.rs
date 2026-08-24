@@ -204,6 +204,11 @@ unsafe impl Hal for Amd64Hal {
 		wrmsr(msr::FS_BASE, to.register_state.fs as u64);
 		wrmsr(msr::KERNEL_GS_BASE, to.register_state.gs as u64);
 
+		#[cfg(feature = "hal-next")] {
+			from.register_state.kernel_perthread_scratch = percpu_v2!(arch).tss.scratch.load(Ordering::SeqCst);
+			percpu_v2!(arch).tss.scratch.store(to.register_state.kernel_perthread_scratch, Ordering::SeqCst);
+		}
+
 		debug!("rflags = {:#x}", to.register_state.rflags);
 
 		#[cfg(kasan)] {
@@ -342,6 +347,7 @@ pub struct Amd64SaveState {
 	pub rflags: usize,
 	pub fs: usize,
 	pub gs: usize,
+	#[cfg(feature = "syscall-abi-next")] pub kernel_perthread_scratch: u64,
 	xsave: Xsave,
 }
 
@@ -436,6 +442,7 @@ impl Default for Amd64SaveState {
 			// Reserved bit 1 = 1
 			// IE = 0
 			rflags: 0x02,
+			#[cfg(feature = "syscall-abi-next")] kernel_perthread_scratch: 0,
 			xsave: Xsave::new(),
 		}
 	}

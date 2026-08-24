@@ -27,6 +27,7 @@
 #![feature(const_convert)]
 #![cfg_attr(feature = "hal-next", feature(abi_custom))]
 #![cfg_attr(feature = "hal-next", feature(integer_widen_truncate))]
+#![cfg_attr(feature = "syscall-abi-next", feature(rust_preserve_none_cc))]
 #![no_std]
 #![no_main]
 
@@ -85,6 +86,8 @@ mod loader;
 mod notes;
 #[cfg(feature = "hal-next")]
 mod arch;
+#[cfg(feature = "syscall-abi-next")]
+mod syscall;
 
 // The compiler expects the prelude definition to be defined before it's use statement
 mod prelude;

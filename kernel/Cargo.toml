@@ -44,6 +44,7 @@ default = []
 junit_test_out = []
 preemptive = []
 hal-next = []
+syscall-abi-next = ["hal-next"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kernel_version, values("0.1.0"))', 'cfg(kasan, values(none()))'] }
