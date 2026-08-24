@@ -3,12 +3,6 @@ use core::ptr;
 use kernel_api::num::ufat;
 use kernel_api::sync::LazyLock;
 
-pub static BSP_GDT: LazyLock<Gdt> = LazyLock::new(|| {
-	let mut gdt = Gdt::new();
-	gdt.tss = SystemEntry::from_tss(&super::tss::BSP_TSS);
-	gdt
-});
-
 #[repr(C, align(8))]
 pub struct Gdt {
 	null: Entry,
@@ -26,6 +20,12 @@ impl Gdt {
 	pub const USER_CODE_SEGMENT: usize = offset_of!(Self, user_long_code);
 	pub const USER_DATA_SEGMENT: usize = offset_of!(Self, user_data);
 	pub const TSS_SEGMENT: usize = offset_of!(Self, tss);
+
+	pub const INIT: LazyLock<Gdt> = LazyLock::new(|| {
+		let mut gdt = Gdt::new();
+		gdt.tss = SystemEntry::from_tss(&super::tss::BSP_TSS);
+		gdt
+	});
 
 	fn new() -> Self {
 		Self {
