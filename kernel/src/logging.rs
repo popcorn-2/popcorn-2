@@ -23,8 +23,7 @@ impl log::Log for SimpleLogger {
 			}
 			sprint!(": ");
 
-			if let Some(current_thread) = percpu_v2!(@current_thread)
-					&& let Some(current_thread) = current_thread.try_read()
+			if let Some(current_thread) = percpu_v2!(current_thread).try_read()
 					&& let Some(current_thread) = current_thread.as_ref() {
 				sprint!("[{} `{}`] ", current_thread.thread_id.get(), current_thread.name);
 			}

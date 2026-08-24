@@ -53,41 +53,21 @@ macro_rules! percpu_gen {
 
         macro_rules! percpu_v2 {
             $(
-            (@ $field) => {{
+            ($field) => {{
 	            let val: *mut $crate::percpu::Percpu;
-	            let msr_val: i32;
 
 	            #[allow(unused_unsafe)]
                 unsafe {
                     ::core::arch::asm!(
-                        "rdmsr",
-                        out("eax") _,
-                        out("edx") msr_val,
-                        in("ecx") 0xC0000101u32,
+                        "mov {}, gs:[{}]",
+                        out(reg) val,
+                        const ::core::mem::offset_of!($crate::percpu::Percpu, percpu),
                         options(nostack, preserves_flags, pure, readonly)
                     );
                 }
 
-	            if msr_val >= 0 {
-	                None
-                } else {
-		            #[allow(unused_unsafe)]
-	                unsafe {
-	                    ::core::arch::asm!(
-	                        "mov {}, gs:[{}]",
-	                        out(reg) val,
-	                        const ::core::mem::offset_of!($crate::percpu::Percpu, percpu),
-	                        options(nostack, preserves_flags, pure, readonly)
-	                    );
-	                }
-
-		            #[allow(unused_unsafe)]
-                    Some(unsafe { &(*val).$field })
-	            }
-            }};
-            ($field) => {{
 	            #[allow(unused_unsafe)]
-	            unsafe { percpu_v2!(@ $field).unwrap_unchecked() }
+                unsafe { &(*val).$field }
             }};
             )*
         }

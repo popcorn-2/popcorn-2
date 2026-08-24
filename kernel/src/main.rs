@@ -254,7 +254,7 @@ fn exception_handler(exception: &mut hal::exception::Exception) {
 				let phys = || if fault.access_addr.is_higher_half() {
 					ktable().translate_address(fault.access_addr, true)
 				} else {
-					percpu::percpu_v2!(@current_thread)?
+					percpu::percpu_v2!(current_thread)
 							.try_read()?
 							.as_ref()?
 							.address_space.ttable().translate_address(fault.access_addr, true)
@@ -821,8 +821,7 @@ fn panic_handler(info: &PanicInfo) -> ! {
 	if let Some(location) = info.location() {
 		sprint!(" {location}");
 	}
-	if let Some(current_thread) = percpu_v2!(@current_thread)
-			&& let Some(current_thread) = current_thread.try_read()
+	if let Some(current_thread) = percpu_v2!(current_thread).try_read()
 			&& let Some(current_thread) = current_thread.as_ref() {
 		sprint!(" on thread {:?}", current_thread.thread_id);
 	}
