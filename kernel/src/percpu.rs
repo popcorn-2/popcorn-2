@@ -82,6 +82,7 @@ percpu_gen! {
         pub scheduler: OnceCell<IrqCell<crate::threading::SchedulerTy>> = OnceCell::new(),
         pub local_timer: OnceCell<crate::hal::timing::TimerMeta> = OnceCell::new(),
         pub current_thread: RwSpinlock<Option<ThreadControlBlock>> = RwSpinlock::new(None), // todo: replace with something !Sync if opt needed
+		#[cfg(feature = "hal-next")] pub arch: crate::arch::Percpu = crate::arch::Percpu::new(),
     }
 }
 
