@@ -450,6 +450,11 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 
 	let _ = logging::init();
 
+	percpu::Percpu::bsp_init();
+
+	let x = get_foo();
+	assert_eq!(x, 6, "TLS value should be 6");
+
 	#[cfg(feature = "hal-next")] arch::target_bsp_start();
 
 	let init_ttable = hal::early_init();
@@ -535,8 +540,6 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 		*memory::r#virtual::GLOBAL_VIRTUAL_ALLOCATOR.write() = Box::leak(Box::new(btree_alloc));
 	}
 
-	percpu::Percpu::init();
-
 	unsafe { hal::acpi::init_tables(parsed_handoff.rsdp) };
 
 	let (mut update_line, _picos_per_tick) = {
@@ -619,8 +622,6 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 		(update_line, picos_per_tick)
 	};
 
-	let x = get_foo();
-	assert_eq!(x, 6, "TLS value should be 6");
 
 	hal::post_acpi_init();
 

@@ -61,8 +61,6 @@ impl Gdt {
 				"2: mov {scratch:x}, {data_segment}",
 				"mov ds, {scratch:x}",
 				"mov es, {scratch:x}",
-				"mov fs, {scratch:x}",
-				"mov gs, {scratch:x}",
 				"mov ss, {scratch:x}",
 				"ltr {tss_segment:x}",
 

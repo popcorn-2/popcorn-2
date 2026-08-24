@@ -5,7 +5,7 @@ use crate::threading::ThreadControlBlock;
 use crate::timing::TimerQueue;
 
 macro_rules! percpu_gen {
-    (static $bsp:ident <=> pub struct $ident:ident {
+    (pub struct $ident:ident {
 	    $($(#[$attr:meta])* pub $field:ident: $ty:ty = $init:expr),* $(,)?
     }) => {
 	    const PERCPU_INIT: $ident = $ident {
@@ -20,10 +20,10 @@ macro_rules! percpu_gen {
 	    //  accessed from the BSP
 	    unsafe impl Sync for BspWrapper {}
 
-	    static mut $bsp: BspWrapper = {
+	    static mut BSP_PERCPU: BspWrapper = {
 		    let mut percpu = PERCPU_INIT;
 		    // SAFETY: runs during init so cannot be accessed elsewhere
-		    percpu.percpu = unsafe { &raw mut $bsp . 0 };
+		    percpu.percpu = unsafe { &raw mut BSP_PERCPU.0 };
 		    BspWrapper(percpu)
 	    };
 
@@ -33,7 +33,11 @@ macro_rules! percpu_gen {
         }
 
         impl $ident {
-            pub fn init() {
+		    pub fn bsp_init() {
+			    unsafe { crate::hal::load_tls(BSP_PERCPU.0.percpu.cast()); }
+			}
+
+            pub fn ap_init() {
                 let data = ::alloc::boxed::Box::leak(
                     ::alloc::boxed::Box::new(
                         $ident {
@@ -91,7 +95,7 @@ macro_rules! percpu_gen {
 }
 
 percpu_gen! {
-    static BSP_PERCPU <=> pub struct Percpu {
+    pub struct Percpu {
         pub foo: UnsafeCell<usize> = UnsafeCell::new(6),
         pub local_timer_queue: TimerQueue = TimerQueue::new(),
         pub kernel_stack_top: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut()),
