@@ -342,6 +342,7 @@ pub struct Amd64SaveState {
 	pub rflags: usize,
 	pub fs: usize,
 	pub gs: usize,
+	#[cfg(feature = "syscall-abi-next")] pub kernel_perthread_scratch: usize,
 	xsave: Xsave,
 }
 
@@ -436,6 +437,7 @@ impl Default for Amd64SaveState {
 			// Reserved bit 1 = 1
 			// IE = 0
 			rflags: 0x02,
+			#[cfg(feature = "syscall-abi-next")] kernel_perthread_scratch: 0,
 			xsave: Xsave::new(),
 		}
 	}
