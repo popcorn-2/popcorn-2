@@ -5,9 +5,28 @@ use crate::threading::ThreadControlBlock;
 use crate::timing::TimerQueue;
 
 macro_rules! percpu_gen {
-    (pub struct $ident:ident {
-        $(pub $field:ident: $ty:ty = $init:expr),* $(,)?
+    (static $bsp:ident <=> pub struct $ident:ident {
+	    $(pub $field:ident: $ty:ty = $init:expr),* $(,)?
     }) => {
+	    const PERCPU_INIT: $ident = $ident {
+            $($field: $init),* ,
+            percpu: ::core::ptr::null_mut(),
+        };
+
+	    #[repr(transparent)]
+	    struct BspWrapper($ident);
+
+	    // SAFETY: `BspWrapper` is only used for the BSP percpu struct and can only be
+	    //  accessed from the BSP
+	    unsafe impl Sync for BspWrapper {}
+
+	    static mut $bsp: BspWrapper = {
+		    let mut percpu = PERCPU_INIT;
+		    // SAFETY: runs during init so cannot be accessed elsewhere
+		    percpu.percpu = unsafe { &raw mut $bsp . 0 };
+		    BspWrapper(percpu)
+	    };
+
         pub struct $ident {
             $(pub $field: $ty),* ,
             pub percpu: *mut $ident,
@@ -72,7 +91,7 @@ macro_rules! percpu_gen {
 }
 
 percpu_gen! {
-    pub struct Percpu {
+    static BSP_PERCPU <=> pub struct Percpu {
         pub foo: UnsafeCell<usize> = UnsafeCell::new(6),
         pub local_timer_queue: TimerQueue = TimerQueue::new(),
         pub kernel_stack_top: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut()),
