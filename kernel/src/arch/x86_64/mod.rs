@@ -17,3 +17,11 @@ pub fn target_bsp_start() {
 	// enable SMAP/SMEP
 	// enable and configure XSAVE if exists
 }
+
+pub struct Percpu {}
+
+impl Percpu {
+	pub const fn new() -> Self {
+		Self {}
+	}
+}
