@@ -6,10 +6,10 @@ use crate::timing::TimerQueue;
 
 macro_rules! percpu_gen {
     (static $bsp:ident <=> pub struct $ident:ident {
-	    $(pub $field:ident: $ty:ty = $init:expr),* $(,)?
+	    $($(#[$attr:meta])* pub $field:ident: $ty:ty = $init:expr),* $(,)?
     }) => {
 	    const PERCPU_INIT: $ident = $ident {
-            $($field: $init),* ,
+            $($(#[$attr])* $field: $init),* ,
             percpu: ::core::ptr::null_mut(),
         };
 
@@ -28,7 +28,7 @@ macro_rules! percpu_gen {
 	    };
 
         pub struct $ident {
-            $(pub $field: $ty),* ,
+	        $($(#[$attr])* pub $field: $ty),* ,
             pub percpu: *mut $ident,
         }
 
@@ -37,7 +37,7 @@ macro_rules! percpu_gen {
                 let data = ::alloc::boxed::Box::leak(
                     ::alloc::boxed::Box::new(
                         $ident {
-                            $($field: $init),* ,
+                            $($(#[$attr])* $field: $init),* ,
                             percpu: ::core::ptr::null_mut(),
                         }
                     )
