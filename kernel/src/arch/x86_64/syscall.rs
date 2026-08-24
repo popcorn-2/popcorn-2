@@ -4,9 +4,18 @@ use crate::arch::x86_64::msr;
 use crate::percpu::Percpu;
 use core::mem::offset_of;
 
+#[cfg(not(feature = "syscall-abi-next"))]
 global_asm!(
 	include_str!("asm/syscall_stub.asm"),
 	entrypoint = sym crate::syscall_handler,
+	rsp0_offset = const offset_of!(Percpu, kernel_stack_top),
+);
+
+#[cfg(feature = "syscall-abi-next")]
+global_asm!(
+	include_str!("asm/syscall_stub_next.asm"),
+	entrypoint = sym crate::syscall::entry,
+	kernel_scratch_offset = const offset_of!(Percpu, arch.tss.scratch),
 	rsp0_offset = const offset_of!(Percpu, kernel_stack_top),
 );
 
