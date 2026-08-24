@@ -21,12 +21,15 @@ pub fn target_bsp_start() {
 
 pub struct Percpu {
 	gdt: LazyLock<gdt::Gdt>,
+	#[doc(hidden)]
+	pub tss: tss::Tss,
 }
 
 impl Percpu {
 	pub const fn new() -> Self {
 		Self {
 			gdt: gdt::Gdt::INIT,
+			tss: tss::Tss::INIT,
 		}
 	}
 }

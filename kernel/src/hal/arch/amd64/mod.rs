@@ -196,7 +196,7 @@ unsafe impl Hal for Amd64Hal {
 		// the CPU won't pay attention to it
 		#[cfg(not(feature = "hal-next"))] tss::TSS.get().expect("TSS should be initialised")
 				.set_rsp0(to.kernel_stack.as_ptr_range().end.into());
-		#[cfg(feature = "hal-next")] crate::arch::x86_64::tss::BSP_TSS.set_rsp0(to.kernel_stack.as_ptr_range().end.into());
+		#[cfg(feature = "hal-next")] percpu_v2!(arch).tss.set_rsp0(to.kernel_stack.as_ptr_range().end.into());
 		percpu_v2!(kernel_stack_top).store(to.kernel_stack.as_ptr_range().end.cast_mut(), Ordering::Relaxed);
 		
 		from.register_state.fs = rdmsr(msr::FS_BASE) as usize;
@@ -307,7 +307,7 @@ unsafe impl Hal for Amd64Hal {
 	fn first_thread_init(tcb: &ThreadControlBlock) {
 		let tss_rsp0 = tcb.kernel_stack.as_ptr_range().end.into();
 		#[cfg(not(feature = "hal-next"))] tss::TSS.get().expect("no TSS").set_rsp0(tss_rsp0);
-		#[cfg(feature = "hal-next")] crate::arch::x86_64::tss::BSP_TSS.set_rsp0(tss_rsp0);
+		#[cfg(feature = "hal-next")] percpu_v2!(arch).tss.set_rsp0(tss_rsp0);
 	}
 
 	extern "C" fn switch_to_userspace_at(addr: VirtualAddress, stack_top: VirtualAddress) -> ! {

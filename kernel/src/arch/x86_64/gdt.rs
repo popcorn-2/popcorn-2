@@ -23,7 +23,7 @@ impl Gdt {
 
 	pub const INIT: LazyLock<Gdt> = LazyLock::new(|| {
 		let mut gdt = Gdt::new();
-		gdt.tss = SystemEntry::from_tss(&super::tss::BSP_TSS);
+		gdt.tss = SystemEntry::from_tss(&percpu_v2!(arch).tss);
 		gdt
 	});
 
