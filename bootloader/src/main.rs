@@ -17,6 +17,7 @@ use core::convert::Infallible;
 use core::error::Error;
 use core::mem::ManuallyDrop;
 use core::panic::PanicInfo;
+use core::ptr::NonNull;
 use core::range::Range;
 use core::slice;
 use core::time::Duration;
@@ -139,6 +140,8 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 			map: Range { start: PhysicalAddress::new(0), end: PhysicalAddress::new(0) },
 			lowest_used,
 			stack,
+			s_table: NonNull::dangling(),
+			u_tables: [NonNull::dangling(); 2],
 		},
 		log: handoff::Logging {
 			symbol_map: None,
