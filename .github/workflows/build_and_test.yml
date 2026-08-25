@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   pull_request:
   merge_group:
+  repository_dispatch:
+    types: [ gerrit-patchset ]
   push:
     branches:
       - trunk
@@ -48,6 +50,32 @@ jobs:
         run: ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=. run @core/kernel cargo check -p kernel --all-features
       - name: 'Run build'
         run: ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=. build @core/kernel
+
+  gerrit-vote:
+    runs-on: ubuntu-latest
+    needs: [ bootloader, kernel ]
+    if: always()
+    steps:
+      - name: Evaluate Results and Vote
+        env:
+          CHANGE_NUM: ${{ github.event.client_payload.change_number }}
+          PATCH_NUM: ${{ github.event.client_payload.patchset_number }}
+          BOOTLOADER_STATUS: ${{ needs.bootloader.result }}
+          KERNEL_STATUS: ${{ needs.kernel.result }}
+        run: |
+          # Check if ALL dependencies succeeded
+          if [[ "BOOTLOADER_STATUS" == "success" && "KERNEL_STATUS" == "success" ]]; then
+            VOTE=1
+            MESSAGE="CI Passed"
+          else
+            VOTE=-1
+            MESSAGE="CI Failed. Bootloader: BOOTLOADER_STATUS | Kernel: KERNEL_STATUS"
+          fi
+          
+          curl -X POST -u "${{ secrets.GERRIT_USERNAME }}:${{ secrets.GERRIT_PASSWORD }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"labels\": {\"Verified\": $VOTE}, \"message\": \"$MESSAGE\"}" \
+            "https://review.gerrithub.io/a/changes/$CHANGE_NUM/revisions/$PATCH_NUM/review"
   # test:
   #   runs-on: ubuntu-latest
   #   permissions:
