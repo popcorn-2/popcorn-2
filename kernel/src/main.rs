@@ -60,7 +60,7 @@ use utils::handoff::MemoryType;
 use utils::handoff::MemoryMapEntry;
 use crate::hal::exception::Ty;
 #[cfg(kasan)] use crate::hal::paging2::Flags;
-use crate::hal::paging2::KTable;
+use crate::hal::paging2::{KTable, TTable};
 use kernel_api::syscall::handle::Handle;
 use crate::ipc::protocol::Protocol;
 use crate::memory::paging::ktable;
@@ -374,7 +374,7 @@ mod handoff {
 	use crate::panicking::SymbolMap;
 	use core::ops::Range;
 	use kernel_api::dbg;
-	use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
+	use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 	use crate::hal::{KTableTy, TTableTy};
 
 	#[derive(Clone, Debug)]
@@ -416,7 +416,9 @@ mod handoff {
 		pub rsdp: PhysicalAddress,
 		pub framebuffer: utils::handoff::Framebuffer,
 		pub stack: utils::handoff::Stack,
+		pub bootloader_utable: TTableTy,
 		pub init_utable: TTableTy,
+		pub init_entry: VirtualAddress,
 	}
 
 	pub fn process_handoff(handoff_data: &*const utils::handoff::Data) -> ParsedHandoff<'_> {
@@ -431,6 +433,7 @@ mod handoff {
 			let s_table = unsafe { KTableTy::from_raw(dbg!(s_table)) };
 			unsafe { crate::memory::paging::init_page_table(s_table) };
 		}
+		let bootloader_utable = unsafe { TTableTy::from_raw(u_tables[0]) };
 		let init_utable = unsafe { TTableTy::from_raw(u_tables[1]) };
 
 		let symbol_map = no_asan_shim!(|handoff_data: &*const utils::handoff::Data| -> Option<NonNull<[u8]>> {
@@ -438,7 +441,7 @@ mod handoff {
 		});
 		*panicking::SYMBOL_MAP.write() = SymbolMap::from(symbol_map);
 
-		no_asan_shim!(|handoff_data: &*const utils::handoff::Data, init_utable: TTableTy| -> ParsedHandoff<'_> {
+		no_asan_shim!(|handoff_data: &*const utils::handoff::Data, bootloader_utable: TTableTy, init_utable: TTableTy| -> ParsedHandoff<'_> {
 			let core::range::Range { start, end } = unsafe { (**handoff_data).memory.map };
 			let memory_map = MemoryMapIter {
 				map: start.to_virtual().as_ptr().cast_const().cast::<MemoryMapEntry>()..end.to_virtual().as_ptr().cast_const().cast::<MemoryMapEntry>(),
@@ -449,14 +452,17 @@ mod handoff {
 			let rsdp = unsafe { (**handoff_data).rsdp };
 			let framebuffer = unsafe { (**handoff_data).framebuffer };
 			let stack = unsafe { (**handoff_data).memory.stack };
+			let init_entry = unsafe { (**handoff_data).init_entry };
 
 			ParsedHandoff {
-				memory_map: dbg!(memory_map),
+				memory_map,
 				max_vmem,
 				rsdp,
 				framebuffer,
 				stack,
+				bootloader_utable,
 				init_utable,
+				init_entry,
 			}
 		})
 	}
@@ -643,6 +649,11 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 
 	hal::post_acpi_init();
 
+	// all bootloader data structures parsed so safe to switch to PID0 utable and drop bootloader
+	// SAFETY: `init_utable` ownership transferred into PID0 TCB
+	unsafe { parsed_handoff.init_utable.load() };
+	drop(parsed_handoff.bootloader_utable);
+
 	let init_thread = threading::init(parsed_handoff.stack, parsed_handoff.init_utable);
 	debug!("Init running on {init_thread:?}");
 
@@ -661,175 +672,7 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 	threading::debug();
 	threading::yield_now();
 
-	todo!();
-
-	/*let (entrypoint, stack) = {
-		let guard = percpu::percpu_v2!(current_thread).read();
-		let address_space = &guard
-				.as_ref()
-				.expect("init must be in a thread")
-				.address_space;
-
-		let stack_top = {
-			let config = mapping::Config::new(NonZero::new(8).unwrap(), mapping::Ty::USER_STACK)
-					.protection(true, false, true)
-					.virtual_location(RawPage::new(0x7fff_f000_0000));
-
-			let (_, mut stack) = config.map_in::<Stack>("[stack:3]".into(), address_space)
-					.expect("failed to allocate stack");
-
-			let mut env_vars = vec![
-				"LANG=en_GB.UTF-8".to_owned(),
-				"MLIBC_DEBUG_MALLOC=0".to_owned(),
-			];
-
-			{
-				let (num, denom) = timing::tsc_to_nanos();
-				env_vars.extend([
-					format!("POPCORN_TSC_NUM={num}"),
-					format!("POPCORN_TSC_DENOM={denom}"),
-					format!("POPCORN_FRAMEBUFFER_ADDR={:x}", fb.physical_address),
-					format!("POPCORN_FRAMEBUFFER_WIDTH={}", fb.width),
-					format!("POPCORN_FRAMEBUFFER_STRIDE={}", fb.stride),
-					format!("POPCORN_FRAMEBUFFER_HEIGHT={}", fb.height),
-				]);
-			}
-
-			let stack_top = loader::set_up_stack(
-				&mut stack,
-				["init", "hello", "world"],
-				env_vars,
-				HashMap::<&'static str, u32>::from([
-					("io.stdin", 0),
-					("io.stdout", 1),
-					("io.stderr", 2),
-					("thread.main", 3),
-					("popcorn.init.ramdisk", 4),
-					("popcorn.init.root-bus-descriptor", 5),
-				])
-			);
-			
-			stack_top
-		};
-
-		let file = elf::File::try_new(&init_data).unwrap();
-
-		file.load_with(|segment, data| {
-			assert_eq!(segment.align(), 4096, "Not designed for !=1 page alignment");
-
-			let addr = VirtualAddress::new(segment.vaddr().try_into().unwrap());
-			let segment_page_offset = addr - *addr.align_down_to_page();
-
-			let len = segment_page_offset + usize::try_from(segment.mem_size()).unwrap();
-			let len = len.div_ceil(4096);
-
-			let (_, mut mapping) = mapping::Config::new(len.try_into().unwrap(), mapping::Ty::USER_CODE)
-				.virtual_location(addr.align_down_to_page())
-				.protection(
-					segment.flags().contains(SegmentFlags::Writeable),
-					segment.flags().contains(SegmentFlags::Executable),
-					true,
-				)
-				.map_in::<mapping::UnsafeMmap>("/user/init.exec".into(), address_space)
-				.unwrap();
-
-			assert!(data.len() <= segment.mem_size() as usize);
-
-			let base = unsafe {
-				LocalUser::try_from(mapping.as_mut_ptr())
-					.expect("`initd` should be loaded in loader thread")
-					.byte_add(segment_page_offset)
-			};
-			debug_assert_eq!(base.addr(), addr, "mapping for elf executable should be same as addr in file");
-
-			unsafe {
-				// todo: replace with proper local pointer and permissions adjustments
-				if is_x86_feature_detected!("smap") { core::arch::asm!("stac", options(nomem, nostack, preserves_flags)); }
-				core::arch::asm!(
-					"mov {0:r}, cr0",
-					"and {0:r}, ~0x10000",
-					"mov cr0, {0:r}",
-					out(reg) _,
-					options(nomem, nostack, preserves_flags)
-				);
-				ptr::copy_nonoverlapping(
-					data.as_ptr(),
-					base.addr().as_ptr(),
-					data.len().try_into().unwrap(),
-				);
-				ptr::write_bytes(
-					base.addr().as_ptr().byte_add(data.len().try_into().unwrap()),
-					0,
-					usize::try_from(segment.mem_size()).unwrap() - data.len(),
-				);
-				core::arch::asm!(
-					"mov {0:r}, cr0",
-					"or {0:r}, 0x10000",
-					"mov cr0, {0:r}",
-					out(reg) _,
-					options(nomem, nostack, preserves_flags)
-				);
-				if is_x86_feature_detected!("smap") { core::arch::asm!("clac", options(nomem, nostack, preserves_flags)); }
-			}
-
-			Ok::<(), core::convert::Infallible>(())
-		}).unwrap();
-		
-		debug!("{address_space:?}");
-
-		(VirtualAddress::new(file.entry_point()), stack_top)
-	};
-	drop(init_data);
-	{
-		debug!("opening init stdin/out/err/thread/ramdisk as handles 0..=4");
-
-		let _ = ipc::server::server_registry(); // force it to init builtin servers (root + proc)
-
-		let guard = percpu::percpu_v2!(current_thread).read();
-		let thread = guard.as_ref().unwrap();
-
-		let stdio_handle = ipc::open(
-			"console:/",
-			&[<dyn ipc::protocol::generated::core::io::Read>::UID, <dyn ipc::protocol::generated::core::io::Write>::UID],
-			kernel_api::ptr::null(),
-		).expect("unable to open console");
-		let thread_handle = Handle::new(
-			ipc::server::server_registry().get_server_at("proc").expect("unable to open `proc`").0,
-			thread.thread_id.get() as isize,
-			&[<dyn ipc::protocol::generated::core::proc::Thread>::UID],
-			"",
-		);
-		let ramdisk_handle = Handle::new(
-			ramdisk_server,
-			1,
-			&[<dyn ipc::protocol::generated::core::io::Read>::UID],
-			"",
-		);
-		let acpi_handle = Handle::new(
-			ramdisk_server,
-			2,
-			&[<dyn ipc::protocol::generated::core::io::Read>::UID],
-			"",
-		);
-
-		dbg!(&stdio_handle);
-		dbg!(&thread_handle);
-		dbg!(&acpi_handle);
-
-		thread.handles.openat(0, stdio_handle.clone())
-				.expect("unable to open fd 0");
-		thread.handles.openat(1, stdio_handle.clone())
-				.expect("unable to open fd 1");
-		thread.handles.openat(2, stdio_handle)
-				.expect("unable to open fd 2");
-		thread.handles.openat(3, thread_handle)
-				.expect("unable to open fd 3");
-		thread.handles.openat(4, ramdisk_handle)
-		      .expect("unable to open fd 4");
-		thread.handles.openat(5, acpi_handle)
-		      .expect("unable to open fd 5");
-	}
-	hal::switch_to_userspace_at(entrypoint, stack);*/
+	hal::switch_to_userspace_at(parsed_handoff.init_entry, VirtualAddress::new(0));
 }
 
 #[cfg(not(test))]

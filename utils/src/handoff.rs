@@ -1,6 +1,6 @@
 use core::fmt::{Debug, Formatter};
 use core::ptr::NonNull;
-use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
+use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 use core::range::Range;
 
 #[repr(C)]
@@ -9,8 +9,7 @@ pub struct Data {
 	pub memory: Memory,
 	pub log: Logging,
 	pub rsdp: PhysicalAddress,
-	pub init_exec: &'static [u8],
-	pub ramdisk: &'static [u8],
+	pub init_entry: VirtualAddress,
 }
 
 impl Debug for Data {

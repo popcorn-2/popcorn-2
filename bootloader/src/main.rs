@@ -13,6 +13,7 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::convert::Infallible;
 use core::error::Error;
 use core::mem::ManuallyDrop;
@@ -72,7 +73,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	let mut rootfs = fs::locate_rootfs()?;
 	let version = fs::find_latest_kernel(&mut rootfs)?;
 	info!("Booting kernel {version}");
-	let kernel = fs::unpack_kernel(rootfs, version)?;
+	let (kernel, init_exec) = fs::unpack_kernel(rootfs, version)?;
 	let mut mapper = Mapper::try_new(kernel)?;
 
 	let framebuffer = framebuffer::map_framebuffer(&mut mapper)?;
@@ -123,6 +124,10 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 		)?;
 	}
 
+	debug!("loading `init`");
+	let init_entry = mapper::map_elf(&init_exec, &mut init_u_table, &mut used_frames)?;
+	let used_frames = Vec::leak(used_frames);
+
 	info!("setting up system for kernel entry");
 	arch::final_init();
 
@@ -153,8 +158,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 			symbol_map: None,
 		},
 		rsdp,
-		init_exec: &[],
-		ramdisk: &[],
+		init_entry,
 	};
 
 	// SAFETY: only actions that happen after exiting boot services are switching

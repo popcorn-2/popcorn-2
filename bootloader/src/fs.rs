@@ -216,7 +216,7 @@ pub fn find_latest_kernel(fs: &mut SimpleFileSystem) -> Result<KernelVersion, Bo
 /// # Errors
 ///
 /// Returns firmware errors if file access failed.
-pub fn unpack_kernel(fs: ScopedProtocol<SimpleFileSystem>, version: KernelVersion) -> Result<KernelFiles, Box<dyn Error>> {
+pub fn unpack_kernel(fs: ScopedProtocol<SimpleFileSystem>, version: KernelVersion) -> Result<(KernelFiles, Vec<u8>), Box<dyn Error>> {
 	let kernel_path = {
 		let path = format!("System\\kernel\\kernel-{version}.exec");
 		CString16::try_from(&*path)?
@@ -225,10 +225,14 @@ pub fn unpack_kernel(fs: ScopedProtocol<SimpleFileSystem>, version: KernelVersio
 		let path = format!("System\\kernel\\symbols-{version}.map");
 		CString16::try_from(&*path)?
 	};
+	let init_path = CString16::try_from("System\\bin\\init.elf")?;
 
 	let mut fs = FileSystem::new(fs);
+	info!("loading kernel from {kernel_path}");
 	let kernel = fs.read(&*kernel_path)?;
+	info!("loading `init` from {init_path}");
+	let init = fs.read(&*init_path)?;
 	let symbol_map = fs.try_exists(&*symbol_path)?.then(|| fs.read(&*symbol_path)).transpose()?;
 
-	Ok(KernelFiles { kernel, symbol_map })
+	Ok((KernelFiles { kernel, symbol_map }, init))
 }

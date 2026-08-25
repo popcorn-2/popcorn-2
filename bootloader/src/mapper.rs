@@ -300,8 +300,64 @@ impl Mapper {
 		Ok(())
 	}
 
-	pub fn finalize(self) -> (PageTable, VirtualAddress, handoff::Stack, RawPage, &'static [RawFrame]) {
+	pub fn finalize(self) -> (PageTable, VirtualAddress, handoff::Stack, RawPage, Vec<RawFrame>) {
 		let Self { page_table, entrypoint, stack, next_page, used_frames, .. } = self;
-		(page_table, entrypoint, stack, next_page, Vec::leak(used_frames))
+		(page_table, entrypoint, stack, next_page, used_frames)
 	}
+}
+
+pub fn map_elf(file: &[u8], into: &mut PageTable, used_frames: &mut impl Extend<RawFrame>) -> Result<VirtualAddress, Box<dyn core::error::Error>> {
+	let file = File::try_new(file)?;
+
+	file.load_with(|segment, data| -> Result<(), Box<dyn core::error::Error>> {
+		if segment.align() > boot::PAGE_SIZE { Status::UNSUPPORTED.to_result()?; }
+		if segment.vaddr().addr != segment.paddr().addr { Status::UNSUPPORTED.to_result()?; }
+
+		let segment_offset = segment.vaddr().addr - segment.vaddr().align_down_to_page().addr;
+		let total_size = segment.mem_size() + segment_offset;
+
+		let mem = boot::allocate_pages(
+			AllocateType::AnyPages,
+			MemoryType::LOADER_DATA,
+			total_size.div_ceil(boot::PAGE_SIZE),
+		)?;
+		let base_frame = RawFrame::new(mem.expose_provenance().get());
+		used_frames.extend(base_frame..(base_frame + total_size.div_ceil(kernel_api::memory::PAGE_SIZE)));
+
+		let mut flags = TableEntryFlags::USER_ACCESSIBLE;
+		if !segment.flags().contains(Flags::Executable) { flags |= TableEntryFlags::NO_EXECUTE; }
+		if segment.flags().contains(Flags::Writeable) { flags |= TableEntryFlags::WRITABLE; }
+
+		into.try_map_range_with(
+			segment.vaddr().align_down_to_page(),
+			base_frame,
+			total_size.div_ceil(kernel_api::memory::PAGE_SIZE),
+			flags,
+			Ty::USER_CODE,
+		)?;
+
+		// SAFETY: `segment_offset` is <4096 and mem is >=4096
+		let mem = unsafe { mem.add(segment_offset) };
+
+		debug!("copy {} bytes from {:#p} to {:#p} (starts {:x?})", data.len(), data, mem, &data[..16]);
+
+		// SAFETY: firmware returns unaliased writable memory
+		unsafe {
+			ptr::write_bytes(
+				mem.as_ptr(),
+				0,
+				segment.mem_size(),
+			);
+
+			ptr::copy_nonoverlapping(
+				data.as_ptr(),
+				mem.as_ptr(),
+				data.len(),
+			);
+		}
+
+		Ok(())
+	})?;
+
+	Ok(VirtualAddress::new(file.entry_point()))
 }
