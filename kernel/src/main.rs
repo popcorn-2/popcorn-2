@@ -485,7 +485,6 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 
 	let parsed_handoff = handoff::process_handoff(&handoff_data);
 	let free_memory = parsed_handoff.memory_map
-		.inspect(|entry| sprintln!("{entry:#x?}"))
 		.filter(|entry|
 			entry.ty == MemoryType::Free ||
 			entry.ty == MemoryType::BootloaderCode ||
