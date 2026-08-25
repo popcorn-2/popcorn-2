@@ -1,3 +1,4 @@
+use core::fmt;
 #[cfg(all(target_pointer_width = "64", target_has_atomic_load_store = "128"))]
 use core::sync::atomic::AtomicU128;
 #[cfg(all(target_pointer_width = "32", target_has_atomic_load_store = "64"))]
@@ -52,6 +53,48 @@ impl ufat {
 
 	pub const fn truncate<T: const private::TruncateTarget<Self>>(self) -> T {
 		T::truncate_from(self)
+	}
+}
+
+impl fmt::Binary for ufat {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		<UfatInner as fmt::Binary>::fmt(&self.0, f)
+	}
+}
+
+impl fmt::Display for ufat {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		<UfatInner as fmt::Display>::fmt(&self.0, f)
+	}
+}
+
+impl fmt::LowerExp for ufat {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		<UfatInner as fmt::LowerExp>::fmt(&self.0, f)
+	}
+}
+
+impl fmt::LowerHex for ufat {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		<UfatInner as fmt::LowerHex>::fmt(&self.0, f)
+	}
+}
+
+impl fmt::Octal for ufat {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		<UfatInner as fmt::Octal>::fmt(&self.0, f)
+	}
+}
+
+impl fmt::UpperExp for ufat {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		<UfatInner as fmt::UpperExp>::fmt(&self.0, f)
+	}
+}
+
+impl fmt::UpperHex for ufat {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		<UfatInner as fmt::UpperHex>::fmt(&self.0, f)
 	}
 }
 
