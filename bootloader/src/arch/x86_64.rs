@@ -2,6 +2,7 @@ use alloc::boxed::Box;
 use core::arch::asm;
 use core::error::Error;
 use core::{fmt, ptr};
+use core::iter::zip;
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ops::{Index as _, IndexMut as _};
@@ -283,6 +284,19 @@ impl PageTable {
 			).expect("just created an empty page table");
 		}
 
+		Ok(Self(l4))
+	}
+
+	pub fn fork_empty(&self) -> Result<Self, Box<dyn Error>> {
+		let mut l4 = boot::allocate_pages(
+			AllocateType::AnyPages,
+			MemoryType::LOADER_DATA,
+			1,
+		)?.cast::<MaybeUninit<Table<Level4>>>();
+		// SAFETY: firmware returns unaliased writable memory
+		let l4 = unsafe { l4.as_mut() }.write(Table::new());
+		zip(l4.0.iter_mut(), self.0.0.iter()).skip(256)
+			.for_each(|(new, old)| *new = TableEntry(old.0));
 		Ok(Self(l4))
 	}
 

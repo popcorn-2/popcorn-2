@@ -211,6 +211,8 @@ impl Mapper {
 			self.next_page
 		});
 
+		if !(*virtual_base).is_higher_half() { unimplemented!("lower half mappings should be done after Mapper::finalize()"); }
+
 		let flags = match ty {
 			Ty::KERNEL_STACK | Ty::KERNEL_DATA | Ty::MEM_MAP => TableEntryFlags::GLOBAL | TableEntryFlags::WRITABLE | TableEntryFlags::NO_EXECUTE,
 			Ty::KERNEL_CODE => TableEntryFlags::GLOBAL,
@@ -244,7 +246,6 @@ impl Mapper {
 	/// Returns an error if memory allocation or mapping failed.
 	fn init_shadow(&mut self, base: VirtualAddress, bytes: usize, val: u8) -> Result<(), Box<dyn core::error::Error>> {
 		if !self.kasan_enabled { return Ok(()); }
-		if !base.is_higher_half() { return Ok(()); }
 
 		let shadow_start = mem_to_shadow(base).align_down_to_page();
 		let shadow_end = mem_to_shadow(base + bytes).align_up_to_page();

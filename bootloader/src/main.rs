@@ -28,6 +28,7 @@ use uefi::table::cfg::ConfigTableEntry;
 use kernel_api::mapping::Ty;
 use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
 use utils::handoff;
+use crate::arch::TableEntryFlags;
 use crate::mapper::Mapper;
 
 mod framebuffer;
@@ -100,6 +101,10 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 		)?;
 	}
 
+	let (mut bootloader_u_table, entry, stack, lowest_used, mut used_frames) = mapper.finalize();
+	let mut init_u_table = bootloader_u_table.fork_empty()?;
+	debug_assert_eq!(bootloader_u_table.handoff_s_table(), init_u_table.handoff_s_table(), "all page tables should have same STable");
+
 	debug!("identity mapping bootloader");
 	for entry in mem_map.entries().filter(|entry|
 		entry.ty == MemoryType::LOADER_CODE ||
@@ -109,18 +114,17 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 		// fixme: conversion
 		let base = RawFrame::new(entry.phys_start as usize);
 		let base_virt = RawPage::new(entry.phys_start as usize);
-		let _ = mapper.new_mapping(
-			Some(base),
-			Some(base_virt),
+		bootloader_u_table.try_map_range_with(
+			base_virt,
+			base,
 			entry.page_count as usize,
+			if entry.ty == MemoryType::LOADER_CODE { TableEntryFlags::empty() } else { TableEntryFlags::NO_EXECUTE },
 			if entry.ty == MemoryType::LOADER_CODE { Ty::LOADER_CODE } else { Ty::LOADER_DATA },
 		)?;
 	}
 
 	info!("setting up system for kernel entry");
-
 	arch::final_init();
-	let (page_table, entry, stack, lowest_used, used_frames) = mapper.finalize();
 
 	let rsdp = system::with_config_table(|config_tables| {
 		#[expect(clippy::option_if_let_else, reason = "more easily readable")]
@@ -139,10 +143,10 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 			map: Range { start: PhysicalAddress::new(0), end: PhysicalAddress::new(0) },
 			lowest_used,
 			stack,
-			s_table: page_table.handoff_s_table(),
+			s_table: bootloader_u_table.handoff_s_table(),
 			u_tables: [
-				page_table.handoff_u_table(),
-				page_table.handoff_u_table(),
+				bootloader_u_table.handoff_u_table(),
+				init_u_table.handoff_u_table(),
 			],
 		},
 		log: handoff::Logging {
@@ -168,7 +172,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	};
 
 	// SAFETY: all bootloader data is mapped to same location
-	unsafe { page_table.switch() };
+	unsafe { bootloader_u_table.switch() };
 	arch::handover(entry, *(stack.bottom_virt + stack.page_count), &raw const handoff)
 }
 
