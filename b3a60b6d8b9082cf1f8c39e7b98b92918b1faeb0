@@ -22,6 +22,30 @@
       },
       "revId": "b3a60b6d8b9082cf1f8c39e7b98b92918b1faeb0",
       "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "1ac9be55_4bd1a590",
+        "filename": "bootloader/src/main.rs",
+        "patchSetId": 1
+      },
+      "lineNbr": 145,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-08-25T17:14:08Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "d1366617_28a23582",
+      "range": {
+        "startLine": 145,
+        "startChar": 4,
+        "endLine": 145,
+        "endChar": 21
+      },
+      "revId": "b3a60b6d8b9082cf1f8c39e7b98b92918b1faeb0",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
     }
   ]
 }
