@@ -374,7 +374,8 @@ mod handoff {
 	use crate::panicking::SymbolMap;
 	use core::ops::Range;
 	use kernel_api::dbg;
-	use kernel_api::memory::{PhysicalAddress, RawPage};
+	use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
+	use crate::hal::{KTableTy, TTableTy};
 
 	#[derive(Clone, Debug)]
 	pub struct MemoryMapIter<'data> {
@@ -415,16 +416,29 @@ mod handoff {
 		pub rsdp: PhysicalAddress,
 		pub framebuffer: utils::handoff::Framebuffer,
 		pub stack: utils::handoff::Stack,
+		pub init_utable: TTableTy,
 	}
 
 	pub fn process_handoff(handoff_data: &*const utils::handoff::Data) -> ParsedHandoff<'_> {
 		debug!("parsing handoff data");
+		let (s_table, u_tables) = no_asan_shim!(|handoff_data: &*const utils::handoff::Data| -> (RawFrame, [RawFrame; 2]) {
+			unsafe { (
+				(**handoff_data).memory.s_table,
+				(**handoff_data).memory.u_tables,
+			) }
+		});
+		#[cfg(feature = "hal-next")] {
+			let s_table = unsafe { KTableTy::from_raw(dbg!(s_table)) };
+			unsafe { crate::memory::paging::init_page_table(s_table) };
+		}
+		let init_utable = unsafe { TTableTy::from_raw(u_tables[1]) };
+
 		let symbol_map = no_asan_shim!(|handoff_data: &*const utils::handoff::Data| -> Option<NonNull<[u8]>> {
 			unsafe { (**handoff_data).log.symbol_map }
 		});
 		*panicking::SYMBOL_MAP.write() = SymbolMap::from(symbol_map);
 
-		no_asan_shim!(|handoff_data: &*const utils::handoff::Data| -> ParsedHandoff<'_> {
+		no_asan_shim!(|handoff_data: &*const utils::handoff::Data, init_utable: TTableTy| -> ParsedHandoff<'_> {
 			let core::range::Range { start, end } = unsafe { (**handoff_data).memory.map };
 			let memory_map = MemoryMapIter {
 				map: start.to_virtual().as_ptr().cast_const().cast::<MemoryMapEntry>()..end.to_virtual().as_ptr().cast_const().cast::<MemoryMapEntry>(),
@@ -442,6 +456,7 @@ mod handoff {
 				rsdp,
 				framebuffer,
 				stack,
+				init_utable,
 			}
 		})
 	}
@@ -460,7 +475,7 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 
 	#[cfg(feature = "hal-next")] arch::target_bsp_start();
 
-	let init_ttable = hal::early_init();
+	hal::early_init();
 
 	let parsed_handoff = handoff::process_handoff(&handoff_data);
 	let free_memory = parsed_handoff.memory_map
@@ -628,7 +643,7 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 
 	hal::post_acpi_init();
 
-	let init_thread = threading::init(parsed_handoff.stack, init_ttable);
+	let init_thread = threading::init(parsed_handoff.stack, parsed_handoff.init_utable);
 	debug!("Init running on {init_thread:?}");
 
 	let _animation = move || {

@@ -30,14 +30,13 @@ pub unsafe trait Hal {
 	fn breakpoint();
 	fn exit(result: Result) -> !;
 	fn debug_output(data: &[u8]) -> core::result::Result<(), ()>;
-	fn early_init() -> Self::TTableTy;
+	fn early_init();
 	fn post_acpi_init();
 	fn enable_interrupts();
 	fn get_and_disable_interrupts() -> usize;
 	fn set_interrupts(old_state: usize);
 	unsafe fn load_tls(ptr: *mut u8);
 	fn load_user_tls(ptr: *mut u8);
-	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy);
 	unsafe extern "C" fn switch_thread<'a>(from: &'a mut ManuallyDrop<ThreadControlBlock>, to: &ThreadControlBlock) -> &'a mut ManuallyDrop<ThreadControlBlock>;
 
 	fn send_ipi(target: IpiTarget) -> core::result::Result<(), ()>;
@@ -73,7 +72,7 @@ mod hal_impl {
 	#[inline] #[expect(unused)] pub fn breakpoint() { <arch::Arch as Hal>::breakpoint() }
 	#[inline] #[expect(unused)] pub fn exit(result: Result) -> ! { <arch::Arch as Hal>::exit(result) }
 	#[inline] #[expect(unused)] pub fn debug_output(data: &[u8]) -> core::result::Result<(), ()> { <arch::Arch as Hal>::debug_output(data) }
-	#[inline] pub fn early_init() -> TTableTy { <arch::Arch as Hal>::early_init() }
+	#[inline] pub fn early_init() { <arch::Arch as Hal>::early_init() }
 	#[inline] pub fn post_acpi_init() { <arch::Arch as Hal>::post_acpi_init() }
 	#[unsafe(export_name = "__popcorn_enable_irq")] pub fn enable_interrupts() { <arch::Arch as Hal>::enable_interrupts() }
 	#[unsafe(export_name = "__popcorn_disable_irq")] pub fn get_and_disable_interrupts() -> usize {
@@ -83,7 +82,6 @@ mod hal_impl {
 	#[unsafe(export_name = "__popcorn_set_irq")] pub fn set_interrupts(old_state: usize) { <arch::Arch as Hal>::set_interrupts(old_state) }
 	#[inline] pub unsafe fn load_tls(ptr: *mut u8) { unsafe { <arch::Arch as Hal>::load_tls(ptr) } }
 	#[inline] pub fn load_user_tls(ptr: *mut u8) { <arch::Arch as Hal>::load_user_tls(ptr) }
-	#[inline] pub unsafe fn construct_tables() -> (KTableTy, TTableTy) { unsafe { <arch::Arch as Hal>::construct_tables() } }
 	#[inline] pub unsafe extern "C" fn switch_thread<'a>(from: &'a mut ManuallyDrop<ThreadControlBlock>, to: &ThreadControlBlock) -> &'a mut ManuallyDrop<ThreadControlBlock> { unsafe { <arch::Arch as Hal>::switch_thread(from, to) } }
 
 	#[inline] pub fn send_ipi(target: IpiTarget) -> core::result::Result<(), ()> { <arch::Arch as Hal>::send_ipi(target) }

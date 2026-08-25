@@ -66,7 +66,9 @@ impl ColorMask {
 pub struct Memory {
 	pub map: Range<PhysicalAddress>,
 	pub lowest_used: RawPage,
-	pub stack: Stack
+	pub stack: Stack,
+	pub s_table: RawFrame,
+	pub u_tables: [RawFrame; 2],
 }
 
 #[derive(Debug, Copy, Clone)]

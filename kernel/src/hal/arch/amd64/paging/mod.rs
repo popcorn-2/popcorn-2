@@ -31,20 +31,12 @@ pub(crate) unsafe fn construct_tables() -> (Amd64KTable, Amd64TTable) {
 	let ttable_base = ttable_base & 0xffff_ffff_ffff_f000;
 
 	let ttable = unsafe {
-		Amd64TTable::new_unchecked(
-			Frames::from_raw(
-				Range {
-					start: RawFrame::new(ttable_base),
-					end: RawFrame::new(ttable_base) + 1usize,
-				},
-				highmem(), // fixme: is highmem always correct
-			),
-		)
+		Amd64TTable::from_raw(RawFrame::new(ttable_base))
 	};
 
 	let ktable_base = ttable.pml4.pml4().entries[256].pointed_frame(false)
-			.expect("Invalid TTable");
-	
+		.expect("Invalid TTable");
+
 	let ktable = Amd64KTable {
 		tables: KTablePtr(unsafe {
 			Frames::from_raw(Range {
@@ -65,6 +57,21 @@ struct KTablePtr(Frames<true, Table<PDPT>>); // points to a [Table<PDPT>; 256]
 pub struct Amd64KTable {
 	tables: KTablePtr, // points to a [Table<PDPT>; 256]
 	allocator: DynPmm<'static, true>,
+}
+
+#[cfg(feature = "hal-next")]
+impl Amd64KTable {
+	pub unsafe fn from_raw(frame: RawFrame) -> Self {
+		Amd64KTable {
+			tables: KTablePtr(unsafe {
+				Frames::from_raw(Range {
+					start: frame,
+					end: frame + 256usize,
+				}, highmem()) // fixme: is highmem always correct
+			}),
+			allocator: highmem(),
+		}
+	}
 }
 
 impl KTablePtr {
@@ -154,7 +161,17 @@ pub struct Amd64TTable {
 }
 
 impl Amd64TTable {
-	unsafe fn new_unchecked(pml4: Frames<true, Table<PML4>>) -> Self {
+	pub unsafe fn from_raw(frame: RawFrame) -> Self {
+		let pml4 = unsafe {
+			Frames::from_raw(
+				Range {
+					start: frame,
+					end: frame + 1usize,
+				},
+				highmem(), // fixme: is highmem always correct
+			)
+		};
+
 		Self {
 			pml4: TTablePtr {
 				pml4: Spinlock::new(pml4),

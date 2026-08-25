@@ -322,4 +322,15 @@ impl PageTable {
 		// SAFETY: upheld by caller
 		unsafe { asm!("mov cr3, {}", in(reg) addr, options(nostack, preserves_flags)); }
 	}
+
+	pub fn handoff_u_table(&self) -> RawFrame {
+		RawFrame::new(
+			(&raw const *self.0).addr()
+		)
+	}
+
+	pub fn handoff_s_table(&self) -> RawFrame {
+		self.0.0[256].pointed_frame()
+			.expect("STable must exist")
+	}
 }
