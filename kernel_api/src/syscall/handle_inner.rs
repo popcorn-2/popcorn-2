@@ -1,8 +1,9 @@
 use alloc::sync::Arc;
 use core::mem::ManuallyDrop;
-use core::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
-use hashbrown::{HashMap, hash_map::Entry};
+use core::sync::atomic::{AtomicPtr, Ordering};
+use hashbrown::HashMap;
 use log::debug;
+use slab::Slab;
 use crate::sync::{RwSpinlock, Spinlock};
 use crate::syscall;
 use crate::syscall::Error;
@@ -26,8 +27,7 @@ impl Clone for HandleMap {
 
 #[derive(Debug)]
 struct HandleMapInner {
-	map: Spinlock<HashMap<u32, Arc<Handle>>>,
-	next_fd: AtomicU32,
+	map: Spinlock<Slab<Arc<Handle>>>,
 }
 
 impl HandleMap {
@@ -49,8 +49,7 @@ impl HandleMap {
 	#[must_use]
 	pub fn new() -> Self {
 		let this = HandleMapInner {
-			map: Spinlock::new(HashMap::new()),
-			next_fd: AtomicU32::new(4),
+			map: Spinlock::new(Slab::new()),
 		};
 		let arc = Arc::new(this);
 		Self(AtomicPtr::new(Arc::into_raw(arc).cast_mut()))
@@ -82,18 +81,10 @@ impl HandleMap {
 	pub fn push(&self, handle: Arc<Handle>) -> syscall::Result<u32> {
 		let this = self.deref();
 		let mut guard = this.map.lock();
-		let (entry, fd) = loop {
-			if this.next_fd.load(Ordering::Relaxed) == u32::MAX { return Err(Error::Overflow); }
-			let fd = this.next_fd.fetch_add(1, Ordering::Relaxed);
+		if guard.len() >= (u32::MAX as usize) { return Err(Error::Overflow); }
 
-			match guard.entry(fd) {
-				Entry::Occupied(_) => continue,
-				Entry::Vacant(entry) => break (entry, fd),
-			}
-		};
-
-		entry.insert(handle);
-		Ok(fd)
+		let fd = guard.insert(handle);
+		Ok(fd as u32)
 	}
 
 	/// Adds the passed handle to the handle map at the specified position.
@@ -119,12 +110,9 @@ impl HandleMap {
 	/// assert_eq!(fd, 5);
 	/// # Ok::<(), kernel_api::syscall::Error>(())
 	/// ```
-	pub fn openat(&self, val: u32, handle: Arc<Handle>) -> syscall::Result<u32> {
-		let this = self.deref();
-		match this.map.lock().try_insert(val, handle) {
-			Ok(_) => Ok(val),
-			Err(_) => Err(Error::NameInUse),
-		}
+	#[deprecated = "`openat` no longer supported - use `push` and don't rely on fixed handle numbers"]
+	pub fn openat(&self, _val: u32, _handle: Arc<Handle>) -> syscall::Result<u32> {
+		Err(Error::FutureCompat)
 	}
 
 	/// Duplicates and returns the handle at `val`.
@@ -151,7 +139,7 @@ impl HandleMap {
 	/// ```
 	pub fn get(&self, val: u32) -> syscall::Result<Arc<Handle>> {
 		let this = self.deref();
-		this.map.lock().get(&val).cloned().ok_or(Error::InvalidHandle)
+		this.map.lock().get(val as usize).cloned().ok_or(Error::InvalidHandle)
 	}
 
 	/// Removes the handle at `val` from the `HandleMap`.
@@ -181,7 +169,7 @@ impl HandleMap {
 	/// ```
 	pub fn pop(&self, val: u32) -> syscall::Result<Arc<Handle>> {
 		let this = self.deref();
-		this.map.lock().remove(&val).ok_or(Error::InvalidHandle)
+		this.map.lock().try_remove(val as usize).ok_or(Error::InvalidHandle)
 	}
 
 	/// Swaps `self` to contain the mappings contained in `other`, and

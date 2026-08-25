@@ -658,6 +658,7 @@ dependencies = [
  "lock_api",
  "log",
  "parking_lot",
+ "slab",
 ]
 
 [[package]]
