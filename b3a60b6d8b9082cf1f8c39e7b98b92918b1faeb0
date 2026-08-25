@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "d1366617_28a23582",
+        "filename": "bootloader/src/main.rs",
+        "patchSetId": 1
+      },
+      "lineNbr": 145,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-08-25T17:12:05Z",
+      "side": 1,
+      "message": "page table should be passed here as well",
+      "range": {
+        "startLine": 145,
+        "startChar": 4,
+        "endLine": 145,
+        "endChar": 21
+      },
+      "revId": "b3a60b6d8b9082cf1f8c39e7b98b92918b1faeb0",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    }
+  ]
+}
