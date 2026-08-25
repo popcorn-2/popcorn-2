@@ -139,6 +139,11 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 			map: Range { start: PhysicalAddress::new(0), end: PhysicalAddress::new(0) },
 			lowest_used,
 			stack,
+			s_table: page_table.handoff_s_table(),
+			u_tables: [
+				page_table.handoff_u_table(),
+				RawFrame::new(0),
+			],
 		},
 		log: handoff::Logging {
 			symbol_map: None,

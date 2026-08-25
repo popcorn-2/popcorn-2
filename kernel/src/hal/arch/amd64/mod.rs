@@ -48,7 +48,7 @@ unsafe impl Hal for Amd64Hal {
 		Ok(())
 	}
 
-	fn early_init() -> Self::TTableTy {
+	fn early_init() {
 		#[cfg(not(feature = "hal-next"))] {
 			let tss = tss::TSS.get_or_init(|| {
 				tss::Tss::new()
@@ -142,9 +142,10 @@ unsafe impl Hal for Amd64Hal {
 			asm!("xsetbv", in("rcx") 0, in("eax") xcr0, in("edx") 0);
 		}
 
-		let (ktable, ttable) = unsafe { paging::construct_tables() };
-		unsafe { init_page_table(ktable) };
-		ttable
+		#[cfg(not(feature = "hal-next"))] {
+			let (ktable, _) = unsafe { paging::construct_tables() };
+			unsafe { init_page_table(ktable) };
+		}
 	}
 
 	#[inline]
@@ -186,10 +187,6 @@ unsafe impl Hal for Amd64Hal {
 		wrmsr(msr::FS_BASE, ptr.addr() as _);
 	}
 
-	unsafe fn construct_tables() -> (Self::KTableTy, Self::TTableTy) {
-		unsafe { paging::construct_tables() }
-	}
-
 	#[inline]
 	unsafe extern "C" fn switch_thread<'a>(from: &'a mut ManuallyDrop<ThreadControlBlock>, to: &ThreadControlBlock) -> &'a mut ManuallyDrop<ThreadControlBlock> {
 		// currently in kernel mode so even if we get an interrupt on the new TSS.privilege_stack_table[0] value
@@ -204,7 +201,7 @@ unsafe impl Hal for Amd64Hal {
 		wrmsr(msr::FS_BASE, to.register_state.fs as u64);
 		wrmsr(msr::KERNEL_GS_BASE, to.register_state.gs as u64);
 
-		#[cfg(feature = "hal-next")] {
+		#[cfg(feature = "syscall-abi-next")] {
 			from.register_state.kernel_perthread_scratch = percpu_v2!(arch).tss.scratch.load(Ordering::SeqCst);
 			percpu_v2!(arch).tss.scratch.store(to.register_state.kernel_perthread_scratch, Ordering::SeqCst);
 		}
