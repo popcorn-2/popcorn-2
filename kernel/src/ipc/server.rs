@@ -240,7 +240,7 @@ impl ServerRegistry {
 
 	pub fn get_server_at(&self, name: &str) -> syscall::Result<(ServerId, Arc<ServerTy>)> {
 		let id = self.name_lookup.get(name)
-		             .ok_or(Error::EndpointNotFound)?;
+		             .ok_or(Error::InvalidEndpoint)?;
 		match self.get_server(*id) {
 			Ok(srv) => Ok((*id, srv)),
 			Err(err) => Err(err),
@@ -249,7 +249,7 @@ impl ServerRegistry {
 
 	pub fn get_server(&self, id: ServerId) -> syscall::Result<Arc<ServerTy>> {
 		let srv = self.server_map.get(&id)
-		              .ok_or(Error::EndpointNotFound)?;
+		              .ok_or(Error::InvalidEndpoint)?;
 		Ok(Arc::clone(srv))
 	}
 }

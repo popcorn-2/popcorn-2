@@ -35,7 +35,7 @@ impl Server for RootServer {
 
 	async fn ctor(&self, endpoint: &str, _ctx: Self::CtorContext) -> Result<ReturnHandle, Error> {
 		let path = endpoint.trim_start_matches('/');
-		if path.contains('/') { yeet!(Error::InvalidName); }
+		if path.contains('/') { yeet!(Error::InvalidEndpoint); }
 		
 		debug!("start server at `{path}`");
 

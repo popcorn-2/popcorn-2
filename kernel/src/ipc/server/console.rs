@@ -29,7 +29,7 @@ impl Server for ConsoleServer {
 	type CtorContext = CtorCtx;
 
 	async fn ctor(&self, endpoint: &str, _ctx: CtorCtx) -> Result<ReturnHandle, Error> {
-		if endpoint != "" { return Err(Error::EndpointNotFound); }
+		if endpoint != "" { return Err(Error::InvalidEndpoint); }
 		
 		let res = self.lock.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed);
 		if res.is_ok() { Ok(ReturnHandle::NewDefault(1)) }
