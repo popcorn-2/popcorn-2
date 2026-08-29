@@ -2,6 +2,7 @@ use core::cell::{OnceCell, UnsafeCell};
 use core::sync::atomic::AtomicPtr;
 use kernel_api::sync::{IrqCell, RwSpinlock};
 use crate::threading::ThreadControlBlock;
+use crate::ebr;
 use crate::timing::TimerQueue;
 
 macro_rules! percpu_gen {
@@ -83,6 +84,7 @@ percpu_gen! {
         pub local_timer: OnceCell<crate::hal::timing::TimerMeta> = OnceCell::new(),
         pub current_thread: RwSpinlock<Option<ThreadControlBlock>> = RwSpinlock::new(None), // todo: replace with something !Sync if opt needed
 		#[cfg(feature = "hal-next")] pub arch: crate::arch::Percpu = crate::arch::Percpu::new(),
+		pub epoch: ebr::LocalEpoch = ebr::LocalEpoch::new(),
     }
 }
 
