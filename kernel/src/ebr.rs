@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use core::ptr;
+use core::{mem, ptr};
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use kernel_api::sync::Spinlock;
 
@@ -45,6 +45,16 @@ impl LocalEpoch {
 	/// The pointer passed in `val` must have come from a call to [`T::into_raw`](IntoRaw::into_raw).
 	pub unsafe fn retire_and_cleanup<T: IntoRaw + Send + Sync>(&self, val: *mut T::Inner) {
 		let drop_fn = |ptr: *mut u8| drop(unsafe { T::from_raw(ptr.cast()) });
+		self.insert_retire_and_cleanup(drop_fn, val.cast());
+	}
+
+	pub fn defer_and_cleanup(&self, f: fn(usize), arg: usize) {
+		// SAFETY: ABI of `fn(usize)` and `fn(*mut u8)` are the same
+		let drop_fn = unsafe { mem::transmute::<fn(usize), fn(*mut u8)>(f) };
+		self.insert_retire_and_cleanup(drop_fn, ptr::without_provenance_mut(arg));
+	}
+
+	fn insert_retire_and_cleanup(&self, drop_fn: fn(*mut u8), val: *mut u8) {
 		let mut guard = self.retired.lock();
 		if guard.len() == guard.capacity() {
 			gc_collect();
@@ -52,7 +62,7 @@ impl LocalEpoch {
 		guard.push(Retired {
 			in_epoch: GLOBAL_EPOCH.load(Ordering::Acquire) & !INACTIVE_BIT,
 			drop_fn,
-			val: val.cast(),
+			val,
 		});
 	}
 }
