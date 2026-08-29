@@ -27,13 +27,13 @@ impl LocalEpoch {
 	pub const fn new() -> Self {
 		Self {
 			next: AtomicPtr::new(ptr::null_mut()),
-			epoch: AtomicUsize::new(0),
+			epoch: AtomicUsize::new(INACTIVE_BIT),
 			retired: Spinlock::new(Vec::new()),
 		}
 	}
 
 	pub fn pin(&self) -> EpochGuard<'_> {
-		let global_epoch = GLOBAL_EPOCH.load(Ordering::Acquire);
+		let global_epoch = GLOBAL_EPOCH.load(Ordering::Acquire) & !INACTIVE_BIT;
 		self.epoch.store(global_epoch, Ordering::Release);
 		EpochGuard {
 			local_epoch: self,
@@ -48,7 +48,7 @@ impl LocalEpoch {
 			gc_collect();
 		}
 		guard.push(Retired {
-			in_epoch: GLOBAL_EPOCH.load(Ordering::Acquire),
+			in_epoch: GLOBAL_EPOCH.load(Ordering::Acquire) & !INACTIVE_BIT,
 			drop_fn,
 			val,
 		});
@@ -145,18 +145,18 @@ pub fn gc_collect() {
 		let is_inactive = (state & INACTIVE_BIT) != 0;
 		let cpu_epoch = state & !INACTIVE_BIT;
 
-		is_inactive || cpu_epoch == global_epoch
+		is_inactive || cpu_epoch == (global_epoch & !INACTIVE_BIT)
 	});
 
 	if all_cpus_current {
 		let global_epoch = GLOBAL_EPOCH.compare_exchange(
 			global_epoch,
-			global_epoch + 1,
+			global_epoch.wrapping_add(1),
 			Ordering::Release,
 			Ordering::Acquire,
 		).unwrap_or_else(|val| val);
 
 		let mut retire_queue = percpu_v2!(epoch).retired.lock();
-		retire_queue.retain(|retired| retired.in_epoch >= global_epoch);
+		retire_queue.retain(|retired| retired.in_epoch >= (global_epoch & !INACTIVE_BIT));
 	}
 }
