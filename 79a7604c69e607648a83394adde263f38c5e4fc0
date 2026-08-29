@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "5c89e1af_0d929955",
+        "filename": "kernel/src/ebr.rs",
+        "patchSetId": 1
+      },
+      "lineNbr": 22,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-08-29T01:13:27Z",
+      "side": 1,
+      "message": "Make this a method on LocalEpoch since doing `percpu!(epoch).pin()` feels more natureal",
+      "range": {
+        "startLine": 15,
+        "startChar": 0,
+        "endLine": 22,
+        "endChar": 2
+      },
+      "revId": "79a7604c69e607648a83394adde263f38c5e4fc0",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    }
+  ]
+}
