@@ -40,9 +40,11 @@ impl LocalEpoch {
 		}
 	}
 
-	pub fn retire_and_cleanup<T: IntoRaw + Send + Sync>(&self, val: T) {
-		let drop_fn = |ptr| drop(unsafe { T::from_raw(ptr) });
-		let val = T::into_raw(val);
+	/// # Safety
+	///
+	/// The pointer passed in `val` must have come from a call to [`T::into_raw`](IntoRaw::into_raw).
+	pub unsafe fn retire_and_cleanup<T: IntoRaw + Send + Sync>(&self, val: *mut T::Inner) {
+		let drop_fn = |ptr: *mut u8| drop(unsafe { T::from_raw(ptr.cast()) });
 		let mut guard = self.retired.lock();
 		if guard.len() == guard.capacity() {
 			gc_collect();
@@ -50,7 +52,7 @@ impl LocalEpoch {
 		guard.push(Retired {
 			in_epoch: GLOBAL_EPOCH.load(Ordering::Acquire) & !INACTIVE_BIT,
 			drop_fn,
-			val,
+			val: val.cast(),
 		});
 	}
 }
@@ -61,18 +63,22 @@ const _: () = {
 };
 
 pub trait IntoRaw {
-	fn into_raw(self) -> *mut u8;
-	unsafe fn from_raw(ptr: *mut u8) -> Self;
+	type Inner;
+
+	fn into_raw(self) -> *mut Self::Inner;
+	unsafe fn from_raw(ptr: *mut Self::Inner) -> Self;
 }
 
 impl<T> IntoRaw for Box<T> {
-	fn into_raw(self) -> *mut u8 { Box::into_raw(self).cast() }
-	unsafe fn from_raw(ptr: *mut u8) -> Self { unsafe { Box::from_raw(ptr.cast()) } }
+	type Inner = T;
+	fn into_raw(self) -> *mut T { Box::into_raw(self) }
+	unsafe fn from_raw(ptr: *mut T) -> Self { unsafe { Box::from_raw(ptr) } }
 }
 
 impl<T> IntoRaw for Arc<T> {
-	fn into_raw(self) -> *mut u8 { Arc::into_raw(self).cast_mut().cast() }
-	unsafe fn from_raw(ptr: *mut u8) -> Self { unsafe { Arc::from_raw(ptr.cast_const().cast()) } }
+	type Inner = T;
+	fn into_raw(self) -> *mut T { Arc::into_raw(self).cast_mut() }
+	unsafe fn from_raw(ptr: *mut T) -> Self { unsafe { Arc::from_raw(ptr.cast_const()) } }
 }
 
 pub fn init() {
