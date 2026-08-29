@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "aaafc2a3_a096364b",
+        "filename": "kernel/src/ebr.rs",
+        "patchSetId": 1
+      },
+      "lineNbr": 204,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-08-29T15:12:02Z",
+      "side": 1,
+      "message": "remove test fn before merge",
+      "range": {
+        "startLine": 169,
+        "startChar": 0,
+        "endLine": 204,
+        "endChar": 0
+      },
+      "revId": "c2be4ec29d04ebfb45ed2f5bf917c753e334fce2",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    }
+  ]
+}
