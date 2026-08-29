@@ -1,4 +1,51 @@
 {
-  "comments": [],
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "79f663f9_e446deda",
+        "filename": "kernel/src/ebr.rs",
+        "patchSetId": 2
+      },
+      "lineNbr": 30,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-08-29T01:42:34Z",
+      "side": 1,
+      "message": "should probably initialise to inactive state",
+      "range": {
+        "startLine": 30,
+        "startChar": 3,
+        "endLine": 30,
+        "endChar": 30
+      },
+      "revId": "e48e13b80d4a58c06ba2a5a70a040764e4944808",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "54818673_e1a9abe2",
+        "filename": "kernel/src/ebr.rs",
+        "patchSetId": 2
+      },
+      "lineNbr": 148,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-08-29T01:42:34Z",
+      "side": 1,
+      "message": "behaviour when GLOBAL_EPOCH overflows into INACTIVE_BIT?",
+      "range": {
+        "startLine": 148,
+        "startChar": 17,
+        "endLine": 148,
+        "endChar": 42
+      },
+      "revId": "e48e13b80d4a58c06ba2a5a70a040764e4944808",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    }
+  ],
   "submitRequirementResults": []
 }
