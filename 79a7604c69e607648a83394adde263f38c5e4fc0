@@ -22,6 +22,30 @@
       },
       "revId": "79a7604c69e607648a83394adde263f38c5e4fc0",
       "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "74b16cfc_ea731ed6",
+        "filename": "kernel/src/ebr.rs",
+        "patchSetId": 1
+      },
+      "lineNbr": 22,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-08-29T01:18:36Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "5c89e1af_0d929955",
+      "range": {
+        "startLine": 15,
+        "startChar": 0,
+        "endLine": 22,
+        "endChar": 2
+      },
+      "revId": "79a7604c69e607648a83394adde263f38c5e4fc0",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
     }
   ]
 }
