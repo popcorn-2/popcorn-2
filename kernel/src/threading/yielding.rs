@@ -3,6 +3,7 @@ use core::sync::atomic::Ordering;
 use log::{debug, trace};
 use kernel_api::threading::ThreadState;
 use kernel_api::time::Instant;
+use crate::ebr;
 use crate::hal::{self, IpiTarget};
 use super::{scheduler, scheduler::Scheduler, ThreadControlBlock};
 
@@ -86,6 +87,7 @@ pub fn yield_now_inner(inside_park: bool) {
 		let idle_start_time = Instant::now();
 		debug!("start idling");
 		let new_thread = loop {
+			ebr::gc_collect();
 			hal::wait_for_interrupt();
 			if let Some(new_thread) = scheduler.get_next_thread() { break Some(new_thread); }
 			if old_thread_tcb.state.runnable() { break None };

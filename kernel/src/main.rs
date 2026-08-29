@@ -88,6 +88,7 @@ mod notes;
 mod arch;
 #[cfg(feature = "syscall-abi-next")]
 mod syscall;
+mod ebr;
 
 // The compiler expects the prelude definition to be defined before it's use statement
 mod prelude;
@@ -562,6 +563,9 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 
 		*memory::r#virtual::GLOBAL_VIRTUAL_ALLOCATOR.write() = Box::leak(Box::new(btree_alloc));
 	}
+
+	debug!("initializing epoch structures");
+	ebr::init();
 
 	unsafe { hal::acpi::init_tables(parsed_handoff.rsdp) };
 
