@@ -3,10 +3,10 @@ use core::mem::ManuallyDrop;
 use core::num::NonZero;
 use core::ops::{Deref, DerefMut};
 use core::ptr::{from_raw_parts_mut, NonNull, Pointee};
-use acpi::{AcpiHandler, AcpiTables, PhysicalMapping};
-use kernel_api::sync::{OnceLock, Syncify};
+use acpi::{AcpiTables, PciAddress, PhysicalMapping};
+use kernel_api::sync::OnceLock;
 
-static TABLES: OnceLock<Syncify<AcpiTables<Handler>>> = OnceLock::new();
+static TABLES: OnceLock<AcpiTables<Handler>> = OnceLock::new();
 
 #[track_caller]
 pub fn tables() -> &'static AcpiTables<Handler> {
@@ -15,9 +15,8 @@ pub fn tables() -> &'static AcpiTables<Handler> {
 
 pub unsafe fn init_tables(rsdp_addr: PhysicalAddress) {
 	TABLES.get_or_init(|| {
-		let tables = unsafe { AcpiTables::from_rsdp(Handler::new(&Allocator), rsdp_addr.addr) }
-				.expect("Invalid ACPI table");
-		unsafe { Syncify::new(tables) }
+		unsafe { AcpiTables::from_rsdp(Handler::new(&Allocator), rsdp_addr.addr) }
+				.expect("Invalid ACPI table")
 	});
 }
 
@@ -90,19 +89,19 @@ impl PagingReason for acpi::rsdp::Rsdp {
 	}
 }
 
-impl PagingReason for acpi::hpet::HpetTable {
+impl PagingReason for acpi::sdt::hpet::HpetTable {
 	fn reason() -> Ty {
 		Ty::ACPI_HPET
 	}
 }
 
-impl PagingReason for acpi::fadt::Fadt {
+impl PagingReason for acpi::sdt::fadt::Fadt {
 	fn reason() -> Ty {
 		Ty::ACPI_FADT
 	}
 }
 
-impl PagingReason for acpi::bgrt::Bgrt {
+impl PagingReason for acpi::sdt::bgrt::Bgrt {
 	fn reason() -> Ty {
 		Ty::ACPI_BGRT
 	}
@@ -144,14 +143,14 @@ impl AcpiHandlerExt for Handler {
 			physical_start: first_frame.addr + offset,
 			virtual_start: start,
 			region_length: size,
-			mapped_length: phys_len * 4096,
+			mapped_length: phys_len * PAGE_SIZE,
 			handler: self.clone()
 		}
 	}
 }
 
 #[derive(Debug)]
-pub struct XPhysicalMapping<A: AcpiHandler, T: ?Sized> {
+pub struct XPhysicalMapping<A: acpi::Handler, T: ?Sized> {
 	physical_start: usize,
 	pub(crate) virtual_start: NonNull<T>,
 	region_length: usize, // Can be equal or larger than size_of::<T>()
@@ -159,7 +158,7 @@ pub struct XPhysicalMapping<A: AcpiHandler, T: ?Sized> {
 	handler: A,
 }
 
-impl<A: AcpiHandler, T: ?Sized> Deref for XPhysicalMapping<A, T> {
+impl<A: acpi::Handler, T: ?Sized> Deref for XPhysicalMapping<A, T> {
 	type Target = T;
 
 	fn deref(&self) -> &Self::Target {
@@ -167,62 +166,58 @@ impl<A: AcpiHandler, T: ?Sized> Deref for XPhysicalMapping<A, T> {
 	}
 }
 
-impl<A: AcpiHandler, T: ?Sized> DerefMut for XPhysicalMapping<A, T> {
+impl<A: acpi::Handler, T: ?Sized> DerefMut for XPhysicalMapping<A, T> {
 	fn deref_mut(&mut self) -> &mut Self::Target {
 		unsafe { self.virtual_start.as_mut() }
 	}
 }
 
-pub trait AcpiHandlerExt: AcpiHandler {
+pub trait AcpiHandlerExt: acpi::Handler {
 	unsafe fn map_region<T: ?Sized>(&self, physical_address: PhysicalAddress, size: usize, meta: <T as Pointee>::Metadata) -> XPhysicalMapping<Self, T>;
 }
 
-impl<A: AcpiHandler, T: ?Sized> Drop for XPhysicalMapping<A, T> {
+impl<A: acpi::Handler, T: ?Sized> Drop for XPhysicalMapping<A, T> {
 	fn drop(&mut self) {
-		let _drop_guard = unsafe {
-			PhysicalMapping::new(
-				self.physical_start,
-				self.virtual_start.cast::<u8>(),
-				self.region_length,
-				self.mapped_length,
-				self.handler.clone()
-			)
+		let _drop_guard = PhysicalMapping {
+			physical_start: self.physical_start,
+			virtual_start: self.virtual_start.cast::<u8>(),
+			region_length: self.region_length,
+			mapped_length: self.mapped_length,
+			handler: self.handler.clone()
 		};
 	}
 }
 
-impl AcpiHandler for Handler {
+impl acpi::Handler for Handler {
 	unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T> {
 		let physical_address = PhysicalAddress::new(physical_address);
 		let xmap = unsafe { self.map_region(physical_address, size, ()) };
 		let xmap = ManuallyDrop::new(xmap);
 
-		unsafe {
-			PhysicalMapping::new(
-				xmap.physical_start,
-				xmap.virtual_start,
-				xmap.region_length,
-				xmap.mapped_length,
-				xmap.handler
-			)
+		PhysicalMapping {
+			physical_start: xmap.physical_start,
+			virtual_start: xmap.virtual_start,
+			region_length: xmap.region_length,
+			mapped_length: xmap.mapped_length,
+			handler: xmap.handler,
 		}
 	}
 
 	fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
 		let first_frame = {
-			let start = PhysicalAddress::new(region.physical_start());
+			let start = PhysicalAddress::new(region.physical_start);
 			start.align_down_to_frame()
 		};
-		let len = NonZero::<usize>::new(region.mapped_length() / PAGE_SIZE).unwrap();
+		let len = NonZero::<usize>::new(region.mapped_length / PAGE_SIZE).unwrap();
 		let first_page = {
-			let start = VirtualAddress::from(region.virtual_start().as_ptr());
+			let start = VirtualAddress::from(region.virtual_start.as_ptr());
 			start.align_down_to_page() + -Mmap::default().base_virtual_offset()
 		};
 
 		unsafe {
 			let frames = Frames::<false>::from_raw(
 				first_frame .. (first_frame + len.get()),
-				region.handler().allocator,
+				region.handler.allocator,
 			);
 			
 			let _ = Mapping::<Mmap, address_space::Kernel>::from_raw_parts(
@@ -233,4 +228,28 @@ impl AcpiHandler for Handler {
 			);
 		}
 	}
+
+	fn read_u8(&self, _address: usize) -> u8 { unimplemented!() }
+	fn read_u16(&self, _address: usize) -> u16 { unimplemented!() }
+	fn read_u32(&self, _address: usize) -> u32 { unimplemented!() }
+	fn read_u64(&self, _address: usize) -> u64 { unimplemented!() }
+	fn write_u8(&self, _address: usize, _value: u8) { unimplemented!() }
+	fn write_u16(&self, _address: usize, _value: u16) { unimplemented!() }
+	fn write_u32(&self, _address: usize, _value: u32) { unimplemented!() }
+	fn write_u64(&self, _address: usize, _value: u64) { unimplemented!() }
+	fn read_io_u8(&self, _port: u16) -> u8 { unimplemented!() }
+	fn read_io_u16(&self, _port: u16) -> u16 { unimplemented!() }
+	fn read_io_u32(&self, _port: u16) -> u32 { unimplemented!() }
+	fn write_io_u8(&self, _port: u16, _value: u8) { unimplemented!() }
+	fn write_io_u16(&self, _port: u16, _value: u16) { unimplemented!() }
+	fn write_io_u32(&self, _port: u16, _value: u32) { unimplemented!() }
+	fn read_pci_u8(&self, _address: PciAddress, _offset: u16) -> u8 { unimplemented!() }
+	fn read_pci_u16(&self, _address: PciAddress, _offset: u16) -> u16 { unimplemented!() }
+	fn read_pci_u32(&self, _address: PciAddress, _offset: u16) -> u32 { unimplemented!() }
+	fn write_pci_u8(&self, _address: PciAddress, _offset: u16, _value: u8) { unimplemented!() }
+	fn write_pci_u16(&self, _address: PciAddress, _offset: u16, _value: u16) { unimplemented!() }
+	fn write_pci_u32(&self, _address: PciAddress, _offset: u16, _value: u32) { unimplemented!() }
+	fn nanos_since_boot(&self) -> u64 { unimplemented!() }
+	fn stall(&self, _microseconds: u64) { unimplemented!() }
+	fn sleep(&self, _milliseconds: u64) { unimplemented!() }
 }

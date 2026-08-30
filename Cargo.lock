@@ -4,12 +4,16 @@ version = 4
 
 [[package]]
 name = "acpi"
-version = "5.0.0"
+version = "6.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e248409195304021f61b39ba2628f62a45a3abf6119669d44b3399d60eabe4c3"
+checksum = "b763acdc1d85c36d61acf97a59938f23202d0e8efe45e8759de10c02db242744"
 dependencies = [
  "bit_field",
+ "bitflags 2.13.1",
+ "byteorder",
  "log",
+ "pci_types",
+ "spinning_top",
 ]
 
 [[package]]
@@ -166,9 +170,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.4.2"
+version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed570934406eb16438a4e976b1b4500774099c13b8cb96eec99f620f05090ddf"
+checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
 name = "bitmap_allocator"
@@ -182,7 +186,7 @@ dependencies = [
 name = "bootloader"
 version = "0.1.0"
 dependencies = [
- "bitflags 2.4.2",
+ "bitflags 2.13.1",
  "chrono",
  "elf 0.1.0 (git+https://github.com/popcorn-2/elf.git)",
  "kernel_api",
@@ -395,7 +399,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 name = "elf"
 version = "0.1.0"
 dependencies = [
- "bitflags 2.4.2",
+ "bitflags 2.13.1",
  "kernel_api",
 ]
 
@@ -404,7 +408,7 @@ name = "elf"
 version = "0.1.0"
 source = "git+https://github.com/popcorn-2/elf.git#1e385f44e9e5ad1f91aea9573a227fedcf3056bb"
 dependencies = [
- "bitflags 2.4.2",
+ "bitflags 2.13.1",
  "kernel_api",
 ]
 
@@ -529,7 +533,7 @@ name = "gpt"
 version = "4.0.0-alpha.1"
 source = "git+https://github.com/Quyzi/gpt.git?rev=c0335be#c0335becfb868c1a9f57242587e6ae67c268fc1d"
 dependencies = [
- "bitflags 2.4.2",
+ "bitflags 2.13.1",
  "crc",
  "log",
  "simple-bytes",
@@ -626,7 +630,7 @@ dependencies = [
  "acpi",
  "arena_heap",
  "bit_field",
- "bitflags 2.4.2",
+ "bitflags 2.13.1",
  "bitmap_allocator",
  "derive_more 0.99.17",
  "elf 0.1.0",
@@ -845,6 +849,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
 
 [[package]]
+name = "pci_types"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0c2a105c657261a938ff68ee231c199a3d80eef33976004829de761ef5b1a9b"
+dependencies = [
+ "bit_field",
+ "bitflags 2.13.1",
+]
+
+[[package]]
 name = "petgraph"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1002,6 +1016,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6ecd384b10a64542d77071bd64bd7b231f4ed5940fba55e98c3de13824cf3d7"
 
 [[package]]
+name = "spinning_top"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d96d2d1d716fb500937168cc09353ffdc7a012be8475ac7308e1bdf0e3923300"
+dependencies = [
+ "lock_api",
+]
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1086,7 +1109,7 @@ version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a58ad7512f7c38b58aa536c3839dbb1d5a122d14a7e2245b06ded49edcb7585a"
 dependencies = [
- "bitflags 2.4.2",
+ "bitflags 2.13.1",
  "cfg-if",
  "log",
  "ptr_meta",
@@ -1113,7 +1136,7 @@ version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a36f49db0b04a8dfd246a26ddf8d2526a2ffd8cf946ae7fe603fd0c5fbd2786"
 dependencies = [
- "bitflags 2.4.2",
+ "bitflags 2.13.1",
  "uguid",
 ]
 

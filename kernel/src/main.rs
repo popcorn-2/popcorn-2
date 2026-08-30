@@ -581,7 +581,7 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 		}
 
 		// If extracted from BGRT, draw OEM logo
-		if let Ok(bgrt) = hal::acpi::tables().find_table::<::acpi::bgrt::Bgrt>() {
+		if let Some(bgrt) = hal::acpi::tables().find_table::<::acpi::sdt::bgrt::Bgrt>() {
 			let bitmap = bmp::from_bgrt(&bgrt, hal::acpi::Handler::new(&hal::acpi::Allocator));
 			if let Some(bitmap) = bitmap {
 				let width = bitmap.width as usize;

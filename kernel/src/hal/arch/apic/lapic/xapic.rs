@@ -1,8 +1,9 @@
 use alloc::sync::Arc;
 use core::num::NonZero;
+use core::pin::Pin;
 use core::ptr::addr_of_mut;
 use core::time::Duration;
-use acpi::madt::{Madt, MadtEntry};
+use acpi::sdt::madt::{Madt, MadtEntry};
 use kernel_api::address_space::Kernel;
 use kernel_api::is_x86_feature_detected;
 use kernel_api::mapping::{Caching, Config, Mapping, Mmap, Ty};
@@ -23,7 +24,7 @@ pub(super) struct XApic(#[expect(dead_code)] XApicInner);
 pub(in crate::hal) struct XApicTimer(pub(in crate::hal) XApicInner, u32);
 
 impl XApic {
-	pub(super) fn init(madt: &Madt) {
+	pub(super) fn init(madt: Pin<&Madt>) {
 		let mut apic_addr = madt.local_apic_address as u64;
 		for entry in madt.entries() {
 			match entry {
