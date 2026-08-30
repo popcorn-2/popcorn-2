@@ -38,32 +38,3 @@ mod irq_cell;
 
 #[cfg(not(feature = "use_std"))]
 mod send_wrapper;
-
-#[doc(hidden)]
-pub struct Syncify<T>(T);
-
-impl<T> Syncify<T> {
-	/// # Safety
-	///
-	/// The contained value must only be accessed (including dropping) on other threads if it is [`Sync`]/[`Send`].
-	pub unsafe fn new(t: T) -> Self { Self(t) }
-
-	pub fn into_inner(self) -> T { self.0 }
-}
-
-impl<T> Deref for Syncify<T> {
-	type Target = T;
-
-	fn deref(&self) -> &Self::Target {
-		&self.0
-	}
-}
-
-impl<T> DerefMut for Syncify<T> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		&mut self.0
-	}
-}
-
-unsafe impl<T> Sync for Syncify<T> {}
-unsafe impl<T> Send for Syncify<T> {}
