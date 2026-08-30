@@ -1,24 +1,7 @@
 # Building
 
-Build with `./pop.py build`
-```
-usage: pop.py [-h] [-v] [--arch {x86_64,host}] [-j JOBS] [--release] [--accel {none,kvm,hvf}] [--symbol-map] [--kernel-features KERNEL_FEATURES] {build,run,test,clean}
-
-positional arguments:
-  {build,run,test,clean}
-
-options:
-  -h, --help            show this help message and exit
-  -v, --verbose
-  --arch {x86_64,host}
-  -j JOBS, --jobs JOBS
-  --release
-  --accel {none,kvm,hvf}
-  --symbol-map
-  --kernel-features KERNEL_FEATURES
-```
-
-Requires LLVM 18 or above
+[xbstrap](https://github.com/popcorn-2/xbstrap) is used as the build system for `popcorn`.
+Navigate to and follow the README instructions there.
 
 # Other stuff
 
