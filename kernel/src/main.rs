@@ -485,7 +485,7 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 	hal::early_init();
 
 	let parsed_handoff = handoff::process_handoff(&handoff_data);
-	let free_memory = parsed_handoff.memory_map
+	let free_memory = parsed_handoff.memory_map.clone()
 		.filter(|entry|
 			entry.ty == MemoryType::Free ||
 			entry.ty == MemoryType::BootloaderCode ||
@@ -567,6 +567,7 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 	debug!("initializing epoch structures");
 	ebr::init();
 
+	#[cfg(feature = "hal-next")] arch::post_memory_init(&parsed_handoff);
 	unsafe { hal::acpi::init_tables(parsed_handoff.rsdp) };
 
 	let (mut update_line, _picos_per_tick) = {
