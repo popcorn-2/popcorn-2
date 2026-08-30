@@ -1,6 +1,6 @@
 use core::ptr::addr_of;
-use acpi::AcpiHandler;
-use acpi::bgrt::Bgrt;
+use acpi::Handler as _;
+use acpi::sdt::bgrt::Bgrt;
 use kernel_api::mapping::Ty;
 use kernel_api::memory::PhysicalAddress;
 use crate::hal::acpi::PagingReason;

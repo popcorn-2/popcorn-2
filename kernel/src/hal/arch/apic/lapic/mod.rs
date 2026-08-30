@@ -1,5 +1,6 @@
+use core::pin::Pin;
 use core::ptr::addr_of_mut;
-use acpi::madt::Madt;
+use acpi::sdt::madt::Madt;
 use bit_field::BitField;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use kernel_api::is_x86_feature_detected;
@@ -8,7 +9,7 @@ pub(in crate::hal) mod xapic;
 //mod x2apic;
 //mod timer;
 
-pub(super) fn init_lapic(madt: &Madt) {
+pub(super) fn init_lapic(madt: Pin<&Madt>) {
 	if !is_x86_feature_detected!("apic") {
 		panic!("No LAPIC present");
 	}
