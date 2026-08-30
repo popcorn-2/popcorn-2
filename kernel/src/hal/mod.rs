@@ -105,7 +105,8 @@ mod hal_impl {
 				debug!("{:#x}", *x);
 			}
 		}
-		<arch::Arch as Hal>::switch_to_userspace_at(addr, stack_top)
+		#[cfg(not(feature = "hal-next"))] <arch::Arch as Hal>::switch_to_userspace_at(addr, stack_top);
+		#[cfg(feature = "hal-next")] crate::arch::switch_to_userspace(addr);
 	}
 
 	pub const IPI_VECTOR: Vector = <arch::Arch as Hal>::IPI_VECTOR;
