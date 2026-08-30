@@ -17,3 +17,7 @@ pub use imp_arch::{
 	get_and_disable_interrupts,
 	switch_to_userspace,
 };
+
+pub use imp_platform::{
+	post_memory_init,
+};
