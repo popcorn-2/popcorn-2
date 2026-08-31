@@ -1,0 +1,12 @@
+[package]
+name = "lf_radix_tree"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[target.'cfg(loom)'.dependencies]
+loom = "0.7"
+
+[lints]
+workspace = true

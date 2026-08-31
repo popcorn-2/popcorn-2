@@ -21,6 +21,7 @@ members = [
 	"test_harness",
     "linked_list_allocator",
 	"arena_heap",
+	"lf_radix_tree",
 ]
 
 [profile.release]
