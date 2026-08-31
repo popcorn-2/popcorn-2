@@ -61,7 +61,7 @@ impl Executor {
 							.swap(owner.address_space.clone(), Ordering::SeqCst)
 					};
 					unsafe { owner.address_space.load(); }
-					unsafe { thread.handles.swap(owner.handles.clone(), Ordering::SeqCst) };
+					let _ = thread.handles.swap(owner.handles.clone(&percpu_v2!(epoch).pin()));
 					drop(guard);
 
 					match task.future.as_mut().poll(&mut ctx) {
