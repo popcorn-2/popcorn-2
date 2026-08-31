@@ -682,6 +682,7 @@ dependencies = [
  "crossbeam-queue",
  "futures",
  "hashbrown 0.14.5",
+ "lf_radix_tree",
  "libc",
  "lock_api",
  "log",
