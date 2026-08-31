@@ -2,8 +2,9 @@ use alloc::sync::Arc;
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use hashbrown::HashMap;
-use log::debug;
+use log::{debug, warn};
 use slab::Slab;
+use crate::memory::EpochGuard;
 use crate::sync::{RwSpinlock, Spinlock};
 use crate::syscall;
 use crate::syscall::Error;
@@ -14,29 +15,23 @@ use crate::syscall::server::ServerId;
 #[derive(Debug)]
 pub struct HandleMap(AtomicPtr<HandleMapInner>);
 
-impl Clone for HandleMap {
-	fn clone(&self) -> Self {
-		let ptr = self.0.load(Ordering::SeqCst).cast_const();
-		// SAFETY: `ptr` always comes from `Arc::into_raw` by `HandleMap` invariants.
-		// Strong count can only be modified by cloning or dropping HandleMap which
-		// will have same effects as if it was just an `Arc`.
-		unsafe { Arc::increment_strong_count(ptr) };
-		Self(AtomicPtr::new(ptr.cast_mut()))
-	}
-}
-
 #[derive(Debug)]
 struct HandleMapInner {
 	map: Spinlock<Slab<Arc<Handle>>>,
 }
 
 impl HandleMap {
-	fn deref(&self) -> &HandleMapInner {
-		let ptr = self.0.load(Ordering::SeqCst).cast_const();
+	fn deref<'ebr>(&self, _ebr: &'ebr EpochGuard) -> &'ebr HandleMapInner {
+		let ptr = self.0.load(Ordering::Acquire).cast_const();
 		// SAFETY: `ptr` is always a valid `HandleMapInner` by invariants of `HandleMap`.
-		// Safety requirements of `swap` prevent the object being pointed to by the
-		// returned reference from becoming dangling
 		unsafe { &*ptr }
+	}
+
+	pub fn clone(&self, _ebr: &EpochGuard) -> Self {
+		let ptr = self.0.load(Ordering::Acquire).cast_const();
+		// SAFETY: `ptr` always comes from `Arc::into_raw` by `HandleMap` invariants.
+		unsafe { Arc::increment_strong_count(ptr) };
+		Self(AtomicPtr::new(ptr.cast_mut()))
 	}
 
 	/// Creates an empty `HandleMap`.
@@ -78,8 +73,8 @@ impl HandleMap {
 	/// assert!(map.pop(fd).is_ok());
 	/// # Ok::<(), kernel_api::syscall::Error>(())
 	/// ```
-	pub fn push(&self, handle: Arc<Handle>) -> syscall::Result<u32> {
-		let this = self.deref();
+	pub fn push(&self, handle: Arc<Handle>, ebr: &EpochGuard) -> syscall::Result<u32> {
+		let this = self.deref(ebr);
 		let mut guard = this.map.lock();
 		if guard.len() >= (u32::MAX as usize) { return Err(Error::Overflow); }
 
@@ -137,8 +132,8 @@ impl HandleMap {
 	/// assert!(Arc::ptr_eq(&handle, &new_handle));
 	/// # Ok::<(), kernel_api::syscall::Error>(())
 	/// ```
-	pub fn get(&self, val: u32) -> syscall::Result<Arc<Handle>> {
-		let this = self.deref();
+	pub fn get(&self, val: u32, ebr: &EpochGuard) -> syscall::Result<Arc<Handle>> {
+		let this = self.deref(ebr);
 		this.map.lock().get(val as usize).cloned().ok_or(Error::InvalidHandle)
 	}
 
@@ -167,24 +162,27 @@ impl HandleMap {
 	/// assert!(Arc::ptr_eq(&handle, &new_handle));
 	/// # Ok::<(), syscall::Error>(())
 	/// ```
-	pub fn pop(&self, val: u32) -> syscall::Result<Arc<Handle>> {
-		let this = self.deref();
+	pub fn pop(&self, val: u32, ebr: &EpochGuard) -> syscall::Result<Arc<Handle>> {
+		let this = self.deref(ebr);
 		this.map.lock().try_remove(val as usize).ok_or(Error::InvalidHandle)
 	}
 
 	/// Swaps `self` to contain the mappings contained in `other`, and
 	/// returns the mappings originally contained in `self`.
 	///
-	/// # Safety
+	/// <div class="warning">
 	///
-	/// There must be no outstanding references to the internal map.
-	/// This means that `swap` cannot be called while any call to any
-	/// other method on `self` is ongoing.
+	/// This will race with any calls on `self` to `pop`, `push`, or `get`
+	/// such that changes may modify either the old or new handle map.
+	/// Therefore this method should be avoided when `self` is shared
+	/// between multiple threads and concurrently modified.
+	///
+	/// </div>
 	#[must_use]
-	pub unsafe fn swap(&self, other: Self, ordering: Ordering) -> Self {
-		let other = ManuallyDrop::new(other);
-		let other = other.0.load(ordering);
-		let old = self.0.swap(other, ordering);
+	pub fn swap(&self, other: Self) -> Self {
+		let mut other = ManuallyDrop::new(other);
+		let other_ptr = *other.0.get_mut();
+		let old = self.0.swap(other_ptr, Ordering::AcqRel);
 		Self(AtomicPtr::new(old))
 	}
 }
@@ -192,6 +190,13 @@ impl HandleMap {
 impl Default for HandleMap {
 	fn default() -> Self {
 		Self::new()
+	}
+}
+
+impl Drop for HandleMap {
+	fn drop(&mut self) {
+		let inner = self.0.load(Ordering::Acquire);
+		warn!("HandleMapInner leaked - retire not yet implemented outside of kernel");
 	}
 }
 
