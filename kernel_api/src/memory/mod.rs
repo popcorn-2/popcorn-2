@@ -14,6 +14,7 @@
 //! map region by calling [`PhysicalAddress::to_virtual`]. **The returned address is only safe to access
 //! if the [`PhysicalAddress`] pointed to conventional memory.**
 
+use core::cell::UnsafeCell;
 use core::fmt::{Debug, Formatter};
 use core::ops::Deref;
 use core::iter::Step;
@@ -352,6 +353,20 @@ impl VirtualAddress {
 	pub const fn to_physical(self) -> PhysicalAddress {
 		PhysicalAddress::new(self.addr - PAGE_MAP_OFFSET)
 	}
+}
+
+pub struct EpochGuard {
+    phantom: PhantomData<UnsafeCell<()>>,
+}
+
+impl EpochGuard {
+    /// # Safety
+    ///
+    /// This cpu must be in an epoch.
+    #[doc(hidden)]
+    pub unsafe fn new() -> Self {
+        Self { phantom: PhantomData }
+    }
 }
 
 impl<T: ?Sized> From<*mut T> for VirtualAddress {

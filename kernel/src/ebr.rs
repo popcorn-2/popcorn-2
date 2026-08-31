@@ -1,5 +1,6 @@
 use alloc::sync::Arc;
 use core::{mem, ptr};
+use core::ops::Deref;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use kernel_api::sync::Spinlock;
 
@@ -9,6 +10,7 @@ const INACTIVE_BIT: usize = 1 << (usize::BITS - 1);
 
 pub struct EpochGuard<'e> {
 	local_epoch: &'e LocalEpoch,
+	inner: kernel_api::memory::EpochGuard,
 }
 
 impl Drop for EpochGuard<'_> {
@@ -37,6 +39,7 @@ impl LocalEpoch {
 		self.epoch.store(global_epoch, Ordering::Release);
 		EpochGuard {
 			local_epoch: self,
+			inner: unsafe { kernel_api::memory::EpochGuard::new() }
 		}
 	}
 
@@ -65,6 +68,12 @@ impl LocalEpoch {
 			val,
 		});
 	}
+}
+
+impl Deref for EpochGuard<'_> {
+	type Target = kernel_api::memory::EpochGuard;
+
+	fn deref(&self) -> &Self::Target { &self.inner }
 }
 
 const _: () = {
