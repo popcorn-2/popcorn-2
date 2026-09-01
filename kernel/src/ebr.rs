@@ -1,5 +1,4 @@
-use alloc::sync::Arc;
-use core::{mem, ptr};
+use core::ptr;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use kernel_api::sync::Spinlock;
@@ -42,32 +41,19 @@ impl LocalEpoch {
 			inner: unsafe { kernel_api::memory::EpochGuard::new() }
 		}
 	}
+}
 
-	/// # Safety
-	///
-	/// The pointer passed in `val` must have come from a call to [`T::into_raw`](IntoRaw::into_raw).
-	pub unsafe fn retire_and_cleanup<T: IntoRaw + Send + Sync>(&self, val: *mut T::Inner) {
-		let drop_fn = |ptr: *mut u8| drop(unsafe { T::from_raw(ptr.cast()) });
-		self.insert_retire_and_cleanup(drop_fn, val.cast());
+#[unsafe(export_name = "__popcorn_ebr_defer_and_clean")]
+pub fn defer_and_cleanup(drop_fn: fn(*mut u8), val: *mut u8) {
+	let mut guard = percpu_v2!(epoch).retired.lock();
+	if guard.len() == guard.capacity() {
+		gc_collect();
 	}
-
-	pub fn defer_and_cleanup(&self, f: fn(usize), arg: usize) {
-		// SAFETY: ABI of `fn(usize)` and `fn(*mut u8)` are the same
-		let drop_fn = unsafe { mem::transmute::<fn(usize), fn(*mut u8)>(f) };
-		self.insert_retire_and_cleanup(drop_fn, ptr::without_provenance_mut(arg));
-	}
-
-	fn insert_retire_and_cleanup(&self, drop_fn: fn(*mut u8), val: *mut u8) {
-		let mut guard = self.retired.lock();
-		if guard.len() == guard.capacity() {
-			gc_collect();
-		}
-		guard.push(Retired {
-			in_epoch: GLOBAL_EPOCH.load(Ordering::Acquire) & !INACTIVE_BIT,
-			drop_fn,
-			val,
-		});
-	}
+	guard.push(Retired {
+		in_epoch: GLOBAL_EPOCH.load(Ordering::Acquire) & !INACTIVE_BIT,
+		drop_fn,
+		val,
+	});
 }
 
 impl Deref for EpochGuard<'_> {
@@ -80,25 +66,6 @@ const _: () = {
 	const fn assert_send_sync<T: Send + Sync>() {}
 	assert_send_sync::<LocalEpoch>();
 };
-
-pub trait IntoRaw {
-	type Inner;
-
-	fn into_raw(self) -> *mut Self::Inner;
-	unsafe fn from_raw(ptr: *mut Self::Inner) -> Self;
-}
-
-impl<T> IntoRaw for Box<T> {
-	type Inner = T;
-	fn into_raw(self) -> *mut T { Box::into_raw(self) }
-	unsafe fn from_raw(ptr: *mut T) -> Self { unsafe { Box::from_raw(ptr) } }
-}
-
-impl<T> IntoRaw for Arc<T> {
-	type Inner = T;
-	fn into_raw(self) -> *mut T { Arc::into_raw(self).cast_mut() }
-	unsafe fn from_raw(ptr: *mut T) -> Self { unsafe { Arc::from_raw(ptr.cast_const()) } }
-}
 
 pub fn init() {
 	let local_epoch = percpu_v2!(epoch);

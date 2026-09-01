@@ -150,3 +150,10 @@ pub mod address_space {
 		}
 	}
 }
+
+pub mod ebr {
+	unsafe extern "Rust" {
+		#[link_name = "__popcorn_ebr_defer_and_clean"]
+		pub safe fn defer_and_cleanup(drop_fn: fn(*mut u8), val: *mut u8);
+	}
+}
