@@ -15,6 +15,5 @@ pub(crate) use crate::percpu::percpu_v2;
 
 pub use crate::io_ext::IoExt as _;
 pub use crate::memory::r#virtual::AddressSpaceExt as _;
-pub use crate::ipc::HandleExt as _;
 
 pub use core::prelude::rust_2024::*;

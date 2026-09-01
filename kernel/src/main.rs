@@ -62,7 +62,6 @@ use crate::hal::exception::Ty;
 #[cfg(kasan)] use crate::hal::paging2::Flags;
 use crate::hal::paging2::{KTable, TTable};
 use kernel_api::syscall::handle::Handle;
-use crate::ipc::protocol::Protocol;
 use crate::memory::paging::ktable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::panicking::SymbolMap;
@@ -195,29 +194,10 @@ extern "C" fn syscall_handler(
 		let protocol = ((num_high & 0xFFFFFFFF) as u128) << 96 | (num_low as u128);
 		let method = (num_high >> 32) as u32;
 
-		#[cfg(debug_assertions)] let syscall = ipc::protocol::syscall_name(protocol, method);
-		#[cfg(not(debug_assertions))] let syscall = format!("{:#x}@{:024x}", method, protocol);
+		let syscall = format!("{:#x}@{:024x}", method, protocol);
 
 		debug!("{is_async_text}syscall({syscall}, {a:#x}, {b:#x}, {c:#x}, {d:#x}, {e:#x}) @ {ip:#x} on {tid:?}");
-
-		let syscall_result = ipc::entry(
-			protocol,
-			method,
-			a, b, c, d, e,
-			async_key,
-		);
-
-		dbg!(flags);
-		if syscall_result.is_err() {
-			unsafe { addr_of_mut!((*stack).flags).write_volatile(flags | 1) };
-		} else {
-			unsafe { addr_of_mut!((*stack).flags).write_volatile(flags & !1) };
-		};
-		let stack = unsafe { stack.read_volatile() };
-		debug!("return stack: {:#x?}", stack);
-
-		debug!("result for {is_async_text}syscall({syscall}, {a:#x}, {b:#x}, {c:#x}, {d:#x}, {e:#x}) @ {ip:#x} on {:?}", percpu::percpu_v2!(current_thread).read().as_ref().unwrap().thread_id);
-		dbg!(syscall_result).unwrap_or_else(|v| v as u128)
+		kernel_api::syscall::Error::FutureCompat as u128
 	})
 }
 

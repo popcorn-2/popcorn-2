@@ -148,7 +148,6 @@ pub fn init(stack: utils::handoff::Stack, ttable: TTableTy) -> (ThreadId, CoreId
 		meta: Arc::new(meta),
 	};
 
-	crate::ipc::init_proc(Arc::clone(&tcb.meta));
 	percpu_v2!(kernel_stack_top).store(tcb.kernel_stack.as_ptr_range().end.cast_mut(), Ordering::Relaxed);
 	crate::hal::first_thread_init(&tcb);
 	*percpu_v2!(current_thread).write() = Some(tcb);
