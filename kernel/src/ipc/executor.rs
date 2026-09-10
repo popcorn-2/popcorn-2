@@ -97,8 +97,8 @@ impl Executor {
 	}
 }
 
-#[unsafe(export_name = "__popcorn_async_spawn_task")]
-fn spawn(task: Pin<Box<dyn Future<Output = ()> + 'static>>) {
+#[doc(hidden)]
+pub fn spawn(task: Pin<Box<dyn Future<Output = ()> + 'static>>) {
 	static EXECUTOR: LazyLock<Executor> = LazyLock::new(|| {
 		let thread = threading::spawn_kernel("kpool0".into(), || {
 			EXECUTOR.main()

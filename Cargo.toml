@@ -34,6 +34,12 @@ opt-level = 2
 [profile.dev.package.unwinding]
 opt-level = 2
 
+# needed for `.set` directives to work properly for export aliases
+[profile.dev.package.kernel]
+codegen-units = 1
+[profile.release.package.kernel]
+codegen-units = 1
+
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"
 closure_returning_async_block = "warn"

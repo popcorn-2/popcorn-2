@@ -82,7 +82,7 @@ mod ipc;
 mod io_ext;
 mod percpu;
 mod loader;
-mod notes;
+mod abi;
 #[cfg(feature = "hal-next")]
 mod arch;
 #[cfg(feature = "syscall-abi-next")]

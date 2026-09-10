@@ -3,10 +3,10 @@ use core::mem::ManuallyDrop;
 use kernel_api::allocator::{DynPmm, GlobalAllocator};
 use kernel_api::sync::{RwSpinlock, RwUpgradableReadGuard, RwWriteGuard};
 
-#[unsafe(export_name = "__popcorn_memory_physical_highmem")]
-static GLOBAL_HIGHMEM: GlobalAllocator = GlobalAllocator { __rwlock: RwSpinlock::new(None) };
-#[unsafe(export_name = "__popcorn_memory_physical_dmamem")]
-static GLOBAL_DMA: GlobalAllocator = GlobalAllocator { __rwlock: RwSpinlock::new(None) };
+#[doc(hidden)]
+pub static GLOBAL_HIGHMEM: GlobalAllocator = GlobalAllocator { __rwlock: RwSpinlock::new(None) };
+#[doc(hidden)]
+pub static GLOBAL_DMA: GlobalAllocator = GlobalAllocator { __rwlock: RwSpinlock::new(None) };
 
 pub fn init_highmem<'a>(allocator: impl Into<DynPmm<'static, true>>) {
 	GLOBAL_HIGHMEM.__rwlock.write().replace(allocator.into());

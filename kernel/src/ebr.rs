@@ -43,7 +43,6 @@ impl LocalEpoch {
 	}
 }
 
-#[unsafe(export_name = "__popcorn_ebr_defer_and_clean")]
 pub fn defer_and_cleanup(drop_fn: fn(*mut u8), val: *mut u8) {
 	let mut guard = percpu_v2!(epoch).retired.lock();
 	if guard.len() == guard.capacity() {

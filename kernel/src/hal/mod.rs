@@ -74,12 +74,9 @@ mod hal_impl {
 	#[inline] #[expect(unused)] pub fn debug_output(data: &[u8]) -> core::result::Result<(), ()> { <arch::Arch as Hal>::debug_output(data) }
 	#[inline] pub fn early_init() { <arch::Arch as Hal>::early_init() }
 	#[inline] pub fn post_acpi_init() { <arch::Arch as Hal>::post_acpi_init() }
-	#[unsafe(export_name = "__popcorn_enable_irq")] pub fn enable_interrupts() { <arch::Arch as Hal>::enable_interrupts() }
-	#[unsafe(export_name = "__popcorn_disable_irq")] pub fn get_and_disable_interrupts() -> usize {
-		#[cfg(not(feature = "hal-next"))] { <arch::Arch as Hal>::get_and_disable_interrupts() }
-		#[cfg(feature = "hal-next")] { crate::arch::get_and_disable_interrupts() }
-	}
-	#[unsafe(export_name = "__popcorn_set_irq")] pub fn set_interrupts(old_state: usize) { <arch::Arch as Hal>::set_interrupts(old_state) }
+	pub fn enable_interrupts() { <arch::Arch as Hal>::enable_interrupts() }
+	pub fn get_and_disable_interrupts() -> usize { <arch::Arch as Hal>::get_and_disable_interrupts() }
+	pub fn set_interrupts(old_state: usize) { <arch::Arch as Hal>::set_interrupts(old_state) }
 	#[inline] pub unsafe fn load_tls(ptr: *mut u8) { unsafe { <arch::Arch as Hal>::load_tls(ptr) } }
 	#[inline] pub fn load_user_tls(ptr: *mut u8) { <arch::Arch as Hal>::load_user_tls(ptr) }
 	#[inline] pub unsafe extern "C" fn switch_thread<'a>(from: &'a mut ManuallyDrop<ThreadControlBlock>, to: &ThreadControlBlock) -> &'a mut ManuallyDrop<ThreadControlBlock> { unsafe { <arch::Arch as Hal>::switch_thread(from, to) } }

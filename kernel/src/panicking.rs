@@ -110,7 +110,6 @@ pub fn stack_trace_iter<F: FnMut(usize)>(mut f: F) {
 	if is_x86_feature_detected!("smap") { unsafe { core::arch::asm!("clac"); } }
 }
 
-#[unsafe(export_name = "__popcorn_print_stack_trace")]
 pub fn stack_trace() {
 	let mut counter = 0;
 	stack_trace_iter(|ip| {
@@ -126,8 +125,8 @@ pub fn stack_trace() {
 	});
 }
 
-#[unsafe(export_name = "__popcorn_stack_trace_iter")]
-fn stack_trace_fn(ptr: fn(usize, *const u8), ctx: *const u8) {
+#[doc(hidden)]
+pub fn stack_trace_fn(ptr: fn(usize, *const u8), ctx: *const u8) {
 	stack_trace_iter(|ip| {
 		ptr(ip, ctx);
 	})
