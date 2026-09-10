@@ -24,6 +24,30 @@
       "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
     },
     {
+      "unresolved": false,
+      "key": {
+        "uuid": "7f001345_6d947301",
+        "filename": "kernel_api/src/syscall/handle_inner.rs",
+        "patchSetId": 4
+      },
+      "lineNbr": 85,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-09-10T21:48:03Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "19fc4c36_3df6e896",
+      "range": {
+        "startLine": 84,
+        "startChar": 4,
+        "endLine": 85,
+        "endChar": 16
+      },
+      "revId": "66d94799edc6056625aabfb113e3cce135a4543b",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
       "unresolved": true,
       "key": {
         "uuid": "a355d866_b6b6ef60",
@@ -37,6 +61,30 @@
       "writtenOn": "2026-09-10T21:11:18Z",
       "side": 1,
       "message": "safety comment",
+      "range": {
+        "startLine": 93,
+        "startChar": 16,
+        "endLine": 93,
+        "endChar": 63
+      },
+      "revId": "66d94799edc6056625aabfb113e3cce135a4543b",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "bbeac6d8_b3a7f684",
+        "filename": "kernel_api/src/syscall/handle_inner.rs",
+        "patchSetId": 4
+      },
+      "lineNbr": 93,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-09-10T21:48:03Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "a355d866_b6b6ef60",
       "range": {
         "startLine": 93,
         "startChar": 16,
@@ -70,6 +118,30 @@
       "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
     },
     {
+      "unresolved": false,
+      "key": {
+        "uuid": "4a532035_460420cf",
+        "filename": "kernel_api/src/syscall/handle_inner.rs",
+        "patchSetId": 4
+      },
+      "lineNbr": 205,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-09-10T21:48:03Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "d19d158e_32a69172",
+      "range": {
+        "startLine": 205,
+        "startChar": 9,
+        "endLine": 205,
+        "endChar": 16
+      },
+      "revId": "66d94799edc6056625aabfb113e3cce135a4543b",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
       "unresolved": true,
       "key": {
         "uuid": "5b5b71ee_91fbb23b",
@@ -83,6 +155,30 @@
       "writtenOn": "2026-09-10T21:11:18Z",
       "side": 1,
       "message": "docs",
+      "range": {
+        "startLine": 281,
+        "startChar": 0,
+        "endLine": 281,
+        "endChar": 39
+      },
+      "revId": "66d94799edc6056625aabfb113e3cce135a4543b",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "783bea9e_5d71130a",
+        "filename": "kernel_api/src/syscall/handle_inner.rs",
+        "patchSetId": 4
+      },
+      "lineNbr": 281,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-09-10T21:48:03Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "5b5b71ee_91fbb23b",
       "range": {
         "startLine": 281,
         "startChar": 0,
@@ -116,6 +212,30 @@
       "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
     },
     {
+      "unresolved": false,
+      "key": {
+        "uuid": "5d898e16_90293e2f",
+        "filename": "kernel_api/src/syscall/handle_inner.rs",
+        "patchSetId": 4
+      },
+      "lineNbr": 287,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-09-10T21:48:03Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "c14480e1_65f045cf",
+      "range": {
+        "startLine": 286,
+        "startChar": 2,
+        "endLine": 287,
+        "endChar": 34
+      },
+      "revId": "66d94799edc6056625aabfb113e3cce135a4543b",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
       "unresolved": true,
       "key": {
         "uuid": "2910fa09_f4a7b907",
@@ -129,6 +249,30 @@
       "writtenOn": "2026-09-10T21:11:18Z",
       "side": 1,
       "message": "safety comment",
+      "range": {
+        "startLine": 294,
+        "startChar": 9,
+        "endLine": 294,
+        "endChar": 15
+      },
+      "revId": "66d94799edc6056625aabfb113e3cce135a4543b",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "23af46eb_195aec0b",
+        "filename": "kernel_api/src/syscall/handle_inner.rs",
+        "patchSetId": 4
+      },
+      "lineNbr": 294,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-09-10T21:48:03Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "2910fa09_f4a7b907",
       "range": {
         "startLine": 294,
         "startChar": 9,
