@@ -15,7 +15,7 @@ use crate::non_zero;
 mod table;
 mod entry;
 
-pub(crate) unsafe fn construct_tables() -> (Amd64KTable, Amd64TTable) {
+pub(crate) unsafe fn construct_tables() -> Amd64KTable {
 	#[cfg(debug_assertions)] {
 		static CALLED: Once = Once::new();
 		if CALLED.is_complete() { panic!("cannot call `construct_tables()` more than once") }
@@ -47,7 +47,9 @@ pub(crate) unsafe fn construct_tables() -> (Amd64KTable, Amd64TTable) {
 		allocator: highmem(),
 	};
 
-	(ktable, ttable)
+	core::mem::forget(ttable);
+
+	ktable
 }
 
 #[derive(Debug)]

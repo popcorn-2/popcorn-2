@@ -143,7 +143,7 @@ unsafe impl Hal for Amd64Hal {
 		}
 
 		#[cfg(not(feature = "hal-next"))] {
-			let (ktable, _) = unsafe { paging::construct_tables() };
+			let ktable = unsafe { paging::construct_tables() };
 			unsafe { init_page_table(ktable) };
 		}
 	}
