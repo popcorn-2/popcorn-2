@@ -3,11 +3,19 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
+use core::fmt;
 #[cfg(not(loom))] use core::sync::atomic::AtomicPtr;
 #[cfg(loom)] use loom::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
 
 pub struct LockFreeRadixTreeU32L4<V>(Block<Block<Block<Block<V, 256>, 256>, 256>, 256>);
+
+impl<V> fmt::Debug for LockFreeRadixTreeU32L4<V> {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		f.debug_struct("LockFreeRadixTreeU32L4")
+			.finish_non_exhaustive()
+	}
+}
 
 struct Block<V, const SIZE: usize> {
 	entries: [AtomicPtr<V>; SIZE],
