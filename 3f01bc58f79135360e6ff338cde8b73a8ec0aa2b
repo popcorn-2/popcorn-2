@@ -22,6 +22,30 @@
       },
       "revId": "3f01bc58f79135360e6ff338cde8b73a8ec0aa2b",
       "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "af6b288a_77c8bce7",
+        "filename": "kernel_api/src/sync/mutex.rs",
+        "patchSetId": 1
+      },
+      "lineNbr": 126,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-09-11T15:04:49Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "bb0950e2_25dcbe2e",
+      "range": {
+        "startLine": 126,
+        "startChar": 16,
+        "endLine": 126,
+        "endChar": 62
+      },
+      "revId": "3f01bc58f79135360e6ff338cde8b73a8ec0aa2b",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
     }
   ]
 }
