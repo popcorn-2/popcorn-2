@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "8cc7a482_355e29bc",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-09-11T22:41:22Z",
+      "side": 1,
+      "message": "CI changes can\u0027t be automatically mirrored so CI will always fail to check them out. Will manually mirror changes to GH after merge.",
+      "revId": "92d2dcb7d684b18d1dab44d228d6a535d87af683",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    }
+  ]
+}
