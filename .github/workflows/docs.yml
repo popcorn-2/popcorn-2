@@ -39,7 +39,7 @@ jobs:
         run: |
           echo "BUILD_DIR=$(./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ info @core/kernel --build-dir)" >> $GITHUB_OUTPUT
           echo "DOC_ROOT=$(./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ info @core/kernel --build-dir)/x86_64-unknown-popcorn/doc" >> $GITHUB_OUTPUT
-          ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ run @core/kernel cargo doc -p kernel_api --no-deps --document-private-items
+          ./xbstrap/pop --sysroot=sysroot --target x86_64-unknown-popcorn --local-source @core/kernel=./kernel/ run @core/kernel cargo doc --no-deps
       - name: Generate index page
         run: echo "<head><meta http-equiv='refresh' content='0; URL=/kernel_api/index.html'></head>" > ${{ steps.doc-build.outputs.DOC_ROOT }}/index.html
       - name: Fix permissions
