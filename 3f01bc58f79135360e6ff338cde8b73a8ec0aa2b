@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "bb0950e2_25dcbe2e",
+        "filename": "kernel_api/src/sync/mutex.rs",
+        "patchSetId": 1
+      },
+      "lineNbr": 126,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-09-11T14:59:40Z",
+      "side": 1,
+      "message": "needs gating",
+      "range": {
+        "startLine": 126,
+        "startChar": 16,
+        "endLine": 126,
+        "endChar": 62
+      },
+      "revId": "3f01bc58f79135360e6ff338cde8b73a8ec0aa2b",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    }
+  ]
+}
