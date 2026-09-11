@@ -1,22 +1,12 @@
-[package]
-name = "popcorn2"
-version = "0.1.0"
-edition = "2021"
-resolver = "2"
-
 [workspace]
+resolver = "3"
 members = [
-	"builder",
 	"kernel",
 	"bootloader",
 	"utils",
-	"targa",
 	"ranged_btree",
-	"kernel_module_macros",
 	"elf",
-	"macros",
 	"kernel_api",
-	"kernel_default_heap",
 	"bitmap_allocator",
 	"test_harness",
     "linked_list_allocator",
