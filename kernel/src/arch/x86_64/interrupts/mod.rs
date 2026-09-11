@@ -19,16 +19,23 @@ unsafe extern "custom" {
 	fn x86_64_interrupt_stub();
 }
 
+#[derive(Debug)]
 #[repr(C)]
 struct StackFrame {
+	r15: u64,
+	r14: u64,
+	r13: u64,
+	r12: u64,
 	r11: u64,
 	r10: u64,
 	r9: u64,
 	r8: u64,
-	rcx: u64,
-	rdx: u64,
-	rsi: u64,
+	rbp: u64,
 	rdi: u64,
+	rsi: u64,
+	rdx: u64,
+	rcx: u64,
+	rbx: u64,
 	rax: u64,
 	num: u64,
 	error: u64,
@@ -39,10 +46,10 @@ struct StackFrame {
 	ss: u64,
 }
 
-extern "C" fn x86_64_interrupt_entry(data: &mut StackFrame) {
+extern "rust-preserve-none" fn x86_64_interrupt_entry(data: &mut StackFrame) {
 	let data = AssertUnwindSafe(data);
 	match crate::panicking::catch_unwind(move || {
-		info!("[amd64] vector {:#x}", data.num);
+		info!("[amd64] vector {:#x?}", data);
 		todo!()
 	}) {
 		Ok(_) => {},
