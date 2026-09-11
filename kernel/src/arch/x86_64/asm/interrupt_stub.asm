@@ -1,80 +1,77 @@
+.macro push_cfi reg
+    push \reg
+    .set cfa_off, cfa_off + 8
+    .cfi_def_cfa_offset cfa_off
+    .cfi_offset \reg, -cfa_off
+.endm
+
+.macro pop_cfi reg
+    pop \reg
+    .cfi_restore \reg
+    .set cfa_off, cfa_off - 8
+    .cfi_def_cfa_offset cfa_off
+.endm
+
    .global x86_64_interrupt_stub
    .type x86_64_interrupt_stub, @function
+   .section .text
 x86_64_interrupt_stub:
     .cfi_startproc
-    .cfi_def_cfa rsp, 56 # CFA = rsp + 7*8 (top of interrupt frame)
-    .cfi_offset rip, -40 # %RA = CFA - 5*8 (offset of rip in stack frame)
-    .cfi_offset rsp, -16 # %RSP = CFA - 2*8 (offset of rsp in stack frame)
+    .cfi_def_cfa rsp, 56 #; 5 u64s pushed by cpu, plus vector and error number to make 7 in total
+    .set cfa_off, 56
+    .cfi_offset rip, -40 #; `rip` is 5th entry in stack frame
+    .cfi_offset rsp, -16 #; `rsp` is 2nd entry in stack frame
 
-    cmp byte ptr [rsp + 24], {code_segment} # check if CS == kernel CS (24 because CS is at 8, and then we also have error code + vector)
+    cmp byte ptr [rsp + 24], {code_segment} #; check if CS == kernel CS (24 because CS is at 8, and then we also have error code + vector)
     je 2f
-    swapgs # if not, we come from userspace, so swap GS and kernel GS
+    swapgs #; if not, we come from userspace, so swap GS and kernel GS
     2:
 
-    push rax
-    .cfi_def_cfa_offset 64
-    .cfi_offset rax, -64
-    push rdi
-    .cfi_def_cfa_offset 72
-    .cfi_offset rdi, -72
-    push rsi
-    .cfi_def_cfa_offset 80
-    .cfi_offset rsi, -80
-    push rdx
-    .cfi_def_cfa_offset 88
-    .cfi_offset rdx, -88
-    push rcx
-    .cfi_def_cfa_offset 96
-    .cfi_offset rcx, -96
-    push r8
-    .cfi_def_cfa_offset 104
-    .cfi_offset r8, -104
-    push r9
-    .cfi_def_cfa_offset 112
-    .cfi_offset r9, -112
-    push r10
-    .cfi_def_cfa_offset 120
-    .cfi_offset r10, -120
-    push r11
-    .cfi_def_cfa_offset 128
-    .cfi_offset r11, -128
-    mov rdi, rsp
+    push_cfi rax
+    push_cfi rbx
+    push_cfi rcx
+    push_cfi rdx
+    push_cfi rsi
+    push_cfi rdi
+    push_cfi rbp
+    push_cfi r8
+    push_cfi r9
+    push_cfi r10
+    push_cfi r11
+    push_cfi r12
+    push_cfi r13
+    push_cfi r14
+    push_cfi r15
+    mov r12, rsp
+    .cfi_register rsp, r12
     sti
-    call {entrypoint}
-    pop r11
-    .cfi_def_cfa_offset 120
-    .cfi_same_value r11
-    pop r10
-    .cfi_def_cfa_offset 112
-    .cfi_same_value r10
-    pop r9
-    .cfi_def_cfa_offset 104
-    .cfi_same_value r9
-    pop r8
-    .cfi_def_cfa_offset 96
-    .cfi_same_value r8
-    pop rcx
-    .cfi_def_cfa_offset 88
-    .cfi_same_value rcx
-    pop rdx
-    .cfi_def_cfa_offset 80
-    .cfi_same_value rdx
-    pop rsi
-    .cfi_def_cfa_offset 72
-    .cfi_same_value rsi
-    pop rdi
-    .cfi_def_cfa_offset 64
-    .cfi_same_value rdi
-    pop rax
-    .cfi_def_cfa_offset 56
-    .cfi_same_value rax
-    add rsp, 16
-    .cfi_def_cfa_offset 40
 
-    cmp byte ptr [rsp + 8], {code_segment} # check if CS == kernel CS (already popped vector num and error code so only +8)
+    call {entrypoint}
+
+    cli
+
+    cmp byte ptr [rsp + 144], {code_segment} #; check if CS == kernel CS (already popped vector num and error code so only +8)
     je 3f
-    swapgs # if not, we come from userspace, so swap GS and kernel GS
+    swapgs #; then swap gs back to userspace gs
     3:
+
+    pop_cfi r15
+    pop_cfi r14
+    pop_cfi r13
+    pop_cfi r12
+    pop_cfi r11
+    pop_cfi r10
+    pop_cfi r9
+    pop_cfi r8
+    pop_cfi rbp
+    pop_cfi rdi
+    pop_cfi rsi
+    pop_cfi rdx
+    pop_cfi rcx
+    pop_cfi rbx
+    pop_cfi rax
+    add rsp, 16 #; pop vector number and error code
+    .cfi_def_cfa_offset 40
 
     iretq
     .cfi_endproc

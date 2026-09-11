@@ -27,7 +27,7 @@
 #![feature(const_convert)]
 #![cfg_attr(feature = "hal-next", feature(abi_custom))]
 #![cfg_attr(feature = "hal-next", feature(integer_widen_truncate))]
-#![cfg_attr(feature = "syscall-abi-next", feature(rust_preserve_none_cc))]
+#![cfg_attr(any(feature = "syscall-abi-next", feature = "hal-next"), feature(rust_preserve_none_cc))]
 #![no_std]
 #![no_main]
 
