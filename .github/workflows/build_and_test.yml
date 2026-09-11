@@ -60,12 +60,12 @@ jobs:
           KERNEL_STATUS: ${{ needs.kernel.result }}
         run: |
           # Check if ALL dependencies succeeded
-          if [[ "BOOTLOADER_STATUS" == "success" && "KERNEL_STATUS" == "success" ]]; then
+          if [[ "$BOOTLOADER_STATUS" == "success" && "$KERNEL_STATUS" == "success" ]]; then
             VOTE=1
             MESSAGE="CI Passed"
           else
             VOTE=-1
-            MESSAGE="CI Failed. Bootloader: BOOTLOADER_STATUS | Kernel: KERNEL_STATUS"
+            MESSAGE="CI Failed. Bootloader: $BOOTLOADER_STATUS | Kernel: $KERNEL_STATUS"
           fi
           
           curl -X POST -u "${{ secrets.GERRIT_USERNAME }}:${{ secrets.GERRIT_PASSWORD }}" \
