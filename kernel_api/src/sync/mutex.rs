@@ -71,7 +71,7 @@ impl TryFrom<u8> for State {
 pub struct RawSpinlock {
     state: AtomicU8,
     irq_state: AtomicUsize,
-    location: AtomicPtr<Location<'static>>,
+    #[cfg(debug_assertions)] location: AtomicPtr<Location<'static>>,
 }
 
 unsafe impl Send for RawSpinlock {}
@@ -92,7 +92,8 @@ impl RawSpinlock {
             State::Locked => {},
         }
     }
-    
+
+    #[cfg(debug_assertions)]
     fn lock_location(&self) -> Option<&'static Location<'static>> {
         let location = self.location.load(Ordering::Relaxed);
         unsafe { location.as_ref::<'static>() }
@@ -103,7 +104,7 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
     const INIT: Self = Self {
         state: AtomicU8::new(State::Unlocked.const_into_u8()),
         irq_state: AtomicUsize::new(0),
-        location: AtomicPtr::new(core::ptr::null_mut()),
+        #[cfg(debug_assertions)] location: AtomicPtr::new(core::ptr::null_mut()),
     };
 
     type GuardMarker = lock_api::GuardNoSend; // Dropping guard on other core would cause interrupts to be enabled in the wrong place
@@ -127,7 +128,7 @@ unsafe impl lock_api::RawMutex for RawSpinlock {
         }
 
         self.irq_state.store(irq_state, Ordering::Relaxed);
-        self.location.store(Location::caller() as *const _ as *mut _, Ordering::Relaxed);
+        #[cfg(debug_assertions)] self.location.store(Location::caller() as *const _ as *mut _, Ordering::Relaxed);
     }
 
     fn try_lock(&self) -> bool {

@@ -17,7 +17,7 @@ pub type RwUpgradableReadGuard<'a, T: ?Sized> = lock_api::RwLockUpgradableReadGu
 pub type RwWriteGuard<'a, T: ?Sized> = lock_api::RwLockWriteGuard<'a, RwCount, T>;
 
 #[doc(hidden)]
-pub struct RwCount(AtomicUsize, AtomicPtr<Location<'static>>);
+pub struct RwCount(AtomicUsize, #[cfg(debug_assertions)] AtomicPtr<Location<'static>>);
 
 // FIXME: Deadlocks due to interrupts
 impl RwCount {
@@ -40,6 +40,7 @@ impl core::fmt::Debug for RwCount {
 }
 
 impl RwCount {
+    #[cfg(debug_assertions)]
     fn lock_location(&self) -> Option<&'static Location<'static>> {
         let location = self.1.load(Ordering::Relaxed);
         unsafe { location.as_ref::<'static>() }
@@ -47,7 +48,7 @@ impl RwCount {
 }
 
 unsafe impl lock_api::RawRwLock for RwCount {
-    const INIT: Self = Self(AtomicUsize::new(0), AtomicPtr::new(core::ptr::null_mut()));
+    const INIT: Self = Self(AtomicUsize::new(0), #[cfg(debug_assertions)] AtomicPtr::new(core::ptr::null_mut()));
     type GuardMarker = lock_api::GuardSend; // Doesn't (yet) touch interrupts so safe to send to other core
 
     #[track_caller]
@@ -71,11 +72,11 @@ unsafe impl lock_api::RawRwLock for RwCount {
 
             match self.0.compare_exchange_weak(old_value, new_value, Ordering::Acquire, Ordering::Relaxed) {
                 Ok(_) => {
-                    self.1.store(Location::caller() as *const _ as *mut _, Ordering::Relaxed);
+                    #[cfg(debug_assertions)] self.1.store(Location::caller() as *const _ as *mut _, Ordering::Relaxed);
                     return true
                 },
                 Err(new_old_value) => {
-                    warn!("locked at {:?}", self.lock_location());
+                    #[cfg(debug_assertions)] warn!("locked at {:?}", self.lock_location());
                     old_value = new_old_value
                 }
             }
@@ -109,7 +110,7 @@ unsafe impl lock_api::RawRwLock for RwCount {
     fn try_lock_exclusive(&self) -> bool {
         let res = self.0.compare_exchange_weak(0, Self::WRITE_BIT_MASK, Ordering::Acquire, Ordering::Relaxed)
             .is_ok();
-        if !res {
+        #[cfg(debug_assertions)] if !res {
             warn!("locked at {:?}", self.lock_location());
         } else {
             self.1.store(Location::caller() as *const _ as *mut _, Ordering::Relaxed);
