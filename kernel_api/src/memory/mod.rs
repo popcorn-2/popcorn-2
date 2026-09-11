@@ -355,10 +355,12 @@ impl VirtualAddress {
 	}
 }
 
+#[cfg(feature = "full")]
 pub struct EpochGuard {
     phantom: PhantomData<UnsafeCell<()>>,
 }
 
+#[cfg(feature = "full")]
 impl EpochGuard {
     /// # Safety
     ///
