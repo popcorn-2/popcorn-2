@@ -113,12 +113,12 @@ pub fn stack_trace_iter<F: FnMut(usize)>(mut f: F) {
 pub fn stack_trace() {
 	let mut counter = 0;
 	stack_trace_iter(|ip| {
-		let symbol = get_symbol_from_ip(ip);
+		let symbol = get_symbol_from_ip(ip - 1);
 		counter += 1;
 		sprintln!(
 			"{:4}:{:#19x} - {} ({})",
 			counter,
-			ip,
+			ip - 1,
 			symbol.name,
 			symbol.file,
 		);
