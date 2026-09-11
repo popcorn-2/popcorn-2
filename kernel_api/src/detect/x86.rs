@@ -17,6 +17,8 @@ features_macro! {
 	@FEATURE: x2apic: "x2apic": "APIC supports x2APIC features";
 	@FEATURE: tsc_deadline: "tsc_deadline": "local APIC timer supports TSC deadline mode";
 	@FEATURE: xsave: "xsave": "system supports the `xsave` instruction";
+	@FEATURE: xsaveopt: "xsaveopt": "system supports the `xsaveopt` instruction";
+	@FEATURE: xsavec: "xsavec": "system supports the `xsavec` instruction";
 	@FEATURE: hypervisor: "hypervisor": "system is running in a hypervisor";
 	@FEATURE: arat: "arat": "local APIC timer continues counting while sleeping";
 	@FEATURE: intel_thread_director: "intel_thread_director": "system supports Intel Thread Director";
@@ -102,6 +104,13 @@ pub(super) fn detect() -> Initializer {
 		(0, 0)
 	};
 
+	let xsave_feature = if proc_info_ecx & (1 << 26) != 0 {
+		let CpuidResult { eax, .. } = __cpuid_count(0x0000_000d_u32, 1);
+		eax
+	} else {
+		0
+	};
+
 	let CpuidResult {
 		eax: extended_max_basic_leaf,
 		..
@@ -136,6 +145,8 @@ pub(super) fn detect() -> Initializer {
 		enable(proc_info_ecx, 21, Feature::x2apic);
 		enable(proc_info_ecx, 24, Feature::tsc_deadline);
 		enable(proc_info_ecx, 26, Feature::xsave);
+		enable(xsave_feature, 0, Feature::xsaveopt);
+		enable(xsave_feature, 1, Feature::xsavec);
 		enable(proc_info_ecx, 31, Feature::hypervisor);
 		enable(thermal_power_eax, 2, Feature::arat);
 		enable(thermal_power_eax, 23, Feature::intel_thread_director);
