@@ -461,8 +461,7 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 	assert_eq!(x, 6, "TLS value should be 6");
 
 	#[cfg(feature = "hal-next")] arch::target_bsp_start();
-
-	hal::early_init();
+	#[cfg(not(feature = "hal-next"))] hal::early_init();
 
 	let parsed_handoff = handoff::process_handoff(&handoff_data);
 	let free_memory = parsed_handoff.memory_map

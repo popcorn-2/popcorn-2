@@ -49,43 +49,41 @@ unsafe impl Hal for Amd64Hal {
 	}
 
 	fn early_init() {
-		#[cfg(not(feature = "hal-next"))] {
-			let tss = tss::TSS.get_or_init(|| {
-				tss::Tss::new()
-			});
+		let tss = tss::TSS.get_or_init(|| {
+			tss::Tss::new()
+		});
 
-			let gdt = gdt::GDT.get_or_init(|| {
-				use gdt::{Entry, EntryTy, Privilege};
+		let gdt = gdt::GDT.get_or_init(|| {
+			use gdt::{Entry, EntryTy, Privilege};
 
-				let mut gdt = gdt::Gdt::new();
-				gdt.add_entry(EntryTy::KernelCode, Entry::new(Privilege::Ring0, true, true));
-				gdt.add_entry(EntryTy::KernelData, Entry::new(Privilege::Ring0, false, true));
-				gdt.add_entry(EntryTy::UserLongCode, Entry::new(Privilege::Ring3, true, true));
-				gdt.add_entry(EntryTy::UserData, Entry::new(Privilege::Ring3, false, true));
-				gdt.add_tss(tss);
-				gdt
-			});
+			let mut gdt = gdt::Gdt::new();
+			gdt.add_entry(EntryTy::KernelCode, Entry::new(Privilege::Ring0, true, true));
+			gdt.add_entry(EntryTy::KernelData, Entry::new(Privilege::Ring0, false, true));
+			gdt.add_entry(EntryTy::UserLongCode, Entry::new(Privilege::Ring3, true, true));
+			gdt.add_entry(EntryTy::UserData, Entry::new(Privilege::Ring3, false, true));
+			gdt.add_tss(tss);
+			gdt
+		});
 
-			gdt.load();
-			gdt.load_tss();
+		gdt.load();
+		gdt.load_tss();
 
-			wrmsr(
-				msr::STAR,
-				((24 | 0b11) << 48) | (8 << 32),
-			);
-			wrmsr(
-				msr::LSTAR,
-				interrupts::amd64_syscall_handler as *const () as u64,
-			);
-			wrmsr(
-				msr::SFMASK,
-				0xED5, // IF - disabled
-				// OF, DF, SF, ZF, AF, PF, CF = 0 as required by SysV
-			);
+		wrmsr(
+			msr::STAR,
+			((24 | 0b11) << 48) | (8 << 32),
+		);
+		wrmsr(
+			msr::LSTAR,
+			interrupts::amd64_syscall_handler as *const () as u64,
+		);
+		wrmsr(
+			msr::SFMASK,
+			0xED5, // IF - disabled
+			// OF, DF, SF, ZF, AF, PF, CF = 0 as required by SysV
+		);
 
-			interrupts::init_idt();
-			pic::init();
-		}
+		interrupts::init_idt();
+		pic::init();
 
 		Self::enable_interrupts();
 
