@@ -5,10 +5,12 @@ pub mod tss;
 mod gdt;
 mod syscall;
 mod pic;
+mod tcb;
 
 use core::arch::asm;
 pub use interrupts::get_and_disable_interrupts;
 use kernel_api::memory::VirtualAddress;
+pub use tcb::SavedRegisters;
 use kernel_api::is_x86_feature_detected;
 use kernel_api::sync::LazyLock;
 
