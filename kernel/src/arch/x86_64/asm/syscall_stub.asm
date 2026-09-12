@@ -1,3 +1,4 @@
+   .section .text
    .global x86_64_syscall_stub
    .type x86_64_syscall_stub, @function
 x86_64_syscall_stub:
