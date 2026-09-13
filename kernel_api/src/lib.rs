@@ -2,6 +2,8 @@
 //! 
 //! Provides a mix of utility types and functions to replace the lack of `std`, as well as a stable API to kernel internals.
 
+#![feature(debug_closure_helpers)]
+#![feature(ptr_metadata)]
 #![feature(min_specialization)]
 #![feature(step_trait)]
 #![feature(doc_cfg)]
@@ -12,6 +14,7 @@
 #![feature(const_ops)]
 #![feature(const_option_ops)]
 #![feature(integer_widen_truncate)]
+#![feature(formatting_options)]
 #![cfg_attr(doc, feature(rustdoc_missing_doc_code_examples))]
 
 #![cfg_attr(target_has_atomic_load_store = "128", feature(integer_atomics))]
@@ -22,13 +25,11 @@
 #![cfg_attr(feature = "full", feature(coerce_unsized))]
 #![cfg_attr(feature = "full", feature(pointer_is_aligned_to))]
 #![cfg_attr(feature = "full", feature(slice_ptr_get))]
-#![cfg_attr(feature = "full", feature(ptr_metadata))]
 #![cfg_attr(feature = "full", feature(maybe_uninit_fill))]
 #![cfg_attr(feature = "full", feature(sanitize))]
 #![cfg_attr(feature = "full", feature(negative_impls))]
 #![cfg_attr(feature = "full", feature(decl_macro))]
 #![cfg_attr(feature = "full", feature(never_type))]
-#![cfg_attr(feature = "full", feature(debug_closure_helpers))]
 #![cfg_attr(feature = "full", feature(const_default))]
 
 #![allow(type_alias_bounds)]
