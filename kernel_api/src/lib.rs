@@ -1,6 +1,6 @@
-//! Popcorn2 kernel public API
+//! Popcorn2 kernel public API.
 //! 
-//! Provides a mix of utility types and functions to replace `std`, as well as a stable API to kernel internals.
+//! Provides a mix of utility types and functions to replace the lack of `std`, as well as a stable API to kernel internals.
 
 #![feature(min_specialization)]
 #![feature(step_trait)]
@@ -83,7 +83,15 @@ mod sealed {
     pub trait Sealed {}
 }
 
-/// Prints and returns the value of a given expression for quick and dirty debugging
+/// Prints and returns the value of a given expression for quick and dirty debugging.
+///
+/// # Examples
+///
+/// ```
+/// # fn complex_operation() -> i8 { 5 }
+/// // prints `complex_operation() = ...` and assigns the result to `x`
+/// let x = dbg!(complex_operation());
+/// ```
 #[macro_export]
 macro_rules! dbg {
     ($val:expr $(,)?) => {
@@ -102,6 +110,34 @@ macro_rules! dbg {
     };
 }
 
+/// Creates a struct newtype from an enum definition.
+///
+/// The enum is represented as a tuple struct with a single field of type `base_integer`.
+/// Each variant is converted to an associated constant of the same name, with value equal
+/// to `$type($value)`.
+///
+/// This allows for representing enums that do not have a fixed set of variants, as creating
+/// an enum in Rust with an out of range discriminant is undefined behaviour.
+///
+/// # Examples
+///
+/// ```
+/// use kernel_api::newtype_enum;
+///
+/// newtype_enum! {
+///     /// The type of food requested.
+///     pub enum FoodType: pub u8 => {
+///         /// Red and round.
+///         TOMATO = 0,
+///         /// Green and cylindrical.
+///         CUCUMBER = 1,
+///     }
+/// }
+///
+/// assert_eq!(FoodType::TOMATO, FoodType(0));
+/// assert_eq!(FoodType::CUCUMBER, FoodType(1));
+/// let carrot = FoodType(2);
+/// ```
 #[macro_export]
 macro_rules! newtype_enum {
     (
@@ -129,7 +165,7 @@ macro_rules! newtype_enum {
 
         #[allow(unused)]
         impl core::fmt::Debug for $type {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 match *self {
                     // Display variants by their name, like Rust enums do
                     $(

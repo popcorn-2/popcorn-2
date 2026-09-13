@@ -1,3 +1,5 @@
+//! Provides functions for interacting with the kernel's async executor.
+
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::task::Wake;
@@ -20,8 +22,21 @@ impl Wake for ThreadMeta {
 	}
 }
 
-/// Blocks the current thread until the future is ready, parking the thread where possible
-#[cfg(not(feature = "use_std"))]
+/// Executes a future on the current thread, yielding CPU time to other threads where possible.
+///
+/// # Examples
+///
+/// ```rust,no_run (requires kernel executor)
+/// use kernel_api::executor::block_on();
+/// # async fn complex_operation() -> u32 { 5 }
+///
+/// let x = block_on(async {
+///     info!("starting computation...");
+///     complex_operation().await
+/// });
+///
+/// info!("completed with result {x}");
+/// ```
 pub fn block_on<T, F: Future<Output = T>>(f: F) -> T {
 	let mut f = pin!(f);
 
@@ -65,12 +80,26 @@ pub fn block_on<T, F: Future<Output = T>>(f: F) -> T {
 	}
 }
 
-/// Spawns a future on the kernel's async executor
+/// Spawns a future on the kernel's async executor.
 ///
 /// The future will run to completion in the background in the context of the current thread.
-/// This means that any access via (`LocalUser`)[crate::ptr::LocalUser] will be to the current thread's
+/// This means that any access via (`LocalUser`)[`crate::ptr::LocalUser`] will be to the current thread's
 /// address space.
 /// This also means that there is no requirement for the future to be [`Send`] nor [`Sync`].
+///
+/// # Examples
+///
+/// ```rust,no_run (requires kernel executor)
+/// use kernel_api::executor::spawn;
+/// # async fn complex_operation() -> u32 { 5 }
+///
+/// spawn(async {
+///     info!("starting computation in background...");
+///     let x = complex_operation().await;
+///     info!("got result {x}");
+/// });
+/// ```
+// FIXME(unsound): allows causing data races, see #180
 pub fn spawn(f: impl Future<Output = ()> + 'static) {
 	crate::bridge::executor::spawn_task(Box::pin(f));
 }

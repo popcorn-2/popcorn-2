@@ -64,6 +64,7 @@ pub(super) fn detect() -> Initializer {
 			u32::to_ne_bytes(edx),
 			u32::to_ne_bytes(ecx),
 		];
+		// SAFETY: [[u8; 4]; 3] has same layout as [u8; 12]
 		let vendor_id: [u8; 12] = unsafe { mem::transmute(vendor_id) };
 		(max_basic_leaf, vendor_id)
 	};
@@ -74,17 +75,17 @@ pub(super) fn detect() -> Initializer {
 		ecx: proc_info_ecx,
 		edx: proc_info_edx,
 		..
-	} = __cpuid(0x0000_0001_u32);
+	} = __cpuid(0x0000_0001);
 
 	let thermal_power_eax = if max_basic_leaf >= 6 {
-		let CpuidResult { eax, .. } = __cpuid(0x0000_0006_u32);
+		let CpuidResult { eax, .. } = __cpuid(0x0000_0006);
 		eax
 	} else {
 		0 // CPUID does not support "Thermal/power Management Features"
 	};
 
 	let (extended_features_eax, extended_features_ebx, extended_features_ecx, extended_features_edx) = if max_basic_leaf >= 7 {
-		let CpuidResult { eax, ebx, ecx, edx } = __cpuid(0x0000_0007_u32);
+		let CpuidResult { eax, ebx, ecx, edx } = __cpuid(0x0000_0007);
 		(eax, ebx, ecx, edx)
 	} else {
 		(0, 0, 0, 0) // CPUID does not support "Extended Features"
@@ -98,14 +99,14 @@ pub(super) fn detect() -> Initializer {
 	};
 
 	let (_xsave_xcr0_high, xsave_xcr0_low) = if proc_info_ecx & (1 << 26) != 0 {
-		let CpuidResult { eax, edx, .. } = __cpuid_count(0x0000_000d_u32, 0);
+		let CpuidResult { eax, edx, .. } = __cpuid_count(0x0000_000d, 0);
 		(edx, eax)
 	} else {
 		(0, 0)
 	};
 
 	let xsave_feature = if proc_info_ecx & (1 << 26) != 0 {
-		let CpuidResult { eax, .. } = __cpuid_count(0x0000_000d_u32, 1);
+		let CpuidResult { eax, .. } = __cpuid_count(0x0000_000d, 1);
 		eax
 	} else {
 		0
@@ -114,17 +115,17 @@ pub(super) fn detect() -> Initializer {
 	let CpuidResult {
 		eax: extended_max_basic_leaf,
 		..
-	} = __cpuid(0x8000_0000_u32);
+	} = __cpuid(0x8000_0000);
 
 	let (extended_proc_info_ecx, extended_proc_info_edx) = if extended_max_basic_leaf >= 1 {
-		let CpuidResult { ecx, edx, .. } = __cpuid(0x8000_0001_u32);
+		let CpuidResult { ecx, edx, .. } = __cpuid(0x8000_0001);
 		(ecx, edx)
 	} else {
 		(0, 0)
 	};
 
 	let paging_features_ebx = if extended_max_basic_leaf >= 8 {
-		let CpuidResult { ebx, .. } = __cpuid(0x8000_0008_u32);
+		let CpuidResult { ebx, .. } = __cpuid(0x8000_0008);
 		ebx
 	} else {
 		0

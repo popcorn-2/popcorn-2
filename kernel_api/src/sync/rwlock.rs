@@ -1,55 +1,42 @@
 use core::fmt::Formatter;
-use core::mem;
 use core::panic::Location;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use log::warn;
 
-/// A reader-writer lock
-pub type RwSpinlock<T: ?Sized> = lock_api::RwLock<RwCount, T>;
+/// A reader-writer lock.
+pub type RwSpinlock<T> = lock_api::RwLock<RwCount, T>;
 
 /// RAII structure used to release the shared read access of a lock when dropped.
-pub type RwReadGuard<'a, T: ?Sized> = lock_api::RwLockReadGuard<'a, RwCount, T>;
+pub type RwReadGuard<'a, T> = lock_api::RwLockReadGuard<'a, RwCount, T>;
 
 /// RAII structure used to release upgradable read access of a lock when dropped.
-pub type RwUpgradableReadGuard<'a, T: ?Sized> = lock_api::RwLockUpgradableReadGuard<'a, RwCount, T>;
+pub type RwUpgradableReadGuard<'a, T> = lock_api::RwLockUpgradableReadGuard<'a, RwCount, T>;
 
 /// RAII structure used to release the exclusive write access of a lock when dropped.
-pub type RwWriteGuard<'a, T: ?Sized> = lock_api::RwLockWriteGuard<'a, RwCount, T>;
+pub type RwWriteGuard<'a, T> = lock_api::RwLockWriteGuard<'a, RwCount, T>;
 
+// INVARIANT: `self.1` is always a valid 'static ref to a `Location<'static>` unless null
 #[doc(hidden)]
 pub struct RwCount(AtomicUsize, #[cfg(debug_assertions)] AtomicPtr<Location<'static>>);
 
 // FIXME: Deadlocks due to interrupts
 impl RwCount {
-    const WRITE_BIT_MASK: usize = 1<<(mem::size_of::<usize>() * 8 - 1);
-    const UPGRADEABLE_BIT_MASK: usize = 1<<(mem::size_of::<usize>() * 8 - 2);
+    const WRITE_BIT_MASK: usize = 1<<(usize::BITS as usize - 1);
+    const UPGRADEABLE_BIT_MASK: usize = 1<<(usize::BITS as usize - 2);
     const READ_COUNT_MASK: usize = !(Self::WRITE_BIT_MASK | Self::UPGRADEABLE_BIT_MASK);
-}
 
-impl core::fmt::Debug for RwCount {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        let mut d = f.debug_struct("RwCount");
-        let val = self.0.load(Ordering::Relaxed);
-        let write = val & Self::WRITE_BIT_MASK != 0;
-        let read = val & Self::READ_COUNT_MASK;
-        let upgradeable_reader = val & Self::UPGRADEABLE_BIT_MASK != 0;
-        d.field("write", &write);
-        d.field("read", &(read + if upgradeable_reader { 1 } else { 0 }));
-        d.finish()
-    }
-}
-
-impl RwCount {
     #[cfg(debug_assertions)]
     fn lock_location(&self) -> Option<&'static Location<'static>> {
         let location = self.1.load(Ordering::Relaxed);
+	    // SAFETY: invariant of type that `location` is always valid unless null
         unsafe { location.as_ref::<'static>() }
     }
 }
 
+// SAFETY: number of readers/writers checked on each attempt at locking
 unsafe impl lock_api::RawRwLock for RwCount {
     const INIT: Self = Self(AtomicUsize::new(0), #[cfg(debug_assertions)] AtomicPtr::new(core::ptr::null_mut()));
-    type GuardMarker = lock_api::GuardSend; // Doesn't (yet) touch interrupts so safe to send to other core
+    type GuardMarker = lock_api::GuardNoSend; // Can always be relaxed in future
 
     #[track_caller]
     fn lock_shared(&self) {
@@ -65,19 +52,19 @@ unsafe impl lock_api::RawRwLock for RwCount {
         loop {
             let old_normal_count = old_value & Self::READ_COUNT_MASK;
 
-            if old_normal_count == Self::READ_COUNT_MASK { panic!("Reader count overflowed") }
+            assert_ne!(old_normal_count, Self::READ_COUNT_MASK, "Reader count overflowed");
             if (old_value & Self::WRITE_BIT_MASK) != 0 { return false; }
 
             let new_value = (old_normal_count + 1) | (old_value & Self::UPGRADEABLE_BIT_MASK);
 
             match self.0.compare_exchange_weak(old_value, new_value, Ordering::Acquire, Ordering::Relaxed) {
                 Ok(_) => {
-                    #[cfg(debug_assertions)] self.1.store(Location::caller() as *const _ as *mut _, Ordering::Relaxed);
-                    return true
+                    #[cfg(debug_assertions)] self.1.store(core::ptr::from_ref(Location::caller()).cast_mut(), Ordering::Relaxed);
+                    return true;
                 },
                 Err(new_old_value) => {
                     #[cfg(debug_assertions)] warn!("locked at {:?}", self.lock_location());
-                    old_value = new_old_value
+                    old_value = new_old_value;
                 }
             }
         }
@@ -86,12 +73,11 @@ unsafe impl lock_api::RawRwLock for RwCount {
     unsafe fn unlock_shared(&self) {
         let mut old_value = self.0.load(Ordering::Relaxed);
         loop {
-            let old_normal_count = old_value & !Self::UPGRADEABLE_BIT_MASK;
+            let old_normal_count = old_value & Self::READ_COUNT_MASK;
 
-            if cfg!(debug_assertions) && (old_value & Self::WRITE_BIT_MASK != 0) {
-                panic!("BUG: RwLock reader dropped while writer was active")
-            }
-            let new_value = (old_normal_count - 1) | (old_value & Self::UPGRADEABLE_BIT_MASK);
+            debug_assert_eq!(old_value & Self::WRITE_BIT_MASK, 0, "BUG: RwLock reader dropped while writer was active");
+
+            let new_value = (old_normal_count - 1) | (old_value & !Self::READ_COUNT_MASK);
             match self.0.compare_exchange_weak(old_value, new_value, Ordering::Release, Ordering::Relaxed) {
                 Ok(_) => return,
                 Err(new_old_value) => old_value = new_old_value
@@ -110,11 +96,13 @@ unsafe impl lock_api::RawRwLock for RwCount {
     fn try_lock_exclusive(&self) -> bool {
         let res = self.0.compare_exchange_weak(0, Self::WRITE_BIT_MASK, Ordering::Acquire, Ordering::Relaxed)
             .is_ok();
-        #[cfg(debug_assertions)] if !res {
-            warn!("locked at {:?}", self.lock_location());
+
+        #[cfg(debug_assertions)] if res {
+            self.1.store(core::ptr::from_ref(Location::caller()).cast_mut(), Ordering::Relaxed);
         } else {
-            self.1.store(Location::caller() as *const _ as *mut _, Ordering::Relaxed);
+            warn!("locked at {:?}", self.lock_location());
         }
+
         res
     }
 
@@ -128,6 +116,7 @@ unsafe impl lock_api::RawRwLock for RwCount {
     }
 }
 
+// SAFETY: See comment on base RawRwLock impl
 unsafe impl lock_api::RawRwLockDowngrade for RwCount {
     unsafe fn downgrade(&self) {
         if cfg!(debug_assertions) {
@@ -140,6 +129,7 @@ unsafe impl lock_api::RawRwLockDowngrade for RwCount {
     }
 }
 
+// SAFETY: See comment on base RawRwLock impl
 unsafe impl lock_api::RawRwLockUpgrade for RwCount {
     fn lock_upgradable(&self) {
         while !self.try_lock_upgradable() {
@@ -166,9 +156,8 @@ unsafe impl lock_api::RawRwLockUpgrade for RwCount {
     unsafe fn unlock_upgradable(&self) {
         let mut old_value = self.0.load(Ordering::Relaxed);
         loop {
-            if cfg!(debug_assertions) && (old_value & Self::WRITE_BIT_MASK != 0) {
-                panic!("BUG: RwLock upgradable reader dropped while writer was active")
-            }
+            debug_assert_eq!(old_value & Self::WRITE_BIT_MASK, 0, "BUG: RwLock upgradable reader dropped while writer was active");
+
             let new_value = old_value & !Self::UPGRADEABLE_BIT_MASK;
             match self.0.compare_exchange_weak(old_value, new_value, Ordering::Release, Ordering::Relaxed) {
                 Ok(_) => return,
@@ -190,16 +179,16 @@ unsafe impl lock_api::RawRwLockUpgrade for RwCount {
     }
 }
 
+// SAFETY: See comment on base RawRwLock impl
 unsafe impl lock_api::RawRwLockUpgradeDowngrade for RwCount {
     unsafe fn downgrade_upgradable(&self) {
         let mut old_value = self.0.load(Ordering::Relaxed);
         loop {
-            if cfg!(debug_assertions) && (old_value & Self::WRITE_BIT_MASK != 0) {
-                panic!("BUG: RwLock upgradable reader downgraded while writer was active")
-            }
+            debug_assert_eq!(old_value & Self::WRITE_BIT_MASK, 0, "BUG: RwLock upgradable reader downgraded while writer was active");
 
             let old_normal_count = old_value & Self::READ_COUNT_MASK;
-            if old_normal_count == Self::READ_COUNT_MASK { panic!("Reader count overflowed") }
+
+            assert_ne!(old_normal_count, Self::READ_COUNT_MASK, "Reader count overflowed");
 
             let new_value = old_normal_count + 1;
             match self.0.compare_exchange_weak(old_value, new_value, Ordering::Relaxed, Ordering::Relaxed) {
@@ -217,5 +206,19 @@ unsafe impl lock_api::RawRwLockUpgradeDowngrade for RwCount {
             // No existing readers should exist therefore can unconditionally set upgradable bit
             self.0.store(Self::UPGRADEABLE_BIT_MASK, Ordering::SeqCst); // FIXME: what ordering to use here?
         }
+    }
+}
+
+impl core::fmt::Debug for RwCount {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        let val = self.0.load(Ordering::Relaxed);
+        let write = val & Self::WRITE_BIT_MASK != 0;
+        let read = val & Self::READ_COUNT_MASK;
+        let upgradeable_reader = val & Self::UPGRADEABLE_BIT_MASK != 0;
+
+        f.debug_struct("RwCount")
+         .field("write", &write)
+         .field("read", &(read + usize::from(upgradeable_reader)))
+         .finish_non_exhaustive()
     }
 }
