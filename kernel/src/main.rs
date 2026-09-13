@@ -71,7 +71,6 @@ mod memory;
 mod panicking;
 mod logging;
 mod bridge;
-//mod task;
 mod threading;
 mod bmp;
 mod hal;
