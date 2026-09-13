@@ -12,6 +12,7 @@
 #![feature(const_ops)]
 #![feature(const_option_ops)]
 #![feature(integer_widen_truncate)]
+#![feature(formatting_options)]
 #![cfg_attr(doc, feature(rustdoc_missing_doc_code_examples))]
 
 #![cfg_attr(target_has_atomic_load_store = "128", feature(integer_atomics))]
