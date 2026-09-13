@@ -6,6 +6,18 @@ use core::mem::MaybeUninit;
 use crate::memory::VirtualAddress;
 use crate::ptr::{impls, PointerError};
 
+/// A pointer to a potentially invalid address, tied to the current address space.
+///
+/// While the pointer may safely point to an invalid or unaligned address, in the case that
+/// it points to a valid address and is read from, then it is unsound for the address to not
+/// hold a valid bit-pattern for the type `T`.
+///
+/// For example, it is always sound to create a `LocalUser<*const u8>` regardless of the address it points
+/// to, and always safe to call `read()` on it, but it would be unsound to create a
+/// `LocalUser<*const bool>`if it's not guaranteed that the pointed value is either `1` or `0`.
+///
+/// Additionally, to make the API require less `unsafe` for common cases, `LocalUser<*mut T>` is always
+/// safe to construct, with the additional requirement that it becomes write-only.
 #[derive(Clone, Copy)]
 pub struct LocalUser<T> {
 	pub(super) ptr: T,
@@ -28,7 +40,7 @@ impl<T: fmt::Pointer> fmt::Debug for LocalUser<T> {
 }
 
 impl<T: ?Sized> LocalUser<*const T> {
-	/// Creates a new `LocalUser<*const T>` with tied to the current address space
+	/// Creates a new `LocalUser<*const T>` with tied to the current address space.
 	///
 	/// # Safety
 	///

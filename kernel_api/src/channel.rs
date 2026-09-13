@@ -1,4 +1,4 @@
-//! An async multi-producer, single-consumer channel
+//! An async multi-producer, single-consumer channel.
 //!
 //! A new channel can be created by calling [`unbounded()`] which returns a [`Sender`] and [`Receiver`].
 //! The [`Sender`] can be [`clone`]d, while the [`Receiver`] cannot.
@@ -13,7 +13,7 @@ use core::task::{Context, Poll};
 use crossbeam_queue::SegQueue;
 use futures::task::AtomicWaker;
 
-/// The sending end of a channel
+/// The sending end of a channel.
 pub struct Sender<T> {
 	inner: Arc<ChannelInner<T>>,
 }
@@ -24,7 +24,7 @@ impl<T> Clone for Sender<T> {
 	}
 }
 
-/// The receiving end of a channel
+/// The receiving end of a channel.
 pub struct Receiver<T> {
 	inner: Arc<ChannelInner<T>>,
 }
@@ -34,7 +34,8 @@ struct ChannelInner<T> {
 	waker: AtomicWaker,
 }
 
-/// Creates a new unbounded chanel
+/// Creates a new unbounded chanel.
+#[must_use]
 pub fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
 	let inner = ChannelInner {
 		queue: SegQueue::new(),
@@ -46,7 +47,7 @@ pub fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
 }
 
 impl<T> Sender<T> {
-	/// Pushes a new item into the back of the channel
+	/// Pushes a new item into the back of the channel.
 	pub fn push(&self, val: T) {
 		self.inner.queue.push(val);
 		self.inner.waker.wake();
@@ -54,13 +55,13 @@ impl<T> Sender<T> {
 }
 
 impl<T> Receiver<T> {
-	/// Pushes a new item into the back of the channel
+	/// Pushes a new item into the back of the channel.
 	pub fn push(&self, val: T) {
 		self.inner.queue.push(val);
 		self.inner.waker.wake();
 	}
 
-	/// Pops the front item from the channel, blocking until an item is available
+	/// Pops the front item from the channel, blocking until an item is available.
 	pub fn pop(&self) -> impl Future<Output = T> + '_ {
 		struct Waiter<'a, T>(&'a ChannelInner<T>);
 
@@ -70,32 +71,34 @@ impl<T> Receiver<T> {
 			fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
 				if let Some(val) = self.0.queue.pop() { return Poll::Ready(val); }
 				self.0.waker.register(cx.waker());
-				match self.0.queue.pop() {
-					Some(val) => Poll::Ready(val),
-					None => Poll::Pending,
-				}
+				self.0.queue.pop()
+					.map_or(Poll::Pending, Poll::Ready)
 			}
 		}
 
 		Waiter(&self.inner)
 	}
 
-	/// Pops the front item in the channel, if one exists
+	/// Pops the front item in the channel, if one exists.
+	#[must_use]
 	pub fn try_pop(&self) -> Option<T> {
 		self.inner.queue.pop()
 	}
 
-	/// Creates a new [`Sender`] for this Receiver
+	/// Creates a new [`Sender`] for this Receiver.
+	#[must_use]
 	pub fn sender(&self) -> Sender<T> {
 		Sender {
 			inner: Arc::clone(&self.inner)
 		}
 	}
 
-	/// The number of items available to pop from the channel
+	/// The number of items available to pop from the channel.
+	#[must_use]
 	pub fn len(&self) -> usize { self.inner.queue.len() }
 
 	/// Returns `true` if there are no items in the channel.
+	#[must_use]
 	pub fn is_empty(&self) -> bool { self.inner.queue.is_empty() }
 }
 
