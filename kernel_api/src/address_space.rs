@@ -1,8 +1,16 @@
-//! Types to manipulate the kernel and userspace address spaces
+//! Types to manipulate the kernel and userspace address spaces.
 //!
 //! This module provides two sets of address space types - the [`Kernel`] and [`Userspace`] marker types
-//! for use with (`Mapping`)[crate::mapping::Mapping], as well as the [`AddressSpace`] type for directly
+//! for use with [`Mapping`], as well as the [`AddressSpace`] type for directly
 //! manipulating the address space of a thread.
+//!
+//! # Kernel address space
+//!
+//! TODO(doc).
+//!
+//! # User address space
+//!
+//! TODO(doc).
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

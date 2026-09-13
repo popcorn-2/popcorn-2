@@ -1,4 +1,58 @@
-//! RAII memory mappings
+//! Memory mappings.
+//!
+//! Each memory mapping is made of a virtual allocation and a physical allocation,
+//! where the size of the virtual allocation is equal to or larger than the size
+//! of the physical allocation.
+//!
+//! The physical memory is then mapped to a space within the virtual allocation,
+//! and the rest of the virtual allocation is left reserved but inaccessible.
+//! The size of the physical allocation (and thus usable memory) is the value
+//! requested by users of the mapping API.
+//!
+//! The size of and offset within the virtual allocation is controlled by implementations
+//! of [`Mappable`], as shown below.
+//!
+//! ```text
+//! ---+------------------------------+---
+//!    |      virtual allocation      |
+//! ---+------------------------------+---
+//!     <----------------------------> `virtual_size()`
+//!     <---> `base_virtual_offset()`
+//!          +---------------------+
+//!          | physical allocation |
+//!          +---------------------+
+//! ```
+//!
+//! A [`Mapping`] can be created with [`Config::map`]:
+//!
+//! ```
+//! use kernel_api::mapping::{Config, Ty, Mmap};
+//! use core::num::NonZero;
+//!
+//! let mapping = Config::new(NonZero::new(1).unwrap(), Ty::KERNEL_OTHER)
+//!                   .map::<Mmap>()?;
+//! # Ok::<(), kernel_api::allocator::AllocError>::(())
+//! ```
+//!
+//! Data can then be read from and written to the mapping:
+//!
+//! ```
+//! use kernel_api::mapping::{Config, Ty, Mmap};
+//! use core::num::NonZero;
+//!
+//! let mut mapping = Config::new(NonZero::new(1).unwrap(), Ty::KERNEL_OTHER)
+//!                       .protection(/* writable: */ true, false, false)
+//!                       .map::<Mmap>()?;
+//!
+//! for ptr in mapping.as_mut_ptr_range() {
+//!     unsafe { *ptr = 1 };
+//! }
+//!
+//! for ptr in mapping.as_ptr_range() {
+//!     assert_eq!(unsafe { *ptr }, 1);
+//! }
+//! # Ok::<(), kernel_api::allocator::AllocError>::(())
+//! ```
 
 mod config;
 pub use config::*;
@@ -68,10 +122,13 @@ mod full {
 		}
 	}
 
-	/// The raw type underlying all memory mappings.
+	/// An owned memory mapping.
 	///
 	/// This will allocate any required memory when created, and register any lazily mapped memory as such.
-	/// It will also manage the page tables to correctly unmap the memory when dropped.
+	/// It will also manage the page tables to correctly unmap the memory when dropped, and deallocate any
+	/// memory previously allocated.
+	///
+	/// See the [module level documentation](`super`) for more information.
 	pub struct Mapping<R: Mappable, A: address_space::Ty> {
 		pub(super) raw: R,
 
@@ -90,6 +147,12 @@ mod full {
 	}
 
 	impl<R: Mappable> Mapping<R, address_space::Kernel> {
+		/// Returns the two unsafe mutable pointers that span the range of the mapping.
+		///
+		/// The returned range is half-open, which means that the end pointer points *one past* the last element of the slice.
+		/// This way, an empty slice is represented by two equal pointers, and the difference between the two pointers
+		/// represents the size of the slice.
+		#[must_use]
 		pub fn as_mut_ptr_range(&mut self) -> Range<*mut u8> {
 			let start = self.virtual_valid_start().as_ptr();
 			Range {
@@ -98,6 +161,12 @@ mod full {
 			}
 		}
 
+		/// Returns the two unsafe pointers that span the range of the mapping.
+		///
+		/// The returned range is half-open, which means that the end pointer points *one past* the last element of the slice.
+		/// This way, an empty slice is represented by two equal pointers, and the difference between the two pointers
+		/// represents the size of the slice.
+		#[must_use]
 		pub fn as_ptr_range(&self) -> Range<*const u8> {
 			let start = self.virtual_valid_start().as_ptr().cast_const();
 			Range {
@@ -106,14 +175,20 @@ mod full {
 			}
 		}
 
+		/// Returns an unsafe mutable to the beginning of the mapping.
+		#[must_use]
 		pub fn as_mut_ptr(&mut self) -> *mut u8 {
 			self.as_mut_ptr_range().start
 		}
 
+		/// Returns an unsafe pointer to the beginning of the mapping.
+		#[must_use]
 		pub fn as_ptr(&self) -> *const u8 {
 			self.as_ptr_range().start
 		}
 
+		/// Creates a `Mapping` directly from its raw components.
+		///
 		/// # Safety
 		///
 		/// A section of virtual memory starting at `base_page` must be allocation by the kernel global virtual allocator.
@@ -124,6 +199,7 @@ mod full {
 		/// These requirements are always upheld by the return values of [`into_raw_parts`]. Other mapping sources are
 		/// allowed if all the invariants are upheld.
 		//#[cfg(not(feature = "use_std"))]
+		#[must_use]
 		pub unsafe fn from_raw_parts<const RAM: bool, T>(
 			frames: Frames<RAM, T>,
 			base_page: RawPage,
@@ -133,6 +209,7 @@ mod full {
 			Self {
 				raw: R::default(),
 				address_space: ManuallyDrop::new(address_space::Kernel {}),
+				// SAFETY: `from_raw_tuple` called directly on result of `into_raw`
 				backing: ManuallyDrop::new(Backing::Contiguous(unsafe { Frames::<false>::from_raw_tuple(Frames::into_raw(frames)) })),
 				virtual_start: base_page,
 				protection,
@@ -140,10 +217,13 @@ mod full {
 			}
 		}
 
+		/// Decomposes a `Mapping` into its raw components.
 		//#[cfg(not(feature = "use_std"))]
 		pub fn into_raw_parts(self) -> (Option<Frames<false>>, RawPage, Protection, Caching) {
 			let mut this = ManuallyDrop::new(self);
 			(
+				// SAFETY: `ManuallyDrop::take` is being called in function consuming `self` so
+				//  cannot be called again
 				match unsafe { ManuallyDrop::take(&mut this.backing) } {
 					Backing::Contiguous(frames) => Some(frames),
 					Backing::Discontiguous { .. } => None,
@@ -158,6 +238,11 @@ mod full {
 
 	#[cfg(not(feature = "use_std"))]
 	impl<R: Mappable> Mapping<R, address_space::Userspace> {
+		/// Returns the two mutable [user pointers](`crate::ptr#user-pointers`) that span the range of the mapping.
+		///
+		/// The returned range is half-open, which means that the end pointer points *one past* the last element of the slice.
+		/// This way, an empty slice is represented by two equal pointers, and the difference between the two pointers
+		/// represents the size of the slice.
 		pub fn as_mut_ptr_range(&mut self) -> Range<User<'_, *mut u8>> {
 			let start = self.virtual_valid_start().as_ptr();
 			let end = unsafe { start.byte_add(self.byte_len()) };
@@ -166,30 +251,67 @@ mod full {
 			start..end
 		}
 
+		/// Returns the two [user pointers](`crate::ptr#user-pointers`) that span the range of the mapping.
+		///
+		/// The returned range is half-open, which means that the end pointer points *one past* the last element of the slice.
+		/// This way, an empty slice is represented by two equal pointers, and the difference between the two pointers
+		/// represents the size of the slice.
 		pub fn as_ptr_range(&self) -> Range<User<'_, *const u8>> {
 			let start = self.virtual_valid_start().as_ptr().cast_const();
+			// SAFETY: `start` points to the beginning of an allocation which is `self.byte_len` bytes long
 			let end = unsafe { start.byte_add(self.byte_len()) };
+			// SAFETY: `start` points to a `u8` which has no invalid bit patterns
 			let start = unsafe { User::<*const u8>::new(start, &self.address_space.inner) };
+			// SAFETY: `end` points to a `u8` which has no invalid bit patterns
 			let end = unsafe { User::<*const u8>::new(end, &self.address_space.inner) };
 			start..end
 		}
 
+		/// Returns a mutable [user pointer](`crate::ptr#user-pointers`) to the beginning of the mapping.
 		pub fn as_mut_ptr(&mut self) -> User<'_, *mut u8> {
 			self.as_mut_ptr_range().start
 		}
 
+		/// Returns a [user pointer](`crate::ptr#user-pointers`) to the beginning of the mapping.
 		pub fn as_ptr(&self) -> User<'_, *const u8> {
 			self.as_ptr_range().start
 		}
 	}
 
 	impl<R: Mappable, A: address_space::Ty> Mapping<R, A> {
+		/// Add `extra_length` pages to the end of the existing mapping.
+		///
+		/// The mapping is grown in place, such that any addresses pointing within the existing mapping
+		/// remain valid.
+		///
+		/// The underlying physical memory may no longer be contiguous after this operation.
+		///
+		/// # Errors
+		///
+		/// Returns an [`AllocError`] describing the allocation that failed.
+		///
+		/// # Examples
+		///
+		/// ```
+		/// use kernel_api::mapping::{Config, Ty, Mmap};
+		/// use kernel_api::memory::PAGE_SIZE;
+		/// use core::num::NonZero;
+		///
+		/// let mut mapping = Config::new(NonZero::new(1).unwrap(), Ty::KERNEL_OTHER)
+		///                       .map::<Mmap>()?;
+		/// assert_eq!(mapping.page_len(), 1);
+		///
+		/// mapping.grow_in_place_by(1)?;
+		/// assert_eq!(mapping.page_len(), 2);
+		/// # Ok::<(), kernel_api::allocator::AllocError>::(())
+		/// ```
 		pub fn grow_in_place_by(&mut self, extra_length: usize) -> Result<(), AllocError> {
 			let Some(extra_length) = NonZero::new(extra_length) else { return Ok(()); };
 			let extra_frames = self.backing.pmm().allocate(extra_length)?;
 
 			let extra_pages = self.address_space.allocator()
 			                      .allocate_contiguous_at(
+				                      // FIXME: this only works is `virtual_size()` obeys superposition
 				                      self.virtual_start + self.raw.virtual_size(self.page_len()).get(),
 				                      extra_length.get(),
 			                      )?;
@@ -215,6 +337,7 @@ mod full {
 
 			let new_backing = Backing::Discontiguous {
 				pmm: *self.backing.pmm(),
+				// fixme: provide some kind of warning on overflow instead of just leaking memory?
 				frame_count: self.backing.frame_len().checked_add(extra_length.get()).unwrap()
 			};
 			self.backing = ManuallyDrop::new(new_backing); // don't drop the old backing since that could deallocate in-use frames
@@ -222,14 +345,68 @@ mod full {
 			Ok(())
 		}
 
+		/// The valid length of this mapping in bytes.
+		///
+		/// # Examples
+		///
+		/// ```
+		/// use kernel_api::mapping::{Config, Ty, Mmap};
+		/// use kernel_api::memory::PAGE_SIZE;
+		/// use core::num::NonZero;
+		///
+		/// let mapping = Config::new(NonZero::new(1).unwrap(), Ty::KERNEL_OTHER)
+		///                   .map::<Mmap>()?;
+		/// assert_eq!(mapping.byte_len(), 1 * PAGE_SIZE);
+		/// # Ok::<(), kernel_api::allocator::AllocError>::(())
+		/// ```
 		pub fn byte_len(&self) -> usize {
 			self.backing.byte_len()
 		}
 
+		/// The valid length of this mapping in pages.
+		///
+		/// # Examples
+		///
+		/// ```
+		/// use kernel_api::mapping::{Config, Ty, Mmap};
+		/// use core::num::NonZero;
+		///
+		/// let mapping = Config::new(NonZero::new(1).unwrap(), Ty::KERNEL_OTHER)
+		///                   .map::<Mmap>()?;
+		/// assert_eq!(mapping.page_len(), 1);
+		/// # Ok::<(), kernel_api::allocator::AllocError>::(())
+		/// ```
 		pub fn page_len(&self) -> usize {
 			self.backing.frame_len()
 		}
 
+		/// Returns the [`RawFrame`] that this mapping is mapped to.
+		///
+		/// This only makes sense for a physically contiguous mapping, and will return
+		/// `None` in other situations.
+		///
+		/// # Examples
+		///
+		/// ```
+		/// use kernel_api::mapping::{Config, Ty, Mmap};
+		/// use core::num::NonZero;
+		///
+		/// let mapping = Config::new(NonZero::new(1).unwrap(), Ty::KERNEL_OTHER)
+		///                   .map::<Mmap>()?;
+		/// assert!(mapping.physical_start().is_some());
+		/// # Ok::<(), kernel_api::allocator::AllocError>::(())
+		/// ```
+		///
+		/// ```ignore (incomplete)
+		/// use kernel_api::mapping::{Config, Ty, Mmap};
+		/// use core::num::NonZero;
+		///
+		/// let mapping = Config::new(NonZero::new(1).unwrap(), Ty::KERNEL_OTHER)
+		///                   .with_vmo(get_vmo(), 0)
+		///                   .map::<Mmap>()?;
+		/// assert!(mapping.physical_start().is_none());
+		/// # Ok::<(), kernel_api::allocator::AllocError>::(())
+		/// ```
 		pub fn physical_start(&self) -> Option<RawFrame> {
 			match &*self.backing {
 				Backing::Contiguous(frames) => Some(frames.base()),
@@ -280,6 +457,7 @@ mod full {
 		fn drop(&mut self) {
 			info!("drop mmap({})", core::any::type_name::<R>());
 
+			// SAFETY: `ManuallyDrop::take` called in the `drop` impl so can't be called again
 			match unsafe { ManuallyDrop::take(&mut self.backing) } {
 				Backing::Contiguous(frames) => drop(frames),
 				Backing::Discontiguous { .. } => {

@@ -1,5 +1,13 @@
-//! Provides pointer wrappers for safely accessing userspace
-//! 
+//! Provides pointer wrappers for safely accessing userspace.
+//!
+//! # User pointers
+//!
+//! TODO(doc).
+//!
+//! ## Local pointers
+//!
+//! TODO(doc).
+//!
 //! All pointers provided from userspace should be accessed through a [`User`] to
 //! prevent kernelspace page faults from invalid or misaligned pointers.
 //! 
@@ -23,7 +31,7 @@ pub use user_local::*;
 #[cfg(feature = "full")]
 mod impls;
 
-/// The error returned when a memory access to userspace failed
+/// The error returned when a memory access to userspace failed.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct PointerError {}
