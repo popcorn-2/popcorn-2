@@ -3,17 +3,30 @@ use core::num::NonZero;
 
 /// Basic operations to decide how to map memory together.
 ///
-/// Implementations of this can be used to instantiate a [`RawMapping`].
+/// See the [module level documentation](`super`) for more information.
 pub trait Mappable {
-	/// The number of pages required to create a mapping with `frame_count` frames
+	/// The number of pages required to create a mapping with `frame_count` frames.
 	fn virtual_size(&self, frame_count: usize) -> NonZero<usize>;
 
-	/// The number of pages to offset the physical memory into the allocated virtual memory
+	/// The number of pages to offset the physical memory into the allocated virtual memory.
 	fn base_virtual_offset(&self) -> isize;
 }
 
+/// A basic map of virtual to physical memory.
+///
+/// In certain build configurations, this may include guard pages to check for out-of-bounds access.
+/// If a guaranteed amount of virtual address space usage of virtual location is required, see [`UncheckedMmap`].
+///
+/// <div class="warning">
+///
+/// When combined with [`virtual_location`](`super::Config::virtual_location`), the use of guard pages may mean that the valid start
+/// of the virtual allocation is not at the requested location. Retrieve the valid start using
+/// [`virtual_valid_start`](`Mapping::virtual_valid_start`), [`as_ptr`](`Mapping::as_ptr`), or similar after
+/// creating the mapping to get the correct address.
+///
+/// </div>
+#[derive(Default, Debug, Copy, Clone)]
 #[non_exhaustive]
-#[derive(Default)]
 pub struct Mmap {}
 
 impl Mappable for Mmap {
@@ -26,13 +39,24 @@ impl Mappable for Mmap {
 	}
 }
 
+/// An implementation of [`Mappable`] for a stack, providing guard pages at the start and end of each allocation.
 pub type Stack = Mmap;
 
-#[non_exhaustive]
-#[derive(Default)]
-pub struct UnsafeMmap {}
+/// A basic map of virtual to physical memory, with no out-of-bounds checking.
+///
+/// Most uses should instead use [`Mmap`], unless a guaranteed amount of or location
+/// in virtual memory is required.
+#[deprecated = "renamed to `UncheckedMmap`"]
+pub type UnsafeMmap = UncheckedMmap;
 
-impl Mappable for UnsafeMmap {
+/// A basic map of virtual to physical memory, with no out-of-bounds checking.
+///
+/// Most uses should instead use [`Mmap`], unless a guaranteed amount of or location
+/// in virtual memory is required.
+#[derive(Default, Debug, Copy, Clone)]
+pub struct UncheckedMmap(());
+
+impl Mappable for UncheckedMmap {
 	fn virtual_size(&self, frame_count: usize) -> NonZero<usize> {
 		NonZero::new(frame_count).unwrap()
 	}

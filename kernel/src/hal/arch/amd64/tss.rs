@@ -47,7 +47,7 @@ impl Tss {
     
     #[inline]
     pub extern "C" fn set_rsp0(&self, addr: VirtualAddress) {
-        assert!(addr.aligned_to(16), "rsp0 must be 16 byte aligned");
+        assert!(addr.is_aligned_to(16), "rsp0 must be 16 byte aligned");
 
         unsafe {
             asm!("lock xchg qword ptr [{}], {}", in(reg) addr_of!(self.privilege_stack_table[0]), inout(reg) addr.addr => _);

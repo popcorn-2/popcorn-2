@@ -1,6 +1,20 @@
-//! Provides kernel synchronisation primitives
+//! Provides kernel synchronisation primitives.
 //!
-//! These are currently based on spinlocks but this may be changed in future
+//! # Overview
+//!
+//! The following is an overview of the available synchronisation objects:
+//! - [`Spinlock`]: Provides mutual exclusion by [busy-waiting](https://en.wikipedia.org/wiki/Busy_waiting) until
+//!   the protected resource is available.
+//! - [`RwSpinlock`]: An alternative to a plain `Spinlock` which allows for multiple concurrent readers, which
+//!   can be more efficient for read-heavy workloads.
+//! - [`IrqCell`]: A single-threaded mutual exclusion primitive, similar to [`RefCell`](`core::cell::RefCell`),
+//!   which attempts to reduce deadlocks by disabling interrupts while locked.
+//! - [`OnceLock`]: Used for thread-safe, one-time initialization of a variable, with potentially different
+//!   initializers based on the caller.
+//! - [`LazyLock`]: Used for thread-safe, one-time initialization of a variable, using one nullary initializer
+//!   function provided at creation.
+//! - [`SendWrapper`]: A wrapper type around a non-[`Send`] object to allow moving the object between threads
+//!   by tracking the original thread it was created in.
 
 use core::ops::{Deref, DerefMut};
 

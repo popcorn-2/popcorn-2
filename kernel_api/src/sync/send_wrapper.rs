@@ -1,15 +1,27 @@
 use core::mem::{ManuallyDrop, MaybeUninit};
 use crate::address_space::WeakAddressSpace;
 
+/// Implements [`Send`] for the contained type by preventing access except from the address space it was created in.
+///
+/// This can be used to allow a type to implement `Send` and thus be sent between threads, while containing
+/// non-`Send` fields, as long as the container is eventually sent back to the original thread before being accessed
+/// or dropped.
+///
+/// # Panics
+///
+/// Will panic if not dropped in the address space it was created in.
 #[derive(Debug)]
 pub struct SendWrapper<T> {
 	inner: ManuallyDrop<T>,
 	address_space: ManuallyDrop<WeakAddressSpace>,
 }
 
+// SAFETY: No methods allow interaction with the inner type unless called from the original address space
+#[expect(clippy::non_send_fields_in_send_ty, reason = "this type is designed for safely sending non-Send types")]
 unsafe impl<T> Send for SendWrapper<T> {}
 
 impl<T> SendWrapper<T> {
+	/// Creates a wrapper around `inner` to allow it to be sent to another thread.
 	pub fn new(inner: T) -> Self {
 		let mut address_space = MaybeUninit::<WeakAddressSpace>::uninit();
 		crate::bridge::threading::with_current_thread(address_space.as_mut_ptr().cast(), |meta, out| {
@@ -21,6 +33,12 @@ impl<T> SendWrapper<T> {
 		}
 	}
 
+	/// Consumes `self`, returning the contained value.
+	///
+	/// # Panics
+	///
+	/// This method panics if not called on the same thread as the `SendWrapper`
+	/// was created on.
 	pub fn into_inner(self) -> T {
 		let mut this = ManuallyDrop::new(self);
 		this.into_inner_helper()

@@ -45,7 +45,7 @@ impl Vmm for Bootstrap {
 
 		if (old as usize) + (len * 4096) > vmem_bootstrap_end().addr() { return Err(AllocError::vmm()); }
 
-		debug_assert!(VirtualAddress::from(old).aligned_to(PAGE_SIZE));
+		debug_assert!(VirtualAddress::from(old).is_aligned_to(PAGE_SIZE));
 		Ok(VirtualAddress::from(old).align_down_to_page())
 	}
 
