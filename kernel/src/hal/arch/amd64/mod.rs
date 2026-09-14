@@ -387,6 +387,7 @@ impl Xsave {
 }
 
 unsafe impl Send for Xsave {}
+unsafe impl Sync for Xsave {}
 
 impl Drop for Xsave {
 	fn drop(&mut self) {
