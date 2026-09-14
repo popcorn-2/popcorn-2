@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use core::sync::atomic::{fence, AtomicPtr, AtomicUsize, Ordering};
 use kernel_api::address_space::AddressSpace;
 use kernel_api::allocator::AllocError;
 use kernel_api::memory::EpochGuard;
@@ -7,6 +7,9 @@ use kernel_api::threading::{AtomicThreadState, TaskRef, ThreadState};
 use crate::ebr;
 #[cfg(feature = "hal-next")] use crate::arch;
 #[cfg(not(feature = "hal-next"))] use crate::hal;
+
+#[derive(Debug)]
+pub struct OwnedTask(&'static Task);
 
 #[derive(Debug)]
 pub struct Task {
@@ -50,6 +53,30 @@ impl Task {
 
 	fn finalize(&self) {
 		warn!("task finalizer unimplemented");
+	}
+
+	pub fn alloc(with: impl FnOnce(&'static Task)) -> OwnedTask {
+		let backing = {
+			let task = Box::new_uninit_in(alloc::alloc::Global);
+			let task = Box::write(task, Task::default());
+			OwnedTask(Box::leak(task))
+		};
+
+		with(&backing.0);
+		fence(Ordering::Release); // ensure writes from `with` have happens-before relationship with
+		                          // acquire when reading the task struct
+		backing
+	}
+
+	pub fn dealloc(this: OwnedTask) {
+		this.0.finalize();
+
+		// sole owner of task here therefore fine to use relaxed ordering
+		if this.0.intrusive.generation.load(Ordering::Relaxed) == TaskRef::MAX_GENERATION {
+			warn!("task hit maximum generation - leaking");
+		} else {
+			// FIXME: memory leak - add to free list
+		}
 	}
 
 	fn new() -> Result<Self, AllocError> {
