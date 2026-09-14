@@ -46,12 +46,14 @@ unsafe impl Send for TaskRef {}
 unsafe impl Sync for TaskRef {}
 
 impl TaskRef {
+	pub const MAX_GENERATION: usize = TaggedNonNull::<u8>::MAXIMUM_TAG;
+
 	#[doc(hidden)]
-	pub fn new<T: Sync>(r: &'static T, tag: usize) -> Self {
+	pub fn new<T: Sync>(r: &'static T, generation: usize) -> Self {
 		Self {
 			tagged_ref: TaggedNonNull::new(
 				NonNull::from_ref(r).cast(),
-				tag,
+				generation,
 			),
 		}
 	}
