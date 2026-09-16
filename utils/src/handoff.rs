@@ -67,7 +67,8 @@ pub struct Memory {
 	pub lowest_used: RawPage,
 	pub stack: Stack,
 	pub s_table: RawFrame,
-	pub u_tables: [RawFrame; 2],
+	pub u_table_bootloader: RawFrame,
+	pub u_table_pid0: (RawFrame, RawPage),
 }
 
 #[derive(Debug, Copy, Clone)]

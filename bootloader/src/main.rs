@@ -154,10 +154,8 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 			lowest_used,
 			stack,
 			s_table: bootloader_u_table.handoff_s_table(),
-			u_tables: [
-				bootloader_u_table.handoff_u_table(),
-				init_u_table.handoff_u_table(),
-			],
+			u_table_bootloader: bootloader_u_table.handoff_u_table(),
+			u_table_pid0: (init_u_table.handoff_u_table(), init_u_table.highest_addr()),
 		},
 		log: handoff::Logging {
 			symbol_map: None,
