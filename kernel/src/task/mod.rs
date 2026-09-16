@@ -43,12 +43,10 @@ pub struct Task {
 
 impl Task {
 	pub fn as_ref(&'static self) -> TaskRef {
-		let generation = self.generation();
-		TaskRef::new(self, generation)
-	}
-
-	fn generation(&self) -> usize {
-		self.intrusive.generation(Ordering::Acquire)
+		// synchronise with Acquire ordering in TaskRef::get
+		let generation = self.intrusive.generation(Ordering::Release);
+		// SAFETY: TaskRef is only created from &Task
+		unsafe { TaskRef::new(self, generation) }
 	}
 
 	fn finalize(&self) {
@@ -63,16 +61,15 @@ impl Task {
 		};
 
 		with(&backing.0);
-		fence(Ordering::Release); // ensure writes from `with` have happens-before relationship with
-		                          // acquire when reading the task struct
+		// synchronises with Acquire ordering in TaskRef::get
+		fence(Ordering::Release);
 		Ok(backing)
 	}
 
 	pub fn dealloc(this: OwnedTask) {
 		this.0.finalize();
 
-		// sole owner of task here therefore fine to use relaxed ordering
-		if this.0.intrusive.generation.load(Ordering::Relaxed) == TaskRef::MAX_GENERATION {
+		if this.0.intrusive.generation.load(Ordering::Acquire) == TaskRef::MAX_GENERATION {
 			warn!("task hit maximum generation - leaking");
 		} else {
 			// FIXME: memory leak - add to free list
@@ -112,5 +109,33 @@ impl Intrusive {
 
 	pub fn generation(&self, ordering: Ordering) -> usize {
 		self.generation.load(ordering) & TaskRef::MAX_GENERATION
+	}
+}
+
+mod sealed { pub trait Sealed {} }
+
+trait TaskRefExt: sealed::Sealed {
+	fn get(self) -> Option<&'static Task>;
+}
+
+impl sealed::Sealed for TaskRef {}
+impl sealed::Sealed for Option<TaskRef> {}
+
+impl TaskRefExt for TaskRef {
+	fn get(self) -> Option<&'static Task> {
+		let ptr = self.as_ptr();
+		let generation = self.generation();
+
+		// SAFETY: TaskRef is only created from refs to Task
+		let task = unsafe { ptr.cast::<Task>().as_ref() };
+		// synchronises with Release in Task::alloc, Task::as_ref, and Intrusive::bump
+		let actual_generation = task.intrusive.generation.load(Ordering::Acquire);
+		(generation == actual_generation).then_some(task)
+	}
+}
+
+impl TaskRefExt for Option<TaskRef> {
+	fn get(self) -> Option<&'static Task> {
+		self.and_then(TaskRef::get)
 	}
 }
