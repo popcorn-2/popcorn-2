@@ -404,18 +404,19 @@ mod handoff {
 
 	pub fn process_handoff(handoff_data: &*const utils::handoff::Data) -> ParsedHandoff<'_> {
 		debug!("parsing handoff data");
-		let (s_table, u_tables) = no_asan_shim!(|handoff_data: &*const utils::handoff::Data| -> (RawFrame, [RawFrame; 2]) {
+		let (s_table, u_table_bootloader, u_table_pid0) = no_asan_shim!(|handoff_data: &*const utils::handoff::Data| -> (RawFrame, RawFrame, RawFrame) {
 			unsafe { (
 				(**handoff_data).memory.s_table,
-				(**handoff_data).memory.u_tables,
+				(**handoff_data).memory.u_table_bootloader,
+				(**handoff_data).memory.u_table_pid0.0,
 			) }
 		});
 		#[cfg(feature = "hal-next")] {
 			let s_table = unsafe { KTableTy::from_raw(dbg!(s_table)) };
 			unsafe { crate::memory::paging::init_page_table(s_table) };
 		}
-		let bootloader_utable = unsafe { TTableTy::from_raw(u_tables[0]) };
-		let init_utable = unsafe { TTableTy::from_raw(u_tables[1]) };
+		let bootloader_utable = unsafe { TTableTy::from_raw(u_table_bootloader) };
+		let init_utable = unsafe { TTableTy::from_raw(u_table_pid0) };
 
 		let symbol_map = no_asan_shim!(|handoff_data: &*const utils::handoff::Data| -> Option<NonNull<[u8]>> {
 			unsafe { (**handoff_data).log.symbol_map }

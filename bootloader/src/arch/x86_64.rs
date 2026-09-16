@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::arch::asm;
 use core::error::Error;
-use core::{fmt, ptr};
+use core::{cmp, fmt, ptr};
 use core::iter::zip;
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
@@ -244,6 +244,7 @@ impl TableEntry {
 pub struct PageTable {
 	l4: &'static mut Table<Level4>,
 	used_frames: Vec<RawFrame>,
+	highest_addr: RawPage,
 }
 
 #[derive(Debug)]
@@ -310,6 +311,7 @@ impl PageTable {
 		Ok(Self {
 			l4,
 			used_frames,
+			highest_addr: RawPage::new(0),
 		})
 	}
 
@@ -326,6 +328,7 @@ impl PageTable {
 		Ok(Self {
 			l4,
 			used_frames: self.used_frames.clone(),
+			highest_addr: RawPage::new(0),
 		})
 	}
 
@@ -346,6 +349,7 @@ impl PageTable {
 			entry.set_pointed_frame(frame, flags)?;
 			trace!(target: "vmsan", "=== map va {page:#018x} -> pa {frame:#018x} : ty={ty:?}");
 		}
+		self.highest_addr = cmp::max(self.highest_addr, page_start + count);
 		Ok(())
 	}
 
@@ -379,5 +383,9 @@ impl PageTable {
 	pub fn handoff_s_table(&self) -> RawFrame {
 		self.l4.0[256].pointed_frame()
 			.expect("STable must exist")
+	}
+
+	pub fn highest_addr(&self) -> RawPage {
+		self.highest_addr
 	}
 }
