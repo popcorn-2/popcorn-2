@@ -55,8 +55,8 @@ pub fn handover(entry: VirtualAddress, stack_ptr: VirtualAddress, handoff: *cons
 			stack = in(reg) stack_ptr,
 			entry = in(reg) entry.addr,
 			in("rdi") handoff,
-			in("rax") 0xead10ca1u32,
-			in("rdx") 0xdu32, // edx:eax = 0xdead10ca1 ('dead local')
+			in("rax") 0,
+			in("rdx") 0,
 			in("rcx") 0xc0000101u32, // ecx = GSBase MSR
 			options(noreturn))
 	}
