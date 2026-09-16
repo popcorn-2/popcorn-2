@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::arch::asm;
 use core::error::Error;
 use core::{fmt, ptr};
@@ -11,7 +12,7 @@ use log::trace;
 use uefi::boot;
 use uefi::boot::{AllocateType, MemoryType};
 use kernel_api::mapping::Ty;
-use kernel_api::memory::{RawFrame, RawPage, VirtualAddress};
+use kernel_api::memory::{RawFrame, RawPage, VirtualAddress, PAGE_SIZE};
 use utils::handoff;
 
 pub fn final_init() {
@@ -107,7 +108,7 @@ impl<Level: ParentTableLevel> Table<Level> {
 	/// # Errors
 	///
 	/// Returns the firmware error if memory allocation failed.
-	fn try_get_or_create_child_table(&mut self, index: usize) -> uefi::Result<&'static mut Table<Level::Child>> {
+	fn try_get_or_create_child_table(&mut self, index: usize, used_frames: &mut Vec<RawFrame>) -> uefi::Result<&'static mut Table<Level::Child>> {
 		let entry = &mut self.0[index];
 		entry.pointed_frame()
 			.map_or_else(|| {
@@ -117,11 +118,14 @@ impl<Level: ParentTableLevel> Table<Level> {
 					MemoryType::LOADER_DATA,
 					1,
 				)?.cast::<MaybeUninit<Table<_>>>();
+				let raw_frame = RawFrame::new(table_ptr.expose_provenance().get());
+				used_frames.push(raw_frame);
+
 				// SAFETY: firmware returns unaliased writable memory
 				let table = unsafe { table_ptr.as_mut() };
 				let table = table.write(Table::new());
 				#[expect(clippy::missing_panics_doc, reason = "infallible")]
-				entry.set_pointed_frame(RawFrame::new(table_ptr.expose_provenance().get()), TableEntryFlags::PERMISSIVE).expect("just checked there was no frame mapped");
+				entry.set_pointed_frame(raw_frame, TableEntryFlags::PERMISSIVE).expect("just checked there was no frame mapped");
 				Ok(table)
 			}, |frame| {
 				// SAFETY: All memory in preboot environment is identity mapped, and page tables
@@ -237,7 +241,10 @@ impl TableEntry {
 	}
 }
 
-pub struct PageTable(&'static mut Table<Level4>);
+pub struct PageTable {
+	l4: &'static mut Table<Level4>,
+	used_frames: Vec<RawFrame>,
+}
 
 #[derive(Debug)]
 pub struct AlreadyMappedError(Ty);
@@ -257,23 +264,39 @@ impl PageTable {
 	pub fn new() -> Result<Self, Box<dyn Error>> {
 		const { assert!(align_of::<Table<Level4>>() <= boot::PAGE_SIZE, "Table alignment must fit in UEFI provided alignment"); }
 
-		let mut l4 = boot::allocate_pages(
-			AllocateType::AnyPages,
-			MemoryType::LOADER_DATA,
-			1,
-		)?.cast::<MaybeUninit<Table<Level4>>>();
-		// SAFETY: firmware returns unaliased writable memory
-		let l4 = unsafe { l4.as_mut() }.write(Table::new());
+		let mut used_frames = Vec::with_capacity(257);
 
-		let mut l3_kernel_tables = boot::allocate_pages(
-			AllocateType::AnyPages,
-			MemoryType::LOADER_DATA,
-			256,
-		)?.cast::<[MaybeUninit<Table<Level3>>; 256]>();
-		// SAFETY: firmware returns unaliased writable memory
-		let l3_kernel_tables = unsafe { l3_kernel_tables.as_mut() };
+		let mut l4 = {
+			let l4 = boot::allocate_pages(
+				AllocateType::AnyPages,
+				MemoryType::LOADER_DATA,
+				1,
+			)?;
 
-		for (i, l3) in l3_kernel_tables.iter_mut().enumerate() {
+			used_frames.push(RawFrame::new(l4.addr().get()));
+
+			let mut l4 = l4.cast::<MaybeUninit<Table<Level4>>>();
+			// SAFETY: firmware returns unaliased writable memory
+			unsafe { l4.as_mut() }.write(Table::new())
+		};
+
+		let mut l3s = {
+			let l3s = boot::allocate_pages(
+				AllocateType::AnyPages,
+				MemoryType::LOADER_DATA,
+				256,
+			)?;
+
+			used_frames.extend(
+				RawFrame::new(l3s.addr().get())..RawFrame::new(l3s.addr().get() + 256*PAGE_SIZE)
+			);
+
+			let mut l3s = l3s.cast::<[MaybeUninit<Table<Level3>>; 256]>();
+			// SAFETY: firmware returns unaliased writable memory
+			unsafe { l3s.as_mut() }
+		};
+
+		for (i, l3) in l3s.iter_mut().enumerate() {
 			let l3 = l3.write(Table::new());
 			#[expect(clippy::missing_panics_doc, reason = "infallible")]
 			l4.0[i + 256].set_pointed_frame(
@@ -284,7 +307,10 @@ impl PageTable {
 			).expect("just created an empty page table");
 		}
 
-		Ok(Self(l4))
+		Ok(Self {
+			l4,
+			used_frames,
+		})
 	}
 
 	pub fn fork_empty(&self) -> Result<Self, Box<dyn Error>> {
@@ -295,9 +321,12 @@ impl PageTable {
 		)?.cast::<MaybeUninit<Table<Level4>>>();
 		// SAFETY: firmware returns unaliased writable memory
 		let l4 = unsafe { l4.as_mut() }.write(Table::new());
-		zip(l4.0.iter_mut(), self.0.0.iter()).skip(256)
+		zip(l4.0.iter_mut(), self.l4.0.iter()).skip(256)
 			.for_each(|(new, old)| *new = TableEntry(old.0));
-		Ok(Self(l4))
+		Ok(Self {
+			l4,
+			used_frames: self.used_frames.clone(),
+		})
 	}
 
 	/// # Errors
@@ -308,9 +337,9 @@ impl PageTable {
 			let page = page_start + i;
 			let frame = frame_start + i;
 
-			let entry = self.0.try_get_or_create_child_table(page.l4_index())?
-				.try_get_or_create_child_table(page.l3_index())?
-				.try_get_or_create_child_table(page.l2_index())?
+			let entry = self.l4.try_get_or_create_child_table(page.l4_index(), &mut self.used_frames)?
+				.try_get_or_create_child_table(page.l3_index(), &mut self.used_frames)?
+				.try_get_or_create_child_table(page.l2_index(), &mut self.used_frames)?
 				.0.index_mut(page.l1_index());
 
 			let flags = flags | TableEntryFlags::from_ty(ty);
@@ -321,7 +350,7 @@ impl PageTable {
 	}
 
 	pub fn translate_page(&self, page: RawPage) -> Option<RawFrame> {
-		let entry = self.0.get_child_table(page.l4_index())?
+		let entry = self.l4.get_child_table(page.l4_index())?
 			.get_child_table(page.l3_index())?
 			.get_child_table(page.l2_index())?
 			.0.index(page.l1_index());
@@ -332,19 +361,23 @@ impl PageTable {
 	///
 	/// Must not invalidate or modify any outstanding references.
 	pub unsafe fn switch(&self) {
-		let addr = ptr::from_ref(self.0);
+		let addr = ptr::from_ref(self.l4);
 		// SAFETY: upheld by caller
 		unsafe { asm!("mov cr3, {}", in(reg) addr, options(nostack, preserves_flags)); }
 	}
 
+	pub fn empty_used_frames(&mut self) -> Vec<RawFrame> {
+		core::mem::take(&mut self.used_frames)
+	}
+
 	pub fn handoff_u_table(&self) -> RawFrame {
 		RawFrame::new(
-			(&raw const *self.0).addr()
+			(&raw const *self.l4).addr()
 		)
 	}
 
 	pub fn handoff_s_table(&self) -> RawFrame {
-		self.0.0[256].pointed_frame()
+		self.l4.0[256].pointed_frame()
 			.expect("STable must exist")
 	}
 }
