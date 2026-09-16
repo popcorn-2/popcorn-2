@@ -2,6 +2,7 @@ use core::ptr;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use kernel_api::sync::Spinlock;
+use crate::percpu::percpu_v2;
 
 static GLOBAL_EPOCH: AtomicUsize = AtomicUsize::new(0);
 static LOCAL_EPOCHS: AtomicPtr<LocalEpoch> = AtomicPtr::new(ptr::null_mut());

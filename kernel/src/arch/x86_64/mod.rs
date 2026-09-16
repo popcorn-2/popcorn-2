@@ -7,12 +7,15 @@ mod syscall;
 mod pic;
 mod tcb;
 
-use core::arch::asm;
 pub use interrupts::get_and_disable_interrupts;
-use kernel_api::memory::VirtualAddress;
 pub use tcb::SavedRegisters;
+pub use syscall::StackFrame as SyscallStackFrame;
+pub use interrupts::StackFrame as ReturnFrame;
+
+use core::arch::asm;
 use kernel_api::is_x86_feature_detected;
 use kernel_api::sync::LazyLock;
+use kernel_api::memory::VirtualAddress;
 
 pub fn target_bsp_start() {
 	get_and_disable_interrupts();

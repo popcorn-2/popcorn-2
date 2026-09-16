@@ -6,13 +6,18 @@ use core::panic::AssertUnwindSafe;
 use kernel_api::memory::VirtualAddress;
 use crate::hal::exception::{DebugTy, Exception, PageFault, PageFaultMeta, Ty};
 use crate::arch::x86_64::msr;
+use core::mem::offset_of;
+use core::sync::atomic::Ordering;
+use crate::percpu::Percpu;
 
 pub use idt::IDT;
 
 global_asm!(
 	include_str!("../asm/interrupt_stub.asm"),
 	entrypoint = sym x86_64_interrupt_entry,
+	needs_resched_offset = const offset_of!(Percpu, needs_reschedule),
 	code_segment = const super::gdt::Gdt::KERNEL_CODE_SEGMENT,
+	scheduler_entry = sym crate::task::scheduler_entry,
 );
 
 unsafe extern "custom" {
@@ -21,7 +26,7 @@ unsafe extern "custom" {
 
 #[derive(Debug)]
 #[repr(C)]
-struct StackFrame {
+pub struct StackFrame {
 	r15: u64,
 	r14: u64,
 	r13: u64,

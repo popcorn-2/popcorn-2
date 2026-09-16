@@ -13,6 +13,8 @@ mod common;
 
 pub use imp_arch::{
 	SavedRegisters,
+	SyscallStackFrame,
+	ReturnFrame,
 	Percpu,
 	target_bsp_start,
 	get_and_disable_interrupts,

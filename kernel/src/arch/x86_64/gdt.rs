@@ -2,6 +2,7 @@ use core::mem::offset_of;
 use core::ptr;
 use kernel_api::num::ufat;
 use kernel_api::sync::LazyLock;
+use crate::percpu::percpu_v2;
 
 #[repr(C, align(8))]
 pub struct Gdt {
@@ -17,8 +18,8 @@ pub struct Gdt {
 impl Gdt {
 	pub const KERNEL_CODE_SEGMENT: usize = offset_of!(Self, kernel_code);
 	pub const KERNEL_DATA_SEGMENT: usize = offset_of!(Self, kernel_data);
-	pub const USER_CODE_SEGMENT: usize = offset_of!(Self, user_long_code);
-	pub const USER_DATA_SEGMENT: usize = offset_of!(Self, user_data);
+	pub const USER_CODE_SEGMENT: usize = offset_of!(Self, user_long_code) | 0b11;
+	pub const USER_DATA_SEGMENT: usize = offset_of!(Self, user_data) | 0b11;
 	pub const TSS_SEGMENT: usize = offset_of!(Self, tss);
 
 	pub const INIT: LazyLock<Gdt> = LazyLock::new(|| {

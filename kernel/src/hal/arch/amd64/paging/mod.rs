@@ -61,7 +61,6 @@ pub struct Amd64KTable {
 	allocator: DynPmm<'static, true>,
 }
 
-#[cfg(feature = "hal-next")]
 impl Amd64KTable {
 	pub unsafe fn from_raw(frame: RawFrame) -> Self {
 		Amd64KTable {

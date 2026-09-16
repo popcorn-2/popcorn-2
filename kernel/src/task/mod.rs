@@ -1,12 +1,22 @@
+use core::ops::Range;
 use core::sync::atomic::{fence, AtomicPtr, AtomicUsize, Ordering};
 use kernel_api::address_space::AddressSpace;
 use kernel_api::allocator::AllocError;
-use kernel_api::memory::EpochGuard;
+use kernel_api::memory::{EpochGuard, RawPage};
 use kernel_api::syscall::HandleMap;
 use kernel_api::threading::{AtomicThreadState, TaskRef, ThreadState};
+use linked_list_allocator::LinkedListAllocator;
 use crate::ebr;
 #[cfg(feature = "hal-next")] use crate::arch;
 #[cfg(not(feature = "hal-next"))] use crate::hal;
+use crate::hal::TTableTy;
+use crate::arch;
+use crate::percpu::percpu_v2;
+
+mod scheduler;
+mod collections;
+
+pub use scheduler::{RoundRobin as Scheduler, scheduler_entry};
 
 #[derive(Debug)]
 pub struct OwnedTask(&'static Task);
@@ -31,8 +41,7 @@ pub struct Task {
 	/// and was last switched away from due to a full context switch rather than an
 	/// IPC call.
 	/// </div>
-	#[cfg(feature = "hal-next")] registers: arch::SavedRegisters,
-	#[cfg(not(feature = "hal-next"))] registers: hal::SaveState,
+	pub registers: arch::SavedRegisters,
 	/// List of handles available to this task.
 	handles: HandleMap,
 	/// Address space used for this task.
@@ -44,7 +53,8 @@ pub struct Task {
 impl Task {
 	pub fn as_ref(&'static self) -> TaskRef {
 		// synchronise with Acquire ordering in TaskRef::get
-		let generation = self.intrusive.generation(Ordering::Release);
+		fence(Ordering::Release);
+		let generation = self.intrusive.generation(Ordering::Relaxed);
 		// SAFETY: TaskRef is only created from &Task
 		unsafe { TaskRef::new(self, generation) }
 	}
@@ -112,10 +122,29 @@ impl Intrusive {
 	}
 }
 
+pub fn init(ttable: (TTableTy, RawPage)) -> &'static Task {
+	let address_space = AddressSpace::from_parts(
+		ttable.0,
+		LinkedListAllocator::new(Range {
+			start: ttable.1,
+			end: RawPage::new(0x8000_0000_0000),
+		}).expect("failed to create allocator"),
+	);
+
+	let task = Task::alloc(move |task| {
+		drop(unsafe { task.address_space.swap(address_space, Ordering::Relaxed) });
+		task.state.store(ThreadState::Running, Ordering::Relaxed)
+	}).expect("failed to allocate task");
+
+	percpu_v2!(current_task).set(Some(task.0.as_ref()));
+	task.0
+}
+
 mod sealed { pub trait Sealed {} }
 
 trait TaskRefExt: sealed::Sealed {
 	fn get(self) -> Option<&'static Task>;
+	fn get_unchecked(self) -> (&'static Task, usize);
 }
 
 impl sealed::Sealed for TaskRef {}
@@ -123,19 +152,31 @@ impl sealed::Sealed for Option<TaskRef> {}
 
 impl TaskRefExt for TaskRef {
 	fn get(self) -> Option<&'static Task> {
-		let ptr = self.as_ptr();
 		let generation = self.generation();
+		let (task, actual_generation) = self.get_unchecked();
+		(generation == actual_generation).then_some(task)
+	}
+
+	fn get_unchecked(self) -> (&'static Task, usize) {
+		let ptr = self.as_ptr();
 
 		// SAFETY: TaskRef is only created from refs to Task
 		let task = unsafe { ptr.cast::<Task>().as_ref() };
 		// synchronises with Release in Task::alloc, Task::as_ref, and Intrusive::bump
 		let actual_generation = task.intrusive.generation.load(Ordering::Acquire);
-		(generation == actual_generation).then_some(task)
+		(task, actual_generation)
 	}
 }
 
 impl TaskRefExt for Option<TaskRef> {
 	fn get(self) -> Option<&'static Task> {
 		self.and_then(TaskRef::get)
+	}
+
+	fn get_unchecked(self) -> (&'static Task, usize) {
+		match self {
+			Some(task) => task.get_unchecked(),
+			None => unreachable!("should not call get_unchecked on None optional taskref"),
+		}
 	}
 }
