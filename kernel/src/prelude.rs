@@ -10,10 +10,6 @@ pub use alloc::format;
 
 // Commonly used kernel imports
 pub use log::{error, warn, info, debug, trace};
-pub use crate::{sprint, sprintln, yeet};
-pub(crate) use crate::percpu::percpu_v2;
-
-pub use crate::io_ext::IoExt as _;
-pub use crate::memory::r#virtual::AddressSpaceExt as _;
+pub use crate::{sprint, sprintln};
 
 pub use core::prelude::rust_2024::*;

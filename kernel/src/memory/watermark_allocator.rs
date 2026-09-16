@@ -78,7 +78,6 @@ mod tests {
 	use super::*;
 	use kernel_api::memory::RawFrame;
 	use core::ops::Range;
-	use crate::non_zero;
 
 	const MEMORY_LAYOUT: [Range<RawFrame>; 4] = [
 		RawFrame::new(0)..RawFrame::new(0x2000),

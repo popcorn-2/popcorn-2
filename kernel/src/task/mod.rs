@@ -6,17 +6,14 @@ use kernel_api::memory::{EpochGuard, RawPage};
 use kernel_api::syscall::HandleMap;
 use kernel_api::threading::{AtomicThreadState, TaskRef, ThreadState};
 use linked_list_allocator::LinkedListAllocator;
-use crate::ebr;
-#[cfg(feature = "hal-next")] use crate::arch;
-#[cfg(not(feature = "hal-next"))] use crate::hal;
 use crate::hal::TTableTy;
-use crate::arch;
-use crate::percpu::percpu_v2;
+use crate::{arch, percpu};
 
 mod scheduler;
 mod collections;
 
 pub use scheduler::{RoundRobin as Scheduler, scheduler_entry};
+use crate::memory::r#virtual::AddressSpaceExt;
 
 #[derive(Debug)]
 pub struct OwnedTask(&'static Task);
@@ -136,7 +133,7 @@ pub fn init(ttable: (TTableTy, RawPage)) -> &'static Task {
 		task.state.store(ThreadState::Running, Ordering::Relaxed)
 	}).expect("failed to allocate task");
 
-	percpu_v2!(current_task).set(Some(task.0.as_ref()));
+	percpu!(current_task).set(Some(task.0.as_ref()));
 	task.0
 }
 

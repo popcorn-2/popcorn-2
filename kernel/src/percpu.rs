@@ -49,7 +49,7 @@ macro_rules! percpu_gen {
             }
         }
 
-        macro_rules! percpu_v2 {
+        pub macro percpu {
             $(
             ($field) => {{
 	            let val: *mut $crate::percpu::Percpu;
@@ -66,7 +66,7 @@ macro_rules! percpu_gen {
 
 	            #[allow(unused_unsafe)]
                 unsafe { &(*val).$field }
-            }};
+            }},
             )*
         }
     };
@@ -82,5 +82,3 @@ percpu_gen! {
 		pub epoch: ebr::LocalEpoch = ebr::LocalEpoch::new(),
     }
 }
-
-pub(crate) use percpu_v2;

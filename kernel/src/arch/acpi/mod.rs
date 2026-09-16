@@ -1,7 +1,4 @@
-use acpi::sdt::fadt::Fadt;
-use acpi::sdt::madt::Madt;
 use kernel_api::memory::PhysicalAddress;
-use crate::handoff::ParsedHandoff;
 
 mod gas;
 mod fadt;

@@ -4,11 +4,11 @@ use crate::arch::x86_64::msr;
 use crate::percpu::Percpu;
 use core::mem::offset_of;
 use core::sync::atomic::Ordering;
-use crate::arch::SavedRegisters;
+use crate::percpu;
 use crate::task::Task;
 
 global_asm!(
-	include_str!("asm/syscall_stub_next.asm"),
+	include_str!("asm/syscall_stub.asm"),
 	entrypoint = sym entry,
 	kernel_scratch_offset = const offset_of!(Percpu, arch.tss.scratch),
 	rsp0_offset = const offset_of!(Percpu, arch.tss.rsp0),
@@ -45,7 +45,7 @@ pub extern "rust-preserve-none" fn entry(
 	let stack_frame = StackFrame {
 		rip,
 		rflags,
-		tss_scratch: percpu_v2!(arch).tss.get_scratch(),
+		tss_scratch: percpu!(arch).tss.get_scratch(),
 	};
 	// SAFETY: `entry` is only called from running thread
 	let result = unsafe {
@@ -66,7 +66,7 @@ pub extern "rust-preserve-none" fn entry(
 	// fixme: we probably leak kernel data in registers on return
 	match result {
 		Ok((r12, rax, r13_lo, r13_hi, rdi, rsi, rdx, r9, r8, new_stack_frame)) => {
-			percpu_v2!(arch).tss.set_scratch(new_stack_frame.tss_scratch);
+			percpu!(arch).tss.set_scratch(new_stack_frame.tss_scratch);
 			// this is kinda questionable since the compiler could put stuff after this
 			unsafe {
 				asm!(
@@ -84,7 +84,7 @@ pub extern "rust-preserve-none" fn entry(
 			(/* rax: */ rax.widen::<u64>(), /* rdx: */ rdx)
 		},
 		Err(e) => {
-			percpu_v2!(arch).tss.set_scratch(stack_frame.tss_scratch);
+			percpu!(arch).tss.set_scratch(stack_frame.tss_scratch);
 			// this is kinda questionable since the compiler could put stuff after this
 			unsafe {
 				asm!(

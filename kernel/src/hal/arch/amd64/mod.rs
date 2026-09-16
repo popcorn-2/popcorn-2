@@ -1,7 +1,6 @@
 use core::arch::asm;
-use core::fmt::Debug;
 use crate::hal::IpiTarget;
-use crate::hal::{Hal, SaveStateTr};
+use crate::hal::Hal;
 use crate::hal::arch::amd64::msr::wrmsr;
 use crate::hal::interrupts_v2::Vector;
 

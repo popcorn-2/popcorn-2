@@ -3,7 +3,7 @@ use core::num::NonZero;
 use core::ptr::NonNull;
 use acpi::{PciAddress, PhysicalMapping};
 use kernel_api::allocator::{AllocError, DynPmm, Pmm};
-use kernel_api::mapping::{Caching, Config, Mapping, Protection, UnsafeMmap};
+use kernel_api::mapping::{Caching, Config, Mapping, Protection, UncheckedMmap};
 use kernel_api::memory::{Frames, PhysicalAddress, RawFrame, PAGE_SIZE, RawPage};
 use crate::hal::acpi::PagingReason;
 
@@ -36,7 +36,7 @@ impl acpi::Handler for Handler {
 			.physical_location(base_frame)
 			.with_allocator(DynPmm::from(&DummyAllocator))
 			.protection(true, false, false)
-			.map::<UnsafeMmap>()
+			.map::<UncheckedMmap>()
 			.expect("failed to create mapping");
 		let (frames, base_page, _, _) = mmap.into_raw_parts();
 		let frames = ManuallyDrop::new(frames.expect("default mapping should be contiguous"));
@@ -65,7 +65,7 @@ impl acpi::Handler for Handler {
 			)
 		};
 		let mapping = unsafe {
-			Mapping::<UnsafeMmap, _>::from_raw_parts(
+			Mapping::<UncheckedMmap, _>::from_raw_parts(
 				frames,
 				RawPage::new(region.virtual_start.as_ptr().byte_sub(offset_size).addr()),
 				Protection { executable: false, writable: true, user_accessible: false },

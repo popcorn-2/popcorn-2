@@ -2,7 +2,7 @@ use core::ptr;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use kernel_api::sync::Spinlock;
-use crate::percpu::percpu_v2;
+use crate::percpu;
 
 static GLOBAL_EPOCH: AtomicUsize = AtomicUsize::new(0);
 static LOCAL_EPOCHS: AtomicPtr<LocalEpoch> = AtomicPtr::new(ptr::null_mut());
@@ -45,7 +45,7 @@ impl LocalEpoch {
 }
 
 pub fn defer_and_cleanup(drop_fn: fn(*mut u8), val: *mut u8) {
-	let mut guard = percpu_v2!(epoch).retired.lock();
+	let mut guard = percpu!(epoch).retired.lock();
 	if guard.len() == guard.capacity() {
 		gc_collect();
 	}
@@ -68,7 +68,7 @@ const _: () = {
 };
 
 pub fn init() {
-	let local_epoch = percpu_v2!(epoch);
+	let local_epoch = percpu!(epoch);
 	*local_epoch.retired.lock() = Vec::with_capacity(64);
 	let mut global_next = LOCAL_EPOCHS.load(Ordering::Acquire);
 	loop {
@@ -148,7 +148,7 @@ pub fn gc_collect() {
 			Ordering::Acquire,
 		).unwrap_or_else(|val| val);
 
-		let mut retire_queue = percpu_v2!(epoch).retired.lock();
+		let mut retire_queue = percpu!(epoch).retired.lock();
 		retire_queue.retain(|retired| retired.in_epoch >= (global_epoch & !INACTIVE_BIT));
 	}
 }

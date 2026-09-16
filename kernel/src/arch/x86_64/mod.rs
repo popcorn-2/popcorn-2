@@ -16,10 +16,11 @@ use core::arch::asm;
 use kernel_api::is_x86_feature_detected;
 use kernel_api::sync::LazyLock;
 use kernel_api::memory::VirtualAddress;
+use crate::percpu;
 
 pub fn target_bsp_start() {
 	get_and_disable_interrupts();
-	percpu_v2!(arch).gdt.load();
+	percpu!(arch).gdt.load();
 	interrupts::IDT.load();
 	syscall::init();
 	pic::init();

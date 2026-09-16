@@ -1,13 +1,9 @@
-use alloc::collections::BinaryHeap;
 use core::arch::asm;
 use core::arch::x86_64::{__cpuid, CpuidResult};
-use core::cmp::{Ordering, Reverse};
 use core::num::NonZero;
 use bit_field::BitField;
-use futures::task::AtomicWaker;
 use kernel_api::is_x86_feature_detected;
-use kernel_api::sync::{IrqCell, IrqGuard, OnceLock};
-use kernel_api::time::Instant;
+use kernel_api::sync::OnceLock;
 
 static TSC_MULTIPLIER: OnceLock<(u128, NonZero<u128>)> = OnceLock::new();
 

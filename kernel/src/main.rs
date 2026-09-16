@@ -19,6 +19,7 @@
 #![feature(abi_custom)]
 #![feature(integer_widen_truncate)]
 #![feature(rust_preserve_none_cc)]
+#![feature(decl_macro)]
 #![no_std]
 #![no_main]
 
@@ -32,99 +33,44 @@ extern crate kernel_api; // to pull in asan runtime
 #[cfg(not(test))] use core::panic::PanicInfo;
 #[cfg(kasan)] use core::ptr::NonNull;
 #[cfg(kasan)] use kernel_api::allocator::Pmm;
-use core::ptr::{addr_of, addr_of_mut, slice_from_raw_parts_mut};
-use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
-use core::ptr;
+use core::ptr::slice_from_raw_parts_mut;
+use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
 use core::cmp::{max, min};
 #[cfg(kasan)] use core::marker::PhantomData;
-use core::num::NonZero;
-use core::panic::AssertUnwindSafe;
-use core::sync::atomic::Ordering;
 use core::time::Duration;
-use hashbrown::HashMap;
-use elf::segment::Flags as SegmentFlags;
-use hal::exception::DebugTy;
-use kernel_api::{dbg, is_x86_feature_detected, mapping};
-use kernel_api::mapping::Stack;
-use kernel_api::ptr::LocalUser;
-use kernel_api::time::Instant;
 use utils::handoff::MemoryType;
 use utils::handoff::MemoryMapEntry;
-use crate::hal::exception::Ty;
 #[cfg(kasan)] use crate::hal::paging2::Flags;
-use crate::hal::paging2::{KTable, TTable};
-use kernel_api::syscall::handle::Handle;
-use crate::memory::paging::ktable;
+use crate::hal::paging2::TTable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
-use crate::panicking::SymbolMap;
 
-//mod sync;
-mod memory;
-mod panicking;
-mod logging;
-mod bridge;
-mod task;
-mod bmp;
-mod hal;
-mod timing;
-//mod mmio;
-mod ipc;
-mod io_ext;
-mod percpu;
-mod loader;
 mod abi;
 mod arch;
-mod syscall;
 mod ebr;
+mod hal;
+mod ipc;
+mod logging;
+mod memory;
+mod panicking;
+mod percpu;
+pub use percpu::percpu;
+mod prelude;
+mod syscall;
+mod task;
+mod timing;
 
 // The compiler expects the prelude definition to be defined before it's use statement
-mod prelude;
-#[prelude_import]
-#[allow(unused_imports)]
-pub use prelude::*;
+mod private {
+	#[prelude_import]
+	#[allow(unused_imports)]
+	pub use super::prelude::*;
+}
 
 #[cfg(test)]
 pub mod test_harness;
 
 fn get_foo() -> usize {
-	unsafe { *percpu::percpu_v2!(foo).get() }
-}
-
-#[macro_export]
-macro_rules! usize {
-    ($stuff:expr) => {usize::try_from($stuff).unwrap()};
-}
-
-#[macro_export]
-macro_rules! u64 {
-    ($stuff:expr) => {u64::try_from($stuff).unwrap()};
-}
-
-#[macro_export]
-macro_rules! into {
-    ($stuff:expr) => {($stuff).try_into().unwrap()};
-}
-
-#[macro_export]
-macro_rules! yeet {
-    ($e:expr) => {return Err($e);};
-}
-
-#[macro_export]
-macro_rules! non_zero {
-    ($num:tt) => {
-        const {
-            match ::core::num::NonZero::new($num) {
-                Some(x) => x,
-                None => panic!("Cannot use `0` as a NonZero constant"),
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! hashmap_new {
-    () => { HashMap::with_hasher(::hashbrown::hash_map::DefaultHashBuilder::new()) };
+	unsafe { *percpu!(foo).get() }
 }
 
 #[macro_export]
@@ -153,7 +99,6 @@ mod handoff {
 	use crate::panicking;
 	use crate::panicking::SymbolMap;
 	use core::ops::Range;
-	use kernel_api::dbg;
 	use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 	use crate::hal::{KTableTy, TTableTy};
 
@@ -321,14 +266,12 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 
 		debug!("Initialising highmem");
 
-		let allocator = unsafe {
-			memory::physical::with_highmem_as(&watermark_allocator, || unsafe {
-				bitmap_allocator::BitmapAllocator::new(
-					RawFrame::new(0)..max_usable_memory.align_down_to_frame(),
-					all_spaces,
-				).expect("unable to create highmem")
-			})
-		};
+		let allocator = memory::physical::with_highmem_as(&watermark_allocator, || unsafe {
+			bitmap_allocator::BitmapAllocator::new(
+				RawFrame::new(0)..max_usable_memory.align_down_to_frame(),
+				all_spaces,
+			).expect("unable to create highmem")
+		});
 
 		memory::physical::init_highmem(allocator);
 		memory::physical::init_dmamem(allocator);
@@ -347,7 +290,7 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 
 	arch::post_memory_init(parsed_handoff.rsdp);
 
-	let (mut update_line, _picos_per_tick) = {
+	let (_update_line, _picos_per_tick) = {
 		let fb = parsed_handoff.framebuffer;
 		let size = fb.stride * fb.height;
 		let stride = fb.stride;
@@ -413,7 +356,7 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 	unsafe { parsed_handoff.init_utable.0.load() };
 	drop(parsed_handoff.bootloader_utable);
 
-	percpu::percpu_v2!(arch).tss.set_rsp0(*(parsed_handoff.stack.bottom_virt + parsed_handoff.stack.page_count));
+	percpu!(arch).tss.set_rsp0(*(parsed_handoff.stack.bottom_virt + parsed_handoff.stack.page_count));
 	task::init(parsed_handoff.init_utable);
 	arch::switch_to_userspace(parsed_handoff.init_entry);
 }

@@ -2,7 +2,7 @@ use core::mem::offset_of;
 use core::ptr;
 use kernel_api::num::ufat;
 use kernel_api::sync::LazyLock;
-use crate::percpu::percpu_v2;
+use crate::percpu;
 
 #[repr(C, align(8))]
 pub struct Gdt {
@@ -24,7 +24,7 @@ impl Gdt {
 
 	pub const INIT: LazyLock<Gdt> = LazyLock::new(|| {
 		let mut gdt = Gdt::new();
-		gdt.tss = SystemEntry::from_tss(&percpu_v2!(arch).tss);
+		gdt.tss = SystemEntry::from_tss(&percpu!(arch).tss);
 		gdt
 	});
 

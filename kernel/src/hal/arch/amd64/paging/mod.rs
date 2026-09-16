@@ -1,5 +1,6 @@
 use core::arch::asm;
 use core::fmt::{Debug, Formatter};
+use core::num::NonZero;
 use core::ops::{DerefMut, Range};
 use kernel_api::allocator::{AllocError, highmem, DynPmm, Pmm};
 use kernel_api::memory::{Frames, RawFrame, RawPage, VirtualAddress};
@@ -10,7 +11,6 @@ use crate::hal::paging2::{Flags, KTable, TTable};
 use entry::Amd64Entry;
 use kernel_api::mapping::Ty;
 use crate::hal::paging::{Entry, MapPageError};
-use crate::non_zero;
 
 mod table;
 mod entry;
@@ -123,7 +123,7 @@ macro_rules! impl_table_unmap_parent {
 				} {
 					debug_assert!(self[page].is_present());
 					self[page] = Amd64Entry::empty();
-					unsafe { allocator.deallocate_raw(child_frame, non_zero!(1)) };
+					unsafe { allocator.deallocate_raw(child_frame, const { NonZero::new(1).unwrap() }) };
 				}
 
 				Ok(())

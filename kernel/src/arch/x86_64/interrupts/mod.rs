@@ -3,14 +3,12 @@ mod idt;
 
 use core::arch::{asm, global_asm};
 use core::panic::AssertUnwindSafe;
-use kernel_api::memory::VirtualAddress;
-use crate::hal::exception::{DebugTy, Exception, PageFault, PageFaultMeta, Ty};
-use crate::arch::x86_64::msr;
 use core::mem::offset_of;
 use core::sync::atomic::Ordering;
 use crate::percpu::Percpu;
 
 pub use idt::IDT;
+use crate::percpu;
 
 global_asm!(
 	include_str!("../asm/interrupt_stub.asm"),

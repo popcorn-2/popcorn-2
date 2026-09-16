@@ -1,6 +1,5 @@
-use core::ops::ControlFlow;
 use kernel_api::sync::IrqCell;
-use crate::arch;
+use crate::{arch, percpu};
 use crate::task::collections::{PopResult, SinglyLinkedList};
 use crate::task::{Task, OwnedTask};
 
@@ -38,7 +37,7 @@ impl RoundRobin {
 pub extern "C" fn scheduler_entry(return_frame: &mut arch::ReturnFrame) {
 	// now just about to exit the kernel so nothing on our stack frame, therefore safe to
 	// do a context switch
-	percpu_v2!(needs_reschedule).set(false);
+	percpu!(needs_reschedule).set(false);
 	debug!("scheduler entered with {return_frame:#x?}");
 	todo!("do scheduling")
 }
