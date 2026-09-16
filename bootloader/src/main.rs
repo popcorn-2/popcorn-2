@@ -126,7 +126,12 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 
 	debug!("loading `init`");
 	let init_entry = mapper::map_elf(&init_exec, &mut init_u_table, &mut used_frames)?;
-	let used_frames = Vec::leak(used_frames);
+	let used_mem_frames = Vec::leak(used_frames);
+	let used_page_table_frames = Vec::leak({
+		let mut bootloader = bootloader_u_table.empty_used_frames();
+		bootloader.append(&mut init_u_table.empty_used_frames());
+		bootloader
+	});
 
 	info!("setting up system for kernel entry");
 	arch::final_init();
@@ -166,7 +171,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	let map = unsafe { boot::exit_boot_services(None) };
 	// SAFETY: boot services just exited
 	handoff.memory.map = {
-		let map = unsafe { convert_mem_map(map, used_frames) };
+		let map = unsafe { convert_mem_map(map, used_mem_frames, used_page_table_frames) };
 		// this was allocated during exit_boot_services so won't have been identity mapped
 		// so just pass the kernel the physical address and let it deal with it
 		let core::ops::Range { start, end } = map.as_ptr_range();
@@ -190,7 +195,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 /// # Safety
 ///
 /// This must only be called after boot services has been exited.
-unsafe fn convert_mem_map(map: MemoryMapOwned, used_frames: &[RawFrame]) -> &'static [handoff::MemoryMapEntry] {
+unsafe fn convert_mem_map(map: MemoryMapOwned, used_frames_kernel: &[RawFrame], used_frames_page_table: &[RawFrame]) -> &'static [handoff::MemoryMapEntry] {
 	// drop impl segfaults trying to read from system table
 	let mut map = ManuallyDrop::new(map);
 
@@ -220,7 +225,8 @@ unsafe fn convert_mem_map(map: MemoryMapOwned, used_frames: &[RawFrame]) -> &'st
 				MemoryType::BOOT_SERVICES_CODE |
 				MemoryType::BOOT_SERVICES_DATA |
 				MemoryType::PERSISTENT_MEMORY => handoff::MemoryType::Free,
-				MemoryType::LOADER_DATA if used_frames.contains(&RawFrame::new(start.addr)) => handoff::MemoryType::KernelData,
+				MemoryType::LOADER_DATA if used_frames_kernel.contains(&RawFrame::new(start.addr)) => handoff::MemoryType::KernelData,
+				MemoryType::LOADER_DATA if used_frames_page_table.contains(&RawFrame::new(start.addr)) => handoff::MemoryType::KernelPageTable,
 				MemoryType::LOADER_DATA => handoff::MemoryType::BootloaderData,
 				MemoryType::LOADER_CODE => handoff::MemoryType::BootloaderCode,
 				MemoryType::ACPI_NON_VOLATILE => handoff::MemoryType::AcpiPreserve,
