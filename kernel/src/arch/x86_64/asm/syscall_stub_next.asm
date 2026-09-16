@@ -87,3 +87,6 @@ x86_64_syscall_stub:
 
     .cfi_endproc
     .size x86_64_syscall_stub, .-x86_64_syscall_stub
+
+.purgem push_cfi
+.purgem pop_cfi

@@ -76,3 +76,6 @@ x86_64_interrupt_stub:
     iretq
     .cfi_endproc
     .size x86_64_interrupt_stub, .-x86_64_interrupt_stub
+
+.purgem push_cfi
+.purgem pop_cfi
