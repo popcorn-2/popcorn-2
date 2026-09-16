@@ -13,6 +13,7 @@
 .endm
 
    .global x86_64_interrupt_stub
+   .global x86_64_kernel_exit_to_userspace
    .type x86_64_interrupt_stub, @function
    .section .text
 x86_64_interrupt_stub:
@@ -52,6 +53,13 @@ x86_64_interrupt_stub:
 
     cmp byte ptr [rsp + 144], {code_segment} #; check if CS == kernel CS (already popped vector num and error code so only +8)
     je 3f
+    #; if going back to userspace, check if we need to switch task
+    cmp byte ptr gs:[{needs_resched_offset}], 1
+    jne 4f
+x86_64_kernel_exit_to_userspace:
+    mov rdi, rsp #; if we need to switch task, call into scheduler with our stack frame
+    call {scheduler_entry}
+    4:
     swapgs #; then swap gs back to userspace gs
     3:
 

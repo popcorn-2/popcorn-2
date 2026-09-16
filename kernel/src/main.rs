@@ -4,30 +4,21 @@
 #![reexport_test_harness_main = "test_main"]
 #![feature(const_trait_impl)]
 #![feature(allocator_api)]
-#![feature(type_changing_struct_update)]
 #![feature(ptr_metadata)]
-#![feature(type_alias_impl_trait)]
 #![feature(sync_unsafe_cell)]
 #![feature(arbitrary_self_types)]
-#![feature(pattern)]
-#![feature(slice_ptr_get)]
 #![feature(min_specialization)]
 #![feature(doc_cfg)]
 #![feature(integer_atomics)]
 #![feature(arbitrary_self_types_pointers)]
-#![feature(macro_metavar_expr_concat)]
 #![feature(linkage)]
-#![feature(once_cell_try_insert)]
-#![feature(maybe_uninit_as_bytes)]
 #![feature(prelude_import)]
-#![feature(super_let)]
-#![feature(try_blocks)]
 #![feature(derive_const)]
 #![feature(const_default)]
 #![feature(const_convert)]
-#![cfg_attr(feature = "hal-next", feature(abi_custom))]
-#![cfg_attr(feature = "hal-next", feature(integer_widen_truncate))]
-#![cfg_attr(any(feature = "syscall-abi-next", feature = "hal-next"), feature(rust_preserve_none_cc))]
+#![feature(abi_custom)]
+#![feature(integer_widen_truncate)]
+#![feature(rust_preserve_none_cc)]
 #![no_std]
 #![no_main]
 
@@ -48,6 +39,7 @@ use core::cmp::{max, min};
 #[cfg(kasan)] use core::marker::PhantomData;
 use core::num::NonZero;
 use core::panic::AssertUnwindSafe;
+use core::sync::atomic::Ordering;
 use core::time::Duration;
 use hashbrown::HashMap;
 use elf::segment::Flags as SegmentFlags;
@@ -72,20 +64,16 @@ mod panicking;
 mod logging;
 mod bridge;
 mod task;
-mod threading;
 mod bmp;
 mod hal;
 mod timing;
 //mod mmio;
-mod interrupts;
 mod ipc;
 mod io_ext;
 mod percpu;
 mod loader;
 mod abi;
-#[cfg(feature = "hal-next")]
 mod arch;
-#[cfg(feature = "syscall-abi-next")]
 mod syscall;
 mod ebr;
 
@@ -157,195 +145,6 @@ macro_rules! assert_unsafe_precondition {
     };
 }
 
-#[derive(Debug)]
-#[repr(C)]
-pub struct SyscallStack {
-	flags: usize,
-	ip: usize,
-}
-
-#[inline]
-extern "C" fn syscall_handler(
-	a: usize,
-	b: usize,
-	c: usize,
-	d: usize,
-	e: usize,
-	num_high: usize,
-	num_low: usize,
-	stack: *mut SyscallStack,
-	async_data: usize,
-) -> u128 {
-	//threading::exit_trampoline(move || {
-		debug!("foo{num_high:#x}");
-	//});
-
-	threading::exit_trampoline(move || {
-		let flags = unsafe { addr_of!((*stack).flags).read_volatile() };
-		let ip = unsafe { addr_of!((*stack).ip).read_volatile() };
-		let is_async = (flags & 1) != 0;
-		let is_async_text = if is_async { "async " } else { "" };
-		let async_key = if is_async { Some(async_data) } else { None };
-		let tid = percpu::percpu_v2!(current_thread)
-				.read()
-				.as_ref()
-				.map(|tcb| tcb.thread_id);
-
-		let protocol = ((num_high & 0xFFFFFFFF) as u128) << 96 | (num_low as u128);
-		let method = (num_high >> 32) as u32;
-
-		let syscall = format!("{:#x}@{:024x}", method, protocol);
-
-		debug!("{is_async_text}syscall({syscall}, {a:#x}, {b:#x}, {c:#x}, {d:#x}, {e:#x}) @ {ip:#x} on {tid:?}");
-		kernel_api::syscall::Error::FutureCompat as u128
-	})
-}
-
-#[inline]
-fn exception_handler(exception: &mut hal::exception::Exception) {
-	let mut exception = AssertUnwindSafe(exception);
-	threading::exit_trampoline(move || {
-		let backtrace = || {
-			sprintln!("---");
-			sprintln!("{:#x?}", exception.registers);
-			sprintln!("---");
-			panicking::stack_trace();
-			sprintln!("---");
-		};
-
-		let at = exception.registers.ip();
-
-		match &exception.ty {
-			// Signalling exceptions
-			ty @ (Ty::FloatingPoint | Ty::IllegalInstruction | Ty::BusFault | Ty::Generic(_)) => {
-				if !exception.user_mode {
-					error!("Kernel exception occurred at {at:#x} - {}:\n{ty}", panicking::get_symbol_from_ip(at).name);
-					backtrace();
-					loop {}
-				} else {
-					let tid = percpu::percpu_v2!(current_thread)
-							.read()
-							.as_ref()
-							.map(|tcb| tcb.thread_id);
-
-					error!("Userspace exception occurred at {at:#x} {tid:?}:\n{ty}");
-					sprintln!("{:#x?}", exception.registers);
-					todo!()
-				}
-			},
-			ty @ Ty::PageFault(fault) => {
-				// todo: check for CoW etc.
-				let phys = || if fault.access_addr.is_higher_half() {
-					ktable().translate_address(fault.access_addr, true)
-				} else {
-					percpu::percpu_v2!(current_thread)
-							.try_read()?
-							.as_ref()?
-							.address_space.ttable().translate_address(fault.access_addr, true)
-				};
-
-				if !exception.user_mode {
-					error!("Kernel page fault occurred at {at:#x} - {}:\n{ty}", panicking::get_symbol_from_ip(at).name);
-
-					dbg!(fault.meta.present());
-					dbg!(fault.access_addr >= kernel_api::memory::asan::SHADOW_MAP_START);
-					dbg!(fault.access_addr < kernel_api::memory::asan::SHADOW_MAP_END);
-					dbg!(phys());
-					#[cfg(kasan)]
-					if !fault.meta.present()
-							&& fault.access_addr >= kernel_api::memory::asan::SHADOW_MAP_START
-							&& fault.access_addr < kernel_api::memory::asan::SHADOW_MAP_END {
-						use kernel_api::allocator::highmem;
-
-						debug!("allocating extra shadow mem");
-						match highmem().allocate_one_raw() {
-							Ok(frame) => {
-								let page = fault.access_addr.align_down_to_page();
-
-								ktable().map_page(
-									page,
-									frame,
-									mapping::Ty::SHADOW_MEM,
-									Flags::WRITE,
-								).expect("we just got a page fault for this page being not preset");
-
-								unsafe {
-									kernel_api::memory::asan::set_shadow_uninit_vmem(
-										*page,
-										4096 / 8,
-									);
-								}
-
-								debug!("new shadow mem added");
-
-								return;
-							},
-							Err(_) => {
-								error!("failed to lazy allocate shadow mem");
-								backtrace();
-								loop {}
-							}
-						}
-					}
-
-					backtrace();
-
-					unsafe extern "C" {
-						static __popcorn_deref_handlers_check_start: u64;
-						static __popcorn_deref_handlers_handle_start: u64;
-						static __popcorn_deref_handlers_end: u64;
-					}
-
-					let checkpoints = unsafe {
-						core::slice::from_raw_parts(
-							addr_of!(__popcorn_deref_handlers_check_start),
-							addr_of!(__popcorn_deref_handlers_handle_start).offset_from(addr_of!(__popcorn_deref_handlers_check_start)) as usize
-						)
-					};
-
-					if let Some(idx) = checkpoints.iter().map(|x| *x as usize).position(|x| x == at) {
-						let jumppoints = unsafe {
-							core::slice::from_raw_parts(
-								addr_of!(__popcorn_deref_handlers_handle_start),
-								addr_of!(__popcorn_deref_handlers_end).offset_from(addr_of!(__popcorn_deref_handlers_handle_start)) as usize
-							)
-						};
-						let jump = jumppoints.iter().map(|x| *x as usize).nth(idx).expect("Malformed deref jumptable");
-						debug!("Checked access - jumping to {jump:#x}");
-						exception.registers.set_ip(jump);
-						return;
-					}
-
-					loop {}
-				} else {
-					let tid = percpu::percpu_v2!(current_thread)
-							.read()
-							.as_ref()
-							.map(|tcb| tcb.thread_id);
-					error!("Userspace page fault occurred at {at:#x} {tid:?}:\n{ty}");
-					sprintln!("{:#x?}", exception.registers);
-					dbg!(phys());
-					todo!()
-				}
-			}
-			ty @ (Ty::Nmi | Ty::Panic) => {
-				// todo: BSOD equivalent?
-				error!("Unhandled exception occurred at {at:#x} - {}:\n{ty}", panicking::get_symbol_from_ip(at).name);
-				if !exception.user_mode { backtrace(); }
-				loop {}
-			},
-			ty @ Ty::Debug(DebugTy::Breakpoint) => {
-				warn!("Breakpoint: {at:#x} - {}:\n{ty}", panicking::get_symbol_from_ip(at).name);
-				if !exception.user_mode { backtrace(); }
-			},
-			ty @ Ty::Unknown(_) => {
-				warn!("Ignoring exception at {at:#x} - {}:\n{ty}", panicking::get_symbol_from_ip(at).name);
-				if !exception.user_mode { backtrace(); }
-			},
-		}
-	})
-}
-
 mod handoff {
 	use core::marker::PhantomData;
 	use core::ptr::NonNull;
@@ -398,32 +197,32 @@ mod handoff {
 		pub framebuffer: utils::handoff::Framebuffer,
 		pub stack: utils::handoff::Stack,
 		pub bootloader_utable: TTableTy,
-		pub init_utable: TTableTy,
+		pub init_utable: (TTableTy, RawPage),
 		pub init_entry: VirtualAddress,
 	}
 
 	pub fn process_handoff(handoff_data: &*const utils::handoff::Data) -> ParsedHandoff<'_> {
 		debug!("parsing handoff data");
-		let (s_table, u_table_bootloader, u_table_pid0) = no_asan_shim!(|handoff_data: &*const utils::handoff::Data| -> (RawFrame, RawFrame, RawFrame) {
+		let (s_table, u_table_bootloader, u_table_pid0) = no_asan_shim!(|handoff_data: &*const utils::handoff::Data| -> (RawFrame, RawFrame, (RawFrame, RawPage)) {
 			unsafe { (
 				(**handoff_data).memory.s_table,
 				(**handoff_data).memory.u_table_bootloader,
-				(**handoff_data).memory.u_table_pid0.0,
+				(**handoff_data).memory.u_table_pid0,
 			) }
 		});
-		#[cfg(feature = "hal-next")] {
-			let s_table = unsafe { KTableTy::from_raw(dbg!(s_table)) };
-			unsafe { crate::memory::paging::init_page_table(s_table) };
-		}
+
+		let s_table = unsafe { KTableTy::from_raw(s_table) };
+		unsafe { crate::memory::paging::init_page_table(s_table) };
+
 		let bootloader_utable = unsafe { TTableTy::from_raw(u_table_bootloader) };
-		let init_utable = unsafe { TTableTy::from_raw(u_table_pid0) };
+		let u_table_pid0 = (unsafe { TTableTy::from_raw(u_table_pid0.0) }, u_table_pid0.1);
 
 		let symbol_map = no_asan_shim!(|handoff_data: &*const utils::handoff::Data| -> Option<NonNull<[u8]>> {
 			unsafe { (**handoff_data).log.symbol_map }
 		});
 		*panicking::SYMBOL_MAP.write() = SymbolMap::from(symbol_map);
 
-		no_asan_shim!(|handoff_data: &*const utils::handoff::Data, bootloader_utable: TTableTy, init_utable: TTableTy| -> ParsedHandoff<'_> {
+		no_asan_shim!(|handoff_data: &*const utils::handoff::Data, bootloader_utable: TTableTy, u_table_pid0: (TTableTy, RawPage)| -> ParsedHandoff<'_> {
 			let core::range::Range { start, end } = unsafe { (**handoff_data).memory.map };
 			let memory_map = MemoryMapIter {
 				map: start.to_virtual().as_ptr().cast_const().cast::<MemoryMapEntry>()..end.to_virtual().as_ptr().cast_const().cast::<MemoryMapEntry>(),
@@ -443,7 +242,7 @@ mod handoff {
 				framebuffer,
 				stack,
 				bootloader_utable,
-				init_utable,
+				init_utable: u_table_pid0,
 				init_entry,
 			}
 		})
@@ -461,8 +260,7 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 	let x = get_foo();
 	assert_eq!(x, 6, "TLS value should be 6");
 
-	#[cfg(feature = "hal-next")] arch::target_bsp_start();
-	#[cfg(not(feature = "hal-next"))] hal::early_init();
+	arch::target_bsp_start();
 
 	let parsed_handoff = handoff::process_handoff(&handoff_data);
 	let free_memory = parsed_handoff.memory_map
@@ -547,8 +345,7 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 	debug!("initializing epoch structures");
 	ebr::init();
 
-	#[cfg(feature = "hal-next")] arch::post_memory_init(parsed_handoff.rsdp);
-	unsafe { hal::acpi::init_tables(parsed_handoff.rsdp) };
+	arch::post_memory_init(parsed_handoff.rsdp);
 
 	let (mut update_line, _picos_per_tick) = {
 		let fb = parsed_handoff.framebuffer;
@@ -559,25 +356,6 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 		// Clear to true black to match background of BGRT logo
 		for pixel in fb_data.iter_mut() {
 			*pixel = 0;
-		}
-
-		// If extracted from BGRT, draw OEM logo
-		if let Some(bgrt) = hal::acpi::tables().find_table::<::acpi::sdt::bgrt::Bgrt>() {
-			let bitmap = bmp::from_bgrt(&bgrt, hal::acpi::Handler::new(&hal::acpi::Allocator));
-			if let Some(bitmap) = bitmap {
-				let width = bitmap.width as usize;
-
-				let (x_init, y) = bgrt.image_offset();
-				let x_init = x_init as usize;
-				let mut y = y as usize;
-				let mut x = x_init;
-
-				for pixel in bitmap {
-					fb_data[x + y*fb.stride] = pixel;
-					x += 1;
-					if x - x_init >= width { x = x_init; y += 1; }
-				}
-			}
 		}
 
 		// Draw progress bar outline
@@ -630,33 +408,14 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 		(update_line, picos_per_tick)
 	};
 
-
-	hal::post_acpi_init();
-
 	// all bootloader data structures parsed so safe to switch to PID0 utable and drop bootloader
 	// SAFETY: `init_utable` ownership transferred into PID0 TCB
-	unsafe { parsed_handoff.init_utable.load() };
+	unsafe { parsed_handoff.init_utable.0.load() };
 	drop(parsed_handoff.bootloader_utable);
 
-	let init_thread = threading::init(parsed_handoff.stack, parsed_handoff.init_utable);
-	debug!("Init running on {init_thread:?}");
-
-	let _animation = move || {
-		let mut next_time = Instant::now();
-		loop {
-			next_time += Duration::from_millis(500); //Duration::from_nanos(1302083);
-			update_line();
-			kernel_api::executor::block_on(threading::sleep_until(next_time));
-		}
-	};
-
-	/*let task = threading::spawn_kernel(animation, Cow::Borrowed("Boot animation")).unwrap();
-	debug!("Boot animation running on {task:?}");*/
-
-	threading::debug();
-	threading::yield_now();
-
-	hal::switch_to_userspace_at(parsed_handoff.init_entry, VirtualAddress::new(0));
+	percpu::percpu_v2!(arch).tss.set_rsp0(*(parsed_handoff.stack.bottom_virt + parsed_handoff.stack.page_count));
+	task::init(parsed_handoff.init_utable);
+	arch::switch_to_userspace(parsed_handoff.init_entry);
 }
 
 #[cfg(not(test))]
@@ -665,10 +424,6 @@ fn panic_handler(info: &PanicInfo) -> ! {
 	sprint!("\u{001b}[31m\u{001b}[1mPANIC:");
 	if let Some(location) = info.location() {
 		sprint!(" {location}");
-	}
-	if let Some(current_thread) = percpu_v2!(current_thread).try_read()
-			&& let Some(current_thread) = current_thread.as_ref() {
-		sprint!(" on thread {:?}", current_thread.thread_id);
 	}
 	sprintln!("\u{001b}[0m");
 

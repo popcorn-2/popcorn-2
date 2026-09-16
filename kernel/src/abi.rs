@@ -12,8 +12,7 @@ macro_rules! export {
 
 // functions
 export!(__popcorn_async_spawn_task <=> crate::ipc::executor::spawn);
-#[cfg(not(feature = "hal-next"))] export!(__popcorn_disable_irq <=> crate::hal::get_and_disable_interrupts);
-#[cfg(feature = "hal-next")] export!(__popcorn_disable_irq <=> crate::arch::get_and_disable_interrupts);
+export!(__popcorn_disable_irq <=> crate::arch::get_and_disable_interrupts);
 export!(__popcorn_ebr_defer_and_clean <=> crate::ebr::defer_and_cleanup);
 export!(__popcorn_enable_irq <=> crate::hal::enable_interrupts);
 export!(__popcorn_ksyscall_blocking <=> crate::ipc::kernel_syscall_blocking);

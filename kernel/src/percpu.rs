@@ -1,9 +1,6 @@
-use core::cell::{OnceCell, UnsafeCell};
-use core::sync::atomic::AtomicPtr;
-use kernel_api::sync::{IrqCell, RwSpinlock};
-use crate::threading::ThreadControlBlock;
+use core::cell::{Cell, UnsafeCell};
+use kernel_api::threading::TaskRef;
 use crate::ebr;
-use crate::timing::TimerQueue;
 
 macro_rules! percpu_gen {
     (pub struct $ident:ident {
@@ -78,12 +75,10 @@ macro_rules! percpu_gen {
 percpu_gen! {
     pub struct Percpu {
         pub foo: UnsafeCell<usize> = UnsafeCell::new(6),
-        pub local_timer_queue: TimerQueue = TimerQueue::new(),
-        pub kernel_stack_top: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut()),
-        pub scheduler: OnceCell<IrqCell<crate::threading::SchedulerTy>> = OnceCell::new(),
-        pub local_timer: OnceCell<crate::hal::timing::TimerMeta> = OnceCell::new(),
-        pub current_thread: RwSpinlock<Option<ThreadControlBlock>> = RwSpinlock::new(None), // todo: replace with something !Sync if opt needed
-		#[cfg(feature = "hal-next")] pub arch: crate::arch::Percpu = crate::arch::Percpu::new(),
+		pub arch: crate::arch::Percpu = crate::arch::Percpu::new(),
+		pub current_task: Cell<Option<TaskRef>> = Cell::new(None),
+		pub needs_reschedule: Cell<bool> = Cell::new(false),
+		pub scheduler: crate::task::Scheduler = crate::task::Scheduler::new(),
 		pub epoch: ebr::LocalEpoch = ebr::LocalEpoch::new(),
     }
 }

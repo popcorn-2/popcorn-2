@@ -1,17 +1,18 @@
-use core::sync::atomic::{AtomicPtr, AtomicU64};
+use core::cell::Cell;
+use core::sync::atomic::AtomicPtr;
 use kernel_api::memory::{VirtualAddress, PAGE_SIZE};
 
 struct StaticStack([u8; PAGE_SIZE * 3]);
 
 static mut BSP_DOUBLE_FAULT_STACK: StaticStack = StaticStack([0; PAGE_SIZE * 3]);
 
-#[repr(C, packed(8))]
+#[repr(C, packed(4))]
 pub struct Tss {
 	_reserved: u32,
-	rsp0: AtomicPtr<u8>,
+	pub(super) rsp0: Cell<*mut u8>,
 	// rings 1 and 2 are unused so RSP1/2 space is used as scratch memory
 	_pad1: u32,
-	pub scratch: AtomicU64,
+	pub(super) scratch: Cell<u64>,
 	_pad2: u32,
 	_reserved1: u64,
 	ist1: AtomicPtr<u8>,
@@ -38,9 +39,9 @@ impl Tss {
 	const fn new() -> Self {
 		Self {
 			_reserved: 0,
-			rsp0: AtomicPtr::new(core::ptr::null_mut()),
+			rsp0: Cell::new(core::ptr::null_mut()),
 			_pad1: 0,
-			scratch: AtomicU64::new(0),
+			scratch: Cell::new(0),
 			_pad2: 0,
 			_reserved1: 0,
 			ist1: AtomicPtr::new(core::ptr::null_mut()),
@@ -64,5 +65,27 @@ impl Tss {
 				inout(reg) value.addr => _,
 			);
 		}
+	}
+
+	pub fn set_scratch(&self, value: u64) {
+		unsafe {
+			core::arch::asm!(
+				"lock xchg qword ptr [{}], {}",
+				in(reg) &raw const self.scratch,
+				inout(reg) value => _,
+			);
+		}
+	}
+
+	pub fn get_scratch(&self) -> u64 {
+		let value;
+		unsafe {
+			core::arch::asm!(
+				"lock xchg qword ptr [{}], {}",
+				in(reg) &raw const self.scratch,
+				out(reg) value,
+			);
+		}
+		value
 	}
 }
