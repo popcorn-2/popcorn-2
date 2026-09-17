@@ -9,7 +9,7 @@ edition = "2024"
 # main depedencies
 bitflags = { version = "2.3.1", features = [] }
 log = { version = "0.4.20", features = ["max_level_trace", "release_max_level_debug"] }
-derive_more = "0.99.17"
+derive_more = "2.1.1"
 unwinding = { git = "https://github.com/popcorn-2/unwinding.git", default-features = false, features = ["unwinder", "panic", "personality", "fde-static", "hide-trace"] }
 acpi = {  version = "6.1.1", default-features = false }
 bit_field = "0.10.2"
