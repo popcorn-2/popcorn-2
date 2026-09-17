@@ -1,5 +1,4 @@
 use core::fmt::{Debug, Display, Formatter};
-use derive_more::Display;
 use kernel_api::memory::VirtualAddress;
 
 pub struct Exception<'a> {
@@ -15,25 +14,16 @@ pub trait ExceptionRegisters: Debug {
 	fn set_return_reg(&mut self, val: usize);
 }
 
-#[derive(Display, Debug)]
+#[derive(Debug)]
 pub enum Ty<'a> {
-	#[display(fmt = "Floating point exception")]
 	FloatingPoint,
-	#[display(fmt = "{_0}")]
 	Debug(DebugTy),
-	#[display(fmt = "Illegal instruction")]
 	IllegalInstruction,
-	#[display(fmt = "{_0}")]
 	PageFault(PageFault<'a>),
-	#[display(fmt = "Bus error")]
 	BusFault,
-	#[display(fmt = "NMI")]
 	Nmi,
-	#[display(fmt = "Kernel panic")]
 	Panic,
-	#[display(fmt = "Arch specific: {_0}")]
 	Generic(&'static str),
-	#[display(fmt = "Arch specific: {_0}")]
 	Unknown(&'static str),
 }
 
@@ -57,9 +47,8 @@ impl PartialEq for Ty<'_> {
 
 impl Eq for Ty<'_> {}*/
 
-#[derive(Display, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum DebugTy {
-	#[display(fmt = "Breakpoint hit")]
 	Breakpoint
 }
 
