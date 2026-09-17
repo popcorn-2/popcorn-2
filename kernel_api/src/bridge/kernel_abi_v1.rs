@@ -55,9 +55,6 @@ pub mod handle {
 	use crate::syscall::handle::Handle;
 
 	unsafe extern "Rust" {
-		#[link_name = "__popcorn_handle_drop"]
-		pub safe fn drop(this: &mut Handle);
-
 		#[link_name = "__popcorn_ksyscall_blocking"]
 		pub safe fn kernel_syscall_blocking(
 			this: &Arc<Handle>,

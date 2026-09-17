@@ -1,14 +1,11 @@
 use alloc::sync::Arc;
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicI64, AtomicPtr, AtomicU64, Ordering};
-use hashbrown::HashMap;
-use log::debug;
 use lf_radix_tree::LockFreeRadixTreeU32L4;
 use crate::memory::EpochGuard;
-use crate::sync::RwSpinlock;
 use crate::syscall;
 use crate::syscall::Error;
-use crate::syscall::server::ServerId;
+use crate::threading::TaskRef;
 
 /// A map of numeric identifiers to [`Handle`]s.
 // INVARIANT: `self.0` always comes from `Arc::<HandleMapInner>::into_raw`
@@ -120,34 +117,6 @@ impl HandleMap {
 		Ok(val)
 	}
 
-	/// Adds the passed handle to the handle map at the specified position.
-	///
-	/// Returns the position if successful, or an error if the specified position is
-	/// already in use.
-	///
-	/// # Errors
-	///
-	/// Returns [`Error::NameInUse`] if the specified position is already in
-	/// use.
-	///
-	/// # Examples
-	///
-	/// ```
-	/// use kernel_api::syscall::handle::{Handle, HandleMap};
-	/// use kernel_api::syscall::server::ServerId;
-	///
-	/// let mut map = HandleMap::new();
-	/// let handle = Handle::new(ServerId::INVALID, 0, &[], "");
-	///
-	/// let fd = map.openat(5, handle)?;
-	/// assert_eq!(fd, 5);
-	/// # Ok::<(), kernel_api::syscall::Error>(())
-	/// ```
-	#[deprecated = "`openat` no longer supported - use `push` and don't rely on fixed handle numbers"]
-	pub fn openat(&self, _val: u32, _handle: Arc<Handle>) -> syscall::Result<u32> {
-		Err(Error::FutureCompat)
-	}
-
 	/// Returns a reference to the handle at `val`.
 	///
 	/// # Errors
@@ -223,70 +192,25 @@ impl Drop for HandleMap {
 
 /// A handle representing a userspace resource within the kernel.
 #[derive(Debug)]
-#[expect(clippy::partial_pub_fields, reason = "kernel needs access to __protocols for drop internals")]
 pub struct Handle {
-	#[doc(hidden)]
-	pub __protocols: RwSpinlock<ManuallyDrop<HashMap<u128, (ServerId, isize)>>>,
-	endpoint: Arc<str>,
+	endpoint: TaskRef,
+	oid: usize,
 }
 
 impl Handle {
 	/// Creates a new `Handle` object pointing to the passed server and object ID, and supporting the passed list of protocols.
-	pub fn new(server_id: ServerId, internal_id: isize, protocols: &[u128], endpoint: impl Into<Arc<str>>) -> Arc<Self> {
-		Arc::new(Self {
-			__protocols: RwSpinlock::new(ManuallyDrop::new(
-				protocols.iter().copied().zip(core::iter::repeat((server_id, internal_id))).collect()
-			)),
-			endpoint: endpoint.into(),
-		})
+	pub fn new(endpoint: TaskRef, oid: usize) -> Arc<Self> {
+		Arc::new(Self { endpoint, oid })
 	}
 
-	/// Provides the server and object ID that this handle modifies for methods on the passed protocol.
-	///
-	/// # Errors
-	///
-	/// Returns [`Error::UnsupportedProtocol`] if the handle doesn't
-	/// support the requested protocol.
-	pub fn id(&self, protocol: u128) -> syscall::Result<(ServerId, isize)> {
-		self.__protocols.read().get(&protocol).copied().ok_or(Error::UnsupportedProtocol)
+	/// Returns the object ID for this handle.
+	pub fn oid(&self) -> usize {
+		self.oid
 	}
 
-	/// Returns `true` if the handle supports all the protocols passed.
-	#[must_use]
-	pub fn has_protocols(&self, protocols: &[u128]) -> bool {
-		debug!("check handle {self:#x?} for protocols {protocols:#x?}");
-		protocols.iter().all(|uid| self.__protocols.read().contains_key(uid))
-	}
-
-	/// Combines the current `Handle` with `other`.
-	///
-	/// This results in all methods on `other` also being available
-	/// on `self`, and they access the same underlying object.
-	///
-	/// # Errors
-	///
-	/// Returns [`Error::ProtocolOverlap`] if `other` supports a protocol
-	/// that `self` already supports.
-	pub fn merge(&self, other: &Self) -> syscall::Result<()> {
-		let mut guard = self.__protocols.write();
-		if guard.keys().any(|uid| other.__protocols.read().contains_key(uid)) {
-			debug!("overlap of protocol");
-			return Err(Error::ProtocolOverlap);
-		}
-		guard.extend(other.__protocols.read().iter());
-		Ok(())
-	}
-	
-	/// Returns the endpoint (as could be passed to an `abi_v1::open()` syscall) this handle points to.
-	#[deprecated = "popcorn handles are being reworked in such a way that endpoints will no exist"]
-	pub const fn endpoint(&self) -> &Arc<str> {
-		&self.endpoint
-	}
-}
-
-impl Drop for Handle {
-	fn drop(&mut self) {
-		crate::bridge::handle::drop(self);
+	/// Returns the target task for this handle.
+	pub fn target(&self) -> TaskRef {
+		self.endpoint
 	}
 }
 
