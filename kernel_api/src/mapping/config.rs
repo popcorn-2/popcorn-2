@@ -387,26 +387,6 @@ mod full {
 			self
 		}
 
-		/// Uses the `core.mem.Pager` protocol on the `vmo` handle to supply the physical memory for the mapping.
-		///
-		/// This will cause the mapping to contain the contents of the VMO starting `offset` bytes into the VMO.
-		/// If the mapping is writable, then any changes will be synced back to the VMO provider.
-		///
-		/// If memory access is attempted to the region backed by the VMO handle, and calling `core.mem.Pager` results
-		/// in an error then this will appear as a page fault.
-		///
-		/// # Panics
-		///
-		/// If the `vmo` handle does not support the `core.mem.Pager` protocol, or if `offset` is not at least page aligned.
-		pub fn with_vmo(self, vmo: Arc<Handle>, offset: usize) -> Self {
-			assert!(vmo.has_protocols(&[6]), "vmo handle must support `core.mem.Pager`");
-			assert!(offset.is_multiple_of(4096), "vmo offset must be page aligned");
-			Self {
-				physical_allocator: AllocatorTy::Vmo(vmo),
-				.. self
-			}
-		}
-
 		/// Uses `allocator` to supply the physical memory for the mapping.
 		pub fn with_allocator<const RAM_ONLY: bool>(self, allocator: impl Into<DynPmm<'static, RAM_ONLY>>) -> Self {
 			Self {
