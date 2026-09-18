@@ -14,6 +14,7 @@ use crate::memory::r#virtual::AddressSpaceExt;
 
 mod scheduler;
 mod collections;
+mod idle;
 mod startup;
 
 pub use scheduler::{RoundRobin as Scheduler, scheduler_entry};
