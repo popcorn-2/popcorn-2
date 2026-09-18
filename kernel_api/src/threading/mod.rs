@@ -34,10 +34,12 @@ impl Borrow<ThreadId> for ThreadMeta {
 	}
 }
 
+type TaskRefInner = TaggedNonNull<u64>;
+
 /// A cheap to copy handle to a task.
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, PartialEq, Eq, Hash)]
 pub struct TaskRef {
-	tagged_ref: TaggedNonNull<u8>,
+	tagged_ref: TaskRefInner,
 }
 
 // SAFETY: constructor only allows pointers to `Sync` types so `Send` references are sound
@@ -46,21 +48,21 @@ unsafe impl Send for TaskRef {}
 unsafe impl Sync for TaskRef {}
 
 impl TaskRef {
-	pub const MAX_GENERATION: usize = (1 << TaggedNonNull::<u8>::TAG_HIGH_BITS) - 1;
+	pub const MAX_GENERATION: usize = (1 << TaskRefInner::TAG_HIGH_BITS) - 1;
 
 	#[doc(hidden)]
 	pub unsafe fn new<T: Sync>(r: &'static T, generation: usize) -> Self {
 		Self {
-			tagged_ref: TaggedNonNull::new(
+			tagged_ref: TaskRefInner::new(
 				NonNull::from_ref(r).cast(),
-				generation << TaggedNonNull::<u8>::TAG_LOW_BITS,
+				generation << TaskRefInner::TAG_LOW_BITS,
 			),
 		}
 	}
 
-	pub fn as_ptr(self) -> NonNull<u8> { self.tagged_ref.as_ptr() }
-	pub fn generation(self) -> usize { self.tagged_ref.tag() >> TaggedNonNull::<u8>::TAG_LOW_BITS }
+	pub fn as_ptr(self) -> NonNull<u64> { self.tagged_ref.as_ptr() }
+	pub fn generation(self) -> usize { self.tagged_ref.tag() >> TaskRefInner::TAG_LOW_BITS }
 	pub fn addr_eq(self, other: TaskRef) -> bool {
-		TaggedNonNull::addr_eq(&self.tagged_ref, &other.tagged_ref)
+		TaskRefInner::addr_eq(&self.tagged_ref, &other.tagged_ref)
 	}
 }

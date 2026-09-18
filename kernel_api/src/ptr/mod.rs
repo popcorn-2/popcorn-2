@@ -74,6 +74,7 @@ impl<T> TaggedNonNull<T> {
 	/// Create a new `TaggedNonNull` with the given `tag`.
 	pub fn new(ptr: NonNull<T>, tag: usize) -> Self {
 		assert!(tag <= Self::MAX_BOUND_VALUE, "requested tag cannot fit in pointer");
+		assert!(ptr.is_aligned(), "cannot tag unaligned pointer");
 		let tag_low = tag & Self::TAG_LOW_MASK;
 		let tag_high = tag >> Self::TAG_LOW_BITS;
 		let ptr = ptr.map_addr(|mut addr| {
