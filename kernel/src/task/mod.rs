@@ -1,19 +1,23 @@
+use core::num::NonZero;
 use core::ops::Range;
 use core::sync::atomic::{fence, AtomicPtr, AtomicUsize, Ordering};
 use kernel_api::address_space::AddressSpace;
 use kernel_api::allocator::AllocError;
-use kernel_api::memory::{EpochGuard, RawPage};
+use kernel_api::mapping::{Config, Mmap, Ty};
+use kernel_api::memory::RawPage;
 use kernel_api::syscall::HandleMap;
 use kernel_api::threading::{AtomicThreadState, TaskRef, ThreadState};
 use linked_list_allocator::LinkedListAllocator;
 use crate::hal::TTableTy;
 use crate::{arch, percpu};
+use crate::memory::r#virtual::AddressSpaceExt;
 
 mod scheduler;
 mod collections;
+mod startup;
 
 pub use scheduler::{RoundRobin as Scheduler, scheduler_entry};
-use crate::memory::r#virtual::AddressSpaceExt;
+pub use startup::ProcInfo;
 
 #[derive(Debug)]
 pub struct OwnedTask(&'static Task);
@@ -42,7 +46,7 @@ pub struct Task {
 	/// List of handles available to this task.
 	handles: HandleMap,
 	/// Address space used for this task.
-	address_space: AddressSpace,
+	pub address_space: AddressSpace,
 	/// Intrusive collection parts.
 	intrusive: Intrusive,
 }
@@ -60,6 +64,7 @@ impl Task {
 		warn!("task finalizer unimplemented");
 	}
 
+	// must pass task in killed state to `with`, with all other fields in a default/empty state
 	pub fn alloc(with: impl FnOnce(&'static Task)) -> Result<OwnedTask, AllocError> {
 		let backing = {
 			let task = Box::new_uninit_in(alloc::alloc::Global);
@@ -84,14 +89,20 @@ impl Task {
 	}
 
 	fn new() -> Result<Self, AllocError> {
-		Ok(Self {
+		let task = Self {
 			linked_to: None,
 			state: AtomicThreadState::new(ThreadState::Killed(0)),
 			registers: Default::default(),
 			handles: Default::default(),
 			address_space: AddressSpace::empty()?,
 			intrusive: Default::default(),
-		})
+		};
+
+		Ok(task)
+	}
+
+	pub fn handles(&self) -> &HandleMap {
+		&self.handles
 	}
 }
 
@@ -120,7 +131,9 @@ impl Intrusive {
 }
 
 pub fn init(ttable: (TTableTy, RawPage)) -> &'static Task {
-	let address_space = AddressSpace::from_parts(
+	let mut task = Task::new().expect("failed to create task");
+
+	task.address_space = AddressSpace::from_parts(
 		ttable.0,
 		LinkedListAllocator::new(Range {
 			start: ttable.1,
@@ -139,7 +152,7 @@ pub fn init(ttable: (TTableTy, RawPage)) -> &'static Task {
 
 mod sealed { pub trait Sealed {} }
 
-trait TaskRefExt: sealed::Sealed {
+pub trait TaskRefExt: sealed::Sealed {
 	fn get(self) -> Option<&'static Task>;
 	fn get_unchecked(self) -> (&'static Task, usize);
 }
