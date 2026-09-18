@@ -193,24 +193,46 @@ impl Drop for HandleMap {
 /// A handle representing a userspace resource within the kernel.
 #[derive(Debug)]
 pub struct Handle {
-	endpoint: TaskRef,
+	endpoint: Option<TaskRef>,
 	oid: usize,
 }
 
 impl Handle {
 	/// Creates a new `Handle` object pointing to the passed server and object ID, and supporting the passed list of protocols.
 	pub fn new(endpoint: TaskRef, oid: usize) -> Arc<Self> {
-		Arc::new(Self { endpoint, oid })
+		debug_assert!(oid <= u32::MAX as usize, "non-system `oid` should fit in a u32");
+		Arc::new(Self { endpoint: Some(endpoint), oid })
+	}
+
+	/// Creates a new `Handle` object pointing to the passed system service.
+	pub fn new_system(koid: usize) -> Arc<Self> {
+		Arc::new(Self { endpoint: None, oid: koid })
 	}
 
 	/// Returns the object ID for this handle.
-	pub fn oid(&self) -> usize {
+	#[inline]
+	pub fn oid(&self) -> u32 {
+		debug_assert!(!self.is_system(), "should not request `oid` for system handle");
+		self.oid as u32
+	}
+
+	/// Returns the object ID for a system handle.
+	#[inline]
+	pub fn koid(&self) -> usize {
+		debug_assert!(self.is_system(), "should not request `koid` for non-system handle");
 		self.oid
 	}
 
 	/// Returns the target task for this handle.
+	#[inline]
 	pub fn target(&self) -> TaskRef {
-		self.endpoint
+		self.endpoint.expect("cannot get endpoint of system handle")
+	}
+
+	/// Returns whether the handle is backed by the kernel or a userspace service.
+	#[inline]
+	pub fn is_system(&self) -> bool {
+		self.endpoint.is_none()
 	}
 }
 
