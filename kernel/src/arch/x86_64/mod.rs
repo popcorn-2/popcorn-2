@@ -36,6 +36,13 @@ pub fn target_bsp_start() {
 		cr4_bits |= 1 << 21;
 	}
 
+	if !is_x86_feature_detected!("fsgsbase") {
+		panic!("FSGSBASE support is required");
+	}
+
+	debug!("enabling FSGSBASE");
+	cr4_bits |= 1 << 16;
+
 	if !is_x86_feature_detected!("xsave") {
 		panic!("XSAVE support is required");
 	}
