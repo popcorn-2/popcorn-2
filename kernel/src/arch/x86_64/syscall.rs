@@ -10,8 +10,8 @@ use crate::task::Task;
 global_asm!(
 	include_str!("asm/syscall_stub.asm"),
 	entrypoint = sym entry,
-	kernel_scratch_offset = const offset_of!(Percpu, arch.tss.scratch),
-	rsp0_offset = const offset_of!(Percpu, arch.tss.rsp0),
+	kernel_scratch_offset = const offset_of!(Percpu, arch.tss.0.scratch),
+	rsp0_offset = const offset_of!(Percpu, arch.tss.0.rsp0),
 	needs_resched_offset = const offset_of!(Percpu, needs_reschedule),
 	data_segment = const super::gdt::Gdt::USER_DATA_SEGMENT,
 	code_segment = const super::gdt::Gdt::USER_CODE_SEGMENT,

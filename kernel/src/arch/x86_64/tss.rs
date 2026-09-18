@@ -6,8 +6,11 @@ struct StaticStack([u8; PAGE_SIZE * 3]);
 
 static mut BSP_DOUBLE_FAULT_STACK: StaticStack = StaticStack([0; PAGE_SIZE * 3]);
 
-#[repr(C, packed(4))]
-pub struct Tss {
+#[repr(C, align(8))]
+pub struct Tss(pub(super) TssInner);
+
+#[repr(C, packed)]
+pub(super) struct TssInner {
 	_reserved: u32,
 	pub(super) rsp0: Cell<*mut u8>,
 	// rings 1 and 2 are unused so RSP1/2 space is used as scratch memory
@@ -32,12 +35,12 @@ impl Tss {
 		let mut tss = Tss::new();
 		let stack = &raw mut BSP_DOUBLE_FAULT_STACK;
 		let stack_end = unsafe { stack.add(1) };
-		tss.ist1 = AtomicPtr::new(stack_end.cast());
+		tss.0.ist1 = AtomicPtr::new(stack_end.cast());
 		tss
 	};
 
 	const fn new() -> Self {
-		Self {
+		Tss(TssInner {
 			_reserved: 0,
 			rsp0: Cell::new(core::ptr::null_mut()),
 			_pad1: 0,
@@ -54,36 +57,38 @@ impl Tss {
 			_reserved2: 0,
 			_reserved3: 0,
 			iopb: size_of::<Self>().truncate(),
-		}
+		})
 	}
 
 	pub fn set_rsp0(&self, value: VirtualAddress) {
 		unsafe {
 			core::arch::asm!(
 				"lock xchg qword ptr [{}], {}",
-				in(reg) &raw const self.rsp0,
+				in(reg) &raw const self.0.rsp0,
 				inout(reg) value.addr => _,
 			);
 		}
 	}
 
 	pub fn set_scratch(&self, value: u64) {
+		debug_assert!((&raw const self.0.scratch).is_aligned());
 		unsafe {
 			core::arch::asm!(
-				"lock xchg qword ptr [{}], {}",
-				in(reg) &raw const self.scratch,
-				inout(reg) value => _,
+				"mov qword ptr [{}], {}",
+				in(reg) &raw const self.0.scratch,
+				in(reg) value,
 			);
 		}
 	}
 
 	pub fn get_scratch(&self) -> u64 {
+		debug_assert!((&raw const self.0.scratch).is_aligned());
 		let value;
 		unsafe {
 			core::arch::asm!(
-				"lock xchg qword ptr [{}], {}",
-				in(reg) &raw const self.scratch,
+				"mov {}, qword ptr [{}]",
 				out(reg) value,
+				in(reg) &raw const self.0.scratch,
 			);
 		}
 		value
