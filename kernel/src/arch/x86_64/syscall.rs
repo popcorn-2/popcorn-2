@@ -24,13 +24,15 @@ unsafe extern "custom" {
 #[derive(Copy, Clone, Debug)]
 pub struct StackFrame {
 	rip: u64,
-	rflags: u64,
 	tss_scratch: u64,
+	rflags: u64,
+	fs_base: u64,
+	gs_base: u64,
 }
 
 extern "rust-preserve-none" fn entry(
 	r12: u64,
-	r13: u64,
+	user_gsbase: u64,
 	_r14: u64,
 	_r15: usize,
 	rdi: usize,
@@ -42,10 +44,14 @@ extern "rust-preserve-none" fn entry(
 	rflags: u64,
 	rax: u64,
 ) -> (u64, usize) {
+	let fs_base;
+	unsafe { asm!("rdfsbase {:r}", out(reg) fs_base, options(nomem, nostack, preserves_flags)); }
 	let stack_frame = StackFrame {
 		rip,
-		rflags,
 		tss_scratch: percpu!(arch).tss.get_scratch(),
+		rflags,
+		fs_base,
+		gs_base: user_gsbase,
 	};
 
 	let params = syscall::EntryParams {
@@ -66,6 +72,7 @@ extern "rust-preserve-none" fn entry(
 	match result {
 		Ok(exit_params) => {
 			percpu!(arch).tss.set_scratch(exit_params.stack_frame.tss_scratch);
+			unsafe { asm!("wrfsbase {:r}", in(reg) exit_params.stack_frame.fs_base, options(nomem, nostack, preserves_flags)); }
 
 			let rax = exit_params.oid.widen::<u64>() | (exit_params.method.widen::<u64>() << 32);
 
@@ -74,11 +81,13 @@ extern "rust-preserve-none" fn entry(
 				asm!(
 					"",
 					in("r12") exit_params.interface,
+					in("r13") exit_params.stack_frame.gs_base,
 					in("rdi") exit_params.integer_args[0],
 					in("rsi") exit_params.integer_args[1],
 					in("r8") exit_params.oob_args[0],
 					in("r9") exit_params.oob_args[1],
 					in("rcx") exit_params.stack_frame.rip,
+					in("r11") exit_params.stack_frame.rflags,
 				);
 			}
 
@@ -89,7 +98,9 @@ extern "rust-preserve-none" fn entry(
 			unsafe {
 				asm!(
 					"",
+					in("r13") stack_frame.gs_base,
 					in("rcx") stack_frame.rip,
+					in("r11") stack_frame.rflags,
 				);
 			}
 			(/* rax: */ (-(e as i64)).cast_unsigned(), /* rdx: */ 0)

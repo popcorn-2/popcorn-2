@@ -6,6 +6,7 @@ x86_64_syscall_stub:
     .cfi_register rip, rcx
     .set cfa_off, 0
 
+    rdgsbase r13
     swapgs
 
     mov gs:[{kernel_scratch_offset}], rsp #; save userspace stack pointer
@@ -36,6 +37,7 @@ x86_64_syscall_stub:
     .cfi_restore rsp
 
     swapgs
+    wrgsbase r13
     sysretq
 
 2:
