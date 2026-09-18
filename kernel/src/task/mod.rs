@@ -47,6 +47,7 @@ pub struct Task {
 	handles: HandleMap,
 	/// Address space used for this task.
 	pub address_space: AddressSpace,
+	syscall_trampoline: AtomicPtr<u8>,
 	/// Intrusive collection parts.
 	intrusive: Intrusive,
 }
@@ -64,13 +65,21 @@ impl Task {
 		warn!("task finalizer unimplemented");
 	}
 
-	// must pass task in killed state to `with`, with all other fields in a default/empty state
-	pub fn alloc(with: impl FnOnce(&'static Task)) -> Result<OwnedTask, AllocError> {
+	// must pass task in killed state to `with`, with other fields in a default/empty state
+	pub fn alloc(address_space: AddressSpace, with: impl FnOnce(&'static Task)) -> Result<OwnedTask, AllocError> {
 		let backing = {
 			let task = Box::new_uninit_in(alloc::alloc::Global);
-			let task = Box::write(task, Task::new()?);
+			let task = Box::write(task, Task::new(address_space));
 			OwnedTask(Box::leak(task))
 		};
+
+		let syscall_trampoline_map = Config::new(const { NonZero::new(1).unwrap() }, Ty::USER_PACKET_BUFFER)
+			.protection(true, false, true)
+			.map_in::<Mmap>("syscall_trampoline".into(), &backing.0.address_space)?;
+		// SAFETY: syscall_trampoline is always a single real page
+		let syscall_trampoline = unsafe { syscall_trampoline_map.mapping.physical_start().unwrap_unchecked() };
+		backing.0.syscall_trampoline.store(syscall_trampoline.to_virtual().as_ptr(), Ordering::Relaxed);
+		drop(syscall_trampoline_map);
 
 		with(&backing.0);
 		// synchronises with Acquire ordering in TaskRef::get
@@ -88,21 +97,24 @@ impl Task {
 		}
 	}
 
-	fn new() -> Result<Self, AllocError> {
-		let task = Self {
+	fn new(address_space: AddressSpace) -> Self {
+		Self {
 			linked_to: None,
 			state: AtomicThreadState::new(ThreadState::Killed(0)),
 			registers: Default::default(),
 			handles: Default::default(),
-			address_space: AddressSpace::empty()?,
+			address_space,
+			syscall_trampoline: AtomicPtr::new(core::ptr::null_mut()),
 			intrusive: Default::default(),
-		};
-
-		Ok(task)
+		}
 	}
 
 	pub fn handles(&self) -> &HandleMap {
 		&self.handles
+	}
+
+	pub fn syscall_trampoline_page(&self) -> *mut u8 {
+		self.syscall_trampoline.load(Ordering::Relaxed)
 	}
 }
 
@@ -139,8 +151,7 @@ pub fn init(ttable: (TTableTy, RawPage)) -> &'static Task {
 		}).expect("failed to create allocator"),
 	);
 
-	let task = Task::alloc(move |task| {
-		drop(unsafe { task.address_space.swap(address_space, Ordering::Relaxed) });
+	let task = Task::alloc(address_space, move |task| {
 		task.state.store(ThreadState::Running, Ordering::Relaxed)
 	}).expect("failed to allocate task");
 
