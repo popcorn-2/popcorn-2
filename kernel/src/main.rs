@@ -34,7 +34,7 @@ extern crate kernel_api; // to pull in asan runtime
 #[cfg(kasan)] use core::ptr::NonNull;
 #[cfg(kasan)] use kernel_api::allocator::Pmm;
 use core::ptr::slice_from_raw_parts_mut;
-use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage};
+use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 use core::cmp::{max, min};
 #[cfg(kasan)] use core::marker::PhantomData;
 use core::time::Duration;
@@ -43,6 +43,7 @@ use utils::handoff::MemoryMapEntry;
 #[cfg(kasan)] use crate::hal::paging2::Flags;
 use crate::hal::paging2::TTable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
+use crate::task::Task;
 
 mod abi;
 mod arch;
@@ -194,8 +195,7 @@ mod handoff {
 	}
 }
 
-#[unsafe(export_name = "_start")]
-extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
+fn init(handoff_data: *const utils::handoff::Data) -> (VirtualAddress, usize) {
 	sprintln!("POP");
 
 	let _ = logging::init();
@@ -357,8 +357,26 @@ extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
 	drop(parsed_handoff.bootloader_utable);
 
 	percpu!(arch).tss.set_rsp0(*(parsed_handoff.stack.bottom_virt + parsed_handoff.stack.page_count));
-	task::init(parsed_handoff.init_utable);
-	arch::switch_to_userspace(parsed_handoff.init_entry);
+
+	let ebr = percpu!(epoch).pin();
+	let init_task = task::init(parsed_handoff.init_utable);
+	let init_arg = task::ProcInfo::new_in(
+		init_task,
+		&["init", "--foo", "--bar"],
+		vec![],
+		0,
+		VirtualAddress::new(0),
+		&ebr,
+	).expect("failed to set up startup info for pid0");
+
+	(parsed_handoff.init_entry, init_arg.addr)
+}
+
+#[unsafe(export_name = "_start")]
+extern "sysv64" fn kmain(handoff_data: *const utils::handoff::Data) -> ! {
+	let (init_entry, init_arg) = init(handoff_data);
+
+	arch::switch_to_userspace(init_entry, init_arg);
 }
 
 #[cfg(not(test))]

@@ -105,7 +105,7 @@ impl Percpu {
 	}
 }
 
-pub fn switch_to_userspace(entrypoint: VirtualAddress) -> ! {
+pub fn switch_to_userspace(entrypoint: VirtualAddress, arg: usize) -> ! {
 	debug!("switch to userspace @ {entrypoint:x?}");
 	unsafe {
 		asm!(
@@ -116,7 +116,6 @@ pub fn switch_to_userspace(entrypoint: VirtualAddress) -> ! {
 			"xor ebx, ebx",
 			"xor edx, edx",
 			"xor esi, esi",
-			"xor edi, edi",
 			"xor esp, esp",
 			"xor ebp, ebp",
 			"xor r8d, r8d",
@@ -128,6 +127,7 @@ pub fn switch_to_userspace(entrypoint: VirtualAddress) -> ! {
 			"xor r15d, r15d",
 			"sysretq",
 			in("rcx") entrypoint.addr,
+			in("rdi") arg,
 			in("r11") 0x202, // enable interrupts, set reserved bit
 			options(noreturn)
 		)
