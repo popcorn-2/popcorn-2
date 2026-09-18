@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "4827716d_0efd3e7b",
+        "filename": "kernel/src/task/mod.rs",
+        "patchSetId": 1
+      },
+      "lineNbr": 142,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-09-18T13:36:08Z",
+      "side": 1,
+      "message": "leaked from other changes - remove",
+      "range": {
+        "startLine": 134,
+        "startChar": 0,
+        "endLine": 142,
+        "endChar": 3
+      },
+      "revId": "f76f2862c7fc5b5c71b77c8235f1ca677505c76d",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    }
+  ]
+}
