@@ -2,30 +2,28 @@ use kernel_api::dbg;
 use crate::arch;
 use kernel_api::syscall;
 
+#[derive(Debug)]
+pub struct EntryParams {
+	pub handle_num: u32,
+	pub method: u16,
+	pub interface: u64,
+	pub integer_args: [usize; 3],
+	pub oob_args: [usize; 2],
+	pub stack_frame: arch::SyscallStackFrame,
+}
+
+#[derive(Debug)]
+pub struct ExitParams {
+	pub oid: u32,
+	pub method: u16,
+	pub interface: u64,
+	pub integer_args: [usize; 3],
+	pub oob_args: [usize; 2],
+	pub stack_frame: arch::SyscallStackFrame,
+}
+
 #[inline(always)]
-pub unsafe fn entry(
-	interface: usize,
-	this: u32,
-	flags: u16,
-	method: u16,
-	arg1: usize,
-	arg2: usize,
-	arg3: usize,
-	arg4: usize,
-	arg5: usize,
-	stack_frame: arch::SyscallStackFrame,
-) -> syscall::Result<(usize, u32, u16, u16, usize, usize, usize, usize, usize, arch::SyscallStackFrame)> {
-	dbg!(
-		interface,
-		this,
-		flags,
-		method,
-		arg1,
-		arg2,
-		arg3,
-		arg4,
-		arg5,
-		stack_frame,
-	);
+pub unsafe fn entry(params: EntryParams) -> syscall::Result<ExitParams> {
+	debug!("enter syscall: {params:#x?}");
 	todo!()
 }

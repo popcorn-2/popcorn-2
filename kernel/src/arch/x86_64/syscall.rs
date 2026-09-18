@@ -4,7 +4,7 @@ use crate::arch::x86_64::msr;
 use crate::percpu::Percpu;
 use core::mem::offset_of;
 use core::sync::atomic::Ordering;
-use crate::percpu;
+use crate::{percpu, syscall};
 use crate::task::Task;
 
 global_asm!(
@@ -28,8 +28,8 @@ pub struct StackFrame {
 	tss_scratch: u64,
 }
 
-pub extern "rust-preserve-none" fn entry(
-	r12: usize,
+extern "rust-preserve-none" fn entry(
+	r12: u64,
 	r13: u64,
 	_r14: u64,
 	_r15: usize,
@@ -47,50 +47,49 @@ pub extern "rust-preserve-none" fn entry(
 		rflags,
 		tss_scratch: percpu!(arch).tss.get_scratch(),
 	};
+
+	let params = syscall::EntryParams {
+		handle_num: rax.truncate::<u32>(),
+		method: (rax >> 32).truncate::<u16>(),
+		interface: r12,
+		integer_args: [rdi, rsi, rdx],
+		oob_args: [r8, r9],
+		stack_frame,
+	};
+
 	// SAFETY: `entry` is only called from running thread
 	let result = unsafe {
-		crate::syscall::entry(
-			r12,
-			rax.truncate::<u32>(),
-			r13.truncate::<u16>(),
-			(r13 >> 16).truncate::<u16>(),
-			rdi,
-			rsi,
-			rdx,
-			r9,
-			r8,
-			stack_frame,
-		)
+		syscall::entry(params)
 	};
 
 	// fixme: we probably leak kernel data in registers on return
 	match result {
-		Ok((r12, rax, r13_lo, r13_hi, rdi, rsi, rdx, r9, r8, new_stack_frame)) => {
-			percpu!(arch).tss.set_scratch(new_stack_frame.tss_scratch);
+		Ok(exit_params) => {
+			percpu!(arch).tss.set_scratch(exit_params.stack_frame.tss_scratch);
+
+			let rax = exit_params.oid.widen::<u64>() | (exit_params.method.widen::<u64>() << 32);
+
 			// this is kinda questionable since the compiler could put stuff after this
 			unsafe {
 				asm!(
 					"",
-					in("r12") r12,
-					in("r13") r13_lo.widen::<u64>() | (r13_hi.widen::<u64>() << 16),
-					in("rdi") rdi,
-					in("rsi") rsi,
-					in("r9") r9,
-					in("r8") r8,
-					in("rcx") new_stack_frame.rip,
-					in("r11") new_stack_frame.rflags,
+					in("r12") exit_params.interface,
+					in("rdi") exit_params.integer_args[0],
+					in("rsi") exit_params.integer_args[1],
+					in("r8") exit_params.oob_args[0],
+					in("r9") exit_params.oob_args[1],
+					in("rcx") exit_params.stack_frame.rip,
 				);
 			}
-			(/* rax: */ rax.widen::<u64>(), /* rdx: */ rdx)
+
+			(rax, exit_params.integer_args[2])
 		},
 		Err(e) => {
-			percpu!(arch).tss.set_scratch(stack_frame.tss_scratch);
 			// this is kinda questionable since the compiler could put stuff after this
 			unsafe {
 				asm!(
 					"",
 					in("rcx") stack_frame.rip,
-					in("r11") stack_frame.rflags,
 				);
 			}
 			(/* rax: */ (-(e as i64)).cast_unsigned(), /* rdx: */ 0)
