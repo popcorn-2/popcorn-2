@@ -30,6 +30,26 @@ pub struct StackFrame {
 	gs_base: u64,
 }
 
+impl StackFrame {
+	pub fn from(task: &Task) -> Self {
+		Self {
+			rip: task.registers.rip.load(Ordering::Relaxed),
+			tss_scratch: task.registers.tss_scratch.load(Ordering::Relaxed),
+			rflags: task.registers.rflags.load(Ordering::Relaxed),
+			fs_base: task.registers.fs_base.load(Ordering::Relaxed),
+			gs_base: task.registers.gs_base.load(Ordering::Relaxed),
+		}
+	}
+
+	pub fn store(&self, task: &Task) {
+		task.registers.rip.store(self.rip, Ordering::Relaxed);
+		task.registers.tss_scratch.store(self.tss_scratch, Ordering::Relaxed);
+		task.registers.rflags.store(self.rflags, Ordering::Relaxed);
+		task.registers.fs_base.store(self.fs_base, Ordering::Relaxed);
+		task.registers.gs_base.store(self.gs_base, Ordering::Relaxed);
+	}
+}
+
 extern "rust-preserve-none" fn entry(
 	r12: u64,
 	user_gsbase: u64,
