@@ -1,3 +1,4 @@
+use kernel_api::ptr::TaggedNonNull;
 use kernel_api::syscall;
 use crate::{arch, ebr, percpu};
 use crate::task::TaskRefExt;
@@ -77,7 +78,7 @@ pub unsafe fn entry(params: EntryParams) -> syscall::Result<ExitParams> {
 
 fn system_syscall(
 	ebr: &ebr::EpochGuard,
-	oid: usize,
+	koid: TaggedNonNull<u8>,
 	caller: &Task,
 	params: EntryParams,
 ) -> syscall::Result<ExitParams> {

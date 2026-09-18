@@ -1,8 +1,10 @@
 use alloc::sync::Arc;
+use core::fmt;
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicI64, AtomicPtr, AtomicU64, Ordering};
 use lf_radix_tree::LockFreeRadixTreeU32L4;
 use crate::memory::EpochGuard;
+use crate::ptr::TaggedNonNull;
 use crate::syscall;
 use crate::syscall::Error;
 use crate::threading::TaskRef;
@@ -190,37 +192,51 @@ impl Drop for HandleMap {
 	}
 }
 
+union Object {
+	oid: u32,
+	koid: TaggedNonNull<u8>,
+}
+
+unsafe impl Sync for Object {}
+unsafe impl Send for Object {}
+
 /// A handle representing a userspace resource within the kernel.
-#[derive(Debug)]
 pub struct Handle {
 	endpoint: Option<TaskRef>,
-	oid: usize,
+	object: Object,
 }
 
 impl Handle {
 	/// Creates a new `Handle` object pointing to the passed server and object ID, and supporting the passed list of protocols.
-	pub fn new(endpoint: TaskRef, oid: usize) -> Arc<Self> {
-		debug_assert!(oid <= u32::MAX as usize, "non-system `oid` should fit in a u32");
-		Arc::new(Self { endpoint: Some(endpoint), oid })
+	pub fn new(endpoint: TaskRef, oid: u32) -> Arc<Self> {
+		Arc::new(Self {
+			endpoint: Some(endpoint),
+			object: Object { oid },
+		})
 	}
 
 	/// Creates a new `Handle` object pointing to the passed system service.
-	pub fn new_system(koid: usize) -> Arc<Self> {
-		Arc::new(Self { endpoint: None, oid: koid })
+	pub fn new_system(koid: TaggedNonNull<u8>) -> Arc<Self> {
+		Arc::new(Self {
+			endpoint: None,
+			object: Object { koid },
+		})
 	}
 
 	/// Returns the object ID for this handle.
 	#[inline]
 	pub fn oid(&self) -> u32 {
-		debug_assert!(!self.is_system(), "should not request `oid` for system handle");
-		self.oid as u32
+		assert!(!self.is_system(), "cannot get `oid` for system handle");
+		// SAFETY: checked that `self` is not system handle
+		unsafe { self.object.oid }
 	}
 
 	/// Returns the object ID for a system handle.
 	#[inline]
-	pub fn koid(&self) -> usize {
-		debug_assert!(self.is_system(), "should not request `koid` for non-system handle");
-		self.oid
+	pub fn koid(&self) -> TaggedNonNull<u8> {
+		assert!(self.is_system(), "cannot get `koid` for non-system handle");
+		// SAFETY: checked that `self` is system handle
+		unsafe { self.object.koid }
 	}
 
 	/// Returns the target task for this handle.
@@ -233,6 +249,21 @@ impl Handle {
 	#[inline]
 	pub fn is_system(&self) -> bool {
 		self.endpoint.is_none()
+	}
+}
+
+impl fmt::Debug for Handle {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let mut f = f.debug_struct("Handle");
+
+		if self.is_system() {
+			f.field("koid", &self.koid());
+		} else {
+			f.field("endpoint", &self.target())
+				.field("oid", &self.oid());
+		}
+
+		f.finish()
 	}
 }
 
