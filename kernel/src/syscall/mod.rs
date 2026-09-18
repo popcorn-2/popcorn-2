@@ -4,6 +4,8 @@ use crate::{arch, ebr, percpu};
 use crate::task::TaskRefExt;
 use crate::task::Task;
 
+mod system;
+
 #[derive(Debug)]
 pub struct EntryParams {
 	pub handle_num: u32,
@@ -39,7 +41,7 @@ pub unsafe fn entry(params: EntryParams) -> syscall::Result<ExitParams> {
 		let this = caller.handles().get(params.handle_num, &ebr)?;
 
 		let target = if this.is_system() {
-			return system_syscall(&ebr, this.koid(), caller, params);
+			return system::entry(&ebr, this.koid(), caller, params);
 		} else {
 			this.target().get().ok_or(syscall::Error::DeadServer)?
 		};
@@ -52,10 +54,10 @@ pub unsafe fn entry(params: EntryParams) -> syscall::Result<ExitParams> {
 		let target_trampoline = target.syscall_trampoline_page();
 		unsafe {
 			core::arch::asm!(
-				"rep movsb",
-				in("rdi") target_trampoline,
-				in("rsi") caller_trampoline,
-				inout("rcx") oob_bytes => _,
+			"rep movsb",
+			in("rdi") target_trampoline,
+			in("rsi") caller_trampoline,
+			inout("rcx") oob_bytes => _,
 			)
 		}
 
@@ -74,13 +76,4 @@ pub unsafe fn entry(params: EntryParams) -> syscall::Result<ExitParams> {
 
 	debug!("exit syscall: {exit_params:#x?}");
 	Ok(exit_params)
-}
-
-fn system_syscall(
-	ebr: &ebr::EpochGuard,
-	koid: TaggedNonNull<u8>,
-	caller: &Task,
-	params: EntryParams,
-) -> syscall::Result<ExitParams> {
-	todo!()
 }
