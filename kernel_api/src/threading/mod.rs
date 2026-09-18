@@ -46,20 +46,20 @@ unsafe impl Send for TaskRef {}
 unsafe impl Sync for TaskRef {}
 
 impl TaskRef {
-	pub const MAX_GENERATION: usize = TaggedNonNull::<u8>::MAXIMUM_TAG;
+	pub const MAX_GENERATION: usize = (1 << TaggedNonNull::<u8>::TAG_HIGH_BITS) - 1;
 
 	#[doc(hidden)]
 	pub unsafe fn new<T: Sync>(r: &'static T, generation: usize) -> Self {
 		Self {
 			tagged_ref: TaggedNonNull::new(
 				NonNull::from_ref(r).cast(),
-				generation,
+				generation << TaggedNonNull::<u8>::TAG_LOW_BITS,
 			),
 		}
 	}
 
 	pub fn as_ptr(self) -> NonNull<u8> { self.tagged_ref.as_ptr() }
-	pub fn generation(self) -> usize { self.tagged_ref.tag() }
+	pub fn generation(self) -> usize { self.tagged_ref.tag() >> TaggedNonNull::<u8>::TAG_LOW_BITS }
 	pub fn addr_eq(self, other: TaskRef) -> bool {
 		TaggedNonNull::addr_eq(&self.tagged_ref, &other.tagged_ref)
 	}

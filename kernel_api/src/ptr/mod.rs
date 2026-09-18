@@ -50,11 +50,11 @@ pub struct PointerError {}
 pub struct TaggedNonNull<T: ?Sized>(NonNull<T>);
 
 impl<T> TaggedNonNull<T> {
-	const TAG_HIGH_BITS: u32 = cfg_select! {
+	pub const TAG_HIGH_BITS: u32 = cfg_select! {
 		// FIXME(LA57)
 		target_arch = "x86_64" => 16,
 	};
-	const TAG_LOW_BITS: u32 = align_of::<T>().trailing_zeros();
+	pub const TAG_LOW_BITS: u32 = align_of::<T>().trailing_zeros();
 
 	const MAX_BOUND_VALUE: usize = {
 		assert!(
