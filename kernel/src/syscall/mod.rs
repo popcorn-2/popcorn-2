@@ -1,3 +1,4 @@
+use kernel_api::num::ufat;
 use kernel_api::ptr::TaggedNonNull;
 use kernel_api::syscall;
 use crate::{arch, ebr, percpu};
@@ -18,13 +19,9 @@ pub struct EntryParams {
 }
 
 #[derive(Debug)]
-pub struct ExitParams {
-	pub oid: u32,
-	pub method: u16,
-	pub interface: u64,
-	pub integer_args: [usize; 3],
-	pub oob_args: [usize; 2],
-	pub stack_frame: arch::SyscallStackFrame,
+pub enum ExitParams {
+	SwitchTask(EntryParams),
+	Return(ufat),
 }
 
 #[inline(always)]
@@ -42,7 +39,7 @@ pub unsafe fn entry(params: EntryParams) -> syscall::Result<ExitParams> {
 		let this = caller.handles().get(params.handle_num, &ebr)?;
 
 		let target = if this.is_system() {
-			return system::entry(&ebr, this.koid(), caller, params);
+			return system::entry(&ebr, this.koid(), caller, params).map(ExitParams::Return);
 		} else {
 			this.target().get().ok_or(syscall::Error::DeadServer)?
 		};
@@ -65,14 +62,14 @@ pub unsafe fn entry(params: EntryParams) -> syscall::Result<ExitParams> {
 		params.stack_frame.store(caller);
 		percpu!(current_task).set(Some(this.target()));
 
-		ExitParams {
-			oid: this.oid(),
+		ExitParams::SwitchTask(EntryParams {
+			handle_num: this.oid(),
 			method: params.method,
 			interface: params.interface,
 			integer_args: params.integer_args,
 			oob_args: params.oob_args,
 			stack_frame: arch::SyscallStackFrame::from(target),
-		}
+		})
 	};
 
 	debug!("exit syscall: {exit_params:#x?}");

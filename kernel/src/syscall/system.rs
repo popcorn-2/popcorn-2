@@ -3,6 +3,7 @@ use core::mem::ManuallyDrop;
 use core::ptr::NonNull;
 use core::sync::atomic::Ordering;
 use kernel_api::address_space::AddressSpace;
+use kernel_api::num::ufat;
 use kernel_api::ptr::TaggedNonNull;
 use kernel_api::syscall;
 use kernel_api::threading::TaskRef;
@@ -20,7 +21,7 @@ pub fn entry(
 	koid: TaggedNonNull<u64>,
 	caller: &Task,
 	params: EntryParams,
-) -> syscall::Result<ExitParams> {
+) -> syscall::Result<ufat> {
 	match koid.tag() & TAG_MASK {
 		TAG_ADDRESS_SPACE => {
 			let address_space = unsafe { Arc::<AddressSpaceInner>::from_raw(koid.as_ptr().as_ptr().cast_const().cast()) };

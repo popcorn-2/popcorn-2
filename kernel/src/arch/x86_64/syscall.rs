@@ -4,7 +4,9 @@ use crate::arch::x86_64::msr;
 use crate::percpu::Percpu;
 use core::mem::offset_of;
 use core::sync::atomic::Ordering;
+use kernel_api::num::ufat;
 use crate::{percpu, syscall};
+use crate::syscall::ExitParams;
 use crate::task::Task;
 
 global_asm!(
@@ -63,7 +65,7 @@ extern "rust-preserve-none" fn entry(
 	r9: usize,
 	rflags: u64,
 	rax: u64,
-) -> (u64, usize) {
+) -> (u64, u64) {
 	let fs_base;
 	unsafe { asm!("rdfsbase {:r}", out(reg) fs_base, options(nomem, nostack, preserves_flags)); }
 	let stack_frame = StackFrame {
@@ -89,12 +91,12 @@ extern "rust-preserve-none" fn entry(
 	};
 
 	// fixme: we probably leak kernel data in registers on return
-	match result {
-		Ok(exit_params) => {
+	match result.map_err(|err| ufat::new(0, (-(err as isize)).cast_unsigned())) {
+		Ok(ExitParams::SwitchTask(exit_params)) => {
 			percpu!(arch).tss.set_scratch(exit_params.stack_frame.tss_scratch);
 			unsafe { asm!("wrfsbase {:r}", in(reg) exit_params.stack_frame.fs_base, options(nomem, nostack, preserves_flags)); }
 
-			let rax = exit_params.oid.widen::<u64>() | (exit_params.method.widen::<u64>() << 32);
+			let rax = exit_params.handle_num.widen::<u64>() | (exit_params.method.widen::<u64>() << 32);
 
 			// this is kinda questionable since the compiler could put stuff after this
 			unsafe {
@@ -111,9 +113,9 @@ extern "rust-preserve-none" fn entry(
 				);
 			}
 
-			(rax, exit_params.integer_args[2])
+			(rax, exit_params.integer_args[2] as u64)
 		},
-		Err(e) => {
+		Ok(ExitParams::Return(val)) | Err(val) => {
 			// this is kinda questionable since the compiler could put stuff after this
 			unsafe {
 				asm!(
@@ -123,8 +125,8 @@ extern "rust-preserve-none" fn entry(
 					in("r11") stack_frame.rflags,
 				);
 			}
-			(/* rax: */ (-(e as i64)).cast_unsigned(), /* rdx: */ 0)
-		}
+			(/* rax: */ val.lower() as u64, /* rdx: */ val.upper() as u64)
+		},
 	}
 }
 
