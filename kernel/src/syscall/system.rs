@@ -1,8 +1,11 @@
 use alloc::sync::Arc;
 use core::mem::ManuallyDrop;
+use core::num::NonZero;
 use core::ptr::NonNull;
 use core::sync::atomic::Ordering;
 use kernel_api::address_space::AddressSpace;
+use kernel_api::mapping::{Config, Mmap, Ty};
+use kernel_api::memory::PAGE_SIZE;
 use kernel_api::num::ufat;
 use kernel_api::ptr::TaggedNonNull;
 use kernel_api::syscall;
@@ -26,7 +29,28 @@ pub fn entry(
 		TAG_ADDRESS_SPACE => {
 			let address_space = unsafe { Arc::<AddressSpaceInner>::from_raw(koid.as_ptr().as_ptr().cast_const().cast()) };
 			let address_space = ManuallyDrop::new(AddressSpace::__new(address_space));
-			todo!("{address_space:?}")
+
+			match params.interface {
+				1 => {
+					let count = params.integer_args[0];
+					let page_count = count.div_exact(PAGE_SIZE)
+						.ok_or(syscall::Error::InvalidArg)?;
+					let page_count = match NonZero::new(page_count) {
+						Some(page_count) => page_count,
+						None => return Ok(ufat::new(0, 0)),
+					};
+
+					let readable = params.integer_args[1] & 0b001 != 0;
+					let executable = params.integer_args[1] & 0b010 != 0;
+					let writeable = params.integer_args[1] & 0b100 != 0;
+
+					let mapping = Config::new(page_count, Ty::USER_MMAP)
+						.protection(writeable, executable, readable)
+						.map_in::<Mmap>("".into(), &*address_space)?;
+					Ok(ufat::new(0, mapping.mapping.virtual_valid_start().addr))
+				},
+				_ => Err(syscall::Error::UnknownProtocol),
+			}
 		},
 		TAG_TASK => {
 			let task_ref = unsafe { TaskRef::from_raw(koid) };
