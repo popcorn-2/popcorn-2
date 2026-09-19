@@ -49,6 +49,12 @@ pub fn entry(
 						.map_in::<Mmap>("".into(), &*address_space)?;
 					Ok(ufat::new(0, mapping.mapping.virtual_valid_start().addr))
 				},
+				2 => {
+					let ptr = params.integer_args[0];
+					let count = params.integer_args[1];
+					warn!("ignoring address space dealloc request for {count:#x} @ {ptr:#x}");
+					Ok(ufat::new(0, 0))
+				},
 				_ => Err(syscall::Error::UnknownProtocol),
 			}
 		},
