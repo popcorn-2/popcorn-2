@@ -1,8 +1,9 @@
+use alloc::sync::Arc;
 use core::num::NonZero;
 use kernel_api::mapping::{Config, Mmap, Ty};
 use kernel_api::memory::{VirtualAddress, PAGE_SIZE};
 use kernel_api::syscall;
-use kernel_api::syscall::PoppedHandle;
+use kernel_api::syscall::Handle;
 use crate::ebr;
 use crate::task::Task;
 
@@ -41,7 +42,7 @@ impl ProcInfo {
 	pub fn new_in(
 		task: &Task,
 		args: &[&str],
-		handles: Vec<(&str, PoppedHandle)>, // we need to transfer ownership of the popped handle
+		handles: Vec<(&str, Arc<Handle>)>, // we need to transfer ownership of the popped handle
 		info_ty: usize,
 		info_ptr: VirtualAddress,
 		ebr: &ebr::EpochGuard,
@@ -75,7 +76,7 @@ impl ProcInfo {
 		}
 
 		for (i, (name, handle)) in handles.into_iter().enumerate() {
-			let handle_num = task.handles.transfer(handle, ebr)?;
+			let handle_num = task.handles.push(handle, ebr)?;
 			let handle = NamedHandle {
 				name: next_string.addr(),
 				handle_num,
