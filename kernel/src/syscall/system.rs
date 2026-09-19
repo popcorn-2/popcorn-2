@@ -1,7 +1,13 @@
+use alloc::sync::Arc;
+use core::mem::ManuallyDrop;
+use core::ptr::NonNull;
+use core::sync::atomic::Ordering;
+use kernel_api::address_space::AddressSpace;
 use kernel_api::ptr::TaggedNonNull;
 use kernel_api::syscall;
 use kernel_api::threading::TaskRef;
 use crate::ebr;
+use crate::memory::r#virtual::AddressSpaceInner;
 use crate::syscall::{EntryParams, ExitParams};
 use crate::task::{Task, TaskRefExt};
 
@@ -17,7 +23,9 @@ pub fn entry(
 ) -> syscall::Result<ExitParams> {
 	match koid.tag() & TAG_MASK {
 		TAG_ADDRESS_SPACE => {
-			todo!()
+			let address_space = unsafe { Arc::<AddressSpaceInner>::from_raw(koid.as_ptr().as_ptr().cast_const().cast()) };
+			let address_space = ManuallyDrop::new(AddressSpace::__new(address_space));
+			todo!("{address_space:?}")
 		},
 		TAG_TASK => {
 			let task_ref = unsafe { TaskRef::from_raw(koid) };
@@ -40,6 +48,18 @@ impl IntoKoid for TaskRef {
 		TaggedNonNull::new(
 			this.as_ptr(),
 			tag,
+		)
+	}
+}
+
+impl IntoKoid for AddressSpace {
+	fn new_koid(this: AddressSpace) -> TaggedNonNull<u64> {
+		let this = ManuallyDrop::new(this);
+		let address_space = unsafe { Arc::from_raw(this.__extract_ptr(Ordering::SeqCst)) };
+		let address_space = address_space.downcast::<AddressSpaceInner>().expect("`AddressSpace` should contain an `AddressSpaceInner`");
+		TaggedNonNull::new(
+			unsafe { NonNull::new_unchecked(Arc::into_raw(address_space).cast_mut()) }.cast(),
+			TAG_ADDRESS_SPACE,
 		)
 	}
 }

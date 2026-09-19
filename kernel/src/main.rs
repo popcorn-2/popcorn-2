@@ -39,6 +39,7 @@ use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 use core::cmp::{max, min};
 #[cfg(kasan)] use core::marker::PhantomData;
 use core::time::Duration;
+use kernel_api::address_space::AddressSpace;
 use kernel_api::syscall::Handle;
 use kernel_api::threading::TaskRef;
 use utils::handoff::MemoryType;
@@ -366,11 +367,15 @@ fn init(handoff_data: *const utils::handoff::Data) -> (VirtualAddress, usize) {
 	let init_task = task::init(parsed_handoff.init_utable);
 
 	let task_handle = Handle::new_system(TaskRef::new_koid(init_task.as_ref()));
+	let address_space_handle = Handle::new_system(AddressSpace::new_koid(AddressSpace::clone(&init_task.address_space)));
 
 	let init_arg = task::ProcInfo::new_in(
 		init_task,
 		&["init", "--foo", "--bar"],
-		vec![("task.main", task_handle)],
+		vec![
+			("task.main", task_handle),
+			("address_space.main", address_space_handle),
+		],
 		0,
 		VirtualAddress::new(0),
 		&ebr,
