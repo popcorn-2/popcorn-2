@@ -30,6 +30,7 @@ extern crate alloc;
 extern crate unwinding;
 extern crate kernel_api; // to pull in asan runtime
 
+use alloc::sync::Arc;
 #[cfg(not(test))] use core::panic::PanicInfo;
 #[cfg(kasan)] use core::ptr::NonNull;
 #[cfg(kasan)] use kernel_api::allocator::Pmm;
@@ -38,12 +39,15 @@ use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 use core::cmp::{max, min};
 #[cfg(kasan)] use core::marker::PhantomData;
 use core::time::Duration;
+use kernel_api::syscall::Handle;
+use kernel_api::threading::TaskRef;
 use utils::handoff::MemoryType;
 use utils::handoff::MemoryMapEntry;
 #[cfg(kasan)] use crate::hal::paging2::Flags;
 use crate::hal::paging2::TTable;
 use crate::memory::watermark_allocator::WatermarkAllocator;
 use crate::task::Task;
+use crate::syscall::IntoKoid;
 
 mod abi;
 mod arch;
@@ -360,10 +364,13 @@ fn init(handoff_data: *const utils::handoff::Data) -> (VirtualAddress, usize) {
 
 	let ebr = percpu!(epoch).pin();
 	let init_task = task::init(parsed_handoff.init_utable);
+
+	let task_handle = Handle::new_system(TaskRef::new_koid(init_task.as_ref()));
+
 	let init_arg = task::ProcInfo::new_in(
 		init_task,
 		&["init", "--foo", "--bar"],
-		vec![],
+		vec![("task.main", task_handle)],
 		0,
 		VirtualAddress::new(0),
 		&ebr,

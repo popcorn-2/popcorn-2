@@ -194,7 +194,7 @@ impl Drop for HandleMap {
 
 union Object {
 	oid: u32,
-	koid: TaggedNonNull<u8>,
+	koid: TaggedNonNull<u64>,
 }
 
 unsafe impl Sync for Object {}
@@ -216,7 +216,7 @@ impl Handle {
 	}
 
 	/// Creates a new `Handle` object pointing to the passed system service.
-	pub fn new_system(koid: TaggedNonNull<u8>) -> Arc<Self> {
+	pub fn new_system(koid: TaggedNonNull<u64>) -> Arc<Self> {
 		Arc::new(Self {
 			endpoint: None,
 			object: Object { koid },
@@ -233,7 +233,7 @@ impl Handle {
 
 	/// Returns the object ID for a system handle.
 	#[inline]
-	pub fn koid(&self) -> TaggedNonNull<u8> {
+	pub fn koid(&self) -> TaggedNonNull<u64> {
 		assert!(self.is_system(), "cannot get `koid` for non-system handle");
 		// SAFETY: checked that `self` is system handle
 		unsafe { self.object.koid }

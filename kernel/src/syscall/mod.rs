@@ -5,6 +5,7 @@ use crate::task::TaskRefExt;
 use crate::task::Task;
 
 mod system;
+pub use system::IntoKoid;
 
 #[derive(Debug)]
 pub struct EntryParams {

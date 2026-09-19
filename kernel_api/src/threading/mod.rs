@@ -60,6 +60,18 @@ impl TaskRef {
 		}
 	}
 
+	#[doc(hidden)]
+	pub unsafe fn from_raw(ptr: TaskRefInner) -> Self {
+		Self {
+			tagged_ref: ptr,
+		}
+	}
+
+	#[doc(hidden)]
+	pub fn tag_raw(self) -> usize {
+		self.tagged_ref.tag()
+	}
+
 	pub fn as_ptr(self) -> NonNull<u64> { self.tagged_ref.as_ptr() }
 	pub fn generation(self) -> usize { self.tagged_ref.tag() >> TaskRefInner::TAG_LOW_BITS }
 	pub fn addr_eq(self, other: TaskRef) -> bool {
