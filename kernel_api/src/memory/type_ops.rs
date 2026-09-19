@@ -2,7 +2,7 @@ use core::ops::{Add, Sub};
 
 use super::{PAGE_SIZE, PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 
-impl const Add<usize> for VirtualAddress {
+const impl Add<usize> for VirtualAddress {
     type Output = Self;
 
     #[track_caller]
@@ -11,7 +11,7 @@ impl const Add<usize> for VirtualAddress {
     }
 }
 
-impl const Add<usize> for PhysicalAddress {
+const impl Add<usize> for PhysicalAddress {
     type Output = Self;
 
     #[track_caller]
@@ -21,7 +21,7 @@ impl const Add<usize> for PhysicalAddress {
 }
 
 /// Offsets the [`RawPage`] by `rhs` pages.
-impl const Add<usize> for RawPage {
+const impl Add<usize> for RawPage {
     type Output = Self;
 
     #[track_caller]
@@ -33,7 +33,7 @@ impl const Add<usize> for RawPage {
 }
 
 /// Offsets the [`RawPage`] by `rhs` pages.
-impl const Add<isize> for RawPage {
+const impl Add<isize> for RawPage {
 	type Output = Self;
 
 	#[track_caller]
@@ -45,7 +45,7 @@ impl const Add<isize> for RawPage {
 }
 
 /// Offsets the [`RawFrame`] by `rhs` frames.
-impl const Add<usize> for RawFrame {
+const impl Add<usize> for RawFrame {
     type Output = Self;
 
     #[track_caller]
@@ -57,7 +57,7 @@ impl const Add<usize> for RawFrame {
 }
 
 /// Offsets the [`RawFrame`] by `rhs` frames.
-impl const Add<isize> for RawFrame {
+const impl Add<isize> for RawFrame {
 	type Output = Self;
 
 	#[track_caller]
@@ -69,7 +69,7 @@ impl const Add<isize> for RawFrame {
 }
 
 /// Offsets the [`RawPage`] by `rhs` pages.
-impl const Sub<usize> for RawPage {
+const impl Sub<usize> for RawPage {
     type Output = Self;
 
     #[track_caller]
@@ -81,7 +81,7 @@ impl const Sub<usize> for RawPage {
 }
 
 /// Offsets the [`RawFrame`] by `rhs` frames.
-impl const Sub<usize> for RawFrame {
+const impl Sub<usize> for RawFrame {
     type Output = Self;
 
     #[track_caller]
@@ -92,7 +92,7 @@ impl const Sub<usize> for RawFrame {
     }
 }
 
-impl const Add<isize> for VirtualAddress {
+const impl Add<isize> for VirtualAddress {
     type Output = Self;
 
     #[track_caller]
@@ -110,7 +110,7 @@ impl const Add<isize> for VirtualAddress {
     }
 }
 
-impl const Add<isize> for PhysicalAddress {
+const impl Add<isize> for PhysicalAddress {
     type Output = Self;
 
     #[track_caller]
@@ -128,7 +128,7 @@ impl const Add<isize> for PhysicalAddress {
     }
 }
 
-impl const Sub<usize> for VirtualAddress {
+const impl Sub<usize> for VirtualAddress {
     type Output = Self;
 
     fn sub(self, rhs: usize) -> Self::Output {
@@ -136,7 +136,7 @@ impl const Sub<usize> for VirtualAddress {
     }
 }
 
-impl const Sub<usize> for PhysicalAddress {
+const impl Sub<usize> for PhysicalAddress {
     type Output = Self;
 
     fn sub(self, rhs: usize) -> Self::Output {
@@ -144,7 +144,7 @@ impl const Sub<usize> for PhysicalAddress {
     }
 }
 
-impl const Sub<isize> for VirtualAddress {
+const impl Sub<isize> for VirtualAddress {
     type Output = Self;
 
     #[track_caller]
@@ -162,7 +162,7 @@ impl const Sub<isize> for VirtualAddress {
     }
 }
 
-impl const Sub<isize> for PhysicalAddress {
+const impl Sub<isize> for PhysicalAddress {
     type Output = Self;
 
     #[track_caller]
@@ -181,7 +181,7 @@ impl const Sub<isize> for PhysicalAddress {
 }
 
 /// Returns the number of bytes between `self` and `rhs`.
-impl const Sub<Self> for VirtualAddress {
+const impl Sub<Self> for VirtualAddress {
     type Output = usize;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -190,7 +190,7 @@ impl const Sub<Self> for VirtualAddress {
 }
 
 /// Returns the number of bytes between `self` and `rhs`.
-impl const Sub<Self> for PhysicalAddress {
+const impl Sub<Self> for PhysicalAddress {
     type Output = usize;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -199,7 +199,7 @@ impl const Sub<Self> for PhysicalAddress {
 }
 
 /// Returns the number of frames between `self` and `rhs`.
-impl const Sub<Self> for RawFrame {
+const impl Sub<Self> for RawFrame {
     type Output = usize;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -208,7 +208,7 @@ impl const Sub<Self> for RawFrame {
 }
 
 /// Returns the number of pages between `self` and `rhs`.
-impl const Sub<Self> for RawPage {
+const impl Sub<Self> for RawPage {
     type Output = usize;
 
     fn sub(self, rhs: Self) -> Self::Output {

@@ -102,15 +102,12 @@ pub mod address_space {
 			#[link_name = "__popcorn_kpt_map_contiguous"]
 			pub safe fn map_contiguous(page: RawPage, frame: RawFrame, count: usize, ty: Ty, flags: u8) -> Result<(), MapPageError>;
 
-			#[expect(dead_code, reason = "not implemented yet")]
 			#[link_name = "__popcorn_kpt_unmap"]
 			pub safe fn unmap(page: RawPage) -> Result<(), ()>;
 
-			#[expect(dead_code, reason = "not implemented yet")]
 			#[link_name = "__popcorn_kpt_translate_page"]
 			pub safe fn translate_page(page: RawPage) -> Option<RawFrame>;
 
-			#[expect(dead_code, reason = "not implemented yet")]
 			#[link_name = "__popcorn_kpt_translate_addr"]
 			pub safe fn translate_addr(addr: VirtualAddress) -> Option<PhysicalAddress>;
 		}
@@ -128,11 +125,9 @@ pub mod address_space {
 			#[link_name = "__popcorn_upt_map_contiguous"]
 			pub safe fn map_contiguous(this: &AddressSpace, base_page: RawPage, base_frame: RawFrame, count: usize, ty: Ty, flags: u8) -> Result<(), MapPageError>;
 			
-			#[expect(dead_code, reason = "not implemented yet")]
 			#[link_name = "__popcorn_upt_unmap"]
 			pub safe fn unmap(this: *const (), page: RawPage) -> Result<(), ()>;
 
-			#[expect(dead_code, reason = "not implemented yet")]
 			#[link_name = "__popcorn_upt_translate_page"]
 			pub safe fn translate_page(this: &AddressSpace, page: RawPage) -> Option<RawFrame>;
 

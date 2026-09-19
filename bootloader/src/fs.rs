@@ -218,7 +218,7 @@ pub fn find_latest_kernel(fs: &mut SimpleFileSystem) -> Result<KernelVersion, Bo
 /// Returns firmware errors if file access failed.
 pub fn unpack_kernel(fs: ScopedProtocol<SimpleFileSystem>, version: KernelVersion) -> Result<(KernelFiles, Vec<u8>), Box<dyn Error>> {
 	let kernel_path = {
-		let path = format!("System\\kernel\\kernel-{version}.exec");
+		let path = format!("System\\kernel\\kernel-{version}.elf");
 		CString16::try_from(&*path)?
 	};
 	let symbol_path = {

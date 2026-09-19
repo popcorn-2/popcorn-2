@@ -4,6 +4,7 @@
 #![feature(error_iter)]
 #![feature(duration_integer_division)]
 #![feature(strict_provenance_lints)]
+#![feature(sliceindex_wrappers)]
 #![cfg_attr(doc, feature(rustdoc_missing_doc_code_examples))]
 #![no_main]
 #![no_std]

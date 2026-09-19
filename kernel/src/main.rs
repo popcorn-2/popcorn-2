@@ -16,7 +16,6 @@
 #![feature(derive_const)]
 #![feature(const_default)]
 #![feature(const_convert)]
-#![feature(abi_custom)]
 #![feature(integer_widen_truncate)]
 #![feature(rust_preserve_none_cc)]
 #![feature(decl_macro)]

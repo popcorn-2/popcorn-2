@@ -1,4 +1,3 @@
-use core::convert::Into;
 use core::mem::ManuallyDrop;
 use core::panic::Location;
 use core::sync::atomic::{AtomicPtr, AtomicU8, AtomicUsize, Ordering};

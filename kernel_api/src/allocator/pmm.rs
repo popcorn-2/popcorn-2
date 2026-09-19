@@ -188,7 +188,7 @@ unsafe impl<const RAM: bool> Sync for DynPmm<'_, RAM> {}
 // SAFETY: all implementations of Pmm are Sync, therefore &Pmm (which DynPmm is equivalent to) is Send
 unsafe impl<const RAM: bool> Send for DynPmm<'_, RAM> {}
 
-impl<'a, const RAM: bool, T: Pmm<RAM>> const From<&'a T> for DynPmm<'a, RAM> {
+const impl<'a, const RAM: bool, T: Pmm<RAM>> From<&'a T> for DynPmm<'a, RAM> {
 	fn from(value: &'a T) -> Self {
 		/// # Safety
 		/// `this` must be valid to convert to a reference to `T`.

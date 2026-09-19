@@ -457,9 +457,9 @@ checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
 
 [[package]]
 name = "gimli"
-version = "0.32.3"
+version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
+checksum = "1033caf0b349c518623b5396bfb2cf0bddf44f0306d543a250e5743297aafd10"
 
 [[package]]
 name = "hashbrown"
@@ -1087,10 +1087,10 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unwinding"
-version = "0.2.8"
-source = "git+https://github.com/popcorn-2/unwinding.git#604c2f86b69752256da66f328273342e90e72c00"
+version = "0.2.10"
+source = "git+https://github.com/popcorn-2/unwinding.git?rev=170bac3#170bac3efeb912dd303dd1610cf8919c01153192"
 dependencies = [
- "gimli 0.32.3",
+ "gimli 0.34.0",
  "log",
 ]
 

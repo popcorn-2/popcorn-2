@@ -128,18 +128,18 @@ mod private {
 	}
 }
 
-impl const private::TruncateTarget<ufat> for usize {
+const impl private::TruncateTarget<ufat> for usize {
 	fn truncate_from(val: ufat) -> Self { val.lower() }
 }
 
-impl const private::TruncateTarget<ufat> for u8 {
+const impl private::TruncateTarget<ufat> for u8 {
 	fn truncate_from(val: ufat) -> Self { val.0.truncate() }
 }
 
-impl const private::TruncateTarget<ufat> for u16 {
+const impl private::TruncateTarget<ufat> for u16 {
 	fn truncate_from(val: ufat) -> Self { val.0.truncate() }
 }
 
-impl const private::TruncateTarget<ufat> for u32 {
+const impl private::TruncateTarget<ufat> for u32 {
 	fn truncate_from(val: ufat) -> Self { val.0.truncate() }
 }

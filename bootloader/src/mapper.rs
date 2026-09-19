@@ -3,6 +3,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::{fmt, ptr};
+use core::index::Clamp;
 use log::{debug, warn};
 use uefi::{boot, Status, StatusExt as _};
 use uefi::boot::{AllocateType, MemoryType};
@@ -339,7 +340,7 @@ pub fn map_elf(file: &[u8], into: &mut PageTable, used_frames: &mut impl Extend<
 		// SAFETY: `segment_offset` is <4096 and mem is >=4096
 		let mem = unsafe { mem.add(segment_offset) };
 
-		debug!("copy {} bytes from {:#p} to {:#p} (starts {:x?})", data.len(), data, mem, &data[..16]);
+		debug!("copy {} bytes from {:#p} to {:#p} (starts {:x?})", data.len(), data, mem, &data[Clamp(..16)]);
 
 		// SAFETY: firmware returns unaliased writable memory
 		unsafe {

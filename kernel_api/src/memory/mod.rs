@@ -86,7 +86,7 @@ impl RawPage {
     }
 }
 
-impl const Deref for RawPage {
+const impl Deref for RawPage {
     type Target = VirtualAddress;
 
     fn deref(&self) -> &Self::Target {
@@ -150,7 +150,7 @@ impl RawFrame {
     }
 }
 
-impl const Deref for RawFrame {
+const impl Deref for RawFrame {
     type Target = PhysicalAddress;
 
     fn deref(&self) -> &Self::Target {
@@ -934,13 +934,13 @@ impl<T: ?Sized> From<*const T> for VirtualAddress {
     }
 }
 
-impl const From<RawFrame> for PhysicalAddress {
+const impl From<RawFrame> for PhysicalAddress {
     fn from(value: RawFrame) -> Self {
         value.inner
     }
 }
 
-impl const From<RawPage> for VirtualAddress {
+const impl From<RawPage> for VirtualAddress {
     fn from(value: RawPage) -> Self {
         value.inner
     }
@@ -955,9 +955,19 @@ impl Step for PhysicalAddress {
         Step::forward_checked(start.addr, count).map(Self::new)
     }
 
-    fn backward_checked(start: Self, count: usize) -> Option<Self> {
-        Step::backward_checked(start.addr, count).map(Self::new)
-    }
+	fn forward_overflowing(start: Self, count: usize) -> (Self, bool) {
+		let (val, overflow) = Step::forward_overflowing(start.addr, count);
+		(Self::new(val), overflow)
+	}
+
+	fn backward_checked(start: Self, count: usize) -> Option<Self> {
+	    Step::backward_checked(start.addr, count).map(Self::new)
+	}
+
+	fn backward_overflowing(start: Self, count: usize) -> (Self, bool) {
+		let (val, overflow) = Step::backward_overflowing(start.addr, count);
+		(Self::new(val), overflow)
+	}
 }
 
 impl Step for VirtualAddress {
@@ -969,9 +979,19 @@ impl Step for VirtualAddress {
         Step::forward_checked(start.addr, count).map(Self::new)
     }
 
-    fn backward_checked(start: Self, count: usize) -> Option<Self> {
-        Step::backward_checked(start.addr, count).map(Self::new)
-    }
+	fn forward_overflowing(start: Self, count: usize) -> (Self, bool) {
+		let (val, overflow) = Step::forward_overflowing(start.addr, count);
+		(Self::new(val), overflow)
+	}
+
+	fn backward_checked(start: Self, count: usize) -> Option<Self> {
+	    Step::backward_checked(start.addr, count).map(Self::new)
+	}
+
+	fn backward_overflowing(start: Self, count: usize) -> (Self, bool) {
+		let (val, overflow) = Step::backward_overflowing(start.addr, count);
+		(Self::new(val), overflow)
+	}
 }
 
 impl Step for RawFrame {
@@ -985,11 +1005,23 @@ impl Step for RawFrame {
         ))
     }
 
-    fn backward_checked(start: Self, count: usize) -> Option<Self> {
-        Some(Self::new(
-            Step::backward_checked(start.addr, count.checked_mul(PAGE_SIZE)?)?
-        ))
-    }
+	fn forward_overflowing(start: Self, count: usize) -> (Self, bool) {
+		let count = count.wrapping_mul(PAGE_SIZE);
+		let (val, overflow) = Step::forward_overflowing(start.addr, count);
+		(Self::new(val), overflow)
+	}
+
+	fn backward_checked(start: Self, count: usize) -> Option<Self> {
+	    Some(Self::new(
+	        Step::backward_checked(start.addr, count.checked_mul(PAGE_SIZE)?)?
+	    ))
+	}
+
+	fn backward_overflowing(start: Self, count: usize) -> (Self, bool) {
+		let count = count.wrapping_mul(PAGE_SIZE);
+		let (val, overflow) = Step::backward_overflowing(start.addr, count);
+		(Self::new(val), overflow)
+	}
 }
 
 impl Step for RawPage {
@@ -1003,11 +1035,23 @@ impl Step for RawPage {
         ))
     }
 
-    fn backward_checked(start: Self, count: usize) -> Option<Self> {
-        Some(Self::new(
-            Step::backward_checked(start.addr, count.checked_mul(PAGE_SIZE)?)?
-        ))
-    }
+	fn forward_overflowing(start: Self, count: usize) -> (Self, bool) {
+		let count = count.wrapping_mul(PAGE_SIZE);
+		let (val, overflow) = Step::forward_overflowing(start.addr, count);
+		(Self::new(val), overflow)
+	}
+
+	fn backward_checked(start: Self, count: usize) -> Option<Self> {
+	    Some(Self::new(
+	        Step::backward_checked(start.addr, count.checked_mul(PAGE_SIZE)?)?
+	    ))
+	}
+
+	fn backward_overflowing(start: Self, count: usize) -> (Self, bool) {
+		let count = count.wrapping_mul(PAGE_SIZE);
+		let (val, overflow) = Step::backward_overflowing(start.addr, count);
+		(Self::new(val), overflow)
+	}
 }
 
 impl fmt::LowerHex for VirtualAddress {

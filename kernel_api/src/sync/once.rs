@@ -197,7 +197,7 @@ impl Once {
     }
 }
 
-impl const Default for Once {
+const impl Default for Once {
     fn default() -> Self {
         Self::new()
     }
@@ -329,7 +329,7 @@ impl<T> OnceLock<T> {
     }
 }
 
-impl<T> const Default for OnceLock<T> {
+const impl<T> Default for OnceLock<T> {
 	fn default() -> Self {
 		Self::new()
 	}

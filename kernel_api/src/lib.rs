@@ -29,7 +29,6 @@
 #![cfg_attr(feature = "full", feature(sanitize))]
 #![cfg_attr(feature = "full", feature(negative_impls))]
 #![cfg_attr(feature = "full", feature(decl_macro))]
-#![cfg_attr(feature = "full", feature(never_type))]
 #![cfg_attr(feature = "full", feature(const_default))]
 
 #![allow(type_alias_bounds)]

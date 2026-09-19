@@ -148,7 +148,7 @@ impl Privilege {
     }
 }*/
 
-impl const From<Privilege> for u64 {
+const impl From<Privilege> for u64 {
     fn from(value: Privilege) -> Self {
         match value {
             Privilege::Ring0 => 0,
