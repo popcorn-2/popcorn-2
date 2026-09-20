@@ -3,24 +3,14 @@ use core::ptr::NonNull;
 use kernel_api::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
 use core::range::Range;
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct Data {
 	pub framebuffer: Framebuffer,
 	pub memory: Memory,
 	pub log: Logging,
 	pub rsdp: PhysicalAddress,
-	pub init_entry: VirtualAddress,
-}
-
-impl Debug for Data {
-	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("Data")
-				.field("framebuffer", &self.framebuffer)
-				.field("memory", &self.memory)
-				.field("log", &self.log)
-				.field("rsdp", &self.rsdp)
-		        .finish_non_exhaustive()
-	}
+	pub init: Init,
 }
 
 #[derive(Clone, Copy)]
@@ -120,4 +110,12 @@ impl Debug for Logging {
 		f.debug_struct("Logging")
 				.finish_non_exhaustive()
 	}
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct Init {
+	pub entrypoint: VirtualAddress,
+	pub info_ty: usize,
+	pub info_ptr: VirtualAddress,
 }
