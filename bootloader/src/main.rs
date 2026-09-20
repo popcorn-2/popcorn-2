@@ -126,7 +126,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 	}
 
 	debug!("loading `init`");
-	let init_entry = mapper::map_elf(&init_exec, &mut init_u_table, &mut used_frames)?;
+	let (init_entry, init_table) = mapper::map_elf(&init_exec, &mut init_u_table, &mut used_frames)?;
 	let used_mem_frames = Vec::leak(used_frames);
 	let used_page_table_frames = Vec::leak({
 		let mut bootloader = bootloader_u_table.empty_used_frames();
@@ -162,7 +162,7 @@ fn main() -> Result<Infallible, Box<dyn Error>> {
 			symbol_map: None,
 		},
 		rsdp,
-		init_entry,
+		init_entry: (init_entry, 1, init_table),
 	};
 
 	// SAFETY: only actions that happen after exiting boot services are switching

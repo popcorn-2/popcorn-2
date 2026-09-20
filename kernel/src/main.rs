@@ -149,7 +149,7 @@ mod handoff {
 		pub stack: utils::handoff::Stack,
 		pub bootloader_utable: TTableTy,
 		pub init_utable: (TTableTy, RawPage),
-		pub init_entry: VirtualAddress,
+		pub init_entry: (VirtualAddress, usize, VirtualAddress),
 	}
 
 	pub fn process_handoff(handoff_data: &*const utils::handoff::Data) -> ParsedHandoff<'_> {
@@ -376,12 +376,12 @@ fn init(handoff_data: *const utils::handoff::Data) -> (VirtualAddress, usize) {
 			("task.main", task_handle),
 			("address_space.main", address_space_handle),
 		],
-		0,
-		VirtualAddress::new(0),
+		parsed_handoff.init_entry.1,
+		parsed_handoff.init_entry.2,
 		&ebr,
 	).expect("failed to set up startup info for pid0");
 
-	(parsed_handoff.init_entry, init_arg.addr)
+	(parsed_handoff.init_entry.0, init_arg.addr)
 }
 
 #[unsafe(export_name = "_start")]

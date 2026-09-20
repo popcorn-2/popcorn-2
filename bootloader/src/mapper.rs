@@ -8,7 +8,7 @@ use log::{debug, warn};
 use uefi::{boot, Status, StatusExt as _};
 use uefi::boot::{AllocateType, MemoryType};
 use elf::{segment, File, OsAbi, Isa};
-use elf::segment::Flags;
+use elf::segment::{Flags, Type};
 use kernel_api::mapping::Ty;
 use kernel_api::memory::{RawFrame, RawPage, VirtualAddress};
 use kernel_api::memory::asan::{count_to_shadow, mem_to_shadow};
@@ -307,7 +307,16 @@ impl Mapper {
 	}
 }
 
-pub fn map_elf(file: &[u8], into: &mut PageTable, used_frames: &mut impl Extend<RawFrame>) -> Result<VirtualAddress, Box<dyn core::error::Error>> {
+#[repr(C)]
+struct ElfLoaderInfo {
+	magic: [u8; 4],
+	at_entry: VirtualAddress,
+	at_base: VirtualAddress,
+	at_phdr: VirtualAddress,
+	at_phnum: usize,
+}
+
+pub fn map_elf(file: &[u8], into: &mut PageTable, used_frames: &mut impl Extend<RawFrame>) -> Result<(VirtualAddress, VirtualAddress), Box<dyn core::error::Error>> {
 	let file = File::try_new(file)?;
 
 	file.load_with(|segment, data| -> Result<(), Box<dyn core::error::Error>> {
@@ -360,5 +369,44 @@ pub fn map_elf(file: &[u8], into: &mut PageTable, used_frames: &mut impl Extend<
 		Ok(())
 	})?;
 
-	Ok(VirtualAddress::new(file.entry_point()))
+	debug!("creating ELF info struct for PID0");
+
+	const {
+		assert!(size_of::<ElfLoaderInfo>() <= boot::PAGE_SIZE, "elf info struct needs to fit in one page");
+		assert!(align_of::<ElfLoaderInfo>() <= boot::PAGE_SIZE, "elf info struct needs to be aligned to one page");
+	}
+
+	let mem = boot::allocate_pages(
+		AllocateType::AnyPages,
+		MemoryType::LOADER_DATA,
+		1,
+	)?;
+
+	let pheader = file.segments().find(|segment| segment.ty() == Type::PROGRAM_HEADER);
+	unsafe {
+		mem.cast::<ElfLoaderInfo>().write(
+			ElfLoaderInfo {
+				magic: *b"\x7fELF",
+				at_entry: VirtualAddress::new(file.entry_point()),
+				at_base: VirtualAddress::new(0),
+				at_phdr: pheader.map(|segment| segment.vaddr()).unwrap_or(VirtualAddress::new(0)),
+				at_phnum: pheader.map(|segment| segment.mem_size() / 0x38).unwrap_or(0),
+			}
+		);
+	}
+
+	let base_frame = RawFrame::new(mem.expose_provenance().get());
+	used_frames.extend([base_frame]);
+
+	let base_page = into.highest_addr();
+
+	into.try_map_range_with(
+		base_page,
+		base_frame,
+		1,
+		TableEntryFlags::USER_ACCESSIBLE,
+		Ty::USER_CODE,
+	)?;
+
+	Ok((VirtualAddress::new(file.entry_point()), *base_page))
 }

@@ -9,7 +9,7 @@ pub struct Data {
 	pub memory: Memory,
 	pub log: Logging,
 	pub rsdp: PhysicalAddress,
-	pub init_entry: VirtualAddress,
+	pub init_entry: (VirtualAddress, usize, VirtualAddress),
 }
 
 impl Debug for Data {
