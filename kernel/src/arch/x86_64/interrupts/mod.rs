@@ -8,6 +8,7 @@ use core::sync::atomic::Ordering;
 use crate::percpu::Percpu;
 
 pub use idt::IDT;
+use kernel_api::ptr::LocalUser;
 use crate::percpu;
 
 global_asm!(
@@ -133,6 +134,25 @@ extern "rust-preserve-none" fn x86_64_interrupt_entry(data: &mut StackFrame) {
 	let data = AssertUnwindSafe(data);
 	match crate::panicking::catch_unwind(move || {
 		info!("[amd64] vector {:#x?}", data);
+		if data.num == 0x06 {
+			let ptr = unsafe { LocalUser::<*const u8>::new(data.rip as usize) };
+			if let Ok(0x0f) = ptr.read()
+				&& let Ok(0x0b) = unsafe { ptr.add(1) }.read()
+				&& let Ok(27) = unsafe { ptr.add(2) }.read()
+			{
+				// trap with string
+				let mut ptr = unsafe { ptr.add(3) };
+				error!("userspace trap:");
+				for _ in 0..256 {
+					let Ok(c) = ptr.read() else { break; };
+					if c == 0 { break; };
+					let c = c as char;
+					sprint!("{c}");
+					unsafe { ptr = ptr.add(1) };
+				}
+				sprintln!();
+			}
+		}
 		todo!()
 	}) {
 		Ok(_) => {},
