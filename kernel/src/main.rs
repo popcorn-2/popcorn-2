@@ -149,7 +149,7 @@ mod handoff {
 		pub stack: utils::handoff::Stack,
 		pub bootloader_utable: TTableTy,
 		pub init_utable: (TTableTy, RawPage),
-		pub init_entry: VirtualAddress,
+		pub init: utils::handoff::Init,
 	}
 
 	pub fn process_handoff(handoff_data: &*const utils::handoff::Data) -> ParsedHandoff<'_> {
@@ -184,7 +184,7 @@ mod handoff {
 			let rsdp = unsafe { (**handoff_data).rsdp };
 			let framebuffer = unsafe { (**handoff_data).framebuffer };
 			let stack = unsafe { (**handoff_data).memory.stack };
-			let init_entry = unsafe { (**handoff_data).init_entry };
+			let init = unsafe { (**handoff_data).init };
 
 			ParsedHandoff {
 				memory_map,
@@ -194,7 +194,7 @@ mod handoff {
 				stack,
 				bootloader_utable,
 				init_utable: u_table_pid0,
-				init_entry,
+				init,
 			}
 		})
 	}
@@ -376,12 +376,12 @@ fn init(handoff_data: *const utils::handoff::Data) -> (VirtualAddress, usize) {
 			("task.main", task_handle),
 			("address_space.main", address_space_handle),
 		],
-		0,
-		VirtualAddress::new(0),
+		parsed_handoff.init.info_ty,
+		parsed_handoff.init.info_ptr,
 		&ebr,
 	).expect("failed to set up startup info for pid0");
 
-	(parsed_handoff.init_entry, init_arg.addr)
+	(parsed_handoff.init.entrypoint, init_arg.addr)
 }
 
 #[unsafe(export_name = "_start")]
