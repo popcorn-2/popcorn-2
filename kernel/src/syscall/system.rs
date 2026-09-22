@@ -25,12 +25,12 @@ pub fn entry(
 	caller: &Task,
 	params: EntryParams,
 ) -> syscall::Result<ufat> {
-	match koid.tag() & TAG_MASK {
-		TAG_ADDRESS_SPACE => {
+	match (koid.tag() & TAG_MASK, params.interface) {
+		(TAG_ADDRESS_SPACE, 0) => {
 			let address_space = unsafe { Arc::<AddressSpaceInner>::from_raw(koid.as_ptr().as_ptr().cast_const().cast()) };
 			let address_space = ManuallyDrop::new(AddressSpace::__new(address_space));
 
-			match params.interface {
+			match params.method {
 				1 => {
 					let count = params.integer_args[0];
 					let page_count = count.div_exact(PAGE_SIZE)
@@ -58,12 +58,12 @@ pub fn entry(
 				_ => Err(syscall::Error::UnknownProtocol),
 			}
 		},
-		TAG_TASK => {
+		(TAG_TASK, 2) => {
 			let task_ref = unsafe { TaskRef::from_raw(koid) };
 			let task = task_ref.get().ok_or(syscall::Error::DeadServer)?;
 			todo!("{:?}", task);
 		},
-		tag => unreachable!("invalid koid tag: {tag:#x}"),
+		(tag, interface) => unreachable!("invalid koid (tag: {tag:#x}, interface: {interface:#x})"),
 	}
 }
 
