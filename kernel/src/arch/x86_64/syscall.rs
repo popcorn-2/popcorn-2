@@ -77,8 +77,8 @@ extern "rust-preserve-none" fn entry(
 	};
 
 	let params = syscall::EntryParams {
-		handle_num: rax.truncate::<u32>(),
-		method: (rax >> 32).truncate::<u16>(),
+		handle_num: (rax >> 16).truncate::<u32>(),
+		method: rax.truncate::<u16>(),
 		interface: r12,
 		integer_args: [rdi, rsi, rdx],
 		oob_args: [r8, r9],
@@ -96,7 +96,7 @@ extern "rust-preserve-none" fn entry(
 			percpu!(arch).tss.set_scratch(exit_params.stack_frame.tss_scratch);
 			unsafe { asm!("wrfsbase {:r}", in(reg) exit_params.stack_frame.fs_base, options(nomem, nostack, preserves_flags)); }
 
-			let rax = exit_params.handle_num.widen::<u64>() | (exit_params.method.widen::<u64>() << 32);
+			let rax = (exit_params.handle_num.widen::<u64>() << 16) | exit_params.method.widen::<u64>();
 
 			// this is kinda questionable since the compiler could put stuff after this
 			unsafe {
