@@ -1,7 +1,9 @@
 use alloc::sync::Arc;
+use core::bstr::ByteStr;
 use core::mem::ManuallyDrop;
 use core::num::NonZero;
 use core::ptr::NonNull;
+use core::slice;
 use core::sync::atomic::Ordering;
 use kernel_api::address_space::AddressSpace;
 use kernel_api::mapping::{Config, Mmap, Ty};
@@ -15,9 +17,27 @@ use crate::memory::r#virtual::AddressSpaceInner;
 use crate::syscall::{EntryParams, ExitParams};
 use crate::task::{Task, TaskRefExt};
 
-const TAG_ADDRESS_SPACE: usize = 0b01;
+const TAG_ADDRESS_SPACE: usize = 0b001;
 const TAG_TASK: usize = 0b010;
+const TAG_CONSOLE: usize = 0b011;
 const TAG_MASK: usize = 0b111;
+
+fn get_oob_args<'a>(caller: &Task, params: &EntryParams, count: usize) -> syscall::Result<[&'a [u8]; 2]> {
+	let mut offset = 0usize;
+	let mut idx = 0;
+	let map_arg = |arg: &usize| {
+		if idx >= count { return Ok(&[] as &[u8]); }
+		idx += 1;
+
+		if offset.saturating_add(*arg) > PAGE_SIZE { return Err(syscall::Error::InvalidArg); }
+		// SAFETY: checked won't exceed trampoline page size
+		let start = unsafe { caller.syscall_trampoline_page().add(offset) };
+		offset += *arg;
+		// SAFETY: syscall trampoline page is always valid to read
+		Ok(unsafe { slice::from_raw_parts(start, *arg) })
+	};
+	params.oob_args.each_ref().try_map(map_arg)
+}
 
 pub fn entry(
 	ebr: &ebr::EpochGuard,
@@ -63,7 +83,19 @@ pub fn entry(
 			let task = task_ref.get().ok_or(syscall::Error::DeadServer)?;
 			todo!("{:?}", task);
 		},
-		(tag, interface) => unreachable!("invalid koid (tag: {tag:#x}, interface: {interface:#x})"),
+		(TAG_CONSOLE, 1) => {
+			match params.method {
+				1 => {
+					let oob_args = get_oob_args(caller, &params, 1)?;
+					let payload = ByteStr::new(oob_args[0]);
+					sprint!("{payload}");
+					Ok(ufat::new(0, payload.len()))
+				},
+				_ => Err(syscall::Error::UnsupportedProtocol),
+			}
+		}
+		(TAG_ADDRESS_SPACE..=TAG_CONSOLE, _) => Err(syscall::Error::UnsupportedProtocol),
+		(tag, _) => unreachable!("invalid koid tag: {tag:#x}"),
 	}
 }
 
@@ -93,4 +125,11 @@ impl IntoKoid for AddressSpace {
 			TAG_ADDRESS_SPACE,
 		)
 	}
+}
+
+pub fn new_koid_serial() -> TaggedNonNull<u64> {
+	TaggedNonNull::new(
+		NonNull::dangling(),
+		TAG_CONSOLE,
+	)
 }

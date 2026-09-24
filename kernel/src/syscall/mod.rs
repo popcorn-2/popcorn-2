@@ -6,7 +6,7 @@ use crate::task::TaskRefExt;
 use crate::task::Task;
 
 mod system;
-pub use system::IntoKoid;
+pub use system::{IntoKoid, new_koid_serial};
 
 #[derive(Debug)]
 pub struct EntryParams {

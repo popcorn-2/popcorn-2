@@ -20,6 +20,8 @@
 #![feature(rust_preserve_none_cc)]
 #![feature(decl_macro)]
 #![feature(exact_div)]
+#![feature(array_try_map)]
+#![feature(bstr)]
 #![no_std]
 #![no_main]
 
@@ -368,6 +370,7 @@ fn init(handoff_data: *const utils::handoff::Data) -> (VirtualAddress, usize) {
 
 	let task_handle = Handle::new_system(TaskRef::new_koid(init_task.as_ref()));
 	let address_space_handle = Handle::new_system(AddressSpace::new_koid(AddressSpace::clone(&init_task.address_space)));
+	let io_handle = Handle::new_system(syscall::new_koid_serial());
 
 	let init_arg = task::ProcInfo::new_in(
 		init_task,
@@ -375,6 +378,8 @@ fn init(handoff_data: *const utils::handoff::Data) -> (VirtualAddress, usize) {
 		vec![
 			("task.main", task_handle),
 			("address_space.main", address_space_handle),
+			("io.stdout", Arc::clone(&io_handle)),
+			("io.stderr", io_handle),
 		],
 		parsed_handoff.init.info_ty,
 		parsed_handoff.init.info_ptr,
