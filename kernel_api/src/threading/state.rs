@@ -1,21 +1,20 @@
 use core::fmt::{Debug, Formatter};
-use core::sync::atomic::Ordering;
-use crate::num::{ufat, AtomicUfat};
+use core::sync::atomic::{AtomicU64, Ordering};
 
-const fn into_raw(state: ThreadState) -> ufat {
+const fn into_raw(state: ThreadState) -> u64 {
 	// SAFETY: pointer is derived from a reference to a `repr(u8)` enum
-	let tag = usize::from(unsafe { *(&raw const state).cast::<u8>() });
+	let tag = u64::from(unsafe { *(&raw const state).cast::<u8>() });
 
 	match state {
-		ThreadState::Killed(exit_code) => {
+		ThreadState::Killed(exit_code) | ThreadState::Zombie(exit_code) => {
 			let upper = exit_code.cast_unsigned();
-			ufat::new(upper, tag)
+			u64::from(upper) | (tag << 32)
 		}
-		_ => ufat::new(0, tag),
+		_ => tag << 32,
 	}
 }
 
-fn from_raw(raw: ufat) -> ThreadState {
+fn from_raw(raw: u64) -> ThreadState {
 	let tag = raw.truncate::<u8>();
 
 	match tag {
@@ -23,13 +22,14 @@ fn from_raw(raw: ufat) -> ThreadState {
 		1 => ThreadState::Running,
 		2 => ThreadState::Parked,
 		3 => ThreadState::NearlyParked,
-		4 => ThreadState::Killed(raw.upper().cast_signed()),
+		4 => ThreadState::Killed((raw >> 32).truncate::<u32>().cast_signed()),
+		5 => ThreadState::Zombie((raw >> 32).truncate::<u32>().cast_signed()),
 		_ => unreachable!("invalid thread state"),
 	}
 }
 
 /// An atomic version of [`ThreadState`].
-pub struct AtomicThreadState(AtomicUfat);
+pub struct AtomicThreadState(AtomicU64);
 
 impl AtomicThreadState {
 	/// Creates a new `AtomicThreadState` from the given [`ThreadState`].
@@ -44,7 +44,7 @@ impl AtomicThreadState {
 	/// ```
 	#[must_use]
 	pub const fn new(state: ThreadState) -> Self {
-		Self(AtomicUfat::new(into_raw(state)))
+		Self(AtomicU64::new(into_raw(state)))
 	}
 
 	/// Atomically updates `self` to `state`.
@@ -245,6 +245,8 @@ pub enum ThreadState {
 	Parked = 2,
 	/// The thread is in the process of being parked.
 	NearlyParked = 3,
+	/// The thread has exited with a return code and is waiting to be removed from runqueues.
+	Killed(i32) = 4,
 	/// The thread has exited with a return code.
-	Killed(isize) = 4,
+	Zombie(i32) = 5,
 }
