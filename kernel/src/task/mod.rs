@@ -19,6 +19,10 @@ mod startup;
 
 pub use scheduler::{RoundRobin as Scheduler, scheduler_entry};
 pub use startup::ProcInfo;
+use kernel_api::sync::Spinlock;
+use crate::task::collections::{PopResult, SinglyLinkedList};
+
+static FREE_TASK_LIST: Spinlock<SinglyLinkedList> = Spinlock::new(SinglyLinkedList::new());
 
 #[derive(Debug)]
 pub struct OwnedTask(&'static Task);
@@ -69,9 +73,16 @@ impl Task {
 	// must pass task in killed state to `with`, with other fields in a default/empty state
 	pub fn alloc(address_space: AddressSpace, with: impl FnOnce(&'static Task)) -> Result<OwnedTask, AllocError> {
 		let backing = {
-			let task = Box::new_uninit_in(alloc::alloc::Global);
-			let task = Box::write(task, Task::new(address_space));
-			OwnedTask(Box::leak(task))
+			let backing = match FREE_TASK_LIST.lock().pop_front() {
+				PopResult::Some(task) => Some(task),
+				PopResult::None => None,
+				PopResult::Outdated(_) => unreachable!("tasks already in free list should not get invalidated")
+			};
+			backing.unwrap_or_else(|| {
+				let task = Box::new_uninit_in(alloc::alloc::Global);
+				let task = Box::write(task, Task::new(address_space));
+				OwnedTask(Box::leak(task))
+			})
 		};
 
 		let syscall_trampoline_map = Config::new(const { NonZero::new(1).unwrap() }, Ty::USER_PACKET_BUFFER)
@@ -96,7 +107,7 @@ impl Task {
 		if this.0.intrusive.generation.load(Ordering::Acquire) == TaskRef::MAX_GENERATION {
 			warn!("task hit maximum generation - leaking");
 		} else {
-			// FIXME: memory leak - add to free list
+			FREE_TASK_LIST.lock().push_back(this);
 		}
 	}
 
