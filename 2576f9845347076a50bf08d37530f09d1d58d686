@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "76286dbb_461831fd",
+        "filename": "kernel_api/src/bridge/kernel_abi_v1.rs",
+        "patchSetId": 2
+      },
+      "lineNbr": 73,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-09-25T14:07:11Z",
+      "side": 0,
+      "message": "can the relevant exports in the kernel also be removed",
+      "range": {
+        "startLine": 73,
+        "startChar": 2,
+        "endLine": 73,
+        "endChar": 65
+      },
+      "revId": "2576f9845347076a50bf08d37530f09d1d58d686",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    }
+  ]
+}
