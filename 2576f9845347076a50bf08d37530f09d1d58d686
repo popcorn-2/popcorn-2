@@ -22,6 +22,30 @@
       },
       "revId": "2576f9845347076a50bf08d37530f09d1d58d686",
       "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "43bc17c5_4956eeba",
+        "filename": "kernel_api/src/bridge/kernel_abi_v1.rs",
+        "patchSetId": 2
+      },
+      "lineNbr": 73,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-09-25T14:08:43Z",
+      "side": 0,
+      "message": "have already been removed in previous scheduler cleanup",
+      "parentUuid": "76286dbb_461831fd",
+      "range": {
+        "startLine": 73,
+        "startChar": 2,
+        "endLine": 73,
+        "endChar": 65
+      },
+      "revId": "2576f9845347076a50bf08d37530f09d1d58d686",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
     }
   ]
 }
