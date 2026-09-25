@@ -108,9 +108,9 @@ impl<T> TaggedNonNull<T> {
 	}
 
 	/// Compares the *addresses* of the two pointers for equality,
-	/// ignoring the tag value, and any metadata in fat pointers.
+	/// ignoring the tag value.
 	pub fn addr_eq(&self, other: &Self) -> bool {
-		core::ptr::addr_eq(self.0.as_ptr(), other.0.as_ptr())
+		core::ptr::addr_eq(self.as_ptr().as_ptr(), other.as_ptr().as_ptr())
 	}
 }
 
