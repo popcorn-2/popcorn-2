@@ -50,4 +50,6 @@ impl TaskRef {
 	pub fn addr_eq(self, other: TaskRef) -> bool {
 		TaskRefInner::addr_eq(&self.tagged_ref, &other.tagged_ref)
 	}
+
+	pub fn into_raw(self) -> TaggedNonNull<u64> { self.tagged_ref }
 }

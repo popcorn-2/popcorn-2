@@ -112,6 +112,14 @@ impl<T> TaggedNonNull<T> {
 	pub fn addr_eq(&self, other: &Self) -> bool {
 		core::ptr::addr_eq(self.as_ptr().as_ptr(), other.as_ptr().as_ptr())
 	}
+
+	pub fn as_tagged_ptr(&self) -> NonNull<T> {
+		self.0
+	}
+
+	pub fn from_tagged_ptr(ptr: NonNull<T>) -> Self {
+		Self(ptr)
+	}
 }
 
 impl<T> fmt::Pointer for TaggedNonNull<T> {
