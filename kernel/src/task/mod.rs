@@ -77,9 +77,11 @@ impl Task {
 		let syscall_trampoline_map = Config::new(const { NonZero::new(1).unwrap() }, Ty::USER_PACKET_BUFFER)
 			.protection(true, false, true)
 			.map_in::<Mmap>("syscall_trampoline".into(), &backing.0.address_space)?;
+		let syscall_trampoline_user = syscall_trampoline_map.mapping.as_ptr().addr();
 		// SAFETY: syscall_trampoline is always a single real page
 		let syscall_trampoline = unsafe { syscall_trampoline_map.mapping.physical_start().unwrap_unchecked() };
 		backing.0.syscall_trampoline.store(syscall_trampoline.to_virtual().as_ptr(), Ordering::Relaxed);
+		backing.0.registers.set_syscall_trampoline(syscall_trampoline_user);
 		drop(syscall_trampoline_map);
 
 		with(&backing.0);

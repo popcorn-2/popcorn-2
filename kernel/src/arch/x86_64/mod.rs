@@ -13,10 +13,12 @@ pub use syscall::StackFrame as SyscallStackFrame;
 pub use interrupts::StackFrame as ReturnFrame;
 
 use core::arch::asm;
+use core::sync::atomic::Ordering;
 use kernel_api::is_x86_feature_detected;
 use kernel_api::sync::LazyLock;
 use kernel_api::memory::VirtualAddress;
 use crate::percpu;
+use crate::task::TaskRefExt;
 
 pub fn target_bsp_start() {
 	get_and_disable_interrupts();
@@ -107,10 +109,15 @@ impl Percpu {
 
 pub fn switch_to_userspace(entrypoint: VirtualAddress, arg: usize) -> ! {
 	debug!("switch to userspace @ {entrypoint:x?}");
+	let gsbase = if let Some(task) = percpu!(current_task).get().get() {
+		task.registers.gs_base.load(Ordering::Relaxed)
+	} else { 0 };
+	debug!("loading gsbase with {gsbase:#x}");
 	unsafe {
 		asm!(
 			"cli", // so we can swapgs without being interrupted
 			"swapgs",
+			"wrgsbase {}",
 			// zero all registers to not leak to userspace
 			"xor eax, eax",
 			"xor ebx, ebx",
@@ -126,6 +133,7 @@ pub fn switch_to_userspace(entrypoint: VirtualAddress, arg: usize) -> ! {
 			"xor r14d, r14d",
 			"xor r15d, r15d",
 			"sysretq",
+			in(reg) gsbase,
 			in("rcx") entrypoint.addr,
 			in("rdi") arg,
 			in("r11") 0x202, // enable interrupts, set reserved bit
