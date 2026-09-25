@@ -80,8 +80,16 @@ pub fn entry(
 		},
 		(TAG_TASK, 2) => {
 			let task_ref = unsafe { TaskRef::from_raw(koid) };
-			let task = task_ref.get().ok_or(syscall::Error::DeadServer)?;
-			todo!("{:?}", task);
+			if caller.as_ref() != task_ref {
+				return Err(syscall::Error::FutureCompat);
+			}
+			match params.method {
+				6 => {
+					percpu!(needs_reschedule).set(true);
+					Ok(ufat::new(0, 0))
+				}
+				_ => Err(syscall::Error::UnsupportedProtocol),
+			}
 		},
 		(TAG_CONSOLE, 1) => {
 			match params.method {
