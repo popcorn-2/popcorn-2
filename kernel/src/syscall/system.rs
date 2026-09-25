@@ -12,7 +12,7 @@ use kernel_api::num::ufat;
 use kernel_api::ptr::TaggedNonNull;
 use kernel_api::syscall;
 use kernel_api::threading::TaskRef;
-use crate::ebr;
+use crate::{ebr, percpu};
 use crate::memory::r#virtual::AddressSpaceInner;
 use crate::syscall::{EntryParams, ExitParams};
 use crate::task::{Task, TaskRefExt};
@@ -80,8 +80,16 @@ pub fn entry(
 		},
 		(TAG_TASK, 2) => {
 			let task_ref = unsafe { TaskRef::from_raw(koid) };
-			let task = task_ref.get().ok_or(syscall::Error::DeadServer)?;
-			todo!("{:?}", task);
+			if caller.as_ref() != task_ref {
+				return Err(syscall::Error::FutureCompat);
+			}
+			match params.method {
+				6 => {
+					percpu!(needs_reschedule).set(true);
+					Ok(ufat::new(0, 0))
+				}
+				_ => Err(syscall::Error::UnsupportedProtocol),
+			}
 		},
 		(TAG_CONSOLE, 1) => {
 			match params.method {
