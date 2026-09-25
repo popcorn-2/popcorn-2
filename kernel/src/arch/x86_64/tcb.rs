@@ -25,7 +25,6 @@ pub struct SavedRegisters {
 	pub rflags: AtomicU64,
 	pub fs_base: AtomicU64,
 	pub gs_base: AtomicU64,
-	pub tss_scratch: AtomicU64,
 	pub xsave: Xsave,
 }
 
@@ -52,7 +51,6 @@ impl Default for SavedRegisters {
 			rflags: AtomicU64::new(0),
 			fs_base: AtomicU64::new(0),
 			gs_base: AtomicU64::new(0),
-			tss_scratch: AtomicU64::new(0),
 			xsave: Xsave::new(),
 		}
 	}

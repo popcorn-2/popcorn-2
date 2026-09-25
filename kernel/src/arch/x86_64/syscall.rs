@@ -26,7 +26,7 @@ unsafe extern "custom" {
 #[derive(Copy, Clone, Debug)]
 pub struct StackFrame {
 	rip: u64,
-	tss_scratch: u64,
+	rsp: u64,
 	rflags: u64,
 	fs_base: u64,
 	gs_base: u64,
@@ -36,7 +36,7 @@ impl StackFrame {
 	pub fn from(task: &Task) -> Self {
 		Self {
 			rip: task.registers.rip.load(Ordering::Relaxed),
-			tss_scratch: task.registers.tss_scratch.load(Ordering::Relaxed),
+			rsp: task.registers.rsp.load(Ordering::Relaxed),
 			rflags: task.registers.rflags.load(Ordering::Relaxed),
 			fs_base: task.registers.fs_base.load(Ordering::Relaxed),
 			gs_base: task.registers.gs_base.load(Ordering::Relaxed),
@@ -45,7 +45,7 @@ impl StackFrame {
 
 	pub fn store(&self, task: &Task) {
 		task.registers.rip.store(self.rip, Ordering::Relaxed);
-		task.registers.tss_scratch.store(self.tss_scratch, Ordering::Relaxed);
+		task.registers.rsp.store(self.rsp, Ordering::Relaxed);
 		task.registers.rflags.store(self.rflags, Ordering::Relaxed);
 		task.registers.fs_base.store(self.fs_base, Ordering::Relaxed);
 		task.registers.gs_base.store(self.gs_base, Ordering::Relaxed);
@@ -70,7 +70,7 @@ extern "rust-preserve-none" fn entry(
 	unsafe { asm!("rdfsbase {:r}", out(reg) fs_base, options(nomem, nostack, preserves_flags)); }
 	let stack_frame = StackFrame {
 		rip,
-		tss_scratch: percpu!(arch).tss.get_scratch(),
+		rsp: percpu!(arch).tss.get_scratch(),
 		rflags,
 		fs_base,
 		gs_base: user_gsbase,
@@ -93,7 +93,7 @@ extern "rust-preserve-none" fn entry(
 	// fixme: we probably leak kernel data in registers on return
 	match result.map_err(|err| ufat::new(0, (-(err as isize)).cast_unsigned())) {
 		Ok(ExitParams::SwitchTask(exit_params)) => {
-			percpu!(arch).tss.set_scratch(exit_params.stack_frame.tss_scratch);
+			percpu!(arch).tss.set_scratch(exit_params.stack_frame.rsp);
 			unsafe { asm!("wrfsbase {:r}", in(reg) exit_params.stack_frame.fs_base, options(nomem, nostack, preserves_flags)); }
 
 			let rax = (exit_params.handle_num.widen::<u64>() << 16) | exit_params.method.widen::<u64>();

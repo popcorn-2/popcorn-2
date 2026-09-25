@@ -70,7 +70,6 @@ impl StackFrame {
 		to.r15.store(self.r15, Ordering::Relaxed);
 		to.rip.store(self.rip, Ordering::Relaxed);
 		to.rflags.store(self.flags, Ordering::Relaxed);
-		to.tss_scratch.store(percpu!(arch).tss.get_scratch(), Ordering::Relaxed);
 
 		let fsbase;
 		let gsbase;
@@ -110,7 +109,6 @@ impl StackFrame {
 		self.r15 = from.r15.load(Ordering::Relaxed);
 		self.rip = from.rip.load(Ordering::Relaxed);
 		self.flags = from.rflags.load(Ordering::Relaxed);
-		percpu!(arch).tss.set_scratch(from.tss_scratch.load(Ordering::Relaxed));
 
 		let fsbase = from.fs_base.load(Ordering::Relaxed);
 		let gsbase = from.gs_base.load(Ordering::Relaxed);
