@@ -107,10 +107,15 @@ impl Percpu {
 
 pub fn switch_to_userspace(entrypoint: VirtualAddress, arg: usize) -> ! {
 	debug!("switch to userspace @ {entrypoint:x?}");
+	let gsbase = if let Some(task) = percpu!(current_task).get().get() {
+		task.registers.gs_base.load(Ordering::Relaxed)
+	} else { 0 };
+	debug!("loading gsbase with {gsbase:#x}");
 	unsafe {
 		asm!(
 			"cli", // so we can swapgs without being interrupted
 			"swapgs",
+			"wrgsbase {}",
 			// zero all registers to not leak to userspace
 			"xor eax, eax",
 			"xor ebx, ebx",
@@ -126,6 +131,7 @@ pub fn switch_to_userspace(entrypoint: VirtualAddress, arg: usize) -> ! {
 			"xor r14d, r14d",
 			"xor r15d, r15d",
 			"sysretq",
+			in(reg) gsbase,
 			in("rcx") entrypoint.addr,
 			in("rdi") arg,
 			in("r11") 0x202, // enable interrupts, set reserved bit

@@ -1,31 +1,38 @@
 use core::alloc::Layout;
 use core::arch::x86_64::{CpuidResult, __cpuid_count};
 use core::ptr::NonNull;
-use core::sync::atomic::AtomicU64;
+use core::sync::atomic::{AtomicU64, Ordering};
+use kernel_api::memory::VirtualAddress;
 
 #[derive(Debug)]
 pub struct SavedRegisters {
-	pub rax: AtomicU64,
-	pub rbx: AtomicU64,
-	pub rcx: AtomicU64,
-	pub rdx: AtomicU64,
-	pub rsi: AtomicU64,
-	pub rdi: AtomicU64,
-	pub rsp: AtomicU64,
-	pub rbp: AtomicU64,
-	pub r8: AtomicU64,
-	pub r9: AtomicU64,
-	pub r10: AtomicU64,
-	pub r11: AtomicU64,
-	pub r12: AtomicU64,
-	pub r13: AtomicU64,
-	pub r14: AtomicU64,
-	pub r15: AtomicU64,
-	pub rip: AtomicU64,
-	pub rflags: AtomicU64,
-	pub fs_base: AtomicU64,
-	pub gs_base: AtomicU64,
-	pub xsave: Xsave,
+	pub(super) rax: AtomicU64,
+	pub(super) rbx: AtomicU64,
+	pub(super) rcx: AtomicU64,
+	pub(super) rdx: AtomicU64,
+	pub(super) rsi: AtomicU64,
+	pub(super) rdi: AtomicU64,
+	pub(super) rsp: AtomicU64,
+	pub(super) rbp: AtomicU64,
+	pub(super) r8: AtomicU64,
+	pub(super) r9: AtomicU64,
+	pub(super) r10: AtomicU64,
+	pub(super) r11: AtomicU64,
+	pub(super) r12: AtomicU64,
+	pub(super) r13: AtomicU64,
+	pub(super) r14: AtomicU64,
+	pub(super) r15: AtomicU64,
+	pub(super) rip: AtomicU64,
+	pub(super) rflags: AtomicU64,
+	pub(super) fs_base: AtomicU64,
+	pub(super) gs_base: AtomicU64,
+	pub(super) xsave: Xsave,
+}
+
+impl SavedRegisters {
+	pub fn set_syscall_trampoline(&self, addr: VirtualAddress) {
+		self.gs_base.store(addr.addr as u64, Ordering::Relaxed);
+	}
 }
 
 impl Default for SavedRegisters {
