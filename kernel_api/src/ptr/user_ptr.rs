@@ -1,4 +1,4 @@
-use crate::ptr::{impls, LocalUser, PointerError};
+use crate::ptr::{impls, PointerError};
 use core::fmt;
 use core::fmt::Formatter;
 use core::mem::MaybeUninit;
@@ -653,25 +653,5 @@ pub fn slice_from_raw_parts_mut<T>(data: User<*mut T>, len: usize) -> User<*mut 
 	User {
 		ptr,
 		address_space: data.address_space,
-	}
-}
-
-impl<T: ?Sized> TryFrom<User<'_, *const T>> for LocalUser<*const T> {
-	type Error = ();
-
-	fn try_from(value: User<*const T>) -> Result<Self, Self::Error> {
-		if crate::bridge::address_space::is_current(value.address_space) {
-			Ok(LocalUser { ptr: value.ptr })
-		} else { Err(()) }
-	}
-}
-
-impl<T: ?Sized> TryFrom<User<'_, *mut T>> for LocalUser<*mut T> {
-	type Error = ();
-
-	fn try_from(value: User<*mut T>) -> Result<Self, Self::Error> {
-		if crate::bridge::address_space::is_current(value.address_space) {
-			Ok(LocalUser { ptr: value.ptr })
-		} else { Err(()) }
 	}
 }

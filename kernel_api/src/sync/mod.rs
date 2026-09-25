@@ -13,8 +13,6 @@
 //!   initializers based on the caller.
 //! - [`LazyLock`]: Used for thread-safe, one-time initialization of a variable, using one nullary initializer
 //!   function provided at creation.
-//! - [`SendWrapper`]: A wrapper type around a non-[`Send`] object to allow moving the object between threads
-//!   by tracking the original thread it was created in.
 
 use core::ops::{Deref, DerefMut};
 
@@ -22,8 +20,6 @@ use core::ops::{Deref, DerefMut};
 pub use mutex::{Spinlock, SpinlockGuard, SpinlockGuardExt, MappedSpinlockGuard};
 #[cfg(feature = "use_std")]
 pub use parking_lot::{Mutex as Spinlock, MutexGuard as SpinlockGuard, MappedMutexGuard as MappedSpinlockGuard};
-#[cfg(not(feature = "use_std"))]
-pub use send_wrapper::*;
 
 #[cfg(not(feature = "use_std"))]
 pub use once::{LazyLock, Once, OnceLock};
@@ -49,9 +45,6 @@ mod once;
 
 #[cfg(not(feature = "use_std"))]
 mod irq_cell;
-
-#[cfg(not(feature = "use_std"))]
-mod send_wrapper;
 
 #[doc(hidden)]
 pub struct Syncify<T>(T);

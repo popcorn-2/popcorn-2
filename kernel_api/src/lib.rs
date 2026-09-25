@@ -68,9 +68,6 @@ pub mod threading;
 pub mod syscall;
 
 #[cfg(feature = "full")]
-pub mod executor;
-
-#[cfg(feature = "full")]
 pub mod channel;
 
 #[cfg(feature = "full")]

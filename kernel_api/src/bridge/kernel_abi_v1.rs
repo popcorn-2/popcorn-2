@@ -65,35 +65,7 @@ pub mod handle {
 	}
 }
 
-pub mod threading {
-	use alloc::sync::Arc;
-	use crate::threading::ThreadMeta;
-
-	unsafe extern "Rust" {
-		#[link_name = "__popcorn_threading_modify_current_thread_meta"]
-		pub safe fn with_current_thread(arg: *mut (), f: fn(&Arc<ThreadMeta>, *mut ()));
-
-		#[link_name = "__popcorn_threading_unblock_thread"]
-		pub safe fn unblock_thread(this: &Arc<ThreadMeta>);
-	}
-}
-
 pub mod address_space {
-	use core::mem::MaybeUninit;
-	use crate::address_space::AddressSpace;
-
-	pub fn is_current(this: Option<&AddressSpace>) -> bool {
-		let this = match this {
-			Some(this) => this,
-			None => return false,
-		};
-		let mut current = MaybeUninit::<AddressSpace>::uninit();
-		crate::bridge::threading::with_current_thread(current.as_mut_ptr().cast(), |meta, out| {
-			unsafe { core::ptr::write(out.cast(), meta.address_space.clone()) };
-		});
-		AddressSpace::ptr_eq(this, unsafe { current.assume_init_ref() })
-	}
-
 	pub mod kernel {
 		use crate::mapping::{Ty, MapPageError};
 		use crate::memory::{PhysicalAddress, RawFrame, RawPage, VirtualAddress};
