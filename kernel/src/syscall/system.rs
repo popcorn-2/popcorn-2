@@ -13,8 +13,8 @@ use kernel_api::ptr::TaggedNonNull;
 use kernel_api::syscall;
 use kernel_api::threading::TaskRef;
 use crate::{ebr, percpu};
-use crate::memory::r#virtual::AddressSpaceInner;
 use crate::syscall::{EntryParams, ExitParams};
+use crate::memory::r#virtual::{AddressSpaceExt, AddressSpaceInner};
 use crate::task::{Task, TaskRefExt};
 
 const TAG_ADDRESS_SPACE: usize = 0b001;
@@ -113,9 +113,16 @@ pub fn address_space_koid_entry(
 		},
 		(0, 2) => {
 			let ptr = params.integer_args[0];
-			let count = params.integer_args[1];
-			warn!("ignoring address space dealloc request for {count:#x} @ {ptr:#x}");
-			Ok(ufat::new(0, 0))
+
+			let mapping = address_space.get_by_addr(ptr)
+				.ok_or(syscall::Error::InvalidArg)?;
+
+			if mapping.virtual_valid_start().addr != ptr {
+				Err(syscall::Error::FutureCompat)
+			} else {
+				mapping.remove();
+				Ok(ufat::new(0, 0))
+			}
 		},
 		_ => Err(syscall::Error::UnsupportedProtocol),
 	}
