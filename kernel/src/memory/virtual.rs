@@ -11,6 +11,7 @@ use kernel_api::mapping::{Mappable, Mapping, Ty};
 use kernel_api::memory::{PAGE_SIZE, RawPage, VirtualAddress, RawFrame, PhysicalAddress};
 use kernel_api::sync::{LazyLock, MappedSpinlockGuard, RwSpinlock, Spinlock, SpinlockGuard};
 use linked_list_allocator::LinkedListAllocator;
+use ranged_btree::RangedBTreeMap;
 
 pub static GLOBAL_VIRTUAL_ALLOCATOR: LazyLock<RwSpinlock<&'static (dyn Vmm + Sync)>> = LazyLock::new(|| RwSpinlock::new(BOOTSTRAP.deref()));
 
@@ -80,10 +81,15 @@ use crate::hal::paging::MapPageError;
 use crate::hal::TTableTy;
 use crate::memory::paging::ktable;
 
+struct MappingList {
+	maps: Slab<(Cow<'static, str>, Mapping<Box<dyn Mappable + Send>, Userspace>)>,
+	maps_by_addr: RangedBTreeMap<usize, MappingKey>,
+}
+
 pub(crate) struct AddressSpaceInner {
 	ttable: TTableTy,
 	allocator: LinkedListAllocator,
-	maps: Spinlock<Slab<(Cow<'static, str>, Mapping<Box<dyn Mappable + Send>, Userspace>)>>,
+	mappings: Spinlock<MappingList>,
 }
 
 const _: () = {
@@ -95,7 +101,7 @@ const _: () = {
 impl Debug for AddressSpaceInner {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		writeln!(f, "AddressSpaceInner {{")?;
-		for (_, (name, map)) in &*self.maps.lock() {
+		for (_, (name, map)) in &self.mappings.lock().maps {
 			writeln!(
 				f,
 				"    {:#p}-{:#p} {} {:?}",
@@ -118,6 +124,7 @@ pub trait AddressSpaceExt: private::Sealed + Sized {
 	fn from_parts(ttable: TTableTy, allocator: LinkedListAllocator) -> Self;
 	fn empty() -> Result<Self, AllocError>;
 	fn get(&self, key: MappingKey) -> Option<MappingEntry<'_>>;
+	fn get_by_addr(&self, addr: usize) -> Option<MappingEntry<'_>>;
 	fn ttable(&self) -> &TTableTy;
 	unsafe fn load(&self);
 }
@@ -134,7 +141,10 @@ impl AddressSpaceExt for AddressSpace {
 		let inner = AddressSpaceInner {
 			ttable,
 			allocator,
-			maps: Spinlock::new(Slab::new())
+			mappings: Spinlock::new(MappingList {
+				maps: Slab::new(),
+				maps_by_addr: RangedBTreeMap::new(),
+			}),
 		};
 		Self::__new(Arc::new(inner))
 	}
@@ -152,13 +162,22 @@ impl AddressSpaceExt for AddressSpace {
 	fn get(&self, key: MappingKey) -> Option<MappingEntry<'_>> {
 		let _guard = self.__assert_in_use();
 		let inner = to_inner(self);
-		let mut guard = inner.maps.lock();
-		let entry = guard.get_mut(key.0)?;
+		let mut guard = inner.mappings.lock();
+		let entry = guard.maps.get_mut(key.0)?;
 		Some(MappingEntry {
 			key,
 			data: addr_of_mut!(entry.1),
 			spinlock: guard,
 		})
+	}
+
+	fn get_by_addr(&self, addr: usize) -> Option<MappingEntry<'_>> {
+		let _guard = self.__assert_in_use();
+		let inner = to_inner(self);
+		let guard = inner.mappings.lock();
+		let key = guard.maps_by_addr.get_entry_at_point(addr).copied()?;
+		drop(guard);
+		self.get(key)
 	}
 
 	/// Loads the page tables associated with this [`AddressSpace`]
@@ -182,11 +201,17 @@ impl AddressSpaceExt for AddressSpace {
 fn __popcorn_address_space_push_mapping<'a>(this: &'a AddressSpace, name: Cow<'static, str>, mapping: Mapping<Box<dyn Mappable + Send>, Userspace>) -> (MappingKey, MappedSpinlockGuard<'a, Mapping<Box<dyn Mappable + Send>, Userspace>>) {
 	let _guard = this.__assert_in_use();
 	let inner = to_inner(this);
-	let mut guard = inner.maps.lock();
-	let key = guard.insert((name, mapping));
+	let mut guard = inner.mappings.lock();
+	let start = mapping.virtual_valid_start();
+	let end = start + mapping.page_len();
+	let key = MappingKey(guard.maps.insert((name, mapping)));
+	guard.maps_by_addr.insert(
+		start.addr..end.addr,
+		key,
+	).expect("newly allocated mapping should not overlap existing mapping");
 	(
-		MappingKey(key),
-		SpinlockGuard::map(guard, |slab| &mut slab.get_mut(key).expect("just inserted this").1)
+		key,
+		SpinlockGuard::map(guard, |lookup| &mut lookup.maps.get_mut(key.0).expect("just inserted this").1)
 	)
 }
 
@@ -242,14 +267,16 @@ fn __popcorn_upt_translate_addr(this: &AddressSpace, addr: VirtualAddress) -> Op
 
 pub struct MappingEntry<'a> {
 	key: MappingKey,
-	spinlock: SpinlockGuard<'a, Slab<(Cow<'static, str>, Mapping<Box<dyn Mappable + Send>, Userspace>)>>,
+	spinlock: SpinlockGuard<'a, MappingList>,
 	data: *mut Mapping<Box<dyn Mappable + Send>, Userspace>,
 }
 
 impl MappingEntry<'_> {
 	pub fn remove(mut self) {
-		let res = self.spinlock.try_remove(self.key.0);
-		unsafe { res.unwrap_unchecked() };
+		let res = self.spinlock.maps.try_remove(self.key.0);
+		let (_, mapping) = unsafe { res.unwrap_unchecked() };
+		let res = self.spinlock.maps_by_addr.remove(mapping.virtual_valid_start().addr);
+		let _ = unsafe { res.unwrap_unchecked() };
 	}
 }
 

@@ -539,6 +539,7 @@ dependencies = [
  "log",
  "minicov",
  "pipc",
+ "ranged_btree",
  "slab",
  "test",
  "unwinding",
