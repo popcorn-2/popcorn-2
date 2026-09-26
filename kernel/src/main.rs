@@ -368,14 +368,12 @@ fn init(handoff_data: *const utils::handoff::Data) -> (VirtualAddress, usize) {
 	let ebr = percpu!(epoch).pin();
 	let init_task = task::init(parsed_handoff.init_utable);
 
-	let task_handle = Handle::new_system(TaskRef::new_koid(init_task.as_ref()));
 	let io_handle = Handle::new_system(syscall::new_koid_serial());
 
 	let init_arg = task::ProcInfo::new_in(
 		init_task,
 		&["init", "--foo", "--bar"],
 		vec![
-			("task.main", task_handle),
 			("io.stdout", Arc::clone(&io_handle)),
 			("io.stderr", io_handle),
 		],

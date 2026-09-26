@@ -27,11 +27,13 @@ pub enum ExitParams {
 #[inline(always)]
 pub unsafe fn entry(params: EntryParams) -> syscall::Result<ExitParams> {
 	debug!("enter syscall: {params:#x?}");
-	let caller = {
+	let (caller, caller_ref) = {
 		let task_ref = percpu!(current_task).get();
+		// SAFETY: syscalls can only be made from a running thread
+		let task_ref = unsafe { task_ref.unwrap_unchecked() };
 		let task = task_ref.get();
 		// SAFETY: syscalls can only be made from a running thread
-		unsafe { task.unwrap_unchecked() }
+		(unsafe { task.unwrap_unchecked() }, task_ref)
 	};
 
 	let exit_params = {
@@ -46,6 +48,8 @@ pub unsafe fn entry(params: EntryParams) -> syscall::Result<ExitParams> {
 		};
 
 		let (this, target) = match this {
+			// `current task` pseudo-handle
+			Err(4097) => return system::task_koid_entry(&ebr, caller_ref, caller, params).map(ExitParams::Return),
 			// `current address space` pseudo-handle
 			Err(4098) => return system::address_space_koid_entry(&ebr, &caller.address_space, caller, params).map(ExitParams::Return),
 			Err(_) => return Err(syscall::Error::InvalidHandle),

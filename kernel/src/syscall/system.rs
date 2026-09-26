@@ -57,18 +57,9 @@ pub fn entry(
 			let address_space = ManuallyDrop::new(AddressSpace::__new(address_space));
 			address_space_koid_entry(ebr, &*address_space, caller, params)
 		},
-		(TAG_TASK, 2) => {
+		(TAG_TASK, _) => {
 			let task_ref = unsafe { TaskRef::from_raw(koid) };
-			if caller.as_ref() != task_ref {
-				return Err(syscall::Error::FutureCompat);
-			}
-			match params.method {
-				6 => {
-					percpu!(needs_reschedule).set(true);
-					Ok(ufat::new(0, 0))
-				}
-				_ => Err(syscall::Error::UnsupportedProtocol),
-			}
+			task_koid_entry(ebr, task_ref, caller, params)
 		},
 		(TAG_CONSOLE, 1) => {
 			match params.method {
@@ -83,6 +74,28 @@ pub fn entry(
 		}
 		(TAG_ADDRESS_SPACE..=TAG_CONSOLE, _) => Err(syscall::Error::UnsupportedProtocol),
 		(tag, _) => unreachable!("invalid koid tag: {tag:#x}"),
+	}
+}
+
+pub fn task_koid_entry(
+	ebr: &ebr::EpochGuard,
+	task_ref: TaskRef,
+	caller: &'static Task,
+	params: EntryParams,
+) -> syscall::Result<ufat> {
+	let check_current_task = || {
+		if caller.as_ref() != task_ref {
+			Err(syscall::Error::FutureCompat)
+		} else { Ok(()) }
+	};
+
+	match (params.interface, params.method) {
+		(2, 6) => {
+			check_current_task()?;
+			percpu!(needs_reschedule).set(true);
+			Ok(ufat::new(0, 0))
+		}
+		_ => Err(syscall::Error::UnsupportedProtocol),
 	}
 }
 
