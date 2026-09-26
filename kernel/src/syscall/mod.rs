@@ -36,12 +36,22 @@ pub unsafe fn entry(params: EntryParams) -> syscall::Result<ExitParams> {
 
 	let exit_params = {
 		let ebr = percpu!(epoch).pin();
-		let this = caller.handles().get(params.handle_num, &ebr)?;
-
-		let target = if this.is_system() {
-			return system::entry(&ebr, this.koid(), caller, params).map(ExitParams::Return);
+		let this = if params.handle_num.cast_signed() < 0 {
+			// real handle numbers are >=0
+			// between -1 and -4096 implies an error from a previous syscall has been passed straight in
+			// -4097 and low are pseudo-handles
+			Err(params.handle_num.cast_signed().unsigned_abs())
 		} else {
-			this.target().get().ok_or(syscall::Error::DeadServer)?
+			Ok(caller.handles().get(params.handle_num, &ebr)?)
+		};
+
+		let (this, target) = match this {
+			// `current address space` pseudo-handle
+			Err(4098) => return system::address_space_koid_entry(&ebr, &caller.address_space, caller, params).map(ExitParams::Return),
+			Err(_) => return Err(syscall::Error::InvalidHandle),
+
+			Ok(handle) if handle.is_system() => return system::entry(&ebr, handle.koid(), caller, params).map(ExitParams::Return),
+			Ok(this) => (this, this.target().get().ok_or(syscall::Error::DeadServer)?),
 		};
 
 		todo!("check target is blocked waiting for syscall");

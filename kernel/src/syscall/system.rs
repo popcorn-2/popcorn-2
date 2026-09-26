@@ -46,37 +46,16 @@ pub fn entry(
 	params: EntryParams,
 ) -> syscall::Result<ufat> {
 	match (koid.tag() & TAG_MASK, params.interface) {
-		(TAG_ADDRESS_SPACE, 0) => {
+		(TAG_ADDRESS_SPACE, _) => {
+			// SAFETY: AddressSpace koids own the contained AddressSpace, and the koid resides in a handle,
+			//  so the AddressSpace will only be invalidated if the handle is dropped.
+			//  We are holding an EBR guard, so the handle will not be dropped during the lifetime of
+			//  this function.
+			//  The AddressSpace gets wrapped in a ManuallyDrop, and so will not be cleaned up
+			//  when it goes out of scope here.
 			let address_space = unsafe { Arc::<AddressSpaceInner>::from_raw(koid.as_ptr().as_ptr().cast_const().cast()) };
 			let address_space = ManuallyDrop::new(AddressSpace::__new(address_space));
-
-			match params.method {
-				1 => {
-					let count = params.integer_args[0];
-					let page_count = count.div_exact(PAGE_SIZE)
-						.ok_or(syscall::Error::InvalidArg)?;
-					let page_count = match NonZero::new(page_count) {
-						Some(page_count) => page_count,
-						None => return Ok(ufat::new(0, 0)),
-					};
-
-					let readable = params.integer_args[1] & 0b001 != 0;
-					let executable = params.integer_args[1] & 0b010 != 0;
-					let writeable = params.integer_args[1] & 0b100 != 0;
-
-					let mapping = Config::new(page_count, Ty::USER_MMAP)
-						.protection(writeable, executable, readable)
-						.map_in::<Mmap>("".into(), &*address_space)?;
-					Ok(ufat::new(0, mapping.mapping.virtual_valid_start().addr))
-				},
-				2 => {
-					let ptr = params.integer_args[0];
-					let count = params.integer_args[1];
-					warn!("ignoring address space dealloc request for {count:#x} @ {ptr:#x}");
-					Ok(ufat::new(0, 0))
-				},
-				_ => Err(syscall::Error::UnknownProtocol),
-			}
+			address_space_koid_entry(ebr, &*address_space, caller, params)
 		},
 		(TAG_TASK, 2) => {
 			let task_ref = unsafe { TaskRef::from_raw(koid) };
@@ -104,6 +83,41 @@ pub fn entry(
 		}
 		(TAG_ADDRESS_SPACE..=TAG_CONSOLE, _) => Err(syscall::Error::UnsupportedProtocol),
 		(tag, _) => unreachable!("invalid koid tag: {tag:#x}"),
+	}
+}
+
+pub fn address_space_koid_entry(
+	ebr: &ebr::EpochGuard,
+	address_space: &AddressSpace,
+	caller: &'static Task,
+	params: EntryParams,
+) -> syscall::Result<ufat> {
+	match (params.interface, params.method) {
+		(0, 1) => {
+			let count = params.integer_args[0];
+			let page_count = count.div_exact(PAGE_SIZE)
+				.ok_or(syscall::Error::InvalidArg)?;
+			let page_count = match NonZero::new(page_count) {
+				Some(page_count) => page_count,
+				None => return Ok(ufat::new(0, 0)),
+			};
+
+			let readable = params.integer_args[1] & 0b001 != 0;
+			let executable = params.integer_args[1] & 0b010 != 0;
+			let writeable = params.integer_args[1] & 0b100 != 0;
+
+			let mapping = Config::new(page_count, Ty::USER_MMAP)
+				.protection(writeable, executable, readable)
+				.map_in::<Mmap>("".into(), address_space)?;
+			Ok(ufat::new(0, mapping.mapping.virtual_valid_start().addr))
+		},
+		(0, 2) => {
+			let ptr = params.integer_args[0];
+			let count = params.integer_args[1];
+			warn!("ignoring address space dealloc request for {count:#x} @ {ptr:#x}");
+			Ok(ufat::new(0, 0))
+		},
+		_ => Err(syscall::Error::UnsupportedProtocol),
 	}
 }
 
