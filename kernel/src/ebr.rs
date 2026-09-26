@@ -47,7 +47,16 @@ impl LocalEpoch {
 pub fn defer_and_cleanup(drop_fn: fn(*mut u8), val: *mut u8) {
 	let mut guard = percpu!(epoch).retired.lock();
 	if guard.len() == guard.capacity() {
-		gc_collect();
+		if gc_collect() {
+			if guard.capacity() > 16 {
+				guard.shrink_to(16);
+			} else {
+				let reserve = guard.len().saturating_sub(16);
+				guard.reserve(reserve);
+			}
+		} else {
+			warn!("gc collection failed with retire queue at capacity");
+		}
 	}
 	guard.push(Retired {
 		in_epoch: GLOBAL_EPOCH.load(Ordering::Acquire) & !INACTIVE_BIT,
@@ -127,7 +136,7 @@ impl Iterator for LocalEpochIterator {
 	}
 }
 
-pub fn gc_collect() {
+pub fn gc_collect() -> bool {
 	debug!("running garbage collection");
 
 	let global_epoch = GLOBAL_EPOCH.load(Ordering::Acquire);
@@ -151,4 +160,6 @@ pub fn gc_collect() {
 		let mut retire_queue = percpu!(epoch).retired.lock();
 		retire_queue.retain(|retired| retired.in_epoch >= (global_epoch & !INACTIVE_BIT));
 	}
+
+	all_cpus_current
 }
