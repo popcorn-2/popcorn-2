@@ -5,6 +5,7 @@ use core::num::NonZero;
 use core::ptr::NonNull;
 use core::slice;
 use core::sync::atomic::Ordering;
+use bitflags::{bitflags, Flags};
 use kernel_api::address_space::AddressSpace;
 use kernel_api::mapping::{Config, Mmap, Ty};
 use kernel_api::memory::PAGE_SIZE;
@@ -136,6 +137,25 @@ pub fn address_space_koid_entry(
 				mapping.remove();
 				Ok(ufat::new(0, 0))
 			}
+		},
+		(0, 3) => {
+			bitflags! {
+				struct VmCloneFlags: usize {
+					// const FORK = 1 << 0;
+				}
+			}
+
+			let flags = VmCloneFlags::from_bits_retain(params.integer_args[0]);
+
+			if flags.contains_unknown_bits() {
+				return Err(syscall::Error::FutureCompat);
+			}
+
+			let address_space = AddressSpace::empty()?;
+			let koid = IntoKoid::new_koid(address_space);
+			let handle = Handle::new_system(koid);
+			caller.handles().push(handle, ebr)
+				.map(|handle| ufat::new(0, handle as usize))
 		},
 		_ => Err(syscall::Error::UnsupportedProtocol),
 	}
