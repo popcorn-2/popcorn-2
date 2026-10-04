@@ -8,9 +8,9 @@ const fn into_raw(state: ThreadState) -> u64 {
 	match state {
 		ThreadState::Killed(exit_code) | ThreadState::Zombie(exit_code) => {
 			let upper = exit_code.cast_unsigned();
-			u64::from(upper) | (tag << 32)
+			(u64::from(upper) << 32) | tag
 		}
-		_ => tag << 32,
+		_ => tag,
 	}
 }
 
