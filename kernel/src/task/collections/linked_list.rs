@@ -3,6 +3,7 @@ use core::sync::atomic::Ordering;
 use kernel_api::ptr::TaggedNonNull;
 use kernel_api::threading::TaskRef;
 use crate::task::{OwnedTask, TaskRefExt};
+use super::PopResult;
 
 pub struct SinglyLinkedList {
 	head: Option<TaskRef>,
@@ -62,10 +63,4 @@ impl SinglyLinkedList {
 		tail.intrusive.next.store(task_ref.into_raw().as_tagged_ptr().as_ptr().cast(), Ordering::Relaxed);
 		self.tail = Some(task_ref);
 	}
-}
-
-pub enum PopResult {
-	None,
-	Some(OwnedTask),
-	Outdated(OwnedTask),
 }
