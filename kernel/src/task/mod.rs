@@ -16,9 +16,11 @@ mod scheduler;
 mod collections;
 mod idle;
 mod startup;
+mod wait_queue;
 
 pub use scheduler::{RoundRobin as Scheduler, scheduler_entry};
 pub use startup::ProcInfo;
+pub use wait_queue::WaitQueue;
 use kernel_api::sync::Spinlock;
 use crate::task::collections::{PopResult, SinglyLinkedList};
 
@@ -139,6 +141,7 @@ struct Intrusive {
 	next: AtomicPtr<u8>,
 	// FIXME(GenericAtomic, @Beanie496): replace with Atomic<Option<TaskRef>>
 	prev: AtomicPtr<u8>,
+	blocked_on: AtomicPtr<WaitQueue>,
 }
 
 impl Intrusive {
@@ -171,6 +174,11 @@ pub fn init(ttable: (TTableTy, RawPage)) -> &'static Task {
 
 	percpu!(current_task).set(Some(task.0.as_ref()));
 	task.0
+}
+
+pub fn enqueue(task: OwnedTask) {
+	// todo(SMP): prioritise previously used core
+	percpu!(scheduler).enqueue(task);
 }
 
 mod sealed { pub trait Sealed {} }
