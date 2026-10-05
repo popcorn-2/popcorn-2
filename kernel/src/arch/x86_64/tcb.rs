@@ -30,6 +30,22 @@ pub struct SavedRegisters {
 }
 
 impl SavedRegisters {
+	pub fn load_new_task(&self, stack_ptr: usize, ip: usize, arg: usize) {
+		self.rflags.store(0x202, Ordering::Relaxed);
+		self.rsp.store(stack_ptr as u64, Ordering::Relaxed);
+		self.rip.store(ip as u64, Ordering::Relaxed);
+		self.rdi.store(arg as u64, Ordering::Relaxed);
+	}
+
+	pub fn set_return_result(&self, val: kernel_api::syscall::Result<isize>) {
+		let val = match val {
+			Ok(v) => v as u64,
+			Err(err) => (-(err as i64)).cast_unsigned(),
+		};
+		self.rax.store(val, Ordering::Relaxed);
+		self.rdx.store(0, Ordering::Relaxed);
+	}
+
 	pub fn set_syscall_trampoline(&self, addr: VirtualAddress) {
 		self.gs_base.store(addr.addr as u64, Ordering::Relaxed);
 	}
