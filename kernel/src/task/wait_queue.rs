@@ -122,6 +122,10 @@ impl WaitQueue {
 		woken
 	}
 
+	pub fn is_empty(&self) -> bool {
+		self.queue.lock().is_empty()
+	}
+
 	pub fn remove_task(&self, task: &'static Task) {
 		let mut guard = self.queue.lock();
 		if task.intrusive.blocked_on.load(Ordering::Relaxed).cast_const() == core::ptr::from_ref(self) {

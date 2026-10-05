@@ -17,6 +17,7 @@ use alloc::boxed::Box;
 use alloc::sync::{Arc, Weak};
 use core::any::Any;
 use core::fmt::{Debug, Formatter};
+use core::hash::Hash;
 use core::mem::ManuallyDrop;
 use core::ops::{Deref, DerefMut};
 use core::ptr;
@@ -119,6 +120,11 @@ impl AddressSpace {
 		this.__ptr.load(Ordering::Relaxed) == other.__ptr.load(Ordering::Relaxed)
 	}
 
+	/// Returns a hashable identifier for this address space.
+	pub fn hashable_key(&self) -> Key {
+		Key(self.__extract_ptr(Ordering::Relaxed).addr())
+	}
+
 	/// # Safety
 	///
 	/// Must not execute simultaneously with any other methods being called on `self`.
@@ -164,6 +170,13 @@ pub trait Ty: crate::sealed::Sealed {
 	fn allocator(&self) -> impl Deref<Target = dyn Vmm> + '_;
 	fn map_contiguous(&self, base_page: RawPage, base_frame: RawFrame, count: usize, reason: crate::mapping::Ty, protection: Protection, caching: Caching) -> Result<(), MapPageError>;
 }
+
+/// A hashable key to refer to an [`AddressSpace`].
+///
+/// This cannot be used to derive the original [`AddressSpace`] as there is
+/// no guarantee it is still alive.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Key(usize);
 
 impl WeakAddressSpace {
 	pub fn ptr_eq(this: &Self, other: &AddressSpace) -> bool {
