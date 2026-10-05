@@ -8,14 +8,14 @@ use core::sync::atomic::Ordering;
 use bitflags::{bitflags, Flags};
 use kernel_api::address_space::AddressSpace;
 use kernel_api::mapping::{Config, Mmap, Ty};
-use kernel_api::memory::PAGE_SIZE;
+use kernel_api::memory::{VirtualAddress, PAGE_SIZE};
 use kernel_api::num::ufat;
 use kernel_api::ptr::TaggedNonNull;
 use kernel_api::syscall;
 use kernel_api::threading::TaskRef;
-use crate::{ebr, percpu};
 use crate::syscall::{EntryParams, ExitParams};
 use kernel_api::syscall::Handle;
+use crate::{ebr, percpu, task};
 use crate::memory::r#virtual::{AddressSpaceExt, AddressSpaceInner};
 use crate::task::{Task, TaskRefExt};
 
@@ -92,6 +92,18 @@ pub fn task_koid_entry(
 	};
 
 	match (params.interface, params.method) {
+		(2, 2) => {
+			check_current_task()?;
+			let addr = params.integer_args[0];
+			let expected = params.integer_args[1] as u32;
+			task::futex_wait(caller, VirtualAddress::new(addr), expected)
+		},
+		(2, 3) => {
+			check_current_task()?;
+			let addr = params.integer_args[0];
+			let count = params.integer_args[1];
+			task::futex_wake(caller, VirtualAddress::new(addr), count)
+		},
 		(2, 6) => {
 			check_current_task()?;
 			percpu!(needs_reschedule).set(true);
