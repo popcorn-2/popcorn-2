@@ -1,6 +1,7 @@
 use core::cell::{Cell, UnsafeCell};
 use kernel_api::threading::TaskRef;
 use crate::ebr;
+use crate::task::OwnedTask;
 
 macro_rules! percpu_gen {
     (pub struct $ident:ident {
@@ -77,6 +78,7 @@ percpu_gen! {
         pub foo: UnsafeCell<usize> = UnsafeCell::new(6),
 		pub arch: crate::arch::Percpu = crate::arch::Percpu::new(),
 		pub current_task: Cell<Option<TaskRef>> = Cell::new(None),
+		pub current_task_donor: Cell<Option<OwnedTask>> = Cell::new(None),
 		pub needs_reschedule: Cell<bool> = Cell::new(false),
 		pub scheduler: crate::task::Scheduler = crate::task::Scheduler::new(),
 		pub epoch: ebr::LocalEpoch = ebr::LocalEpoch::new(),
