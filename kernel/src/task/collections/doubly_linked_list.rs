@@ -72,7 +72,7 @@ impl DoublyLinkedList {
 		if head_actual_generation == head_ref.generation() {
 			PopResult::Some(OwnedTask(head))
 		} else {
-			PopResult::Outdated(OwnedTask(head))
+			PopResult::new_outdated(OwnedTask(head))
 		}
 	}
 

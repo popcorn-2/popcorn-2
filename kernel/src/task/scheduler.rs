@@ -22,7 +22,7 @@ impl RoundRobin {
 				PopResult::Some(task) => break Some(task),
 				PopResult::Outdated(task) => {
 					// task has been killed somewhere, but we are the owner => dealloc it
-					Task::dealloc(task);
+					Task::try_dealloc(task.0);
 				}
 			}
 		}
