@@ -65,6 +65,8 @@ define_error! {
 		EndOfData = 16,
 		/// Protocol already exists on handle.
 		ProtocolOverlap = 17,
+		/// Condition required for method not met.
+		ConditionNotMet = 18,
 	}
 }
 
