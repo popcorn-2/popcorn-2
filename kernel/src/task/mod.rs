@@ -17,10 +17,12 @@ mod collections;
 mod idle;
 mod startup;
 mod wait_queue;
+mod futex;
 
 pub use scheduler::{RoundRobin as Scheduler, scheduler_entry};
 pub use startup::ProcInfo;
 pub use wait_queue::WaitQueue;
+pub use futex::{futex_wait, futex_wake};
 use kernel_api::sync::Spinlock;
 use crate::task::collections::{PopResult, SinglyLinkedList};
 
