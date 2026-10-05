@@ -101,6 +101,8 @@ impl WaitQueue {
 				PopResult::Outdated(task) => {
 					// remove runqueue pointer so in clean state for cleanup
 					task.0.intrusive.blocked_on.store(core::ptr::null_mut(), Ordering::Release);
+					// task has been killed somewhere, but we are the owner => dealloc it
+					Task::try_dealloc(task.0);
 				}
 				PopResult::Some(task) => {
 					task.0.intrusive.blocked_on.store(core::ptr::null_mut(), Ordering::Release);
