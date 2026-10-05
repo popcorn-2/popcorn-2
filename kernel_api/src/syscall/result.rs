@@ -11,11 +11,14 @@ macro_rules! define_error {
 	    $(,)?
     }) => {
 	    $(#[$attr])* pub enum Error {
-	        $($(#[$item_attr])* $name = $val),*
+	        $($(#[$item_attr])* $name = $val),* ,
+		    _MaxVal,
         }
 
-	    impl From<u128> for Error {
-			fn from(value: u128) -> Error {
+	    const _: () = { assert!((Error::_MaxVal as u16) < 4096, "cannot have more than 4096 error codes"); };
+
+	    impl From<u32> for Error {
+			fn from(value: u32) -> Error {
 				match value {
 					$($val => Error::$name),*,
 					_ => Self::Invalid,

@@ -2,21 +2,22 @@ use alloc::sync::Arc;
 use core::bstr::ByteStr;
 use core::mem::ManuallyDrop;
 use core::num::NonZero;
+use core::ops::Deref;
 use core::ptr::NonNull;
 use core::slice;
 use core::sync::atomic::Ordering;
 use bitflags::{bitflags, Flags};
 use kernel_api::address_space::AddressSpace;
 use kernel_api::mapping::{Config, Mmap, Ty};
-use kernel_api::memory::PAGE_SIZE;
+use kernel_api::memory::{VirtualAddress, PAGE_SIZE};
 use kernel_api::num::ufat;
 use kernel_api::ptr::TaggedNonNull;
 use kernel_api::syscall;
-use kernel_api::threading::TaskRef;
-use crate::{ebr, percpu};
-use crate::syscall::{EntryParams, ExitParams};
 use kernel_api::syscall::Handle;
+use kernel_api::threading::{TaskRef, ThreadState};
+use crate::{ebr, percpu, task};
 use crate::memory::r#virtual::{AddressSpaceExt, AddressSpaceInner};
+use crate::syscall::EntryParams;
 use crate::task::{Task, TaskRefExt};
 
 const TAG_ADDRESS_SPACE: usize = 0b001;
@@ -92,6 +93,90 @@ pub fn task_koid_entry(
 	};
 
 	match (params.interface, params.method) {
+		(2, 1) => {
+			let exit_code = params.integer_args[0] as i32;
+			task::kill_task(task_ref, exit_code)
+				.map_err(|_| syscall::Error::DeadServer)?;
+			Ok(ufat::new(0, 0))
+		},
+		(2, 2) => {
+			check_current_task()?;
+			let uaddr = params.integer_args[0];
+			let expected = params.integer_args[1] as u32;
+			task::futex_wait(caller, uaddr, expected)
+		},
+		(2, 3) => {
+			check_current_task()?;
+			let uaddr = params.integer_args[0];
+			let count = params.integer_args[1];
+			task::futex_wake(caller, uaddr, count)
+		},
+		(2, 4) => {
+			check_current_task()?;
+
+			bitflags! {
+				struct CloneFlags: u32 {
+					const SHARE_ADDRESS_SPACE = 1 << 0;
+					const SHARE_HANDLES = 1 << 1;
+				}
+			}
+
+			#[repr(C)]
+			struct CloneInfo {
+				address_space_handle: i32,
+
+			}
+
+			let address_space = clone_address_space(
+				caller,
+				(params.integer_args[0] as u32).cast_signed(),
+				ebr,
+			)?;
+
+			/*let flags = CloneFlags::from_bits_truncate(params.integer_args[0] as u32);
+			let address_space = if flags.contains(CloneFlags::SHARE_ADDRESS_SPACE) {
+				AddressSpace::clone(&caller.address_space)
+			} else {
+
+			};*/
+
+			let stack_ptr = params.integer_args[1];
+			let entry_fn = params.integer_args[2];
+			let info_ty = params.oob_args[0]; // FIXME: hacky
+			let info_ptr = params.oob_args[1]; // FIXME: hacky
+
+			let task = Task::alloc(address_space, |task| {
+				let info_struct = task::ProcInfo::new_in(
+					task,
+					&[],
+					vec![],
+					info_ty,
+					VirtualAddress::new(info_ptr),
+					ebr
+				).unwrap();
+
+				task.registers.load_new_task(
+					params.integer_args[1],
+					params.integer_args[2],
+					info_struct.addr,
+				);
+				task.state.store(ThreadState::Ready, Ordering::Relaxed);
+				let _ = task.handles().swap(caller.handles().clone(ebr));
+			})?;
+
+			let handle = {
+				let koid = TaskRef::new_koid(task.0.as_ref());
+				let handle = Handle::new_system(koid);
+				caller.handles().push(handle, ebr)?
+			};
+
+			percpu!(scheduler).enqueue(task);
+			Ok(ufat::new(0, handle as usize))
+		}
+		(2, 5) => {
+			task::wait_task(task_ref)
+				.map(|exit_code| ufat::new(0, exit_code as usize))
+		}
 		(2, 6) => {
 			check_current_task()?;
 			percpu!(needs_reschedule).set(true);
@@ -142,7 +227,19 @@ pub fn address_space_koid_entry(
 		(0, 3) => {
 			bitflags! {
 				struct VmCloneFlags: usize {
-					// const FORK = 1 << 0;
+					/*
+					/// Creates a copy of the VM space that inherits all memory but
+					/// isolates future modifications.
+					/// TODO: what happens to VMOs
+					const FORK = 1 << 0;
+					/// Returns [`Error::ConditionNotMet`] if no other references to
+					/// the VM space exist.
+					///
+					/// This can be used to implement trusted processes, by forking
+					/// their address space to prevent an untrusted parent from accessing
+					/// their memory.
+					const ONLY_IF_SHARED = 1 << 2;
+					 */
 				}
 			}
 
@@ -158,7 +255,27 @@ pub fn address_space_koid_entry(
 			caller.handles().push(handle, ebr)
 				.map(|handle| ufat::new(0, handle as usize))
 		},
+		(0, 4) => {
+			let target_ptr = params.integer_args[0];
+			let data = get_oob_args(caller, &params, 1)?[0];
+			todo!("find memory mapping corresponding to `target_ptr`, then copy into it from `data`")
+		},
 		_ => Err(syscall::Error::UnsupportedProtocol),
+	}
+}
+
+fn clone_address_space(caller: &Task, handle: i32, ebr: &ebr::EpochGuard) -> syscall::Result<AddressSpace> {
+	if handle == -4098 {
+		Ok(caller.address_space.clone())
+	} else {
+		let handle = caller.handles().get(handle.cast_unsigned(), ebr)?;
+		if !handle.is_system() { return Err(syscall::Error::InvalidArg); }
+		let koid = handle.koid();
+		if koid.tag() & TAG_MASK != TAG_ADDRESS_SPACE { return Err(syscall::Error::InvalidArg); }
+		// SAFETY: See safety comment in `entry`
+		let address_space = unsafe { Arc::<AddressSpaceInner>::from_raw(koid.as_ptr().as_ptr().cast_const().cast()) };
+		let address_space = ManuallyDrop::new(AddressSpace::__new(address_space));
+		Ok(address_space.deref().clone())
 	}
 }
 

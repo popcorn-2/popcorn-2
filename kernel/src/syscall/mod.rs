@@ -48,6 +48,8 @@ pub unsafe fn entry(params: EntryParams) -> syscall::Result<ExitParams> {
 		};
 
 		let (this, target) = match this {
+			// propagate error codes so that syscalls can be chained together
+			Err(e @ 1..4097) => return Err(syscall::Error::from(e)),
 			// `current task` pseudo-handle
 			Err(4097) => return system::task_koid_entry(&ebr, caller_ref, caller, params).map(ExitParams::Return),
 			// `current address space` pseudo-handle
