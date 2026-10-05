@@ -110,7 +110,7 @@ pub fn wait_task(target: TaskRef) -> syscall::Result<i32> {
 	}
 
 	let Some((target_task, is_dead)) = target.get_or_dead() else {
-		return Err(syscall::Error::DeadServer);
+		return Err(syscall::Error::InvalidHandle);
 	};
 
 	// target already exited
@@ -131,14 +131,14 @@ pub fn wait_task(target: TaskRef) -> syscall::Result<i32> {
 				if still_valid {
 					ControlFlow::Break(Ok(code))
 				} else {
-					ControlFlow::Break(Err(syscall::Error::DeadServer))
+					ControlFlow::Break(Err(syscall::Error::InvalidHandle))
 				}
 			}
 			_ => {
 				if still_valid {
 					ControlFlow::Continue(())
 				} else {
-					ControlFlow::Break(Err(syscall::Error::DeadServer))
+					ControlFlow::Break(Err(syscall::Error::InvalidHandle))
 				}
 			}
 		}

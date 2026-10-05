@@ -92,6 +92,12 @@ pub fn task_koid_entry(
 	};
 
 	match (params.interface, params.method) {
+		(2, 1) => {
+			let exit_code = params.integer_args[0] as u32 as i32;
+			task::kill_task(task_ref, exit_code)
+				.map_err(|_| syscall::Error::DeadServer)?;
+			Ok(ufat::new(0, 0))
+		},
 		(2, 2) => {
 			check_current_task()?;
 			let addr = params.integer_args[0];
@@ -104,6 +110,10 @@ pub fn task_koid_entry(
 			let count = params.integer_args[1];
 			task::futex_wake(caller, VirtualAddress::new(addr), count)
 		},
+		(2, 5) => {
+			task::wait_task(task_ref)
+				.map(|exit_code| ufat::new(0, exit_code as usize))
+		}
 		(2, 6) => {
 			check_current_task()?;
 			percpu!(needs_reschedule).set(true);
