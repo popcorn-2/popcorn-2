@@ -534,6 +534,7 @@ dependencies = [
  "bit_field",
  "bitflags 2.13.1",
  "bitmap_allocator",
+ "hashbrown",
  "kernel_api",
  "linked_list_allocator",
  "log",
