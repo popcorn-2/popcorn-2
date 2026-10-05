@@ -16,9 +16,11 @@ mod scheduler;
 mod collections;
 mod idle;
 mod startup;
+mod wait_queue;
 
 pub use scheduler::{RoundRobin as Scheduler, scheduler_entry};
 pub use startup::ProcInfo;
+pub use wait_queue::WaitQueue;
 use kernel_api::sync::Spinlock;
 use crate::task::collections::{PopResult, SinglyLinkedList};
 
