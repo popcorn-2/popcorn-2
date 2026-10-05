@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "750a349d_ff485337",
+        "filename": "kernel/src/task/futex.rs",
+        "patchSetId": 1
+      },
+      "lineNbr": 17,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-10-05T16:11:49Z",
+      "side": 1,
+      "message": "unneeded `pub`",
+      "range": {
+        "startLine": 16,
+        "startChar": 1,
+        "endLine": 17,
+        "endChar": 7
+      },
+      "revId": "1102697c6a940bb896686e0515af268c0e2a1fc4",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    }
+  ]
+}
