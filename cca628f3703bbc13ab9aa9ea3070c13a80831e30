@@ -1,0 +1,27 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "c7eb3049_28872e10",
+        "filename": "kernel/src/task/wait_queue.rs",
+        "patchSetId": 2
+      },
+      "lineNbr": 84,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-10-05T15:36:07Z",
+      "side": 1,
+      "message": "should remove itself in thread finalizer",
+      "range": {
+        "startLine": 83,
+        "startChar": 2,
+        "endLine": 84,
+        "endChar": 38
+      },
+      "revId": "cca628f3703bbc13ab9aa9ea3070c13a80831e30",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    }
+  ]
+}
