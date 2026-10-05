@@ -46,7 +46,10 @@ pub struct Task {
 	///   task has yielded it's timeslice to.
 	/// * All other states - currently unused.
 	// FIXME(GenericAtomic, @Beanie496): replace with Atomic<Option<TaskRef>>
-	linked_to: Option<TaskRef>,
+	linked_to: AtomicPtr<u8>,
+	/// This is a backlink of the [`linked_to`](Task.linked_to) field.
+	// FIXME(GenericAtomic, @Beanie496): replace with Atomic<Option<TaskRef>>
+	linked_from: AtomicPtr<u8>,
 	/// Saved register state of the task.
 	///
 	/// <div class="warning">
@@ -146,7 +149,8 @@ impl Task {
 
 	fn new(address_space: AddressSpace) -> Self {
 		Self {
-			linked_to: None,
+			linked_to: AtomicPtr::new(core::ptr::null_mut()),
+			linked_from: AtomicPtr::new(core::ptr::null_mut()),
 			state: AtomicThreadState::new(ThreadState::Killed(0)),
 			registers: Default::default(),
 			handles: Default::default(),
