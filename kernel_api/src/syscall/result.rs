@@ -11,6 +11,7 @@ macro_rules! define_error {
 	    $(,)?
     }) => {
 	    $(#[$attr])* pub enum Error {
+		    _Reserved = 0,
 	        $($(#[$item_attr])* $name = $val),* ,
 		    _MaxVal,
         }
@@ -34,8 +35,6 @@ define_error! {
 	#[repr(u16)]
 	#[non_exhaustive]
 	pub enum Error {
-		/// Pointer argument passed was invalid.
-		InvalidPointer = 0,
 		/// String argument passed was malformed UTF-8.
 		InvalidUtf8 = 1,
 		/// Server or handle does not support requested protocol or method.
@@ -50,6 +49,8 @@ define_error! {
 		InvalidHandle = 6,
 		/// Too many open objects.
 		Overflow = 7,
+		/// Pointer argument passed was invalid.
+		InvalidPointer = 8,
 		/// Server is no longer running.
 		DeadServer = 9,
 		/// Incorrect return type for called method.
