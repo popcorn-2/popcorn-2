@@ -24,6 +24,30 @@
       "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
     },
     {
+      "unresolved": false,
+      "key": {
+        "uuid": "ea173430_1b98e5ab",
+        "filename": "kernel/src/task/scheduler.rs",
+        "patchSetId": 2
+      },
+      "lineNbr": 79,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-10-06T00:43:18Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "d1012122_e2cb42c5",
+      "range": {
+        "startLine": 58,
+        "startChar": 2,
+        "endLine": 79,
+        "endChar": 0
+      },
+      "revId": "21e350db220622e6f3a19d94ed023e82d3993786",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
       "unresolved": true,
       "key": {
         "uuid": "ecfa4621_4885f0f5",
@@ -47,6 +71,30 @@
       "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
     },
     {
+      "unresolved": false,
+      "key": {
+        "uuid": "3173e6ba_a784481b",
+        "filename": "kernel/src/task/scheduler.rs",
+        "patchSetId": 2
+      },
+      "lineNbr": 121,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-10-06T00:43:18Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "ecfa4621_4885f0f5",
+      "range": {
+        "startLine": 120,
+        "startChar": 6,
+        "endLine": 121,
+        "endChar": 29
+      },
+      "revId": "21e350db220622e6f3a19d94ed023e82d3993786",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
       "unresolved": true,
       "key": {
         "uuid": "1a2ec7d4_b84b7343",
@@ -60,6 +108,30 @@
       "writtenOn": "2026-10-06T00:36:12Z",
       "side": 1,
       "message": "original root of chain gets lost",
+      "range": {
+        "startLine": 190,
+        "startChar": 4,
+        "endLine": 191,
+        "endChar": 87
+      },
+      "revId": "21e350db220622e6f3a19d94ed023e82d3993786",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "077e4a5c_3d017f5f",
+        "filename": "kernel/src/task/scheduler.rs",
+        "patchSetId": 2
+      },
+      "lineNbr": 191,
+      "author": {
+        "id": 1039878
+      },
+      "writtenOn": "2026-10-06T00:43:18Z",
+      "side": 1,
+      "message": "Done",
+      "parentUuid": "1a2ec7d4_b84b7343",
       "range": {
         "startLine": 190,
         "startChar": 4,
