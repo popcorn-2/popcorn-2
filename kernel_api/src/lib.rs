@@ -35,7 +35,7 @@
 
 #![cfg_attr(not(feature = "use_std"), no_std)]
 
-extern crate alloc;
+#[cfg(feature = "full")] extern crate alloc;
 
 pub mod memory;
 
