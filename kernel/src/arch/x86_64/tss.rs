@@ -1,6 +1,8 @@
 use core::cell::Cell;
 use core::sync::atomic::AtomicPtr;
 use kernel_api::memory::{VirtualAddress, PAGE_SIZE};
+use core::mem::offset_of;
+use crate::arch::x86_64::PortSlice;
 
 struct StaticStack([u8; PAGE_SIZE * 3]);
 
@@ -28,9 +30,12 @@ pub(super) struct TssInner {
 	_reserved2: u64,
 	_reserved3: u16,
 	iopb: u16,
+	io_bitmap: [Cell<u8>; Tss::IO_BITMAP_LEN],
 }
 
 impl Tss {
+	pub const IO_BITMAP_LEN: usize = 8192 + 1;
+
 	pub const INIT: Self = {
 		let mut tss = Tss::new();
 		let stack = &raw mut BSP_DOUBLE_FAULT_STACK;
@@ -56,8 +61,26 @@ impl Tss {
 			ist7: AtomicPtr::new(core::ptr::null_mut()),
 			_reserved2: 0,
 			_reserved3: 0,
-			iopb: size_of::<Self>().truncate(),
+			iopb: offset_of!(TssInner, io_bitmap) as u16,
+			io_bitmap: [const { Cell::new(0xFF) }; Self::IO_BITMAP_LEN],
 		})
+	}
+
+	pub fn set_ioports(&self, slices: &[PortSlice]) {
+		for cell in &self.0.io_bitmap {
+			cell.set(0xFF);
+		}
+
+		for slice in slices {
+			for port in slice.start()..=slice.end() {
+				let byte_idx = (port / 8) as usize;
+				let bit_idx = port % 8;
+				let current = self.0.io_bitmap[byte_idx].get();
+				self.0.io_bitmap[byte_idx].set(current & !(1 << bit_idx));
+			}
+		}
+
+		self.0.io_bitmap[Self::IO_BITMAP_LEN - 1].set(0xFF);
 	}
 
 	pub fn set_rsp0(&self, value: VirtualAddress) {

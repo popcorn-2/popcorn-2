@@ -90,6 +90,8 @@ pub(crate) struct AddressSpaceInner {
 	ttable: TTableTy,
 	allocator: LinkedListAllocator,
 	mappings: Spinlock<MappingList>,
+	#[cfg(target_arch = "x86_64")]
+	ioports: Spinlock<Vec<crate::arch::x86_64::PortSlice>>,
 }
 
 const _: () = {
@@ -127,6 +129,8 @@ pub trait AddressSpaceExt: private::Sealed + Sized {
 	fn get_by_addr(&self, addr: usize) -> Option<MappingEntry<'_>>;
 	fn ttable(&self) -> &TTableTy;
 	unsafe fn load(&self);
+	#[cfg(target_arch = "x86_64")]
+	fn add_ioports(&self, slice: crate::arch::x86_64::PortSlice);
 }
 
 impl private::Sealed for AddressSpace {}
@@ -145,6 +149,8 @@ impl AddressSpaceExt for AddressSpace {
 				maps: Slab::new(),
 				maps_by_addr: RangedBTreeMap::new(),
 			}),
+			#[cfg(target_arch = "x86_64")]
+			ioports: Spinlock::new(Vec::new()),
 		};
 		Self::__new(Arc::new(inner))
 	}
@@ -189,11 +195,24 @@ impl AddressSpaceExt for AddressSpace {
 	unsafe fn load(&self) {
 		let inner = to_inner(self);
 		unsafe { inner.ttable.load() };
+		#[cfg(target_arch = "x86_64")]
+		{
+			let ports = inner.ioports.lock();
+			crate::percpu!(arch).tss.set_ioports(&ports);
+		}
 	}
 
 	fn ttable(&self) -> &TTableTy {
 		let inner = to_inner(self);
 		&inner.ttable
+	}
+
+	#[cfg(target_arch = "x86_64")]
+	fn add_ioports(&self, slice: crate::arch::x86_64::PortSlice) {
+		let _guard = self.__assert_in_use();
+		let inner = to_inner(self);
+		let mut ports = inner.ioports.lock();
+		ports.push(slice);
 	}
 }
 
