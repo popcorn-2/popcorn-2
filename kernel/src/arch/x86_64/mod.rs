@@ -6,11 +6,13 @@ mod gdt;
 mod syscall;
 mod pic;
 mod tcb;
+mod port;
 
 pub use interrupts::get_and_disable_interrupts;
 pub use tcb::SavedRegisters;
 pub use syscall::StackFrame as SyscallStackFrame;
 pub use interrupts::StackFrame as ReturnFrame;
+pub use port::PortSlice;
 
 use core::arch::asm;
 use core::sync::atomic::Ordering;

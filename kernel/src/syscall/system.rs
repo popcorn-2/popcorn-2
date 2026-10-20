@@ -16,12 +16,14 @@ use kernel_api::threading::TaskRef;
 use crate::syscall::{EntryParams, ExitParams};
 use kernel_api::syscall::Handle;
 use crate::{ebr, percpu, task};
+use crate::arch::x86_64::PortSlice;
 use crate::memory::r#virtual::{AddressSpaceExt, AddressSpaceInner};
 use crate::task::{Task, TaskRefExt};
 
 const TAG_ADDRESS_SPACE: usize = 0b001;
 const TAG_TASK: usize = 0b010;
 const TAG_CONSOLE: usize = 0b011;
+const TAG_PORT_SLICE: usize = 0b100;
 const TAG_MASK: usize = 0b111;
 
 fn get_oob_args<'a>(caller: &Task, params: &EntryParams, count: usize) -> syscall::Result<[&'a [u8]; 2]> {
@@ -209,6 +211,16 @@ impl IntoKoid for AddressSpace {
 			unsafe { NonNull::new_unchecked(Arc::into_raw(address_space).cast_mut()) }.cast(),
 			TAG_ADDRESS_SPACE,
 		)
+	}
+}
+
+impl IntoKoid for PortSlice {
+	fn new_koid(this: Self) -> TaggedNonNull<u64> {
+		let encoded = (this.start() as usize) | ((this.end() as usize) << 16);
+		// Address must be non-null and 8-byte aligned (low 3 bits 0). Set bit 35 to ensure non-null.
+		let addr = (encoded << 3) | (1 << 35);
+		let ptr = unsafe { NonNull::new_unchecked(core::ptr::without_provenance_mut(addr)) };
+		TaggedNonNull::new(ptr, TAG_PORT_SLICE)
 	}
 }
 
