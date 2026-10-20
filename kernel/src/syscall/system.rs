@@ -182,6 +182,35 @@ pub fn address_space_koid_entry(
 			caller.handles().push(handle, ebr)
 				.map(|handle| ufat::new(0, handle as usize))
 		},
+		(0, 5) => {
+			#[cfg(not(target_arch = "x86_64"))]
+			{
+				Err(syscall::Error::UnsupportedProtocol)
+			}
+			#[cfg(target_arch = "x86_64")]
+			{
+				let port_handle_num = params.integer_args[0] as i32;
+				let handle = caller.handles().get(port_handle_num.cast_unsigned(), ebr)?;
+				if !handle.is_system() {
+					return Err(syscall::Error::InvalidHandle);
+				}
+				let koid = handle.koid();
+				if koid.tag() & TAG_MASK != TAG_PORT_SLICE {
+					return Err(syscall::Error::InvalidHandle);
+				}
+				let addr = koid.as_ptr().addr().get();
+				let encoded = (addr >> 3) & 0xFFFF_FFFF;
+				let start = (encoded & 0xFFFF) as u16;
+				let end = ((encoded >> 16) & 0xFFFF) as u16;
+				let slice = PortSlice::new(core::range::RangeInclusive { start, last: end });
+
+				address_space.add_ioports(slice);
+				if AddressSpace::ptr_eq(&caller.address_space, address_space) {
+					unsafe { address_space.load(); }
+				}
+				Ok(ufat::new(0, 0))
+			}
+		},
 		_ => Err(syscall::Error::UnsupportedProtocol),
 	}
 }
